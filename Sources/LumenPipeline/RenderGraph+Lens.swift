@@ -90,40 +90,66 @@ extension RenderGraph {
 
 // MARK: - Per-photograph inputs
 
-/// Measured once per file and kept: the lateral-CA model (from the first decode big
-/// enough to measure, so a preview and its export use the same model) and the
-/// embedded vignetting record (from the file's bytes).
+/// Measured per file and kept: the lateral-CA model and the embedded vignetting record
+/// (from the file's bytes, read once).
+///
+/// The CA model is re-measured when a decode at least 1.5× larger than the one it came
+/// from arrives, up to `maximumMeasureLongEdge`. The estimate is scale-consistent for
+/// lens CA (a CA injected into a CA-free A7 IV frame reads back within 0.2·10⁻⁴ of the
+/// half-diagonal at 1×, ½× and ⅓×), but a photograph's own colour structure reads
+/// larger when downsampled: 1840 measured 0.79 px of red CA at 4000 px and 0.48 px at
+/// its native 8256, and the independent tool's residual crosses zero at 0.46. So the
+/// finest decode wins, and an export, which decodes at full size, measures for itself.
 public final class LensInputsCache: @unchecked Sendable {
     public static let shared = LensInputsCache()
 
     /// Below this decode long edge the CA measurement is too coarse to trust; such a
     /// render uses what an earlier, larger decode measured, or nothing.
     public static let minimumMeasureLongEdge: CGFloat = 1200
-    /// The readback is capped: CA is a normalised quantity, and a 45 MP float readback
-    /// would be 720 MB for a number that 4000 px measures to a hundredth of a pixel.
-    public static let maximumMeasureLongEdge: CGFloat = 4000
+    /// The readback cap: a 6144 px long edge is about 25 MP of RGBA float, 400 MB
+    /// transient, once per photograph; a larger decode is downsampled to it first.
+    public static let maximumMeasureLongEdge: CGFloat = 6144
+
+    private struct Entry {
+        var inputs: LensInputs
+        var measuredLongEdge: CGFloat
+    }
 
     private let lock = NSLock()
-    private var held: [URL: LensInputs] = [:]
+    private var held: [URL: Entry] = [:]
+    private var vignettes: [URL: VignetteGain?] = [:]
     private var order: [URL] = []
     private let limit = 64
 
     public func inputs(url: URL, decoded: CIImage, context: CIContext) -> LensInputs {
+        let extent = decoded.extent
+        let long = Swift.min(Swift.max(extent.width, extent.height), Self.maximumMeasureLongEdge)
+
         lock.lock()
-        if let hit = held[url] { lock.unlock(); return hit }
+        let cachedVignette = vignettes[url]
+        let entry = held[url]
         lock.unlock()
 
-        let vignette = EmbeddedLensProfile.read(url: url)?.gainPolynomial
-        let extent = decoded.extent
-        let long = Swift.max(extent.width, extent.height)
-        guard long >= Self.minimumMeasureLongEdge else {
-            // Not cached: a bigger decode will come and measure properly.
-            return LensInputs(lateralCA: nil, vignette: vignette)
+        let vignette: VignetteGain?
+        if let cachedVignette {
+            vignette = cachedVignette
+        } else {
+            vignette = EmbeddedLensProfile.read(url: url)?.gainPolynomial
+            lock.lock()
+            vignettes[url] = .some(vignette)
+            lock.unlock()
         }
+
+        if let entry, long < entry.measuredLongEdge * 1.5 { return entry.inputs }
+        guard long >= Self.minimumMeasureLongEdge else {
+            return entry?.inputs ?? LensInputs(lateralCA: nil, vignette: vignette)
+        }
+
         var image = decoded.transformed(by: CGAffineTransform(
             translationX: -extent.origin.x, y: -extent.origin.y))
-        if long > Self.maximumMeasureLongEdge {
-            let s = Self.maximumMeasureLongEdge / long
+        let full = Swift.max(extent.width, extent.height)
+        if full > long {
+            let s = long / full
             image = image.transformed(by: CGAffineTransform(scaleX: s, y: s))
         }
         let ca = PipelineRenderer.buffer(from: image, context: context)
@@ -131,9 +157,14 @@ public final class LensInputsCache: @unchecked Sendable {
         let result = LensInputs(lateralCA: ca, vignette: vignette)
 
         lock.lock()
-        held[url] = result
+        held[url] = Entry(inputs: result, measuredLongEdge: long)
+        order.removeAll { $0 == url }
         order.append(url)
-        while order.count > limit { held.removeValue(forKey: order.removeFirst()) }
+        while order.count > limit {
+            let oldest = order.removeFirst()
+            held.removeValue(forKey: oldest)
+            vignettes.removeValue(forKey: oldest)
+        }
         lock.unlock()
         return result
     }
@@ -141,6 +172,7 @@ public final class LensInputsCache: @unchecked Sendable {
     public func forget(_ url: URL) {
         lock.lock()
         held.removeValue(forKey: url)
+        vignettes.removeValue(forKey: url)
         order.removeAll { $0 == url }
         lock.unlock()
     }

@@ -22,8 +22,8 @@ struct PreparedInput {
     let sourceHeight: Int
     /// Uniformity's measured band hues, from the neutral input, computed on first need.
     let bandHues: [Double]?
-    /// WS-28: the lateral-CA model measured on the input (at most 4000 px, the app's
-    /// `LensInputsCache` cap) and the embedded vignetting record of its RAW, if found.
+    /// WS-28: the lateral-CA model measured on the input at its own resolution, and the
+    /// embedded vignetting record of its RAW, if found.
     var lens: LensInputs = .none
 }
 
@@ -46,8 +46,11 @@ enum Renderer {
     /// The RAW an .lfi was decoded from: `--lens-raw`, else the sidecar's `source` in
     /// the corpus layout (`lfi/<name>.json` beside `raw/<source>`).
     static func lensInputs(full: ImageBuffer, inputPath: String, lensRaw: String?) -> LensInputs {
-        let measure = InputImage.downsample(full, longEdge: 4000)
-        let ca = LateralCAEstimator.estimate(measure)
+        // At the input's own resolution: the estimate is scale-consistent for lens CA
+        // but a photograph's other colour structure reads larger when downsampled
+        // (1840: 0.79 px at 4000 px against 0.48 px native, the independent tool's
+        // residual zero at 0.46), so the finest decode available is the one to measure.
+        let ca = LateralCAEstimator.estimate(full)
         var raw = lensRaw
         if raw == nil {
             let input = URL(fileURLWithPath: inputPath)

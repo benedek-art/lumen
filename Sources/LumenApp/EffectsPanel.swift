@@ -477,13 +477,13 @@ struct EffectsPanel: View {
                             range: 0...100, hardRange: nil, defaultValue: 30,
                             step: 1, decimals: 0, bipolar: false, indented: true,
                             help: "Low end of the purple range: 0 is blue, 100 is "
-                                + "red-magenta. Default 30–70.")
+                                + "red. Default 30–70.")
                 LumenSlider(title: "Hue To",
                             value: defringeValue(\.purpleHueHi, "geometry.lens.defringe.purpleHueHi"),
                             range: 0...100, hardRange: nil, defaultValue: 70,
                             step: 1, decimals: 0, bipolar: false, indented: true,
                             help: "High end of the purple range: 0 is blue, 100 is "
-                                + "red-magenta. Default 30–70.")
+                                + "red. Default 30–70.")
                 LumenSlider(title: "Green Amount",
                             value: defringeValue(\.greenAmount, "geometry.lens.defringe.greenAmount"),
                             range: 0...20, hardRange: nil, defaultValue: 0,
@@ -495,14 +495,14 @@ struct EffectsPanel: View {
                             value: defringeValue(\.greenHueLo, "geometry.lens.defringe.greenHueLo"),
                             range: 0...100, hardRange: nil, defaultValue: 40,
                             step: 1, decimals: 0, bipolar: false, indented: true,
-                            help: "Low end of the green range: 0 is yellow-orange, "
-                                + "100 is cyan. Default 40–60.")
+                            help: "Low end of the green range: 0 is yellow, "
+                                + "100 is blue-cyan. Default 40–60.")
                 LumenSlider(title: "Hue To",
                             value: defringeValue(\.greenHueHi, "geometry.lens.defringe.greenHueHi"),
                             range: 0...100, hardRange: nil, defaultValue: 60,
                             step: 1, decimals: 0, bipolar: false, indented: true,
-                            help: "High end of the green range: 0 is yellow-orange, "
-                                + "100 is cyan. Default 40–60.")
+                            help: "High end of the green range: 0 is yellow, "
+                                + "100 is blue-cyan. Default 40–60.")
         }
     }
 

@@ -137,8 +137,22 @@ public enum LateralCAEstimator {
             y0 += tile
         }
         guard candidates.count >= 12 else { return nil }
-        candidates.sort { $0.energy > $1.energy }
-        let kept = candidates.prefix(maxTiles)
+        // Stratified by radius: the strongest tiles of a photograph sit on its
+        // in-focus subject, usually central, and a fit fed only those extrapolates its
+        // cubic term into corners it never saw (1840: no tile past r = 0.8, and a blue
+        // correction of 0.67 px where the corner had none). Each radial band keeps its
+        // own strongest tiles.
+        let bands = [0.2, 0.35, 0.5, 0.65, 0.8, 2.0]
+        var kept: [Candidate] = []
+        for k in 0..<(bands.count - 1) {
+            let inBand = candidates.filter {
+                let tcx = Double($0.x0) + Double(tile) / 2 - cx
+                let tcy = Double($0.y0) + Double(tile) / 2 - cy
+                let r = (tcx * tcx + tcy * tcy).squareRoot() / norm
+                return r >= bands[k] && r < bands[k + 1]
+            }.sorted { $0.energy > $1.energy }
+            kept += inBand.prefix(maxTiles / (bands.count - 1))
+        }
 
         var samples: [Sample] = []
         for c in kept {
@@ -162,7 +176,11 @@ public enum LateralCAEstimator {
     /// biweight on the residual) so that colour edges — a red flower on a green leaf,
     /// which register as a "shift" no lens made — fall out.
     public static func fit(_ samples: [Sample],
-                    _ value: KeyPath<Sample, Double>) -> LateralCAModel.Coefficients? {
+                           _ value: KeyPath<Sample, Double>) -> LateralCAModel.Coefficients? {
+        // The cubic term is only fitted where the outer frame was measured; otherwise
+        // the model is a plain magnification, which extrapolates linearly.
+        let outer = samples.filter { $0.r >= 0.6 }.count
+        let cubic = outer >= 24
         var robust = [Double](repeating: 1, count: samples.count)
         var k0 = 0.0, k2 = 0.0
         for _ in 0..<8 {
@@ -176,10 +194,16 @@ public enum LateralCAEstimator {
                 b1 += wgt * f1 * s[keyPath: value]
                 b2 += wgt * f2 * s[keyPath: value]
             }
-            let det = a11 * a22 - a12 * a12
-            guard det > 1e-18 * Swift.max(a11 * a22, 1e-30) else { return nil }
-            k0 = (b1 * a22 - b2 * a12) / det
-            k2 = (a11 * b2 - a12 * b1) / det
+            if cubic {
+                let det = a11 * a22 - a12 * a12
+                guard det > 1e-18 * Swift.max(a11 * a22, 1e-30) else { return nil }
+                k0 = (b1 * a22 - b2 * a12) / det
+                k2 = (a11 * b2 - a12 * b1) / det
+            } else {
+                guard a11 > 0 else { return nil }
+                k0 = b1 / a11
+                k2 = 0
+            }
             // Residual scale: weighted median absolute deviation.
             let residuals = samples.map { $0[keyPath: value] - ($0.r * (k0 + k2 * $0.r * $0.r)) }
             let mad = weightedMedian(residuals.map(abs), samples.map(\.weight))
@@ -204,9 +228,12 @@ public enum LateralCAEstimator {
         return values.last ?? 0
     }
 
-    /// log2 planes of the three channels with a floor, plus the clip map. Log, because
-    /// a shift measured between log channels does not care about the colour of the
-    /// surface either side of the edge — only about where the edge is.
+    /// The three channels in LINEAR light, plus the clip map. Linear, because the lens
+    /// blurs light linearly: a blurred edge between two surfaces is, in every channel,
+    /// the same profile scaled and offset, whatever the two colours are — so an affine
+    /// fit C ≈ α·G + β per tile absorbs the colour of the surfaces and leaves only the
+    /// shift. (A log-domain fit with unit gain read a colour step across an edge, blue
+    /// sky beside a brown branch, as a shift; on 1840 that overshot the correction.)
     struct LogPlanes {
         let w: Int, h: Int
         var r: [Float], g: [Float], b: [Float]
@@ -227,17 +254,12 @@ public enum LateralCAEstimator {
                 peak.1 = Swift.max(peak.1, px[i * 4 + 1])
                 peak.2 = Swift.max(peak.2, px[i * 4 + 2])
             }
-            // Mean green sets the floor: noise in the deep shadows would otherwise
-            // dominate a log difference.
-            var mean = 0.0
-            for i in 0..<n { mean += Double(px[i * 4 + 1]) }
-            let floor = Float(Swift.max(mean / Double(n) * 0.02, 1e-6))
             for i in 0..<n {
                 let rv = px[i * 4], gv = px[i * 4 + 1], bv = px[i * 4 + 2]
                 clipped[i] = rv >= peak.0 * 0.98 || gv >= peak.1 * 0.98 || bv >= peak.2 * 0.98
-                r[i] = log2(Swift.max(rv, floor))
-                g[i] = log2(Swift.max(gv, floor))
-                b[i] = log2(Swift.max(bv, floor))
+                r[i] = rv
+                g[i] = gv
+                b[i] = bv
             }
         }
 
@@ -271,24 +293,67 @@ public enum LateralCAEstimator {
             var gradG: [Double] = []
             var pts: [(Double, Double)] = []
             gs.reserveCapacity(size * size)
+            var meanG = 0.0
             for y in y0..<(y0 + size) {
                 for x in x0..<(x0 + size) {
-                    gs.append(at(g, x, y))
+                    let v = at(g, x, y)
+                    gs.append(v)
+                    meanG += v
                     gradG.append(radialGradient(g, x, y, ux, uy))
                     pts.append((Double(x) + 0.5, Double(y) + 0.5))
                 }
             }
-            func cost(_ d: Double) -> Double {
-                var diffs = [Double](repeating: 0, count: pts.count)
-                var mean = 0.0
-                for i in pts.indices {
-                    diffs[i] = sample(channel, pts[i].0 + d * ux, pts[i].1 + d * uy) - gs[i]
-                    mean += diffs[i]
+            let count = Double(pts.count)
+            meanG /= count
+            guard meanG > 0 else { return nil }
+            var varG = 0.0
+            for v in gs { varG += (v - meanG) * (v - meanG) }
+            guard varG > 1e-12 else { return nil }
+
+            // Radial coordinate within the tile, centred, in px.
+            var rho = [Double](repeating: 0, count: pts.count)
+            let tcx = Double(x0) + Double(size) / 2, tcy = Double(y0) + Double(size) / 2
+            for i in pts.indices {
+                rho[i] = (pts[i].0 - tcx) * ux + (pts[i].1 - tcy) * uy
+            }
+            // The four regressors: G, 1, ρ·G, ρ. The last two absorb colour shading — an
+            // R/G ratio drifting radially across the tile (colour vignetting, a sky
+            // gradient) — which a gain-only fit reads as a shift, and the more so the
+            // larger the tile is relative to the frame (1840 read 0.47, 0.36, 0.27 px at
+            // 1×, 2×, 3× down where a lens shift scales 1, ½, ⅓).
+            let basis: [[Double]] = [gs, [Double](repeating: 1, count: pts.count),
+                                     pts.indices.map { rho[$0] * gs[$0] }, rho]
+            var normal = [[Double]](repeating: [Double](repeating: 0, count: 4), count: 4)
+            for a in 0..<4 {
+                for b in 0..<4 {
+                    var acc = 0.0
+                    for i in pts.indices { acc += basis[a][i] * basis[b][i] }
+                    normal[a][b] = acc
                 }
-                mean /= Double(pts.count)
-                var s = 0.0
-                for v in diffs { s += (v - mean) * (v - mean) }
-                return s
+            }
+            guard let normalInverse = invert4(normal) else { return nil }
+
+            /// Least-squares C ≈ α·G + β + γ·ρG + δ·ρ over the tile; residuals and α.
+            func affine(_ c: [Double]) -> (residual: [Double], alpha: Double) {
+                var rhs = [Double](repeating: 0, count: 4)
+                for a in 0..<4 {
+                    var acc = 0.0
+                    for i in c.indices { acc += basis[a][i] * c[i] }
+                    rhs[a] = acc
+                }
+                var coef = [Double](repeating: 0, count: 4)
+                for a in 0..<4 {
+                    for b in 0..<4 { coef[a] += normalInverse[a][b] * rhs[b] }
+                }
+                return (c.indices.map { i in
+                    c[i] - coef[0] * gs[i] - coef[1] - coef[2] * basis[2][i] - coef[3] * rho[i]
+                }, coef[0])
+            }
+            func shifted(_ d: Double) -> [Double] {
+                pts.map { sample(channel, $0.0 + d * ux, $0.1 + d * uy) }
+            }
+            func cost(_ d: Double) -> Double {
+                affine(shifted(d)).residual.reduce(0) { $0 + $1 * $1 }
             }
             var best = 0.0
             var bestCost = cost(0)
@@ -298,53 +363,44 @@ public enum LateralCAEstimator {
                 if c < bestCost { bestCost = c; best = d }
                 d += 0.5
             }
-            // Gauss–Newton on the continuous shift.
+            // Gauss–Newton on the continuous shift, α and β re-fitted each step.
             var shift = best
-            for _ in 0..<6 {
-                var num = 0.0, den = 0.0, mean = 0.0
-                var vals = [Double](repeating: 0, count: pts.count)
-                var grads = [Double](repeating: 0, count: pts.count)
+            var alpha = 1.0
+            for _ in 0..<8 {
+                let values = shifted(shift)
+                let fit = affine(values)
+                alpha = fit.alpha
+                var num = 0.0, den = 0.0
                 for i in pts.indices {
                     let sx = pts[i].0 + shift * ux, sy = pts[i].1 + shift * uy
-                    vals[i] = sample(channel, sx, sy) - gs[i]
-                    grads[i] = (sample(channel, sx + 0.5 * ux, sy + 0.5 * uy)
-                                - sample(channel, sx - 0.5 * ux, sy - 0.5 * uy))
-                    mean += vals[i]
+                    let grad = sample(channel, sx + 0.5 * ux, sy + 0.5 * uy)
+                        - sample(channel, sx - 0.5 * ux, sy - 0.5 * uy)
+                    num += grad * fit.residual[i]
+                    den += grad * grad
                 }
-                mean /= Double(pts.count)
-                for i in pts.indices {
-                    num += grads[i] * (vals[i] - mean)
-                    den += grads[i] * grads[i]
-                }
-                guard den > 1e-12 else { return nil }
+                guard den > 1e-18 else { return nil }
                 let step = Swift.max(-0.5, Swift.min(0.5, num / den))
                 shift -= step
                 if abs(step) < 1e-4 { break }
             }
-            guard abs(shift) <= 3.5 else { return nil }
+            guard abs(shift) <= 3.5, alpha > 0 else { return nil }
 
             // Agreement of the two channels' radial structure at the solution: a tile
             // whose edges are not the same edges in both channels says nothing about
-            // the lens.
+            // the lens. Weight: green's radial-gradient energy relative to its level,
+            // so a bright tile does not outvote a dark one for being bright.
             var sab = 0.0, saa = 0.0, sbb = 0.0
-            var energy = 0.0
-            var idx = 0
-            for y in y0..<(y0 + size) {
-                for x in x0..<(x0 + size) {
-                    let sx = Double(x) + 0.5 + shift * ux, sy = Double(y) + 0.5 + shift * uy
-                    let gc = (sample(channel, sx + 0.5 * ux, sy + 0.5 * uy)
-                              - sample(channel, sx - 0.5 * ux, sy - 0.5 * uy))
-                    let gg = gradG[idx]
-                    sab += gc * gg
-                    saa += gc * gc
-                    sbb += gg * gg
-                    energy += gg * gg
-                    idx += 1
-                }
+            for i in pts.indices {
+                let sx = pts[i].0 + shift * ux, sy = pts[i].1 + shift * uy
+                let gc = sample(channel, sx + 0.5 * ux, sy + 0.5 * uy)
+                    - sample(channel, sx - 0.5 * ux, sy - 0.5 * uy)
+                sab += gc * gradG[i]
+                saa += gc * gc
+                sbb += gradG[i] * gradG[i]
             }
-            let corr = sab / Swift.max((saa * sbb).squareRoot(), 1e-12)
+            let corr = sab / Swift.max((saa * sbb).squareRoot(), 1e-18)
             guard corr > 0.85 else { return nil }
-            return (shift, energy * corr * corr)
+            return (shift, sbb / (meanG * meanG) * corr * corr)
         }
     }
 }
@@ -521,6 +577,28 @@ public struct VignetteGain: Equatable, Sendable, Codable {
     @inlinable public func gain(r2: Double) -> Double { 1 + r2 * (a + r2 * (b + r2 * c)) }
 }
 
+/// Gauss–Jordan inverse of a 4×4, nil when singular.
+func invert4(_ m: [[Double]]) -> [[Double]]? {
+    var a = m
+    var inv = (0..<4).map { i in (0..<4).map { j in i == j ? 1.0 : 0.0 } }
+    let scale = m.flatMap { $0 }.map(abs).max() ?? 0
+    guard scale > 0 else { return nil }
+    for col in 0..<4 {
+        var pivot = col
+        for row in (col + 1)..<4 where abs(a[row][col]) > abs(a[pivot][col]) { pivot = row }
+        guard abs(a[pivot][col]) > 1e-14 * scale else { return nil }
+        a.swapAt(col, pivot)
+        inv.swapAt(col, pivot)
+        let p = a[col][col]
+        for k in 0..<4 { a[col][k] /= p; inv[col][k] /= p }
+        for row in 0..<4 where row != col {
+            let f = a[row][col]
+            for k in 0..<4 { a[row][k] -= f * a[col][k]; inv[row][k] -= f * inv[col][k] }
+        }
+    }
+    return inv
+}
+
 func solve3(_ m: [[Double]], _ v: [Double]) -> [Double]? {
     var a = m
     var b = v
@@ -548,9 +626,13 @@ func solve3(_ m: [[Double]], _ v: [Double]) -> [Double]? {
 /// OKLab hue is inside the family's range". A purple object away from any edge is
 /// never touched; a purple fringe beside a branch against the sky is.
 public struct DefringeParams: Equatable, Sendable {
-    /// OKLab hue (degrees, may exceed 360) of each family's slider ends.
-    public static let purpleHueSpan = (lo: 245.0, hi: 385.0)
-    public static let greenHueSpan = (lo: 85.0, hi: 205.0)
+    /// OKLab hue (degrees, may exceed 360) of each family's slider ends. Adobe does not
+    /// publish the 0…100 scale; these are the only numbers anyone has measured (a
+    /// reverse-engineering fit, rawmakase PR #33: centres 315° purple and 166° green,
+    /// 0…100 spanning 180°), so Lightroom's defaults land where Lightroom's do —
+    /// purple 30/70 → 279°–351°, green 40/60 → 148°–184°.
+    public static let purpleHueSpan = (lo: 225.0, hi: 405.0)
+    public static let greenHueSpan = (lo: 76.0, hi: 256.0)
     /// Feather outside each range, degrees.
     public static let hueFeather = 10.0
 

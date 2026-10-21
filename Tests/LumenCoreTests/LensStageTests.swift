@@ -12,13 +12,19 @@ final class LensStageTests: XCTestCase {
     static func scene(width: Int = 1800, height: Int = 1200, period: Double = 37,
                       mr: @escaping (Double) -> Double = { _ in 1 },
                       mb: @escaping (Double) -> Double = { _ in 1 },
-                      tint: RGB = RGB(1, 1, 1)) -> ImageBuffer {
+                      tint: RGB = RGB(1, 1, 1),
+                      dark: RGB? = nil, bright: RGB? = nil) -> ImageBuffer {
         let cx = Double(width) / 2, cy = Double(height) / 2
         let norm = 0.5 * (Double(width * width + height * height)).squareRoot()
-        func f(_ x: Double, _ y: Double) -> Double {
+        func t(_ x: Double, _ y: Double) -> Double {
             let s = sin(.pi * x / period) * sin(.pi * y / period)
             let t = Swift.max(0, Swift.min(1, 0.5 + 2.5 * s))
-            return 0.03 + 0.5 * t * t * (3 - 2 * t)
+            return t * t * (3 - 2 * t)
+        }
+        // Each channel blends its own dark and bright surface colour: a two-colour edge.
+        let lo = dark ?? RGB(gray: 0.03), hi = bright ?? RGB(gray: 0.53)
+        func f(_ x: Double, _ y: Double, _ c: Int) -> Double {
+            lo[c] + (hi[c] - lo[c]) * t(x, y)
         }
         var img = ImageBuffer(width: width, height: height)
         for y in 0..<height {
@@ -27,9 +33,9 @@ final class LensStageTests: XCTestCase {
                 let dx = px - cx, dy = py - cy
                 let r = (dx * dx + dy * dy).squareRoot() / norm
                 let sr = mr(r), sb = mb(r)
-                img[x, y] = RGB(tint.r * f(cx + dx / sr, cy + dy / sr),
-                                tint.g * f(px, py),
-                                tint.b * f(cx + dx / sb, cy + dy / sb))
+                img[x, y] = RGB(tint.r * f(cx + dx / sr, cy + dy / sr, 0),
+                                tint.g * f(px, py, 1),
+                                tint.b * f(cx + dx / sb, cy + dy / sb, 2))
             }
         }
         return img
@@ -54,6 +60,21 @@ final class LensStageTests: XCTestCase {
             XCTAssertEqual(model.red.scale(r2: r * r), 1 + 0.0009 * r * r, accuracy: 7e-5)
             XCTAssertEqual(model.blue.scale(r2: r * r), 1 - 0.0003 - 0.0004 * r * r, accuracy: 7e-5)
         }
+    }
+
+    // SPEC 2.1b: edges between two differently coloured surfaces (dark brown branch,
+    // blue sky) — the case a gain-locked fit reads as a shift.
+    func testEstimatorIsNotFooledBySurfaceColour() throws {
+        let img = Self.scene(mr: { _ in 1.0006 }, mb: { _ in 0.99945 },
+                             dark: RGB(0.05, 0.03, 0.015), bright: RGB(0.45, 0.6, 0.95))
+        let model = try XCTUnwrap(LateralCAEstimator.estimate(img))
+        for r in [0.3, 0.6, 0.9] {
+            XCTAssertEqual(model.red.scale(r2: r * r), 1.0006, accuracy: 6e-5, "red at r=\(r)")
+            XCTAssertEqual(model.blue.scale(r2: r * r), 0.99945, accuracy: 6e-5, "blue at r=\(r)")
+        }
+        // And with no CA at all, that scene yields no model.
+        XCTAssertNil(LateralCAEstimator.estimate(
+            Self.scene(dark: RGB(0.05, 0.03, 0.015), bright: RGB(0.45, 0.6, 0.95))))
     }
 
     // SPEC 2.2: after correction the systematic misregistration is under 0.05 px
@@ -119,7 +140,7 @@ final class LensStageTests: XCTestCase {
                 var c = RGB(0.8, 0.85, 0.95)           // sky
                 if x >= 100, x < 140 { c = RGB(0.02, 0.02, 0.02) }   // branch
                 if x == 100 || x == 101 { c = RGB(0.12, 0.03, 0.16) } // purple fringe
-                if x == 139 { c = RGB(0.06, 0.11, 0.03) }             // green fringe
+                if x == 139 { c = RGB(0.05, 0.12, 0.06) }             // green fringe
                 if x >= 260, x < 340, y >= 40, y < 160 { c = RGB(0.10, 0.04, 0.14) } // purple object
                 img[x, y] = c
             }
