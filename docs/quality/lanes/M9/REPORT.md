@@ -102,4 +102,5 @@ After this lane, the CPU functions themselves are unchanged (they are other lane
   - The settle memo exceeded the memory budget. Removed.
   - Several tests were weaker than the spec. Strengthened.
   - The macOS compile failed on a test typo.
-- macOS CI: PASS.
+- macOS CI on `7727e3a`: GPU parity green (266 tests, 0 failures, every M9 test executed, none skipped), Proof sweep green, UI snapshots green. CI and UI layout were still queued at writing; this lane changes no view.
+- Verifier round 2: PASS. Its four nits were applied in `7727e3a`.
