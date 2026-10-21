@@ -245,3 +245,100 @@ The 1024 px sheets (`<WORKDIR>/sheets/<id>_sheet.png`, values −100 to +100) an
   - The 512/2048 excess is ≤ 0.16 everywhere except where the airlight flips (R1).
 - P3, P4, C5 and P6 are only as LR-relative as the audit's estimates (marked [LR-est]). If LR exports later show a stronger darkening, widen those bands, and only those.
 - C8, C4 and S1–S3 pass today. They are guard lines that must stay passing.
+
+## Amendments (round 1)
+
+The coordinator asked for these after builder round 1 (`build-work/r7`). No threshold was loosened.
+
+Two kinds of change were made:
+- the halo-profile geometry was fixed, because some profiles compared samples on two different surfaces;
+- four lines were added (P8, P9, P10, N5) so that a "weak but clean" Dehaze cannot pass.
+
+The spec now has **44 lines**. Inspection images for each profile are written by `tools/halo_inspect.py WORK OUT`; the r7 set is in `spec-work/halo_r7/` (old geometry) and `spec-work/halo_r7b/` (new geometry).
+
+### H-a. Halo profiles must compare one surface with itself (measurement fix)
+
+A halo is a change that depends on the distance from the edge, *within one surface*. I looked at every profile at 100 % and plotted the base luminance along it. Where the near window and the far plateau on one side lay on different surfaces, the line was reading a legitimate per-surface level change as a halo. That is a bug in the measurement.
+
+| Profile | What was wrong (from the strip and the base log Y plot) | Fix |
+|---|---|---|
+| 4213 `sky_to_treeline_x800`, dark side | Below the treeline there is a band of dense dark crowns about 40 px deep. Below that is a birch forest with white trunks. The near window sat on the crowns and the plateau (103–171 px) sat on the birches: same mean luminance, different material. The builder's −0.392 was crowns −0.25 EV against birches +0.06 EV. | `to` 0.53 → 0.449, so the dark side is 42 px and stays on the crown band. |
+| 4213 `sky_to_treeline_x300`, dark side | The plateau ran into the bright hill and meadow below the forest: base log Y rises 0.5–0.8 EV after about 145 px. | `to` 0.53 → 0.485 |
+| 983 `sky_to_snowpeak_y140`, snow side | The plateau ran past the snowfield into dark rock: base log Y falls about 1 EV near px 530. | `to` 0.64 → 0.6125 |
+| 1840 `sky_to_trees_x650` | `edge` was 0.16, but the sky-to-canopy step is at 0.194. The edge search window (±n/8) missed it, so the detector put the "edge" in the middle of the sky and the "dark side" was sky followed by trees. | `edge` 0.16 → 0.194 (detected edge now at px 243) |
+| 3437 `meadow_to_trunk_y350` | The "bright" side included a dark bush (px 20–55) and the "dark" side's plateau (px 85–142 from the edge) was meadow beyond the 55 px trunk. The builder's H3 +0.572 was meadow against trunk, not a halo. | Replaced by `meadow_to_trunk_x430`: `h` at 0.5243, 0.1117–0.1925, edge 0.18. That is 164 px of open meadow, then the 30 px lit face of the big trunk; the trunk's shadowed face is a second surface and is excluded. |
+| all profiles: mixed edge pixels | Soft or defocused edges (983 trees are out of focus; the 4213 treeline is a 10–25 px ramp) put pixels that are part sky, part object into the near window. A per-pixel tone operator gives those pixels a ratio between the two surfaces' ratios, which is not a halo. | `m_halo` now starts the near window, and the band-width count, at `skip_px`. That is the first pixel where the 5 px-smoothed **base** log Y is within 0.5 EV of that side's own base plateau, capped at 30 % of the side. Only base pixels are used, so a halo (a change on pixels that already belong to the surface) cannot hide in the skip. `skip_px` is reported per side. |
+
+**The fix does not weaken the lines against the original defects.** Re-measured on the baseline renders (`spec-work/baseline/check_amended.txt`):
+
+- H1 still fails, by 0.34–3.18 EV, on 4213 ×2, 983 ×2, 2545 and 1840 x650.
+- H2 still fails, with bands of 50–157 px.
+- H3 still fails, on 4213 x300 (−0.303).
+
+The one audit finding the trunk profile can no longer see is 3437's trunk being darkened about 1.2 EV against its meadow. That is a per-surface level change, not a halo, so the new line P8 takes it over.
+
+### N3 / N4: checked, not changed
+
+- **The far boxes are where haze lives in each frame:**
+  - 4213: distant forest, castle and meadow;
+  - 1840: the treeline;
+  - 983: the peak and the far trees;
+  - 3437: the background meadow and trunks;
+  - 2545: the mid-garden.
+- **N3 and N4 measure contrast between surfaces inside the box.** That is exactly what a veil compresses. With the amended halo profiles, H3 measures change within one surface only, so N3/N4 and H3 no longer measure the same thing and no longer pull against each other. r7 passes H3 at ≤ 0.26 EV.
+- **I tried a "purer" box for 3437 (distant meadow only) and rejected it.** On a surface brighter than its surroundings, a correct veil can *lower* L (r7 gives far/near −0.9), which makes N1 ill-posed. So the 3437 box stays.
+- **A 15 % std drop at −100 is mild, not strong.** Lightroom's −100 is a heavy milky mist; the documented and reported behaviour is "flare-like veil" and "fog". A forward veil that blends s = 0.5·(1−t) toward A already cuts far contrast by 25–45 %. The thresholds stand.
+
+### Added lines
+
+| # | Claim | Threshold | Frames | Baseline (pre-fix code) | r7 | Command |
+|---|---|---|---|---|---|---|
+| P8 | [LR-est] A dark object in front of a bright hazy background is deepened, not crushed. Mean log2 Y change of the lit trunk minus that of the meadow beside it; boxes are `regions.json` `3437.surfaces` | +50 ≥ −0.35 EV, +100 ≥ −0.70 EV | 3437 | **FAIL**: −0.541 / −1.235 (the audit's "trunks lose 1.5 EV") | PASS: +0.013 / +0.026 | `--only P8` |
+| P9 | Strength: positive Dehaze is visibly strong. Mean ΔE2000 vs 0 | 4213 +50 ≥ 2.5, +100 ≥ 5.0. 983 and 3437 +100 ≥ 3.0. 1840 (thin haze) +100 ≥ 2.0 | 4213, 983, 1840, 3437 | PASS: 5.28 / 11.60; 8.28; 2.35; 4.84 | **FAIL**: 0.66 / 1.12; 1.10; 1.08; 1.56 | `--only P9` |
+| P10 | The existing proof authority for `detail.dehaze` meets the ProofRegistry floor of 68, and the floor is not lowered | record ≥ floor, floor = 68 | hazySky | PASS: record 96.8 at 42f8ba7 | **FAIL**: 9.79 | `--only P10` (re-measure: `swift test -c release --filter ControlProofTests`) |
+| N5 | Strength: negative Dehaze is a visible veil. Mean ΔE2000 vs 0 at −100 | 4213 ≥ 3.0; 983 and 3437 ≥ 2.5 | 4213, 983, 3437 | PASS: 4.38; 4.80; 4.86 | **FAIL**: 1.14; 1.17; 1.28 | `--only N5` |
+
+**How the strength floors were set:**
+
+- **Lightroom's +100 is a strong effect.** Adobe's own advice is to back off Saturation or Vibrance when it goes too far, and users report +10 to +30 as the normal range.
+- **The old code was strong, but much of it was crushing:**
+  - On 4213, 11.6 ΔE was mostly the −1.55 EV darkening.
+  - P3 still allows up to −0.7 EV of darkening on its own. On 4213 that already gives about 4–5 ΔE, before any gain in contrast or chroma.
+  - So ≥ 5 on the haziest frame is the least a "Lightroom-strong" +100 can be.
+- **The other frames scale with their haze:**
+  - About 3 for the moderately hazy 983 and 3437.
+  - 2.0 for 1840, whose sky is clear; even the old, crushing code only reached 2.35 there.
+- **The +50 floor** is about half of the +100 floor, consistent with S2's even steps.
+- **The N5 floors** sit about 0.6× the old negative values. The old negative was not crushing (only mis-coloured), so its strength is a fair reference.
+
+**The authority floor of 68 does not encode the old crushing behaviour.**
+
+- **How it is computed.** `ProofMetrics.authority` is the peak per-channel sRGB code separation between the −100 and +100 renders of `ProofFrames.hazySky` (128 px). The scene is synthetic, with a known A = (0.55, 0.62, 0.78) and t from 0.25 to 0.9.
+- **What a correct dehaze scores.** I computed the ground-truth physics in numpy:
+
+  | Operator | Authority |
+  |---|---|
+  | Exact veil removal at +100 (→ J) with a forward veil s = 0.9·(1−t) at −100 | 111.8 |
+  | Same, with a lighter veil s = 0.5·(1−t) | 99.7 |
+  | He recovery with a t floor of 0.45 or 0.55 | 99.7–111.8 (+100 side alone 82.9) |
+  | Removing only half the veil | 41–53 |
+
+- **What that means for the floor.** 68 is about 70 % of the old record (96.8). It sits between half removal and full removal. A correct He-style Dehaze clears it with margin and does not need to crush. r7's 9.8 is about a tenth of physical recovery, which confirms the "it barely moves" verdict independently of the corpus.
+- I did not change the floor. The builder re-recorded `records/detail.dehaze.json` at 9.79, which makes the floor test fail. The record must come back above 68 through a stronger operator, not through a lower floor.
+
+### Amended results on r7
+
+Command: `tools/check_spec.sh build-work/r7 --no-render`. Output is in `spec-work/r7_amended.txt`.
+
+- **Without `--swift`: 33/44 PASS.**
+- **With A1–A3 taken from the builder's U10 numbers: 36/44 PASS.**
+- **Failing: P5, P9, P10, N1 (3437 −50 at 1.05), N3, N4, N5 and U.**
+- **A1–A3 show FAIL in this run, but that is the old emulation.** The `airlight_probe.py` emulation copies the *pre-fix* rule. With `--swift`, the builder's U10 corpus numbers replace it, and `build-work/r7.txt` records A1–A3 passing on those numbers.
+- **The halo lines now pass on r7.** H1 worst is 0.17, H2 worst is 2 px, H3 worst is 0.26.
+- **P8 passes on r7.**
+- **What remains is strength:**
+  - P5, P9 and P10 on the positive side;
+  - N3, N4 and N5 on the negative side;
+  - N1 on 3437 at −50 only.
+
+  None of these conflicts with the halo lines any more.

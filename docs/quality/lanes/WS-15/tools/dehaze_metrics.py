@@ -192,19 +192,30 @@ def m_halo(frame, base, outs, csv_dir=None):
             e = lo + int(np.argmax(np.abs(np.diff(lg[lo - 1:hi + 1]))[:hi - lo]))
             ratio = np.log2(np.maximum(po, 1e-6) / np.maximum(pb, 1e-6))
             sides = {"start": ratio[:e][::-1], "end": ratio[e + 1:]}
+            lgs = {"start": lg[:e][::-1], "end": lg[e + 1:]}
             out = {"edge_px_from_start": int(e), "profile_len": n}
             for side, rr in sides.items():
                 if len(rr) < 12:
                     continue
+                # Mixed edge pixels (soft/defocused edge: part sky, part object) are not
+                # a surface; the near window starts where the BASE profile, smoothed over
+                # 5 px, has come within 0.5 EV of this side's own base plateau, capped
+                # at 30 % of the side (amendment H-a). A halo is a change at pixels that
+                # already belong to the surface, so it cannot hide in this skip.
+                lb = lgs[side]
+                lbs = np.convolve(lb, np.ones(5) / 5, mode='same')
+                bfar = float(np.median(lb[int(len(lb) * 0.6):]))
+                ok = np.nonzero(np.abs(lbs[2:] - bfar) <= 0.5)[0]
+                sk = int(p['skip']) if 'skip' in p else min(2 + (int(ok[0]) if len(ok) else 0), max(int(len(lb) * 0.3), 2))
                 far = float(np.median(rr[int(len(rr) * 0.6):]))
                 dev = rr - far
-                near = dev[2:max(int(len(rr) * 0.4), 4)]
+                near = dev[sk:max(int(len(rr) * 0.4), sk + 2)]
                 k = int(np.argmax(np.abs(near)))
                 over = np.abs(dev) > 0.1
-                width = int(np.argmax(~over[2:])) if over[2:].any() and not over[2:].all() else (len(rr) if over[2:].all() else 0)
+                width = int(np.argmax(~over[sk:])) if over[sk:].any() and not over[sk:].all() else (len(rr) if over[sk:].all() else 0)
                 label = ("bright" if p['bright_side'] == side else "dark") + "_side"
-                out[label] = {"far_plateau_EV": round(far, 3), "max_near_dev_EV": round(float(near[k]), 3),
-                              "at_px": k + 2, "band_width_px_gt0.1EV": width,
+                out[label] = {"skip_px": sk, "far_plateau_EV": round(far, 3), "max_near_dev_EV": round(float(near[k]), 3),
+                              "at_px": k + sk, "band_width_px_gt0.1EV": width,
                               "dev_EV_at_px": {str(d): round(float(dev[d]), 3) for d in (2, 5, 10, 20, 40) if d < len(dev)}}
             r[name] = out
             if csv_dir:

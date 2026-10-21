@@ -156,6 +156,41 @@ def p7():
     return rows
 
 
+@line('P8', '[LR-est] A dark object in front of a bright hazy background is deepened, not crushed: mean log2 Y change of the lit trunk minus that of the meadow beside it (3437)',
+      '+50 >= -0.35 EV, +100 >= -0.70 EV')
+def p8():
+    rows = []
+    S = R['3437']['surfaces']
+    for v, lim in ((50, -0.35), (100, -0.70)):
+        d = {}
+        for k in ('trunk_lit', 'meadow'):
+            yb = dm.luminance(dm.box(lin(full('3437', 0)), S[k])); yo = dm.luminance(dm.box(lin(full('3437', v)), S[k]))
+            d[k] = float(np.log2(yo.mean() / yb.mean()))
+        x = d['trunk_lit'] - d['meadow']
+        rows.append((f'3437 {sgn(v)} (trunk {d["trunk_lit"]:+.2f}, meadow {d["meadow"]:+.2f})', round(x, 3), x >= lim))
+    return rows
+
+
+@line('P9', 'Strength: positive Dehaze is visibly strong (LR +100 is a strong effect), mean dE2000 vs dehaze 0',
+      '4213: +50 >= 2.5, +100 >= 5.0; 983, 3437: +100 >= 3.0; 1840 (thin haze): +100 >= 2.0')
+def p9():
+    rows = []
+    for f, v, lim in (('4213', 50, 2.5), ('4213', 100, 5.0), ('983', 100, 3.0), ('1840', 100, 2.0), ('3437', 100, 3.0)):
+        m, _ = de_full(f, v); rows.append((f'{f} {sgn(v)}', round(m, 2), m >= lim))
+    return rows
+
+
+@line('P10', 'The existing proof authority floor for detail.dehaze holds (hazySky, peak code separation -100 vs +100; ProofRegistry floor 68, not lowered)',
+      'records/detail.dehaze.json authority >= the registry authorityFloor, and the floor is still 68')
+def p10():
+    rec = json.load(open(os.path.join(ROOT, 'Tests/LumenCoreTests/Proof/records/detail.dehaze.json')))
+    reg = src('Tests/LumenCoreTests/Proof/ProofRegistry.swift')
+    m = re.search(r'id: "detail\.dehaze".*?authorityFloor:\s*([\d.]+)', reg, re.S)
+    floor = float(m.group(1)) if m else float('nan')
+    return [('record authority', round(rec['authority'], 2), rec['authority'] >= floor),
+            ('registry floor', floor, floor == 68)]
+
+
 # C — colour ------------------------------------------------------------------------
 @line('C1', 'Blue-sky chroma does not fall, rises modestly (LR: "+Dehaze increases saturation"): sky0 C out/base',
       '+50 and +100 in [1.00, 1.40]')
@@ -424,6 +459,15 @@ def n4():
             L = dm.oklab(dm.box(lin(t[v]), R[f]['far']).reshape(-1, 3))[:, 0]; stds.append(float(L.std()))
         mono = all(stds[i + 1] < stds[i] for i in range(len(stds) - 1)); r = stds[-1] / stds[0]
         rows.append((f'{f} monotone', int(mono), mono)); rows.append((f'{f} ratio', round(r, 3), r <= 0.85))
+    return rows
+
+
+@line('N5', 'Strength: negative Dehaze is a visible veil (LR -100 is a heavy mist), mean dE2000 vs dehaze 0 at -100',
+      '4213 >= 3.0; 983, 3437 >= 2.5')
+def n5():
+    rows = []
+    for f, lim in (('4213', 3.0), ('983', 2.5), ('3437', 2.5)):
+        m, _ = de_full(f, -100); rows.append((f'{f} -100', round(m, 2), m >= lim))
     return rows
 
 

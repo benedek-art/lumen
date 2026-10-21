@@ -1,5 +1,5 @@
 {
- "_doc": "Boxes are FRACTIONS of the rendered frame [x0,y0,x1,y1] (measured on 1024-px-wide tiles, so they work at any --long-edge). Profiles: {'axis':'v'|'h', 'at': fraction of the other axis, 'from','to': fractions along the axis, 'edge': approx fraction where the boundary sits, 'bright_side':'start'|'end'}. airlight_forbidden: white/coloured objects the airlight selection must not come from (SPEC A-lines). skyband: box scanned in 2%-height strips for per-band sky hue shift (SPEC C-lines). mottle: extra flat-wall boxes for the mottling index (SPEC P7).",
+ "_doc": "Boxes are FRACTIONS of the rendered frame [x0,y0,x1,y1] (measured on 1024-px-wide tiles, so they work at any --long-edge). Profiles: {'axis':'v'|'h', 'at': fraction of the other axis, 'from','to': fractions along the axis, 'edge': approx fraction where the boundary sits, 'bright_side':'start'|'end'}. airlight_forbidden: white/coloured objects the airlight selection must not come from (SPEC A-lines). skyband: box scanned in 2%-height strips for per-band sky hue shift (SPEC C-lines). mottle: extra flat-wall boxes for the mottling index (SPEC P7). Profile 'skip' (optional, px): overrides the automatic mixed-edge-pixel skip of m_halo (amendment H-a); no profile uses it. surfaces: paired boxes (dark object, its bright background) for the per-surface level line P8.",
  "983": {
   "lfi": "corpus/lfi/983_canon-eos-5d-mark-iv.lfi",
   "sky": [
@@ -67,7 +67,7 @@
     "axis": "h",
     "at": 0.205,
     "from": 0.4,
-    "to": 0.64,
+    "to": 0.6125,
     "edge": 0.52,
     "bright_side": "end"
    }
@@ -130,7 +130,7 @@
     "at": 0.635,
     "from": 0.05,
     "to": 0.3,
-    "edge": 0.16,
+    "edge": 0.194,
     "bright_side": "start"
    }
   },
@@ -183,7 +183,7 @@
     "axis": "v",
     "at": 0.293,
     "from": 0.3,
-    "to": 0.53,
+    "to": 0.485,
     "edge": 0.405,
     "bright_side": "start"
    },
@@ -191,7 +191,7 @@
     "axis": "v",
     "at": 0.78,
     "from": 0.3,
-    "to": 0.53,
+    "to": 0.449,
     "edge": 0.43,
     "bright_side": "start"
    }
@@ -215,12 +215,12 @@
    0.56
   ],
   "profiles": {
-   "meadow_to_trunk_y350": {
+   "meadow_to_trunk_x430": {
     "axis": "h",
-    "at": 0.51,
-    "from": 0.39,
-    "to": 0.49,
-    "edge": 0.437,
+    "at": 0.5243,
+    "from": 0.1117,
+    "to": 0.1925,
+    "edge": 0.18,
     "bright_side": "start"
    }
   },
@@ -230,6 +230,20 @@
     0.66,
     0.43,
     0.88
+   ]
+  },
+  "surfaces": {
+   "trunk_lit": [
+    0.1825,
+    0.4994,
+    0.1925,
+    0.5493
+   ],
+   "meadow": [
+    0.125,
+    0.518,
+    0.175,
+    0.543
    ]
   }
  },
