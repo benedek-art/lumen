@@ -486,7 +486,7 @@ public struct BrushStrokeRaster {
         if q.isSlab {
             // |(P − A)·n| ≤ r  and  0 ≤ (P − A)·u ≤ L, each linear in x.
             let ry = yc - q.ay
-            func clip(_ coef: Double, _ c0: Double, _ low: Double, _ high: Double) {
+            func clipSpan(_ coef: Double, _ c0: Double, _ low: Double, _ high: Double) {
                 if abs(coef) < 1e-12 {
                     if c0 < low || c0 > high { lo = .infinity; hi = -.infinity }
                     return
@@ -495,8 +495,8 @@ public struct BrushStrokeRaster {
                 lo = Swift.max(lo, Swift.min(x1, x2))
                 hi = Swift.min(hi, Swift.max(x1, x2))
             }
-            clip(-q.uy, ry * q.ux, -r, r)                     // n = (−uy, ux)
-            clip(q.ux, ry * q.uy, -1e-9, q.length + 1e-9)
+            clipSpan(-q.uy, ry * q.ux, -r, r)                     // n = (−uy, ux)
+            clipSpan(q.ux, ry * q.uy, -1e-9, q.length + 1e-9)
         } else {
             let dy = yc - q.ay
             let h2 = r * r - dy * dy
@@ -507,7 +507,7 @@ public struct BrushStrokeRaster {
                 // (P − v)·d1 ≥ −ε and (P − v)·d2 ≤ ε. Half a pixel of overlap with the
                 // slabs either side: max-combine makes overlap free and a seam is not.
                 let eps = 0.5
-                func clip(_ coef: Double, _ c0: Double, _ low: Double, _ high: Double) {
+                func clipSpan(_ coef: Double, _ c0: Double, _ low: Double, _ high: Double) {
                     if abs(coef) < 1e-12 {
                         if c0 < low || c0 > high { lo = .infinity; hi = -.infinity }
                         return
@@ -516,8 +516,8 @@ public struct BrushStrokeRaster {
                     lo = Swift.max(lo, Swift.min(x1, x2))
                     hi = Swift.min(hi, Swift.max(x1, x2))
                 }
-                clip(q.ux, dy * q.uy, -eps, .greatestFiniteMagnitude)
-                clip(q.vx, dy * q.vy, -.greatestFiniteMagnitude, eps)
+                clipSpan(q.ux, dy * q.uy, -eps, .greatestFiniteMagnitude)
+                clipSpan(q.vx, dy * q.vy, -.greatestFiniteMagnitude, eps)
             }
         }
         guard lo <= hi, lo.isFinite || hi.isFinite else { return (0, 0) }

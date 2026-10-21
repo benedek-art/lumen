@@ -2115,7 +2115,10 @@ struct LoupeView: View {
                            // Every mask, so the ones not being edited are still visible
                            // and their pins are still reachable.
                            allMasks: recipe.masks,
-                           selectMask: { id in state.selectMask(id) }) { edit in
+                           selectMask: { id in state.selectMask(id) },
+                           // The displayed preview, so a live Auto Mask stroke shows
+                           // where its cut falls while painting (WS-44 NEEDS 1).
+                           picture: cg) { edit in
                     MaskCanvas.apply(edit, in: state)
                 }
                 .frame(width: drawn.width, height: drawn.height)
