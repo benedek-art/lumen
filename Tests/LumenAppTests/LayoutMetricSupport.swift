@@ -416,8 +416,8 @@ enum SliderInventory {
     /// Heal tool's Size, Feather and Opacity (a new host, `healBar`), the Looks LUT's
     /// Amount, and the export sheet's sequence Start at. 103 → 106 for the export
     /// sheet's Percent, Width and Height (the percentage and box resize modes).
-    // 109 since lane K1: the grade wheel's Hue, Saturation and Luminance rows.
-    static let callSiteCount = 109
+    // 110 since lane K1 (106 + C2 Transform 1 + K1 3): the grade wheel's Hue, Saturation and Luminance rows.
+    static let callSiteCount = 110
 
     /// Every slider the app ships, resolved through its builder where the call site is
     /// a helper rather than a literal — `MaskPanel.adjustSlider`, `LookPanel.bipolarSlider`,
@@ -571,33 +571,33 @@ enum SliderInventory {
         SliderSpec("Shadows", "LookPanel.swift:986", .developTop, -100...100, step: 1),
         SliderSpec("Midtones", "LookPanel.swift:990", .developTop, -100...100, step: 1),
         SliderSpec("Highlights", "LookPanel.swift:994", .developTop, -100...100, step: 1),
-        SliderSpec("Red Hue", "LookPanel.swift:1208", .developTop, -100...100, step: 1),
-        SliderSpec("Red Purity", "LookPanel.swift:1210", .developTop, -100...100, step: 1),
-        SliderSpec("Green Hue", "LookPanel.swift:1212", .developTop, -100...100, step: 1),
-        SliderSpec("Green Purity", "LookPanel.swift:1214", .developTop, -100...100, step: 1),
-        SliderSpec("Blue Hue", "LookPanel.swift:1216", .developTop, -100...100, step: 1),
-        SliderSpec("Blue Purity", "LookPanel.swift:1218", .developTop, -100...100, step: 1),
-        SliderSpec("Shadow Tint", "LookPanel.swift:1220", .developTop, -100...100, step: 1),
-        SliderSpec("Tint Purity", "LookPanel.swift:1222", .developTop, -100...100, step: 1),
-        SliderSpec("Contrast", "LookPanel.swift:1336", .developTop, 0.1...10,
+        SliderSpec("Red Hue", "LookPanel.swift:1205", .developTop, -100...100, step: 1),
+        SliderSpec("Red Purity", "LookPanel.swift:1207", .developTop, -100...100, step: 1),
+        SliderSpec("Green Hue", "LookPanel.swift:1209", .developTop, -100...100, step: 1),
+        SliderSpec("Green Purity", "LookPanel.swift:1211", .developTop, -100...100, step: 1),
+        SliderSpec("Blue Hue", "LookPanel.swift:1213", .developTop, -100...100, step: 1),
+        SliderSpec("Blue Purity", "LookPanel.swift:1215", .developTop, -100...100, step: 1),
+        SliderSpec("Shadow Tint", "LookPanel.swift:1217", .developTop, -100...100, step: 1),
+        SliderSpec("Tint Purity", "LookPanel.swift:1219", .developTop, -100...100, step: 1),
+        SliderSpec("Contrast", "LookPanel.swift:1333", .developTop, 0.1...10,
                    step: 0.05, decimals: 2),
-        SliderSpec("Skew", "LookPanel.swift:1354", .developTop, -1...1,
+        SliderSpec("Skew", "LookPanel.swift:1351", .developTop, -1...1,
                    step: 0.01, decimals: 2),
-        SliderSpec("Hue keep", "LookPanel.swift:1363", .developTop, 0...100, step: 1),
-        SliderSpec("Black target", "LookPanel.swift:1372", .developTop, 0...9,
+        SliderSpec("Hue keep", "LookPanel.swift:1360", .developTop, 0...100, step: 1),
+        SliderSpec("Black target", "LookPanel.swift:1369", .developTop, 0...9,
                    hard: 0...9, step: 0.01, decimals: 2),
-        SliderSpec("Strength", "LookPanel.swift:1496", .developTop, 0...100, step: 1),
-        SliderSpec("Film Exposure", "LookPanel.swift:1504", .developTop, -2...3,
+        SliderSpec("Strength", "LookPanel.swift:1493", .developTop, 0...100, step: 1),
+        SliderSpec("Film Exposure", "LookPanel.swift:1501", .developTop, -2...3,
                    step: 0.25, decimals: 2),
-        SliderSpec("Push / Pull", "LookPanel.swift:1509", .developTop, -1...2,
+        SliderSpec("Push / Pull", "LookPanel.swift:1506", .developTop, -1...2,
                    step: 0.25, decimals: 2),
-        SliderSpec("Halation", "LookPanel.swift:1523", .developTop, 0...100, step: 1),
-        SliderSpec("Halo Size", "LookPanel.swift:1539", .developTop, 0.5...2.0,
+        SliderSpec("Halation", "LookPanel.swift:1520", .developTop, 0...100, step: 1),
+        SliderSpec("Halo Size", "LookPanel.swift:1536", .developTop, 0.5...2.0,
                    step: 0.05, decimals: 2, indented: true),
-        SliderSpec("Halo Redness", "LookPanel.swift:1556", .developTop, 0...100,
+        SliderSpec("Halo Redness", "LookPanel.swift:1553", .developTop, 0...100,
                    step: 1, indented: true),
-        SliderSpec("Grain", "LookPanel.swift:1581", .developTop, 0...100, step: 1),
-        SliderSpec("Grain size", "LookPanel.swift:1588", .developTop, 0.5...2.0,
+        SliderSpec("Grain", "LookPanel.swift:1578", .developTop, 0...100, step: 1),
+        SliderSpec("Grain size", "LookPanel.swift:1585", .developTop, 0.5...2.0,
                    step: 0.05, decimals: 2),
 
         // Masks — the develop column half: what the mask DOES.
@@ -683,13 +683,13 @@ enum SliderInventory {
         // The grade's single large wheel no longer has an untitled bar: since lane K1 its
         // Hue, Saturation and Luminance are three titled rows of the develop column,
         // written inside `LumenColorWheel` (detailRows) and mounted by LookPanel.
-        SliderSpec("Hue", "LumenControls.swift:2158 (mounted by LookPanel's grade wheel)",
+        SliderSpec("Hue", "LumenControls.swift:2254 (mounted by LookPanel's grade wheel)",
                    .developTop, 0...360, step: 1),
-        SliderSpec("Saturation", "LumenControls.swift:2166 (mounted by LookPanel's grade wheel)",
+        SliderSpec("Saturation", "LumenControls.swift:2262 (mounted by LookPanel's grade wheel)",
                    .developTop, 0...100, step: 1),
-        SliderSpec("Luminance", "LumenControls.swift:2171 (mounted by LookPanel's grade wheel)",
+        SliderSpec("Luminance", "LumenControls.swift:2267 (mounted by LookPanel's grade wheel)",
                    .developTop, -100...100, step: 1),
-        SliderSpec("", "LumenControls.swift:2234 (MaskPanel.swift:3011)", .maskWheelBar,
+        SliderSpec("", "LumenControls.swift:2329 (MaskPanel.swift:3016)", .maskWheelBar,
                    -1...1, step: 0.01, decimals: 2),
 
         // The Heal tool's bar on the loupe. Size is in pixels of the original file.
