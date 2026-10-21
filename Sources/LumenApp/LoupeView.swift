@@ -1481,7 +1481,11 @@ struct LoupeView: View {
             // guard, so under an armed Crop it zoomed a canvas that ignores zoom, and
             // during masking or a pick a quick second click toggled the zoom under the
             // tool. `ViewerGestureGate` (LumenCore, tested) holds the rule.
-            .simultaneousGesture(SpatialTapGesture(count: 2).onEnded { value in
+            // ONE CLICK, as in Lightroom's loupe: a click that does not move toggles Fit ↔
+            // 100% at the clicked spot; a click that drags pans (SpatialTapGesture only
+            // ends when the pointer did not travel). It was a double-click, which the
+            // owner did not find — "zooming in is a pain".
+            .simultaneousGesture(SpatialTapGesture(count: 1).onEnded { value in
                 guard gestureGate.doubleClickZoom else { return }
                 viewport.toggleZoom(at: value.location)
             })
@@ -2890,6 +2894,12 @@ struct LoupeView: View {
         guard regionActive, let cg = model.image, model.imageURL == photo.id else {
             return nil
         }
+        // AT OR BELOW 100% THE WHOLE FRAME IS THE REGION. Measured on an M4: the full
+        // 33 MP frame at 100% renders in 0.37 s against 0.32 s for a screen-sized
+        // region, so rendering it once costs ~nothing and every pan after that is free
+        // ("panning is awkward" — each pan past the 25% margin used to re-render and
+        // blur). Above 100% the frame is upscaled and the region rule stays.
+        if layoutZoom <= LoupeZoom.oneToOne { return nil }
         let drawn = drawnFull(forZoom: layoutZoom, image: cg, container: container)
         let pan = LoupeGeometry.clampPan(viewport.pan, container: container, drawn: drawn)
         return ZoomRegion.requestUnit(container: container, drawnFull: drawn, pan: pan)

@@ -1619,7 +1619,10 @@ struct LookPanel: View {
     /// The five display-transform presets as menu rows.
     private var transformPresetOptions: [LumenMenuOption<String>] {
         DisplayTransformParams.presetNames.map { name in
-            LumenMenuOption(name, name, detail: transformPresetDetail(name))
+            // "Neutral" is stored (every saved recipe names it) but reads as what it
+            // is next to Camera: the flat, ungraded starting point.
+            LumenMenuOption(name, name == "Neutral" ? "Flat" : name,
+                            detail: transformPresetDetail(name))
         }
     }
 
