@@ -1,0 +1,829 @@
+{
+ "_meta": {
+  "coordinates": "pixel rects [x, y, w, h] in corpus/lfi/<name>.lfi as delivered by scripts/proof/fetch_corpus.sh at --long-edge 2400 (upright, top-left origin)",
+  "method": "chart neutral = mean of the per-patch normalised linear RGB of the mid-grey patches (`midGreys`), solved for the Lumen (Kelvin, tint) whose WhiteBalanceEngine adaptation from the sidecar as-shot pair makes it R=G=B (same objective as WhiteBalanceEngine.neutralizing, Python port in the WS-03 audit, cross-checked against lumen-render). adobeEquivalent assumes the decode is a CAT16 adaptation of the as-shot illuminant to D65 (approximation).",
+  "residual_definition": "OKLab chroma of the mid-grey mean scaled to Y~0.18, scene-linear Rec.2020; deltaE00 vs neutral of same Y"
+ },
+ "1346_canon-eos-5d": {
+  "chart": "X-Rite ColorChecker Passport (classic page, rotated: neutral column top=black..bottom=white)",
+  "asShot": {
+   "kelvin": 5425.851,
+   "tint": -3.9133
+  },
+  "patches": {
+   "white9.5": {
+    "rect": [
+     1740,
+     1050,
+     60,
+     60
+    ],
+    "meanRGB": [
+     0.86635,
+     0.84635,
+     0.82148
+    ],
+    "maxValue": 0.8958,
+    "clipped": false
+   },
+   "neutral8": {
+    "rect": [
+     1740,
+     904,
+     60,
+     60
+    ],
+    "meanRGB": [
+     0.56574,
+     0.55839,
+     0.5645
+    ],
+    "maxValue": 0.5898,
+    "clipped": false
+   },
+   "neutral6.5": {
+    "rect": [
+     1740,
+     760,
+     60,
+     60
+    ],
+    "meanRGB": [
+     0.35474,
+     0.35284,
+     0.36153
+    ],
+    "maxValue": 0.3787,
+    "clipped": false
+   },
+   "neutral5": {
+    "rect": [
+     1740,
+     614,
+     60,
+     60
+    ],
+    "meanRGB": [
+     0.1879,
+     0.18365,
+     0.18676
+    ],
+    "maxValue": 0.201,
+    "clipped": false
+   },
+   "neutral3.5": {
+    "rect": [
+     1740,
+     470,
+     60,
+     60
+    ],
+    "meanRGB": [
+     0.09138,
+     0.09134,
+     0.09555
+    ],
+    "maxValue": 0.1037,
+    "clipped": false
+   },
+   "black2": {
+    "rect": [
+     1740,
+     330,
+     60,
+     60
+    ],
+    "meanRGB": [
+     0.03603,
+     0.03517,
+     0.03783
+    ],
+    "maxValue": 0.0449,
+    "clipped": false
+   }
+  },
+  "midGreys": [
+   "neutral8",
+   "neutral6.5",
+   "neutral5",
+   "neutral3.5"
+  ],
+  "midGreyMeanNormRGB": [
+   0.99883,
+   0.98842,
+   1.01275
+  ],
+  "midGreyRG": 1.0105,
+  "midGreyBG": 1.0246,
+  "chartNeutral": {
+   "kelvin": 5347.6,
+   "tint": -9.28,
+   "residualAfter": 7.06e-05,
+   "convention": "Lumen (ColorTemperature locus, tint = +v/3000)"
+  },
+  "adobeEquivalentEstimate": {
+   "kelvin": 5454,
+   "tint": -7.6
+  },
+  "asShotResidual": {
+   "chroma": 0.0027,
+   "deltaE00": 1.21,
+   "dMired": -2.7,
+   "dTint": 5.4
+  },
+  "naive": {
+   "greyWorld": {
+    "kelvin": 4900,
+    "tint": -7.2,
+    "chartResidualChroma": 0.0117,
+    "chartResidualDE00": 3.91,
+    "errorMired": 17.1,
+    "errorTint": 2.1
+   },
+   "whitePatchTop1pct": {
+    "kelvin": 5102,
+    "tint": -5.5,
+    "chartResidualChroma": 0.0079,
+    "chartResidualDE00": 2.77,
+    "errorMired": 9.0,
+    "errorTint": 3.7
+   }
+  }
+ },
+ "967_sony-ilce-7m2": {
+  "chart": "X-Rite ColorChecker Passport (classic page, upright: bottom row white..black left to right)",
+  "asShot": {
+   "kelvin": 4840.011,
+   "tint": 10.938
+  },
+  "patches": {
+   "white9.5": {
+    "rect": [
+     1004,
+     902,
+     44,
+     44
+    ],
+    "meanRGB": [
+     0.66673,
+     0.65497,
+     0.59315
+    ],
+    "maxValue": 0.6926,
+    "clipped": false
+   },
+   "neutral8": {
+    "rect": [
+     1104,
+     902,
+     44,
+     44
+    ],
+    "meanRGB": [
+     0.4333,
+     0.43145,
+     0.40645
+    ],
+    "maxValue": 0.4571,
+    "clipped": false
+   },
+   "neutral6.5": {
+    "rect": [
+     1200,
+     902,
+     44,
+     44
+    ],
+    "meanRGB": [
+     0.27106,
+     0.27239,
+     0.25653
+    ],
+    "maxValue": 0.2992,
+    "clipped": false
+   },
+   "neutral5": {
+    "rect": [
+     1298,
+     902,
+     44,
+     44
+    ],
+    "meanRGB": [
+     0.14659,
+     0.14652,
+     0.13673
+    ],
+    "maxValue": 0.1618,
+    "clipped": false
+   },
+   "neutral3.5": {
+    "rect": [
+     1394,
+     902,
+     44,
+     44
+    ],
+    "meanRGB": [
+     0.07067,
+     0.07187,
+     0.06941
+    ],
+    "maxValue": 0.0843,
+    "clipped": false
+   },
+   "black2": {
+    "rect": [
+     1492,
+     902,
+     44,
+     44
+    ],
+    "meanRGB": [
+     0.02997,
+     0.02957,
+     0.02988
+    ],
+    "maxValue": 0.0369,
+    "clipped": false
+   }
+  },
+  "midGreys": [
+   "neutral8",
+   "neutral6.5",
+   "neutral5",
+   "neutral3.5"
+  ],
+  "midGreyMeanNormRGB": [
+   1.01561,
+   1.01989,
+   0.96451
+  ],
+  "midGreyRG": 0.9958,
+  "midGreyBG": 0.9457,
+  "chartNeutral": {
+   "kelvin": 4826.1,
+   "tint": 16.76,
+   "residualAfter": 7.06e-05,
+   "convention": "Lumen (ColorTemperature locus, tint = +v/3000)"
+  },
+  "adobeEquivalentEstimate": {
+   "kelvin": 4740,
+   "tint": 15.5
+  },
+  "asShotResidual": {
+   "chroma": 0.0052,
+   "deltaE00": 2.1,
+   "dMired": -0.6,
+   "dTint": -5.8
+  },
+  "naive": {
+   "greyWorld": {
+    "kelvin": 4485,
+    "tint": -0.0,
+    "chartResidualChroma": 0.0084,
+    "chartResidualDE00": 3.92,
+    "errorMired": 15.8,
+    "errorTint": -16.8
+   },
+   "whitePatchTop1pct": {
+    "kelvin": 4440,
+    "tint": 17.2,
+    "chartResidualChroma": 0.0126,
+    "chartResidualDE00": 4.18,
+    "errorMired": 18.0,
+    "errorTint": 0.4
+   }
+  }
+ },
+ "983_canon-eos-5d-mark-iv": {
+  "chart": "Datacolor SpyderCheckr 24 (NOT a ColorChecker): grey column E (E1 white..E6 black) and D (D1..D6)",
+  "asShot": {
+   "kelvin": 5095.977,
+   "tint": 15.5268
+  },
+  "patches": {
+   "E1": {
+    "rect": [
+     1825,
+     805,
+     50,
+     50
+    ],
+    "meanRGB": [
+     0.48703,
+     0.47733,
+     0.46316
+    ],
+    "maxValue": 0.5069,
+    "clipped": false
+   },
+   "E2": {
+    "rect": [
+     1825,
+     905,
+     50,
+     50
+    ],
+    "meanRGB": [
+     0.30412,
+     0.29836,
+     0.28967
+    ],
+    "maxValue": 0.316,
+    "clipped": false
+   },
+   "E3": {
+    "rect": [
+     1825,
+     1009,
+     50,
+     50
+    ],
+    "meanRGB": [
+     0.18405,
+     0.17988,
+     0.17488
+    ],
+    "maxValue": 0.1925,
+    "clipped": false
+   },
+   "E4": {
+    "rect": [
+     1825,
+     1111,
+     50,
+     50
+    ],
+    "meanRGB": [
+     0.09835,
+     0.09611,
+     0.09511
+    ],
+    "maxValue": 0.1055,
+    "clipped": false
+   },
+   "E5": {
+    "rect": [
+     1825,
+     1215,
+     50,
+     50
+    ],
+    "meanRGB": [
+     0.04327,
+     0.04243,
+     0.04155
+    ],
+    "maxValue": 0.0522,
+    "clipped": false
+   },
+   "E6": {
+    "rect": [
+     1825,
+     1319,
+     50,
+     50
+    ],
+    "meanRGB": [
+     0.01116,
+     0.01118,
+     0.01143
+    ],
+    "maxValue": 0.0159,
+    "clipped": false
+   },
+   "D3": {
+    "rect": [
+     1595,
+     1009,
+     50,
+     50
+    ],
+    "meanRGB": [
+     0.25145,
+     0.24684,
+     0.23785
+    ],
+    "maxValue": 0.2634,
+    "clipped": false
+   },
+   "D4": {
+    "rect": [
+     1595,
+     1111,
+     50,
+     50
+    ],
+    "meanRGB": [
+     0.13758,
+     0.13477,
+     0.13248
+    ],
+    "maxValue": 0.1446,
+    "clipped": false
+   },
+   "D5": {
+    "rect": [
+     1595,
+     1215,
+     50,
+     50
+    ],
+    "meanRGB": [
+     0.06842,
+     0.06733,
+     0.06574
+    ],
+    "maxValue": 0.0754,
+    "clipped": false
+   }
+  },
+  "midGreys": [
+   "E2",
+   "E3",
+   "E4",
+   "E5"
+  ],
+  "midGreyMeanNormRGB": [
+   1.02161,
+   1.00022,
+   0.97817
+  ],
+  "midGreyRG": 1.0214,
+  "midGreyBG": 0.978,
+  "chartNeutral": {
+   "kelvin": 4896.5,
+   "tint": 12.2,
+   "residualAfter": 7.06e-05,
+   "convention": "Lumen (ColorTemperature locus, tint = +v/3000)"
+  },
+  "adobeEquivalentEstimate": {
+   "kelvin": 4947,
+   "tint": 13.1
+  },
+  "asShotResidual": {
+   "chroma": 0.0032,
+   "deltaE00": 1.26,
+   "dMired": -8.0,
+   "dTint": 3.3
+  },
+  "naive": {
+   "greyWorld": {
+    "kelvin": 5437,
+    "tint": 7.7,
+    "chartResidualChroma": 0.0157,
+    "chartResidualDE00": 5.29,
+    "errorMired": -20.3,
+    "errorTint": -4.5
+   },
+   "whitePatchTop1pct": {
+    "kelvin": 4861,
+    "tint": 13.6,
+    "chartResidualChroma": 0.0022,
+    "chartResidualDE00": 0.82,
+    "errorMired": 1.5,
+    "errorTint": 1.5
+   }
+  }
+ },
+ "3914_fujifilm-x-t4": {
+  "chart": "X-Rite ColorChecker Classic (rotated: neutral column top=black..bottom=white)",
+  "asShot": {
+   "kelvin": 4707.606,
+   "tint": 48.1616
+  },
+  "patches": {
+   "white9.5": {
+    "rect": [
+     1520,
+     1062,
+     44,
+     44
+    ],
+    "meanRGB": [
+     0.75427,
+     0.75595,
+     0.99697
+    ],
+    "maxValue": 1.0236,
+    "clipped": true
+   },
+   "neutral8": {
+    "rect": [
+     1520,
+     954,
+     44,
+     44
+    ],
+    "meanRGB": [
+     0.50036,
+     0.50577,
+     0.69225
+    ],
+    "maxValue": 0.7129,
+    "clipped": false
+   },
+   "neutral6.5": {
+    "rect": [
+     1520,
+     842,
+     44,
+     44
+    ],
+    "meanRGB": [
+     0.3078,
+     0.31237,
+     0.42869
+    ],
+    "maxValue": 0.4444,
+    "clipped": false
+   },
+   "neutral5": {
+    "rect": [
+     1520,
+     732,
+     44,
+     44
+    ],
+    "meanRGB": [
+     0.16521,
+     0.16748,
+     0.22711
+    ],
+    "maxValue": 0.2377,
+    "clipped": false
+   },
+   "neutral3.5": {
+    "rect": [
+     1520,
+     618,
+     44,
+     44
+    ],
+    "meanRGB": [
+     0.07423,
+     0.07613,
+     0.10743
+    ],
+    "maxValue": 0.1459,
+    "clipped": false
+   },
+   "black2": {
+    "rect": [
+     1520,
+     508,
+     44,
+     44
+    ],
+    "meanRGB": [
+     0.03063,
+     0.03117,
+     0.0447
+    ],
+    "maxValue": 0.1125,
+    "clipped": false
+   }
+  },
+  "midGreys": [
+   "neutral8",
+   "neutral6.5",
+   "neutral5",
+   "neutral3.5"
+  ],
+  "midGreyMeanNormRGB": [
+   0.87835,
+   0.89258,
+   1.22907
+  ],
+  "midGreyRG": 0.9841,
+  "midGreyBG": 1.377,
+  "chartNeutral": {
+   "kelvin": 5148.6,
+   "tint": 30.89,
+   "residualAfter": 7.06e-05,
+   "convention": "Lumen (ColorTemperature locus, tint = +v/3000)"
+  },
+  "adobeEquivalentEstimate": {
+   "kelvin": 5456,
+   "tint": 32.2
+  },
+  "asShotResidual": {
+   "chroma": 0.0311,
+   "deltaE00": 9.68,
+   "dMired": 18.2,
+   "dTint": 17.3
+  },
+  "naive": {
+   "greyWorld": {
+    "kelvin": 5076,
+    "tint": 80.2,
+    "chartResidualChroma": 0.0567,
+    "chartResidualDE00": 15.65,
+    "errorMired": 2.8,
+    "errorTint": 49.3
+   },
+   "whitePatchTop1pct": {
+    "kelvin": 4443,
+    "tint": 57.5,
+    "chartResidualChroma": 0.0545,
+    "chartResidualDE00": 14.62,
+    "errorMired": 30.8,
+    "errorTint": 26.7
+   }
+  }
+ },
+ "864_fujifilm-x-t2": {
+  "chart": "Kosmos Greycard 2004 (printed): left step column (step1 darkest at top, step9 lightest) + large central grey field",
+  "asShot": {
+   "kelvin": 9364.968,
+   "tint": 16.4449
+  },
+  "patches": {
+   "step3": {
+    "rect": [
+     555,
+     582,
+     60,
+     56
+    ],
+    "meanRGB": [
+     0.02815,
+     0.02775,
+     0.0342
+    ],
+    "maxValue": 0.051,
+    "clipped": false
+   },
+   "step4": {
+    "rect": [
+     555,
+     682,
+     60,
+     56
+    ],
+    "meanRGB": [
+     0.05763,
+     0.05713,
+     0.06523
+    ],
+    "maxValue": 0.0821,
+    "clipped": false
+   },
+   "step5": {
+    "rect": [
+     555,
+     772,
+     60,
+     56
+    ],
+    "meanRGB": [
+     0.09452,
+     0.09572,
+     0.10561
+    ],
+    "maxValue": 0.119,
+    "clipped": false
+   },
+   "step6": {
+    "rect": [
+     555,
+     862,
+     60,
+     56
+    ],
+    "meanRGB": [
+     0.13967,
+     0.14133,
+     0.15677
+    ],
+    "maxValue": 0.1787,
+    "clipped": false
+   },
+   "step7": {
+    "rect": [
+     555,
+     962,
+     60,
+     66
+    ],
+    "meanRGB": [
+     0.19779,
+     0.19683,
+     0.21529
+    ],
+    "maxValue": 0.2374,
+    "clipped": false
+   },
+   "step8": {
+    "rect": [
+     555,
+     1062,
+     60,
+     76
+    ],
+    "meanRGB": [
+     0.26684,
+     0.26713,
+     0.28932
+    ],
+    "maxValue": 0.3165,
+    "clipped": false
+   },
+   "step9": {
+    "rect": [
+     555,
+     1182,
+     60,
+     96
+    ],
+    "meanRGB": [
+     0.31476,
+     0.31877,
+     0.35678
+    ],
+    "maxValue": 0.3992,
+    "clipped": false
+   },
+   "card_main": {
+    "rect": [
+     720,
+     330,
+     320,
+     170
+    ],
+    "meanRGB": [
+     0.08303,
+     0.08472,
+     0.09463
+    ],
+    "maxValue": 0.153,
+    "clipped": false
+   },
+   "card_dark": {
+    "rect": [
+     1330,
+     330,
+     130,
+     170
+    ],
+    "meanRGB": [
+     0.05016,
+     0.05094,
+     0.05911
+    ],
+    "maxValue": 0.1267,
+    "clipped": false
+   }
+  },
+  "midGreys": [
+   "step4",
+   "step5",
+   "step6",
+   "step7",
+   "step8",
+   "card_main"
+  ],
+  "midGreyMeanNormRGB": [
+   0.96179,
+   0.96693,
+   1.07128
+  ],
+  "midGreyRG": 0.9947,
+  "midGreyBG": 1.1079,
+  "chartNeutral": {
+   "kelvin": 10021.0,
+   "tint": 5.59,
+   "residualAfter": 7.06e-05,
+   "convention": "Lumen (ColorTemperature locus, tint = +v/3000)"
+  },
+  "adobeEquivalentEstimate": {
+   "kelvin": 11024,
+   "tint": 11.2
+  },
+  "asShotResidual": {
+   "chroma": 0.0098,
+   "deltaE00": 3.57,
+   "dMired": 7.0,
+   "dTint": 10.9
+  },
+  "naive": {
+   "greyWorld": {
+    "kelvin": 9855,
+    "tint": -9.6,
+    "chartResidualChroma": 0.0071,
+    "chartResidualDE00": 2.88,
+    "errorMired": 1.7,
+    "errorTint": -15.1
+   },
+   "whitePatchTop1pct": {
+    "kelvin": 9617,
+    "tint": 13.9,
+    "chartResidualChroma": 0.0068,
+    "chartResidualDE00": 2.57,
+    "errorMired": 4.2,
+    "errorTint": 8.4
+   }
+  }
+ }
+}
