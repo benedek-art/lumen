@@ -9,12 +9,12 @@ new builds side by side). Cross-lane asks: `NEEDS.md`.
 1. Primaries Saturation was dead for much of its travel. Red + did nothing at all (the old
    PROOF-03). It now runs −100…+100 on every primary, and greys stay exactly grey.
 2. Point Colour now fades across blends with a neutral instead of cutting them (a modest
-   gain on real frames). Variance evens skin
-   without flattening pores, Lightroom's Hue/Sat/Lum range refinements exist, and a strip
-   under Range shows what is selected.
-3. Not fixed: speckle on high-ISO frames with NR off. It needs a smoothed reference image
-   fed to the point pass, which is WS-34's plumbing (see NEEDS.md). With the default NR on
-   it is mild.
+   gain on real frames). Variance evens skin without flattening pores, Lightroom's
+   Hue/Sat/Lum range refinements exist, and a strip under Range shows what is selected.
+3. BLOCKED after three verify rounds: speckle on noisy frames, even with the default NR
+   (2062's cream pollen picks up isolated dark dots under Luminance −80), and the 2062
+   rim target. Both need a smoothed reference image fed to the point pass, which is
+   WS-34's plumbing (see NEEDS.md).
 4. Try by hand: drag Range and the three refinements and watch the strip. Pick a cheek and
    take Variance to −100. Blue Saturation is the weakest primary (about +10% / −15%).
 5. Evidence: `evidence/ws32-2062-petal-edges.png`, `evidence/ws32-skin-variance.png`,
@@ -35,11 +35,11 @@ Linux, Swift 6.1.2. Base = 9068ded, new = this branch. `M` = `tools/measure.py`.
 | S4b near-neutral pixels; pale colours of another hue | near-neutrals equal the absolute-only weight to 1e-9; colours 40° off < 0.03 | PASS |
 | S5 2062 petal rim, Saturation −100 | rim chroma left 0.650 vs base 0.742 (0.88×; threshold 0.80×). Round 1 reached 0.79×, but it read the cream pollen and other pale colours of a different hue as tints of the red, which speckled. The hue test that fixes that also clips part of this rim, because the plate it blends into is warm, not neutral | **FAIL** (improved, short of the line) |
 | S6 2348 stripe, Luminance −80 | 3.0% under-selected, same as base | PASS (no regression; no improvement either) |
-| S7 speckle on noisy frames | per-pixel selection noise in the transition band about the same as base; slightly lower on 2062 (numpy model of the selection 0.30 vs 0.32 raw; verifier's estimate 0.078 vs 0.084) | **BLOCKED**: needs WS-34 (NEEDS.md) |
+| S7 speckle on noisy frames | edge-band noise slightly below base (verifier 0.081 vs 0.084), but isolated dark specks on 2062 rise from 617 to 672, and the cream pollen inside the petal now picks up isolated dots under Luminance −80 with the default NR on (18 of 140 pixels lose > 20%, worst 47%; base touches none) | **FAIL / BLOCKED** on WS-34 (NEEDS.md) |
 | S8 Variance on skin | hue spread 0.11×, chroma spread 0.09×, pores 0.99× (base 0.50×), blue/grey ΔE 0; never tints a selected grey | PASS |
 | S9 refinements act on their own axis | tests | PASS |
 | S10 strip draws the render's weight | within 0.03 | PASS |
-| S11 Float32 twin vs engine | inside the EXECUTION-05 gate on mixtures, refinements and Variance; GPU parity workflow green on macOS | PASS |
+| S11 Float32 twin vs engine | inside the EXECUTION-05 gate on mixtures, refinements and Variance (worst 2.2e-5); macOS GPU parity was green for the first kernel (88e91aa); the run for the final kernel (cbcb102) was still queued at hand-off | PASS on Linux; macOS parity for the final kernel pending |
 | S12 wire format | optional keys, old recipes decode, unrefined swatches encode unchanged | PASS |
 
 ### Primaries (WS-33)
@@ -60,7 +60,12 @@ WS-33 V2 (UI) judged from the `ui-snapshots` set (see below).
 Verifier: round 1 FAIL (S4 dip, near-neutral pixels selected, pollen speckle, Variance
 tinting greys, P2/P3 bookkeeping), fixed in 05561c2. Round 2 FAIL (pollen still
 speckled, blends rose with a tight Sat range, undisclosed S4 loosening), fixed in the round-3
-build. ROUND3_PLACEHOLDER
+build. Round 3 (final) FAIL on S5 and S7 only. Every probe that failed earlier now passes:
+0 non-monotonic blends in 26,082 across all refinements, 0 hue-order reversals in 1,080
+sweeps, near-neutrals and greys exact, CPU/twin/kernel identical. Per the brief the lane
+stops here; S5 and S7 are BLOCKED. UI: Point Colour (V3) and Primaries (WS-33 V2)
+snapshots of cbcb102 PASS. The verifier notes that the strip's unselected part still reads
+fairly lit.
 
 ## What changed and why
 
@@ -123,6 +128,11 @@ Nothing was skipped or loosened elsewhere.
   gets 14% of the effect instead of 0%. A blend into a coloured backdrop is only partly
   followed (2062 rim 0.88× base). The Luminance −80 edge is softer but still dotted at the
   boundary. Judge it on `ws32-2062-petal-edges.png`.
+- **A Hue move still cuts soft edges.** Hue reads only the absolute selection (its fold
+  bound does not cover the mixture reading), so on a blend Saturation and Luminance fade
+  while Hue cuts, as it always did.
+- **The selection strip's unselected part still reads fairly lit** in the snapshot. Judge
+  whether the falloff reads at panel size.
 - **Blue Saturation is the weakest primary.** A longer lever started moving the blue's
   lightness.
 - **Primaries reach colours containing the primary,** as Lightroom's Calibration does.
