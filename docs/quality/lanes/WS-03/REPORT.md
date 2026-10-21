@@ -8,7 +8,18 @@
 2. Auto WB exists: a menu entry plus a button next to the eyedropper. It fixes a tungsten room shot on Daylight (94–96 % of the cast corrected) and doesn't grey out skin.
 3. Auto is within 300 K of the chart on 1346, 967 and 983. It misses on 864 (−708 K) and on 3914 (−772 K, where the Linux decode itself is 9.7 ΔE off).
 4. Extreme Tint (−150) now crushes shadows on saturated frames, by up to +18 pp. The sRGB output clips colours Lightroom-strength tint pushes out of gamut, and the fix is gamut compression in another lane.
-5. Linux can't compile the Auto button, so its compile proof is macOS CI on the final push. The UI-layout workflow passed on the round-2 push.
+5. CI at f3ade99: the macOS app bundle (with the Auto button) builds, and GPU parity, UI layout, Proof sweep and engine-linux all pass. The one red job, the Swift-surface checker, fails identically on the base commit.
+
+## CI (f3ade99)
+
+- **Passing:**
+  - GPU parity
+  - UI layout
+  - Proof sweep
+  - CI/app-bundle (macOS build of Lumen.app, Auto UI included)
+  - CI/engine-linux
+- **Still queued at 09:40 UTC:** CI/test-fast and CI/build-macos. On the round-2 code (1150d93), build-macos passed; test-fast was cancelled by the next push.
+- **Red but pre-existing:** CI/fixtures-linux, step "Swift surface", fails with the same findings on base 8e2f3b7 (`python3 scripts/check-swift-surface.py`, run on both commits). The findings are CommandLine in main.swift, the Metrics/RecipeKeys inits, the `set(_:forKey:)` labels and Font in LumenType.swift. The CommandLine line number moved only because the usage header grew. Not caused by WS-03.
 
 ## Evidence (best three)
 
