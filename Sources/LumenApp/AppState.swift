@@ -127,7 +127,7 @@ enum PickTarget: Equatable, Sendable {
         case .neutral: return .neutral
         case .newPointColor: return .newPointColor
         case .mixerBand: return .mixerBand
-        case .pointColor(let index): return .pointColor(index: index)
+        case .pointColor(let swatch): return .pointColor(index: swatch)
         case .maskSample(let maskID, let component):
             return .maskSample(maskID: maskID, component: component)
         case .maskPointColor(let maskID): return .maskPointColor(maskID: maskID)
