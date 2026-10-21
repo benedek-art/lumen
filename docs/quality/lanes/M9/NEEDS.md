@@ -28,3 +28,35 @@
 5. **App lane (`AppState.refreshMaskOverlay`).** `renderMaskAlpha` now takes the GPU
    path for eligible masks; the overlay compositing (`MaskOverlay.composite`) is still a
    per-pixel CPU loop on the app side.
+
+6. **Restore the range masks' GPU path (integrator, after M4 landed beside M9).**
+   `MaskGPU.rangeKindsOnGPU` is `false` on the integration branch since 84698be. What
+   failed: macOS CI on 421e8bb (the first state with both M4 and M9), jobs `test-fast`
+   (CI run 39547798685) and `gpu-parity` (run 39547798747):
+   `MaskRangeGPUParityTests.testRangeKernelsMatchTheReference` and
+   `testRangeKernelsHoldInHalfFloat` — share of pixels past 1e-3 at 0.069–0.077 for every
+   Brightness/channel band at Smooth 25 (worst 0.6875 alpha), 0.12 for the inverted
+   component, inverted Levels and Levels with gamma (worst 1.0); and
+   `MaskSpeedTests.testTheRangeAlphaOverTheRealStageIsTheCPUDefinition` at 0.283 past 2e-3
+   against 1e-3. M9's own branch was green (266/0) because it never had M4's changes: it is
+   a semantic conflict, not an M9 kernel bug. M4 (WS-47/48) changed the CPU definition the
+   kernels twin:
+   - `MaskRaster.lumaRangeValue`: the shoulders are now CENTRED on From/To
+     (`half = min(s · lumaShoulderEV / evSpan, hi − lo) / 2`, smoothstep over
+     `lo ± half` and `hi ± half`, open ends at 0 and 1), where the kernels still ramp
+     from `lo − shoulder` to `lo`;
+   - `MaskRaster.rangeMeasured`: the luminance/channel measurement is denoised before the
+     band is taken — two guided passes at `rangeMeasurementRadius` (round(longEdge / 800)
+     px, so ≥ 1 px from 400 px up) with ε from a per-0.5 EV-bin MAD noise estimate. That is
+     SPATIAL, so no pointwise kernel can match it at any production size;
+   - the colour range is shading-invariant (M4 REPORT C1–C12), likewise not yet in the
+     colour kernel.
+   The fix: port `lumaRangeValue`'s centred shoulders and the colour range's new distance
+   to `KernelLibrary.maskLumaRange` / `maskColorRef`, and give the GPU path M4's
+   measurement — the box/guided passes exist in `RenderGraph` already (`guidedFilter`),
+   with ε needing the per-bin noise table, either measured on the GPU (a reduction) or
+   computed once per settle on the proxy and handed in as a 46-entry 1-D image. Then flip
+   `rangeKindsOnGPU` back on; the six skipped tests (four in MaskRangeGPUParityTests, two
+   in MaskSpeedTests) are the acceptance gate, unchanged. Until then range masks are CPU
+   rasters again (M4's picture, M9's settle cache and cheap-bake rule still apply), so the
+   per-frame lag on a global drag with a range mask is back to the pre-M9 cost.

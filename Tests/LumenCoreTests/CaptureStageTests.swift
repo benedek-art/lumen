@@ -125,7 +125,7 @@ final class CaptureStageTests: XCTestCase {
     func testItDoesNotSharpenNoiseOnAFlatField() {
         let profile = NoiseProfile.forISO(6400)
         let sd = profile.sigma(at: 0.18)
-        var rng = SplitMix(seed: 7)
+        var rng = CaptureSplitMix(seed: 7)
         let n = 96
         let frame = ImageBuffer(width: n, height: n) { _, _ in
             RGB(gray: 0.18 + sd * rng.gaussian())
@@ -219,7 +219,7 @@ final class CaptureStageTests: XCTestCase {
 }
 
 /// Deterministic Gaussian noise for the flat-field test.
-private struct SplitMix {
+private struct CaptureSplitMix {
     var state: UInt64
     init(seed: UInt64) { state = seed }
     mutating func next() -> UInt64 {
