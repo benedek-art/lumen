@@ -469,7 +469,8 @@ final class WS16SaturationFamilyTests: XCTestCase {
 
     private func centreSamples() -> [(Int, RGB)] {
         var out: [(Int, RGB)] = []
-        for (i, h) in ColorEngine.bandHueCentres.enumerated() {
+        // The B&W mix stays on the legacy 45° grid since WS-31 (see ColorEngine.uniformArcs).
+        for (i, h) in ColorEngine.uniformBandHueCentres.enumerated() {
             for C in [0.10, 0.15] where Self.inGamut(Self.rgb(0.6, C, h)) {
                 out.append((i, Self.rgb(0.6, C, h)))
             }
@@ -505,7 +506,8 @@ final class WS16SaturationFamilyTests: XCTestCase {
 
     func testWS16_BW4_TheChromaGateIsSoft() {
         let chromas = stride(from: 0.0, through: 0.2001, by: 0.005).map { $0 }
-        for (i, h) in ColorEngine.bandHueCentres.enumerated() {
+        // The B&W mix stays on the legacy 45° grid since WS-31 (see ColorEngine.uniformArcs).
+        for (i, h) in ColorEngine.uniformBandHueCentres.enumerated() {
             var prev: Double?
             var e4 = 0.0, e12: Double?
             for C in chromas {
@@ -541,7 +543,7 @@ final class WS16SaturationFamilyTests: XCTestCase {
             }
         }
         XCTAssertLessThanOrEqual(slopeAndSpread([Double](repeating: -100, count: 8)).1, 0.05)
-        let centres = ColorEngine.bandHueCentres
+        let centres = ColorEngine.uniformBandHueCentres  // B&W grid, see uniformArcs
         for i in 0..<8 {
             let j = (i + 1) % 8
             var bands = [Double](repeating: 0, count: 8); bands[i] = -100; bands[j] = -100
