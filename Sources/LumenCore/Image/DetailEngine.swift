@@ -641,105 +641,375 @@ public struct DetailEngine: Sendable {
 
     // MARK: - Vignette (S13)
 
-    /// Post-crop vignette: an EV multiply on scene-linear RGB, before the display transform
-    /// (docs/06 §12). `ev` is `Look.vignette`, −3.00…+1.00, 0 = off.
+    /// Post-crop vignette: Lightroom's six controls — Style, Amount, Midpoint, Roundness,
+    /// Feather, Highlights — on scene-linear RGB before the display transform (docs/06
+    /// §12), laid out on the CROP (`VignetteField`, shared with the GPU twin).
     ///
-    /// EV denomination is the whole idea: a −0.7 EV edge burn means the same thing on every
-    /// exposure, and because the multiply happens upstream of a hue-preserving transform,
-    /// darkened corners cannot colour-shift and clipped speculars still punch through the
-    /// shoulder — LR's "Highlight Priority" behaviour emerging from pipeline position rather
-    /// than from a mode dropdown.
+    /// Amount stays EV at the crop's corner: a −0.7 EV burn means the same thing on every
+    /// exposure. The model, normative for both renderers (WS-41 SPEC "Model"):
     ///
-    /// The falloff is radial on the frame's own aspect (docs/06's Roundness 0). The
-    /// Midpoint and Highlight-protection disclosures stay at their documented defaults
-    /// of 50/50 — constants here rather than parameters — while FEATHER is the one
-    /// knob the recipe now carries (`Look.vignetteFeather`, docs/32 Stream E item 4):
-    /// engine geometry was fixed for the vignette's whole life, and the owner asked
-    /// for the shape to be adjustable. Highlight protection blends the multiply back
-    /// toward identity above half the default scene white (0.18 · 2^5 ÷ 2), which is
-    /// what keeps a burn off a bright sky while it still shapes the corners.
-    /// Disclosure defaults, named so the GPU stand-in can use the same numbers. It did
-    /// not: the kernel was handed `feather = 0.7`, giving an inner radius of 0.3
-    /// against this path's 0.375.
+    ///   · ρ, the roundness-dependent radius (`vignetteShape`, `vignetteRadius`), is 1 at
+    ///     the four crop corners for every roundness and is the historical
+    ///     `sqrt((u² + v²)/2)` at roundness 0;
+    ///   · the share of Amount delivered at ρ is `smoothstep(c − s/2, c + s/2, ρ)`, with
+    ///     the CENTRE c from Midpoint (`vignetteCentre`) and the WIDTH s from Feather
+    ///     (`vignetteWidth`). Feather no longer moves the 50 % contour — that coupling
+    ///     was the audit's F1 — and at (50, 50) the edges are exactly the historical
+    ///     0.375 and 1;
+    ///   · beyond the corner the profile is NOT renormalised, so the corner receives
+    ///     `Amount · frac(1)` ≥ ½ when c + s/2 > 1. Renormalising would move the 50 %
+    ///     contour with Feather again;
+    ///   · each style turns (luminance, frac) into stops (`vignetteStops`), and Color
+    ///     Priority additionally holds the colour (`vignetteChromaScale`).
+    ///
+    /// Every default reproduces the historical render to the bit, including the fixed
+    /// half-strength highlight protection above scene Y 2.88 (`vignetteProtection`).
+    ///
+    /// The historical midpoint constant, kept because tests and the GPU's history name it.
     public static let vignetteMidpoint: Double = 0.5
-    /// Highlights disclosure default (docs/06 §12), named for the same reason the one
-    /// above is: the GPU kernel has to use the same number. It did not use one at all
-    /// — bright corners took the full burn there and half of it here.
+    /// The legacy highlight protection's weight: the burn is halved, smoothly, between
+    /// half the default scene white and the white itself. Applied at every Amount in
+    /// Highlight Priority and at negative Amounts in Color Priority, exactly as it always
+    /// was, which is what keeps the defaults byte-identical. The Highlights slider adds
+    /// to it (`vignetteProtection`); it never replaces it.
     public static let vignetteHighlightProtection: Double = 0.5
+    /// Scene mid-grey, the level every EV statement here is relative to.
+    public static let vignetteMidGrey: Double = 0.18
+    /// Where the legacy protection starts: half the default scene white (mid-grey + 5
+    /// stops, `ToneEngine.defaultWhiteAnchorEV`). Spelled as the engine always spelled
+    /// it so the Double is the same one.
+    public static let vignetteLegacyThreshold: Double =
+        vignetteMidGrey * pow(2.0, ToneEngine.defaultWhiteAnchorEV) / 2.0
+
+    // Profile: centre and width.
+
+    /// The 50 % contour at the default midpoint — the historical `smoothstep(0.375, 1, r)`
+    /// has its middle here.
+    public static let vignetteDefaultCentre: Double = 0.6875
+    /// Midpoint 0 and 100. 0.25 reaches about the middle third of the frame; 0.95 keeps
+    /// the burn in the corners and still gives the corner more than half of Amount.
+    public static let vignetteCentreRange: ClosedRange<Double> = 0.25...0.95
+    /// The transition width at the default feather: the historical 1 − 0.375.
+    public static let vignetteDefaultWidth: Double = 0.625
+    /// Feather 100: 0.608 half-diagonals from 10 % to 90 % — at least the historical
+    /// widest (0.609 at the old feather 100) while the 90 % point still lies inside the
+    /// corner at the default midpoint.
+    public static let vignetteMaxWidth: Double = 1.0
+    /// The width at feather 25. As wide as it can be while every 10 of feather above it
+    /// still widens the 10-90 % span by at least 0.02 half-diagonals (0.0036 per unit).
+    public static let vignetteQuarterFeatherWidth: Double = 0.535
+    /// Feather 0's edge, in output pixels of the delivered crop's half-diagonal: a hard
+    /// edge, anti-aliased over one to two pixels rather than aliased to a staircase.
+    public static let vignetteHardEdgePixels: Double = 2.5
+
+    // Roundness.
+
+    /// Superellipse exponent at roundness −100: a rounded rectangle whose edge midpoints
+    /// sit at ρ = 2^(−1/8) = 0.917, so the band hugs the crop's sides.
+    public static let vignetteSquarestExponent: Double = 8
+
+    // Highlights (HP and CP, Amount < 0).
+
+    /// The Highlights knee in EV relative to mid-grey: bright content starts to be held
+    /// half a stop under mid-grey and is fully held two stops over it, measured on the
+    /// scene-linear luminance arriving at S13 — so it follows Exposure, which is what a
+    /// photographer's "bright" means at this point of the pipeline.
+    public static let vignetteHighlightsKneeEV: ClosedRange<Double> = -0.5...2.0
+    /// Below this a luminance is treated as this, so log2 never sees zero.
+    public static let vignetteLuminanceFloor: Double = 1e-10
+
+    // Color Priority.
+
+    /// OKLab chroma scale per stop of burn, as a power of two: a −4 EV corner keeps
+    /// 2^(−4·0.01) = 97 % of its scene chroma relative to lightness, which offsets the
+    /// display transform's toe lifting C/L by up to 15 % on blues (WS-41 AUDIT F5). The
+    /// scale is applied about the OKLab lightness axis, so the scene hue is held exactly.
+    public static let vignetteColourBurnChroma: Double = 0.01
+    /// OKLab chroma scale per stop of lift: what the display transform's path to white
+    /// takes back, given back in scene-linear so a lifted sky stays blue (AUDIT F6). It
+    /// is weighted by where the LIFTED pixel lands on `vignetteColourShoulderEV`, because
+    /// the path to white only desaturates near white: a dark corner lifted to mid-grey
+    /// keeps its chroma under HP already and must not be pushed past it.
+    public static let vignetteColourLiftChroma: Double = 0.4
+    /// The display shoulder, in EV over mid-grey of the lifted scene luminance, across
+    /// which the lift's chroma restoration fades in.
+    public static let vignetteColourShoulderEV: ClosedRange<Double> = 1.5...4.5
+    /// A Color Priority LIFT rolls off above mid-grey over this many stops, down to
+    /// `vignetteColourLiftFloor` of Amount, so bright corners are not lifted into the
+    /// display's shoulder where no chroma survives. Mid-grey itself gets all of Amount,
+    /// so on neutrals CP and HP agree.
+    public static let vignetteColourLiftRolloffEV: Double = 3
+    public static let vignetteColourLiftFloor: Double = 0.25
 
     /// Where the falloff starts, on the normalized radius whose 1 is the frame corner,
-    /// for a recipe feather in 0…100.
-    ///
-    /// The mapping: `inner = clamp(3 · midpoint · (1 − feather/100) / 2, 0, 0.98)`.
-    /// At the default feather of 50 this is `0.75 · 0.5 = 0.375` — EXACTLY the number
-    /// both renderers used while the geometry was fixed (then spelt
-    /// `midpoint · (1 − 0.5 · featherConstant)` with the constant at 0.5), so every
-    /// recipe without the field renders byte-identically. Feather 0 starts the burn at
-    /// r = 0.75 — a tight ring against the corner — and feather 100 at the centre, a
-    /// falloff spanning the whole frame. The outer edge stays pinned at the corner
-    /// (r = 1) at every feather, which is what lets the GPU kernel keep its single
-    /// `feather = 1 − inner` scalar unchanged.
+    /// for a recipe feather in 0…100 at the DEFAULT midpoint on an unbounded frame:
+    /// `vignetteEdges(…).lower`. At feather 50 it is exactly the 0.375 both renderers
+    /// carried as a constant while the geometry was fixed. Feather now sets a WIDTH
+    /// around a fixed midpoint, so this falls from 0.6875 (feather 0, a hard edge at the
+    /// midpoint) to 0.1875 (feather 100).
     public static func vignetteInnerRadius(feather: Double) -> Double {
-        let f = Num.clamp(feather, 0, 100) / 100
-        return Num.clamp(1.5 * vignetteMidpoint * (1 - f), 0, 0.98)
+        vignetteEdges(midpoint: Look.vignetteMidpointDefault, feather: feather,
+                      pixelHalfDiagonal: .infinity).lower
     }
 
-    /// The inner radius at the DEFAULT feather — a convenience for tests and for any
-    /// reader that has no recipe in hand. Neither renderer reads it: both take the
-    /// recipe's feather through `vignetteInnerRadius(feather:)` (`RenderGraph
-    /// .applyVignette`, `DetailEngine.vignette`). It used to say the GPU graph read this
-    /// "until its half of docs/32 Stream E item 4 lands"; that half landed, and the
-    /// sentence left the next reader to work out which of the two the renderers call
-    /// (W2/D2-05).
+    /// The inner radius at the DEFAULT feather — 0.375. Neither renderer reads it.
     public static var vignetteInnerRadius: Double {
         vignetteInnerRadius(feather: Look.vignetteFeatherDefault)
     }
 
-    /// The falloff itself: a Hermite smoothstep from the inner radius to the corner,
-    /// on a radius normalized so that r = 1 is the frame's CORNER.
-    ///
-    /// Named and kept rather than changed, and the reason is worth writing down because
-    /// the obvious reading of the owner's report points the other way. The Hermite is
-    /// flat at BOTH ends by construction — zero derivative at r = inner and at r = 1 —
-    /// and on a 3:2 frame at the default feather that measures as:
-    ///
-    ///   · 38.81% of the frame receives 10% or less of the stated Amount;
-    ///   · 3.15% receives 90% or more of it — the stated EV lands on almost nothing;
-    ///   · the frame MEAN falloff is 0.2916, so "−3.00 EV" darkens the picture by a
-    ///     mean of 0.87 EV;
-    ///   · the outer tenth of the radius, which is where the eye reads "the corners",
-    ///     carries 6.86% of the burn (2.80% at feather 100). The burn stops deepening
-    ///     exactly where a vignette should be deepest.
-    ///
-    /// So the shape genuinely is soft at both ends. It is kept anyway, because the
-    /// alternatives were measured and every one of them makes the vignette WEAKER,
-    /// which is the opposite of what was asked for. Frame mean at inner = 0.375, and at
-    /// inner = 0 (feather 100), for shapes that all satisfy f(0)=0, f(1)=1 and monotone:
-    ///
-    ///       shape                 mean @0.375   mean @0     outer tenth @0.375
-    ///       3t²−2t³ (this one)      0.2916       0.5565           0.069
-    ///       t²                      0.1612       0.3333           0.294
-    ///       t^1.5                   0.2188       0.4197           0.230
-    ///       5t²−8t³+4t⁴             0.2882       0.5150           0.222
-    ///       (3t²−2t³)^0.7           0.3636       0.6428           0.049
-    ///
-    /// The trade is forced, not incidental: with the support fixed at [inner, 1] and the
-    /// corner pinned at exactly the stated Amount, any shape that arrives at r = 1 with a
-    /// live slope is below the Hermite EVERYWHERE — for the cubic family with f'(1) = s
-    /// the difference is exactly s·t²(1−t) ≥ 0. Buying a live corner costs 20–45% of the
-    /// delivered strength, and `t²` cannot reach the Hermite's frame mean even with the
-    /// falloff started at the picture's centre (0.3333 against 0.5565). Trading intensity
-    /// for corner gradient is the wrong direction for a photographer who says the
-    /// vignette is not strong enough, so the shape stays and the RANGE moved instead
-    /// (`vignetteAmountRange`).
-    ///
-    /// What this does mean, and what the Amount row's help now says out loud, is that
-    /// the number on the slider is a CORNER number: the frame receives a fraction of it,
-    /// and that fraction is what Feather sets — 0.041 of the Amount at feather 0, 0.292
-    /// at 50, 0.557 at 100. Feather is the strength control and Amount is its ceiling.
-    /// `VignetteResponseTests` pins every number above.
+    /// The historical falloff, `smoothstep(inner, 1, r)`: the profile with its outer edge
+    /// pinned at the corner. Kept as a named shape for the tests that measure it; the
+    /// renderers call `vignetteProfile`.
     public static func vignetteFalloff(radius: Double, inner: Double) -> Double {
         Num.smoothstep(inner, 1.0, radius)
+    }
+
+    /// The 50 % contour's radius for a midpoint in 0…100: piecewise linear through
+    /// (0, 0.25), (50, 0.6875) and (100, 0.95). Exactly 0.6875 at 50.
+    public static func vignetteCentre(midpoint: Double) -> Double {
+        let m = midpoint.isFinite ? Num.clamp(midpoint, 0, 100) : Look.vignetteMidpointDefault
+        let d = (m - 50) / 50
+        let span = d < 0 ? vignetteDefaultCentre - vignetteCentreRange.lowerBound
+                         : vignetteCentreRange.upperBound - vignetteDefaultCentre
+        return vignetteDefaultCentre + d * span
+    }
+
+    /// The transition's width (lower to upper edge of the smoothstep) for a feather in
+    /// 0…100: from the anti-aliasing floor at 0 along a square root to
+    /// `vignetteQuarterFeatherWidth` at 25, then linear to 0.625 at 50 (exactly) and to
+    /// 1.0 at 100. The square root spends the bottom quarter of the travel on the hard
+    /// end; a straight line from the floor made feather 25 only 0.31 wide, and a −4 EV
+    /// burn across that steps 2 codes per pixel on an 8-bit 1024 px frame. The floor is `vignetteHardEdgePixels` of the delivered crop's
+    /// half-diagonal, which is why the frame's pixel size is an argument.
+    public static func vignetteWidth(feather: Double, pixelHalfDiagonal: Double) -> Double {
+        let f = feather.isFinite ? Num.clamp(feather, 0, 100) : Look.vignetteFeatherDefault
+        if f >= 50 {
+            return vignetteDefaultWidth
+                + (vignetteMaxWidth - vignetteDefaultWidth) * (f - 50) / 50
+        }
+        if f >= 25 {
+            return vignetteDefaultWidth
+                - (vignetteDefaultWidth - vignetteQuarterFeatherWidth) * (50 - f) / 25
+        }
+        let floor = vignetteHardEdgePixels / Swift.max(pixelHalfDiagonal, 1)
+        return Swift.max(floor + (vignetteQuarterFeatherWidth - floor) * (f / 25).squareRoot(),
+                         floor)
+    }
+
+    /// The smoothstep's two edges, c ∓ s/2.
+    public static func vignetteEdges(midpoint: Double, feather: Double,
+                                     pixelHalfDiagonal: Double)
+        -> (lower: Double, upper: Double) {
+        let c = vignetteCentre(midpoint: midpoint)
+        let s = vignetteWidth(feather: feather, pixelHalfDiagonal: pixelHalfDiagonal)
+        return (c - s / 2, c + s / 2)
+    }
+
+    /// The share of Amount delivered at radius ρ. NOT renormalised beyond the corner.
+    @inline(__always)
+    public static func vignetteProfile(radius: Double, lower: Double, upper: Double)
+        -> Double {
+        Num.smoothstep(lower, upper, radius)
+    }
+
+    /// The radius's shape for a roundness in −100…+100 on a crop with these half extents:
+    /// a superellipse exponent and the weight of v. ρ = ((|u|ⁿ + w·|v|ⁿ)/(1 + w))^(1/n).
+    ///
+    ///   · −100…0: n rises geometrically from 2 to `vignetteSquarestExponent`, w = 1 —
+    ///     the ellipse squares off toward a rounded rectangle on the crop's edges;
+    ///   · 0: n = 2, w = 1 — the crop-aspect ellipse through the corners, historically;
+    ///   · 0…+100: n = 2, w = (halfHeight/halfWidth)^(2r) — the aspect relaxes toward 1
+    ///     and at +100 ρ is the pixel distance over the half-diagonal: a circle.
+    /// Every one of them is 1 at the corners.
+    public static func vignetteShape(roundness: Double, halfWidth: Double,
+                                     halfHeight: Double) -> (exponent: Double, weight: Double) {
+        let r = roundness.isFinite ? Num.clamp(roundness, -100, 100) / 100 : 0
+        if r < 0 {
+            return (2 * pow(vignetteSquarestExponent / 2, -r), 1)
+        }
+        if r > 0, halfWidth > 0, halfHeight > 0 {
+            return (2, pow(halfHeight / halfWidth, 2 * r))
+        }
+        return (2, 1)
+    }
+
+    /// ρ at normalized delivered coordinates (u, v) for a shape from `vignetteShape`. At
+    /// roundness 0 this is the historical expression, operation for operation.
+    @inline(__always)
+    public static func vignetteRadius(u: Double, v: Double, exponent: Double,
+                                      weight: Double) -> Double {
+        if exponent == 2 {
+            if weight == 1 {
+                return (u * u + v * v).squareRoot() * (1.0 / (2.0 as Double).squareRoot())
+            }
+            return ((u * u + weight * v * v) / (1 + weight)).squareRoot()
+        }
+        return pow((pow(abs(u), exponent) + weight * pow(abs(v), exponent)) / (1 + weight),
+                   1 / exponent)
+    }
+
+    /// Everything the per-pixel transfer reads, resolved once per frame. The GPU kernel's
+    /// uniforms are these numbers and nothing else (`RenderGraph.applyVignette`).
+    public struct VignetteUniforms: Equatable, Sendable {
+        /// Amount, clamped to `vignetteAmountRange`.
+        public let amount: Double
+        public let style: VignetteStyle
+        public let lower: Double
+        public let upper: Double
+        public let exponent: Double
+        public let weight: Double
+        /// The legacy protection: starts at `threshold`, full `protection` at twice it.
+        public let threshold: Double
+        public let protection: Double
+        /// Highlights as a fraction, and its knee as log2 scene luminance.
+        public let highlights: Double
+        public let kneeLow: Double
+        public let kneeHigh: Double
+        /// Color Priority: chroma per stop of burn / lift, and the lift's roll-off.
+        public let burnChroma: Double
+        public let liftChroma: Double
+        public let log2MidGrey: Double
+        public let liftRolloff: Double
+        public let liftFloor: Double
+        public let shoulderLow: Double
+        public let shoulderHigh: Double
+        /// Paint Overlay: the black and white anchors as log2 scene luminance, and the
+        /// reciprocal of each one's distance from mid-grey.
+        public let log2Black: Double
+        public let burnSpanInverse: Double
+        public let log2White: Double
+        public let liftSpanInverse: Double
+    }
+
+    /// The uniforms for these settings over this field.
+    public static func vignetteUniforms(_ s: VignetteSettings,
+                                        field: VignetteField) -> VignetteUniforms {
+        let amount = s.amount.isFinite
+            ? Num.clamp(s.amount, vignetteAmountRange.lowerBound,
+                        vignetteAmountRange.upperBound) : 0
+        let edges = vignetteEdges(midpoint: s.midpoint, feather: s.feather,
+                                  pixelHalfDiagonal: field.pixelHalfDiagonal)
+        let shape = vignetteShape(roundness: s.roundness, halfWidth: field.halfWidth,
+                                  halfHeight: field.halfHeight)
+        let log2Mid = log2(vignetteMidGrey)
+        let h = s.highlights.isFinite ? Num.clamp(s.highlights, 0, 100) / 100 : 0
+        let log2Black = log2Mid + ToneEngine.defaultBlackAnchorEV
+        let log2White = log2Mid + ToneEngine.defaultWhiteAnchorEV
+        return VignetteUniforms(
+            amount: amount, style: s.style,
+            lower: edges.lower, upper: edges.upper,
+            exponent: shape.exponent, weight: shape.weight,
+            threshold: vignetteLegacyThreshold, protection: vignetteHighlightProtection,
+            highlights: h,
+            kneeLow: log2Mid + vignetteHighlightsKneeEV.lowerBound,
+            kneeHigh: log2Mid + vignetteHighlightsKneeEV.upperBound,
+            burnChroma: vignetteColourBurnChroma, liftChroma: vignetteColourLiftChroma,
+            log2MidGrey: log2Mid, liftRolloff: vignetteColourLiftRolloffEV,
+            liftFloor: vignetteColourLiftFloor,
+            shoulderLow: log2Mid + vignetteColourShoulderEV.lowerBound,
+            shoulderHigh: log2Mid + vignetteColourShoulderEV.upperBound,
+            log2Black: log2Black, burnSpanInverse: 1 / (log2Mid - log2Black),
+            log2White: log2White, liftSpanInverse: 1 / (log2White - log2Mid))
+    }
+
+    /// The share of the burn held back at a scene luminance (HP and CP). The legacy term
+    /// at every Amount; for a NEGATIVE Amount the Highlights slider adds a monotone knee
+    /// through `1 − (1 − legacy)(1 − held)`, which is continuous at Highlights 0 and
+    /// nondecreasing in both luminance and Highlights. Being a share of a NEGATIVE
+    /// exponent, it can only brighten brighter pixels more: no tone inversion.
+    @inline(__always)
+    public static func vignetteProtection(luminance lum: Double,
+                                          _ k: VignetteUniforms) -> Double {
+        let legacy = k.protection * Num.smoothstep(k.threshold, k.threshold * 2, lum)
+        guard k.amount < 0, k.highlights > 0 else { return legacy }
+        let held = k.highlights * Num.smoothstep(
+            k.kneeLow, k.kneeHigh, log2(Swift.max(lum, vignetteLuminanceFloor)))
+        return legacy + held * (1 - legacy)
+    }
+
+    /// The stops applied at a pixel of scene luminance `lum` receiving `falloff` of the
+    /// profile. One switch per style, written line for line like the kernel.
+    ///
+    ///   · HP (and CP's burn): `amount · falloff · (1 − protection)` — historical;
+    ///   · CP lift: `amount · falloff · lift(Y)`, all of Amount up to mid-grey and rolling
+    ///     off to `liftFloor` over `liftRolloff` stops above it;
+    ///   · PO: `amount · falloff · cover(Y)`, the log-space mix toward the black (burn) or
+    ///     white (lift) anchor that lands mid-grey exactly where HP does: contrast in
+    ///     stops shrinks by `amount/9` (burn) or `amount/5` (lift) — paint, not exposure.
+    @inline(__always)
+    public static func vignetteStops(luminance lum: Double, falloff: Double,
+                                     _ k: VignetteUniforms) -> Double {
+        let ev = k.amount
+        switch k.style {
+        case .paintOverlay:
+            let l2 = log2(Swift.max(lum, vignetteLuminanceFloor))
+            let cover = ev < 0 ? Swift.max(l2 - k.log2Black, 0) * k.burnSpanInverse
+                               : Swift.max(k.log2White - l2, 0) * k.liftSpanInverse
+            return ev * falloff * cover
+        case .colorPriority where ev > 0:
+            let l2 = log2(Swift.max(lum, vignetteLuminanceFloor))
+            let lift = 1 - (1 - k.liftFloor)
+                * Num.smoothstep(k.log2MidGrey, k.log2MidGrey + k.liftRolloff, l2)
+            return ev * falloff * lift
+        default:
+            let protect = vignetteProtection(luminance: lum, k)
+            return ev * falloff * (1 - protect)
+        }
+    }
+
+    /// Color Priority's OKLab chroma scale for a pixel of luminance `lum` taking `stops`.
+    /// Burn: a power of two in the stops. Lift: the same, faded in by where the lifted
+    /// luminance lands on the display shoulder.
+    @inline(__always)
+    public static func vignetteChromaScale(stops: Double, luminance lum: Double,
+                                           _ k: VignetteUniforms) -> Double {
+        if k.amount < 0 { return pow(2.0, stops * k.burnChroma) }
+        let lifted = log2(Swift.max(lum * pow(2.0, stops), vignetteLuminanceFloor))
+        let shoulder = Num.smoothstep(k.shoulderLow, k.shoulderHigh, lifted)
+        return 1 + (pow(2.0, stops * k.liftChroma) - 1) * shoulder
+    }
+
+    /// The working space's OKLab matrices, as the GPU kernel receives them: RGB → LMS,
+    /// the lightness row of nonlinear LMS → Lab, and LMS → RGB.
+    public static let vignetteColourRGBToLMS: Mat3 = OKLabTransform.working.rgbToLMS
+    public static let vignetteColourLightnessRow: RGB = {
+        let row = OKLabTransform.lmsToLab.m[0]
+        return RGB(row[0], row[1], row[2])
+    }()
+    public static let vignetteColourLMSToRGB: Mat3 = OKLabTransform.working.lmsToRGB
+
+    /// `c` with its OKLab chroma scaled by `phi` about its own lightness: hue and L held.
+    /// Done in nonlinear LMS, where scaling (a, b) about L is `L + φ·(n − L)` because
+    /// OKLab's chroma rows sum to zero. A channel that the scale would push below zero
+    /// is held at zero (or at its own value if it was already negative).
+    @inline(__always)
+    public static func vignetteHoldColour(_ c: RGB, phi: Double) -> RGB {
+        let lms = vignetteColourRGBToLMS.apply(c)
+        let n = RGB(Num.spow(lms.r, 1.0 / 3.0), Num.spow(lms.g, 1.0 / 3.0),
+                    Num.spow(lms.b, 1.0 / 3.0))
+        let w = vignetteColourLightnessRow
+        let lightness = w.r * n.r + w.g * n.g + w.b * n.b
+        let m = RGB(lightness + phi * (n.r - lightness),
+                    lightness + phi * (n.g - lightness),
+                    lightness + phi * (n.b - lightness))
+        let out = vignetteColourLMSToRGB.apply(RGB(m.r * m.r * m.r, m.g * m.g * m.g,
+                                                   m.b * m.b * m.b))
+        return RGB(Swift.max(out.r, Swift.min(c.r, 0)), Swift.max(out.g, Swift.min(c.g, 0)),
+                   Swift.max(out.b, Swift.min(c.b, 0)))
+    }
+
+    /// The vignette at one pixel, or nil where it changes nothing.
+    @inline(__always)
+    public static func vignetteApply(_ c: RGB, falloff: Double,
+                                     _ k: VignetteUniforms) -> RGB? {
+        let space = RGBColorSpace.rec2020
+        let lum = space.luminance(c)
+        let stops = vignetteStops(luminance: lum, falloff: falloff, k)
+        if stops == 0 { return nil }
+        let gain = pow(2.0, stops)
+        guard k.style == .colorPriority else { return c * gain }
+        let phi = vignetteChromaScale(stops: stops, luminance: lum, k)
+        return vignetteHoldColour(c, phi: phi) * gain
     }
 
     /// The Amount clamp, named once so the GPU kernel's call site cannot pick a
@@ -801,59 +1071,40 @@ public struct DetailEngine: Sendable {
     /// fix and a change to the falloff SHAPE is not — see `vignetteFalloff`.
     public static let vignetteAmountRange: ClosedRange<Double> = -4.0...2.0
 
+    /// The historical entry point: Amount and Feather, every other control at its
+    /// default, on the full frame.
     public static func vignette(_ image: ImageBuffer, ev: Double,
                                 feather: Double = Look.vignetteFeatherDefault)
         -> ImageBuffer {
-        let amount = Num.clamp(ev, vignetteAmountRange.lowerBound,
-                               vignetteAmountRange.upperBound)
-        guard amount != 0 else { return image }
+        vignette(image, VignetteSettings(amount: ev, feather: feather))
+    }
+
+    /// The vignette over `image`, laid out on `geometry`'s crop of it.
+    ///
+    /// `image` is the uncropped source at S13: the crop, straighten and flip only place
+    /// the vignette (`VignetteField`), exactly as on the GPU, where `applyGeometry`
+    /// selects the crop afterwards.
+    public static func vignette(_ image: ImageBuffer, _ settings: VignetteSettings,
+                                geometry: Geometry = Geometry()) -> ImageBuffer {
         let w = image.width
         let h = image.height
-        let space = RGBColorSpace.rec2020
-
-        // Midpoint and Highlight protection at the docs/06 §12 disclosure defaults;
-        // Feather from the recipe, defaulted to the geometry the engine always had.
-        let protection = DetailEngine.vignetteHighlightProtection
-        let inner = DetailEngine.vignetteInnerRadius(feather: feather)
-        // The outer edge is the frame CORNER, r = 1, at every feather — it is baked into
-        // `vignetteFalloff` rather than carried as a local, which is what lets the GPU
-        // kernel keep describing the geometry with the single scalar `1 − inner`.
-        // Default scene white is mid-grey + 5 stops (ToneEngine.defaultWhiteAnchorEV).
-        let highlightThreshold = 0.18 * pow(2.0, 5.0) / 2.0
-
-        let halfW = Double(w) * 0.5
-        let halfH = Double(h) * 0.5
-        // Normalize per axis, then scale so the frame CORNER sits at r = 1 regardless of
-        // aspect — which is what makes "−1 EV" a statement about the corner and what
-        // keeps the falloff's level sets elliptical on the crop's own proportions
-        // (docs/06's Roundness 0).
-        //
-        // The comment here used to call r = 1 "the ellipse INSCRIBED in the crop
-        // rectangle", and it is the circumscribed one: with u and v each spanning ±1,
-        // r = 1 is u² + v² = 2, the ellipse through the four corners. The inscribed one
-        // — the one that touches the edge midpoints — sits at r = 0.7071, where the
-        // default feather delivers 0.547 of the Amount. The distinction is the whole of
-        // why the stated EV lands on 3.15% of a 3:2 frame (see `vignetteFalloff`), so a
-        // note naming the wrong ellipse was hiding the audit's own finding.
-        let norm = 1.0 / (2.0 as Double).squareRoot()
+        let field = VignetteField(geometry: geometry, sourceWidth: Double(w),
+                                  sourceHeight: Double(h))
+        let k = vignetteUniforms(settings, field: field)
+        guard k.amount != 0 else { return image }
 
         var out = image
         for y in 0..<h {
-            let v = (Double(y) + 0.5 - halfH) / Swift.max(halfH, 1e-6)
             for x in 0..<w {
-                let u = (Double(x) + 0.5 - halfW) / Swift.max(halfW, 1e-6)
-                let r = (u * u + v * v).squareRoot() * norm
-                // Through the named function, so the shape has one definition and the
-                // GPU kernel's comment has something to point at.
-                let falloff = DetailEngine.vignetteFalloff(radius: r, inner: inner)
+                let p = field.uv(column: x, row: y)
+                let r = vignetteRadius(u: p.u, v: p.v, exponent: k.exponent,
+                                       weight: k.weight)
+                let falloff = vignetteProfile(radius: r, lower: k.lower, upper: k.upper)
                 if falloff <= 0 { continue }
-                let c = image[x, y]
-                let lum = space.luminance(c)
-                let protect = protection * Num.smoothstep(highlightThreshold,
-                                                          highlightThreshold * 2, lum)
-                let stops = amount * falloff * (1 - protect)
-                if stops == 0 { continue }
-                out[x, y] = c * pow(2.0, stops)
+                guard let c = vignetteApply(image[x, y], falloff: falloff, k) else {
+                    continue
+                }
+                out[x, y] = c
             }
         }
         return out

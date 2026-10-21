@@ -417,8 +417,9 @@ enum SliderInventory {
     /// 102 → 103 for Visualize Spots' threshold, which landed after that census: the
     /// Heal tool's Size, Feather and Opacity (a new host, `healBar`), the Looks LUT's
     /// Amount, and the export sheet's sequence Start at. 103 → 106 for the export
-    /// sheet's Percent, Width and Height (the percentage and box resize modes).
-    static let callSiteCount = 106
+    /// sheet's Percent, Width and Height (the percentage and box resize modes). 106 → 109
+    /// for the vignette's Midpoint, Roundness and Highlights (WS-41).
+    static let callSiteCount = 109
 
     /// Every slider the app ships, resolved through its builder where the call site is
     /// a helper rather than a literal — `MaskPanel.adjustSlider`, `LookPanel.bipolarSlider`,
@@ -500,15 +501,20 @@ enum SliderInventory {
         SliderSpec("Amount", "DetailPanel.swift:683", .developDisclosure, 0...100, step: 1),
 
         // Effects — vignette, grain, retouch.
-        SliderSpec("Amount", "EffectsPanel.swift:131", .developTop, -4...2,
+        SliderSpec("Amount", "EffectsPanel.swift:148", .developTop, -4...2,
                    step: 0.01, decimals: 2),
-        SliderSpec("Feather", "EffectsPanel.swift:154", .developTop, 0...100, step: 1),
-        SliderSpec("Amount", "EffectsPanel.swift:263", .developTop, 0...100, step: 1),
-        SliderSpec("Size", "EffectsPanel.swift:287", .developTop, 0.5...2.0,
+        // WS-41: Lightroom's other three post-crop shape controls and Highlights.
+        SliderSpec("Midpoint", "EffectsPanel.swift:162", .developTop, 0...100, step: 1),
+        SliderSpec("Roundness", "EffectsPanel.swift:172", .developTop, -100...100,
+                   step: 1),
+        SliderSpec("Feather", "EffectsPanel.swift:182", .developTop, 0...100, step: 1),
+        SliderSpec("Highlights", "EffectsPanel.swift:193", .developTop, 0...100, step: 1),
+        SliderSpec("Amount", "EffectsPanel.swift:305", .developTop, 0...100, step: 1),
+        SliderSpec("Size", "EffectsPanel.swift:329", .developTop, 0.5...2.0,
                    step: 0.05, decimals: 2),
-        SliderSpec("Amount", "EffectsPanel.swift:311", .developTop, 0...100, step: 1),
-        SliderSpec("Size", "EffectsPanel.swift:322", .developTop, 0...100, step: 1),
-        SliderSpec("Roughness", "EffectsPanel.swift:333", .developTop, 0...100, step: 1),
+        SliderSpec("Amount", "EffectsPanel.swift:353", .developTop, 0...100, step: 1),
+        SliderSpec("Size", "EffectsPanel.swift:364", .developTop, 0...100, step: 1),
+        SliderSpec("Roughness", "EffectsPanel.swift:375", .developTop, 0...100, step: 1),
 
         // Export sheet — a fixed-width host, so no resize can rescue it.
         SliderSpec("Quality", "ExportSheet.swift:594", .exportSheet, 0...100, step: 1),

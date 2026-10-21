@@ -239,8 +239,7 @@ public struct RenderGraph {
         // S13 — vignette, then halation: the lens vignettes the light before it
         // strikes the film, and the film base reflects what arrives.
         if plan.vignetteEV != 0 {
-            image = applyVignette(image, ev: plan.vignetteEV,
-                                  feather: plan.vignetteFeather,
+            image = applyVignette(image, plan.vignette,
                                   geometry: plan.recipe.develop.geometry)
         }
         if let film = plan.filmChain, film.halationAmount > 0 {
@@ -1670,64 +1669,55 @@ public struct RenderGraph {
 
     func applyVignette(_ image: CIImage, ev: Double, feather recipeFeather: Double,
                        geometry: Geometry, dithered: Bool = true) -> CIImage {
+        applyVignette(image, VignetteSettings(amount: ev, feather: recipeFeather),
+                      geometry: geometry, dithered: dithered)
+    }
+
+    /// The vignette's GPU twin. Every number handed to the kernel comes out of LumenCore:
+    /// the coordinate field from `VignetteField` (the crop, straighten and flip, shared
+    /// with `DetailEngine.vignette`, which is what keeps a cropped recipe's vignette in
+    /// the same place on both paths), and the profile, shape, highlight, colour and paint
+    /// constants from `DetailEngine.vignetteUniforms`. Nothing is restated here.
+    func applyVignette(_ image: CIImage, _ settings: VignetteSettings,
+                       geometry: Geometry, dithered: Bool = true) -> CIImage {
         let full = image.extent
         guard full.width > 0, full.height > 0 else { return image }
-        // The reference's clamp, and now literally the reference's OWN clamp rather
-        // than a transcription of it: this kernel took the raw value once, so a
-        // foreign or hand-edited recipe carrying, say, −5 rendered a 2^-2 deeper
-        // corner here than on the reference path (docs/31 round two §15 adjacency).
-        // The transcription was fixed then; the second copy of the two bounds stayed,
-        // and the bounds have since MOVED (−3…+1 → −4…+2, the measurement is on
-        // `DetailEngine.vignetteAmountRange`). A widened range on one path and not the
-        // other is the same defect wearing a new number, so the range is read from the
-        // one place that defines it and there is nothing left here to keep in step.
-        let ev = Num.clamp(ev, DetailEngine.vignetteAmountRange.lowerBound,
-                           DetailEngine.vignetteAmountRange.upperBound)
-        guard ev != 0 else { return image }
+        // The field over a zero-origin source of this size — `geometryRects`' own
+        // arithmetic, in LumenCore. The uniforms carry the reference's clamp of Amount.
+        let field = VignetteField(geometry: geometry, sourceWidth: Double(full.width),
+                                  sourceHeight: Double(full.height))
+        let k = DetailEngine.vignetteUniforms(settings, field: field)
+        guard k.amount != 0, field.halfWidth > 0, field.halfHeight > 0 else { return image }
 
-        let rects = PipelineRenderer.geometryRects(geometry, sourceSize: full.size)
-        // Core Image's final cropped image has integral pixel bounds. Align the
-        // ellipse with that delivered rectangle, not its fractional requested edge;
-        // otherwise a small/rotated crop shifts the brightening ramp by a pixel.
-        let e = rects.target.integral
-        guard e.width > 0, e.height > 0 else { return image }
-        // Delivery first translates a nonzero source origin to zero, then applies
-        // this orientation. Rows act on the SOURCE coordinate, not a resampled image.
-        let t = rects.orientation
-        let axisX = CIVector(x: t.a, y: t.c,
-            z: t.tx - t.a * full.minX - t.c * full.minY)
-        let axisY = CIVector(x: t.b, y: t.d,
-            z: t.ty - t.b * full.minX - t.d * full.minY)
-        let centre = CIVector(x: e.midX, y: e.midY)
-        // PER AXIS, then scaled so the corner lands at r = 1 — level sets elliptical on
-        // the crop's own proportions, which is what docs/06's Roundness 0 means and what
-        // `DetailEngine.vignette` draws. (r = 1 is the ellipse through the CORNERS, not
-        // the one inscribed in the rectangle; both this comment and the reference's said
-        // "inscribed", and the inscribed ellipse is at r = 0.7071 where the default
-        // feather delivers 0.547 of the Amount — see `DetailEngine.vignetteFalloff`.)
-        //
-        // Normalizing both axes by the half-DIAGONAL, as this did, draws a CIRCLE. On a
-        // 3:2 frame that put the long-edge midpoint at r = 0.832 where the reference
-        // has 0.707, and the short-edge midpoint at 0.555 — a visibly different
-        // vignette from the same slider, and a 24% gain difference at the edge.
-        let norm = 1.0 / (2.0 as CGFloat).squareRoot()
-        let inv = CIVector(x: norm / (e.width / 2), y: norm / (e.height / 2))
-        // The kernel's `feather` is `1 − inner`, so it starts where the reference
-        // does. The inner radius comes from the recipe's feather through the SAME
-        // function the reference calls (`DetailEngine.vignetteInnerRadius(feather:)`,
-        // never re-derived here), and the outer edge is pinned at the corner (r = 1)
-        // at every feather by construction — which is why this single scalar still
-        // fully describes the geometry and the kernel needs no new parameter.
-        let feather = 1 - DetailEngine.vignetteInnerRadius(feather: recipeFeather)
-        // Rendered over the FULL extent — the crop only defines the ellipse. Cropping
-        // the output here would throw away the pixels applyGeometry is about to select.
-        // Highlight protection, at the same disclosure default the reference uses.
-        // Default scene white is mid-grey plus five stops; the taper starts at half of
-        // it, which is what keeps a burn off a bright sky while it still shapes the
-        // corners. The constants live on `DetailEngine` so the two paths cannot pick
-        // different numbers.
+        // Delivery first translates a nonzero source origin to zero, then applies the
+        // orientation. Rows act on the SOURCE coordinate, not a resampled image.
+        let axisX = CIVector(x: field.a, y: field.c,
+                             z: field.tx - field.a * Double(full.minX)
+                                 - field.c * Double(full.minY))
+        let axisY = CIVector(x: field.b, y: field.d,
+                             z: field.ty - field.b * Double(full.minX)
+                                 - field.d * Double(full.minY))
+        let centre = CIVector(x: field.centreX, y: field.centreY)
+        let invHalf = CIVector(x: 1 / field.halfWidth, y: 1 / field.halfHeight)
+        let profile = CIVector(x: k.lower, y: k.upper, z: k.exponent, w: k.weight)
+        let control = CIVector(x: k.amount, y: k.style.code,
+                               z: DetailEngine.vignetteLuminanceFloor)
         let weights = RGBColorSpace.rec2020.luminanceWeights
-        let threshold = 0.18 * pow(2.0, 5.0) / 2.0
+        let tone = CIVector(x: k.threshold, y: k.protection, z: k.highlights,
+                            w: k.log2MidGrey)
+        let knee = CIVector(x: k.kneeLow, y: k.kneeHigh, z: k.liftRolloff, w: k.liftFloor)
+        let paint = CIVector(x: k.log2Black, y: k.burnSpanInverse, z: k.log2White,
+                             w: k.liftSpanInverse)
+        let chroma = CIVector(x: k.burnChroma, y: k.liftChroma, z: k.shoulderLow,
+                              w: k.shoulderHigh)
+        func row(_ m: Mat3, _ i: Int) -> CIVector {
+            CIVector(x: m.m[i][0], y: m.m[i][1], z: m.m[i][2])
+        }
+        let toLMS = DetailEngine.vignetteColourRGBToLMS
+        let toRGB = DetailEngine.vignetteColourLMSToRGB
+        let lightness = DetailEngine.vignetteColourLightnessRow
+        // Rendered over the FULL extent — the crop only defines the field. Cropping the
+        // output here would throw away the pixels applyGeometry is about to select.
         // The burn's exponent is dithered by half an fp16 quantum of the encoded
         // plane (see the kernel's comment — this is the banding-at-−3 fix, docs/31
         // round two §7). The plate is the export dither's own Bayer cell, tiled.
@@ -1739,13 +1729,16 @@ public struct RenderGraph {
         let plate = PipelineRenderer.ditherPlate(extent: full)
         let noise = plate ?? image
         let ditherEV = (plate == nil || !dithered) ? 0.0 : Self.encodedFP16QuantumEV
-        return KernelLibrary.apply(KernelLibrary.vignette, extent: full,
-                                   [image, noise, centre, inv, axisX, axisY,
-                                    Float(ev), Float(feather),
-                                    CIVector(x: weights.r, y: weights.g, z: weights.b),
-                                    Float(threshold),
-                                    Float(DetailEngine.vignetteHighlightProtection),
-                                    Float(ditherEV)])
+        let arguments: [Any] = [
+            image, noise, centre, invHalf, axisX, axisY, profile, control,
+            CIVector(x: weights.r, y: weights.g, z: weights.b),
+            tone, knee, paint, chroma,
+            row(toLMS, 0), row(toLMS, 1), row(toLMS, 2),
+            CIVector(x: lightness.r, y: lightness.g, z: lightness.b),
+            row(toRGB, 0), row(toRGB, 1), row(toRGB, 2),
+            Float(ditherEV),
+        ]
+        return KernelLibrary.apply(KernelLibrary.vignette, extent: full, arguments)
             ?? image
     }
 

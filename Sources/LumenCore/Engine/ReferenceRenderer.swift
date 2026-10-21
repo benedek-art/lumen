@@ -130,8 +130,8 @@ public enum ReferenceRenderer {
         // Feather rides the plan with the EV (docs/32 Stream E item 4); at the
         // default it reproduces the fixed geometry bit-for-bit.
         if plan.vignetteEV != 0 {
-            image = DetailEngine.vignette(image, ev: plan.vignetteEV,
-                                          feather: plan.vignetteFeather)
+            image = DetailEngine.vignette(image, plan.vignette,
+                                          geometry: plan.recipe.develop.geometry)
         }
         // Halation was in the GPU graph and MISSING here, so the Halation slider did
         // nothing on the reference path — every headless render, every machine whose

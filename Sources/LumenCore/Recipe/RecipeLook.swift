@@ -25,6 +25,22 @@ public struct Look: Codable, Equatable, Sendable {
     /// (`DetailEngine.vignetteInnerRadius(feather:)` holds the mapping, and
     /// `VignetteFeatherTests` pins the identity).
     public var vignetteFeather: Double
+    /// Vignette midpoint, 0…100 (Lightroom's Midpoint): where the burn's 50 % contour
+    /// sits, from about the middle third of the frame (0) to the corners (100). The
+    /// default 50 is the radius every recipe written before the field rendered with
+    /// (`DetailEngine.vignetteCentre(midpoint:)`).
+    public var vignetteMidpoint: Double
+    /// Vignette roundness, −100…+100 (Lightroom's Roundness): −100 a rounded rectangle
+    /// that follows the crop's edges, 0 the crop-aspect ellipse every older recipe
+    /// rendered with, +100 a circle (`DetailEngine.vignetteShape`).
+    public var vignetteRoundness: Double
+    /// Vignette highlights, 0…100 (Lightroom's Highlights): how much bright areas are
+    /// held back from a NEGATIVE Amount in Highlight and Color Priority. 0 is the
+    /// historical behaviour exactly (`DetailEngine.vignetteProtection`).
+    public var vignetteHighlights: Double
+    /// Highlight Priority (the default and the historical behaviour), Color Priority or
+    /// Paint Overlay. Lands whole when a look is applied at any Amount, like a stock name.
+    public var vignetteStyle: VignetteStyle
     /// Creative grain — the grain stage for a photograph carrying no film stock. It is
     /// in `look` and not in `develop` because it is an expression of intent about a set
     /// of frames rather than a fact about this one, which is the D4 test and the reason
@@ -56,6 +72,12 @@ public struct Look: Codable, Equatable, Sendable {
     /// rendered with. Named once, here, because the decoder, the panel's default, the
     /// section's Reset and the engine's constant fallback all have to agree on it.
     public static let vignetteFeatherDefault: Double = 50
+    /// The midpoint, roundness and highlights that reproduce the vignette every recipe
+    /// rendered before the fields existed — named for the same four readers the feather's
+    /// default has.
+    public static let vignetteMidpointDefault: Double = 50
+    public static let vignetteRoundnessDefault: Double = 0
+    public static let vignetteHighlightsDefault: Double = 0
 
     public init(wheels: GradingWheels = GradingWheels(),
                 printerLights: PrinterLights = PrinterLights(),
@@ -64,6 +86,10 @@ public struct Look: Codable, Equatable, Sendable {
                 bw: BlackAndWhite? = nil,
                 vignette: Double = 0,
                 vignetteFeather: Double = Look.vignetteFeatherDefault,
+                vignetteMidpoint: Double = Look.vignetteMidpointDefault,
+                vignetteRoundness: Double = Look.vignetteRoundnessDefault,
+                vignetteHighlights: Double = Look.vignetteHighlightsDefault,
+                vignetteStyle: VignetteStyle = .highlightPriority,
                 grain: CreativeGrain? = nil,
                 render: RenderParams = RenderParams(),
                 lut: LUTReference? = nil) {
@@ -74,6 +100,10 @@ public struct Look: Codable, Equatable, Sendable {
         self.bw = bw
         self.vignette = vignette
         self.vignetteFeather = vignetteFeather
+        self.vignetteMidpoint = vignetteMidpoint
+        self.vignetteRoundness = vignetteRoundness
+        self.vignetteHighlights = vignetteHighlights
+        self.vignetteStyle = vignetteStyle
         self.grain = grain
         self.render = render
         self.lut = lut
@@ -89,6 +119,7 @@ public struct Look: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case wheels, printerLights, filmLab, primaries, bw, vignette, vignetteFeather,
+             vignetteMidpoint, vignetteRoundness, vignetteHighlights, vignetteStyle,
              grain, render, lut
     }
 
@@ -109,6 +140,19 @@ public struct Look: Codable, Equatable, Sendable {
         self.vignette = try c.decodeIfPresent(Double.self, forKey: .vignette) ?? 0
         self.vignetteFeather = try c.decodeIfPresent(Double.self, forKey: .vignetteFeather)
             ?? Look.vignetteFeatherDefault
+        // The other three shape controls and the style, absent from every sidecar
+        // written before WS-41, decode to the values that reproduce yesterday's pixels.
+        self.vignetteMidpoint = try c.decodeIfPresent(Double.self, forKey: .vignetteMidpoint)
+            ?? Look.vignetteMidpointDefault
+        self.vignetteRoundness = try c.decodeIfPresent(Double.self,
+                                                       forKey: .vignetteRoundness)
+            ?? Look.vignetteRoundnessDefault
+        self.vignetteHighlights = try c.decodeIfPresent(Double.self,
+                                                        forKey: .vignetteHighlights)
+            ?? Look.vignetteHighlightsDefault
+        self.vignetteStyle = try c.decodeIfPresent(VignetteStyle.self,
+                                                   forKey: .vignetteStyle)
+            ?? .highlightPriority
         // Absent means no creative grain, so every sidecar written before this key
         // existed renders byte-identically. `CreativeGrain`'s own decoder is what makes
         // a PARTIAL block (a hand-edited `{"amount":40}`) land on the middle of the

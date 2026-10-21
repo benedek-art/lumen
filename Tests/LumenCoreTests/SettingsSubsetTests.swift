@@ -78,7 +78,9 @@ final class SettingsSubsetTests: XCTestCase {
     func testTheGroupTableCoversTheRecipeAsItIsToday() {
         XCTAssertEqual(Mirror(reflecting: Develop()).children.count, 11,
                        "Develop grew a field: give it a SettingsGroup")
-        XCTAssertEqual(Mirror(reflecting: Look()).children.count, 10,
+        // 10 → 14: WS-41's vignette midpoint, roundness, highlights and style, all in
+        // `.effects` with the vignette they shape.
+        XCTAssertEqual(Mirror(reflecting: Look()).children.count, 14,
                        "Look grew a field: give it a SettingsGroup")
         // The three structs the table splits field by field rather than whole.
         XCTAssertEqual(Mirror(reflecting: RawParams()).children.count, 4,

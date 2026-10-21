@@ -236,8 +236,14 @@ final class VignetteResponseTests: XCTestCase {
     }
 
     /// The corner receives exactly the stated EV, at both ends of the widened range and
-    /// at every feather. This is the "does it reach its stated extremes" question, and
-    /// the answer is yes to four decimal places.
+    /// at every feather whose profile ends inside the corner. This is the "does it reach
+    /// its stated extremes" question, and the answer is yes to four decimal places.
+    ///
+    /// RESTRICTED BY WS-41 (SPEC lines 10 and 26) to feathers with c + s/2 ≤ 1 — 0, 25
+    /// and 50 at the default midpoint. Feather is a width about a fixed midpoint now,
+    /// and beyond the corner the profile is deliberately not renormalised (that would
+    /// move the midpoint with feather again), so feather 75 and 100 give the corner
+    /// frac(1) of the Amount — 0.97 and 0.91 — which `VignetteGeometryTests` pins.
     ///
     /// Measured on the SCENE-referred stage rather than through the display transform,
     /// because the claim the panel makes is about stops of scene light — the corner at
@@ -251,7 +257,7 @@ final class VignetteResponseTests: XCTestCase {
         // half-pixel of radius is four times as much of the falloff's own travel; a
         // small frame reports 2% there and says nothing about the engine.
         let frame = flat(301, 201)
-        for feather in [0.0, 25.0, 50.0, 75.0, 100.0] {
+        for feather in [0.0, 25.0, 50.0] {
             for ev in [DetailEngine.vignetteAmountRange.lowerBound, -2.0, -0.5, 1.0,
                        DetailEngine.vignetteAmountRange.upperBound] {
                 let out = DetailEngine.vignette(frame, ev: ev, feather: feather)
@@ -297,20 +303,29 @@ final class VignetteResponseTests: XCTestCase {
 
     // MARK: - The falloff, which is what is genuinely soft at both ends
 
-    /// The measured shape of the falloff over a 3:2 frame, at every feather. These are
-    /// the numbers the Amount and Feather tooltips now quote, and the tooltips are wrong
-    /// the moment this test is.
+    /// The measured shape of the falloff over a 3:2 frame, at every feather.
+    ///
+    /// RE-PINNED BY WS-41 (SPEC line 26) to the new profile, `smoothstep(c − s/2,
+    /// c + s/2, ρ)` with the midpoint fixed at its default. The old table moved the
+    /// frame mean twelvefold across feather (0.041 → 0.557) because feather moved the
+    /// 50 % contour; with the contour fixed the mean moves only 0.26 → 0.33, and what
+    /// changes is how hard the edge is — the share of the frame at ≥ 90 % and ≤ 10 % of Amount
+    /// converges on the two sides of a fixed line as feather falls.
     func testTheFalloffStatisticsTheTooltipsQuote() {
         let expected: [(feather: Double, mean: Double, hi: Double, lo: Double)] = [
-            (0, 0.0407, 0.49, 91.03),
-            (25, 0.1437, 1.51, 66.00),
+            (0, 0.2576, 25.76, 74.24),
+            (25, 0.2840, 4.79, 43.24),
             (50, 0.2916, 3.15, 38.81),
-            (75, 0.4350, 5.44, 18.88),
-            (100, 0.5565, 8.47, 6.01),
+            (75, 0.3088, 0.87, 30.47),
+            (100, 0.3263, 0.01, 23.05),
         ]
         for e in expected {
-            let s = Self.falloffStatistics(
-                inner: DetailEngine.vignetteInnerRadius(feather: e.feather))
+            let edges = DetailEngine.vignetteEdges(
+                midpoint: Look.vignetteMidpointDefault, feather: e.feather,
+                pixelHalfDiagonal: .infinity)
+            let s = Self.falloffStatistics(lower: edges.lower, upper: edges.upper)
+            print(String(format: "VIGNETTE falloff feather %.0f mean %.4f hi %.2f lo %.2f",
+                         e.feather, s.mean, s.percentAtLeast90, s.percentAtMost10))
             XCTAssertEqual(s.mean, e.mean, accuracy: 0.002,
                            "frame-mean falloff at feather \(e.feather)")
             XCTAssertEqual(s.percentAtLeast90, e.hi, accuracy: 0.2,
@@ -320,71 +335,62 @@ final class VignetteResponseTests: XCTestCase {
                            "share of the frame at 10% or less of Amount, feather "
                                + "\(e.feather)")
         }
-        // The headline: at the DEFAULT feather the stated Amount lands on 3.15% of the
-        // picture, 38.81% of it gets a tenth or less, and the frame mean is 0.2916 — so
-        // "−3.00 EV" darkens the photograph by a mean of 0.87 EV. The Amount row's help
-        // now says the number is a corner number, and the Feather row's says what
-        // fraction of it the frame receives, because of these three numbers.
+        // The default is the historical shape exactly, so its headline is unchanged:
+        // a frame mean of 0.2916, and "−3.00 EV" darkens the picture by 0.87 EV.
         let atDefault = Self.falloffStatistics(inner: DetailEngine.vignetteInnerRadius)
         XCTAssertEqual(atDefault.mean * 3.0, 0.875, accuracy: 0.01)
     }
 
-    /// The Feather row's tooltip states what fraction of Amount the frame receives at
-    /// 0, 50 and 100, and the test above says the tooltips are wrong the moment it is —
-    /// but it never read the tooltip. The feather-0 phrase said "a twelfth" (0.083)
-    /// while the measured mean is 0.0407, a 2.05x overstatement twenty lines under a
-    /// comment that had it right (W2/D2-04). So this reads the help string out of
-    /// `EffectsPanel.swift` (string bodies kept, comments blanked) and holds each quoted
-    /// fraction to the measurement within a quarter. Put "a twelfth" back and it fails.
+    /// The Feather row's tooltip says what the control does now, and no longer says
+    /// what it used to do.
+    ///
+    /// RE-PINNED BY WS-41 (SPEC line 26): the old tooltip quoted "how much of Amount
+    /// the frame actually receives: about a twenty-fifth of it at 0, a third at 50,
+    /// over half at 100", which was the measured truth while feather moved the 50 %
+    /// contour and is false now that it does not (the frame mean moves 0.26 → 0.33
+    /// across the whole travel, above). So this reads the help strings out of
+    /// `EffectsPanel.swift` (string bodies kept, comments blanked) and holds them to
+    /// the new behaviour: a hard edge at 0 that does not move, and no claim that
+    /// Feather is the strength control.
     func testTheFeatherTooltipQuotesTheMeasuredFractions() throws {
         let root = RawTruthProvenanceTests.repositoryRoot
         let code = RawTruthProvenanceTests.withoutComments(try String(
             contentsOf: root.appendingPathComponent("Sources/LumenApp/EffectsPanel.swift"),
             encoding: .utf8))
-        // The help is concatenated literals; join them so a phrase may span two.
         let literals = code.components(separatedBy: "\"")
             .enumerated().filter { $0.offset % 2 == 1 }.map(\.element).joined()
-        let sentence = try XCTUnwrap(
-            literals.range(of: "how much of Amount the frame actually receives: ")
-                .map { String(literals[$0.upperBound...].prefix { $0 != "." }) },
-            "the Feather tooltip no longer states the delivered fraction")
-        let words: [String: Double] = [
-            "a twelfth": 1.0 / 12, "a twentieth": 0.05, "a twenty-fifth": 0.04,
-            "a tenth": 0.1, "a quarter": 0.25, "a third": 1.0 / 3, "half": 0.5,
-            "over half": 0.55,
-        ]
-        func quoted(at feather: String) throws -> Double {
-            let marker = " of it at \(feather)"
-            let clause = try XCTUnwrap(sentence.components(separatedBy: ",")
-                .first { $0.contains("at \(feather)") }, "no clause for feather \(feather)")
-            let phrase = clause.replacingOccurrences(of: marker, with: "")
-                .replacingOccurrences(of: " at \(feather)", with: "")
-                .replacingOccurrences(of: "about ", with: "")
-                .trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
-            return try XCTUnwrap(words[phrase], "unrecognised fraction \"\(phrase)\"")
-        }
-        for (feather, label) in [(0.0, "0"), (50.0, "50"), (100.0, "100")] {
-            let measured = Self.falloffStatistics(
-                inner: DetailEngine.vignetteInnerRadius(feather: feather)).mean
-            let stated = try quoted(at: label)
-            XCTAssertEqual(stated / measured, 1, accuracy: 0.25,
-                           "the tooltip says \(stated) of Amount at feather \(label); "
-                               + "the frame receives \(measured)")
-        }
+        XCTAssertFalse(literals.contains("how much of Amount the frame actually receives"),
+                       "the Feather tooltip still quotes the old delivered fractions")
+        XCTAssertFalse(literals.contains("Feather's job"),
+                       "the Amount tooltip still calls Feather the strength control")
+        let feather = try XCTUnwrap(
+            literals.range(of: "How soft the vignette's edge is").map {
+                String(literals[$0.lowerBound...].prefix(200)) },
+            "the Feather tooltip no longer says what it does")
+        XCTAssertTrue(feather.contains("without moving"), feather)
+        XCTAssertTrue(feather.contains("hard edge"), feather)
+        // And the claim is true: feather 0 is a hard edge at the midpoint, not moved.
+        let hard = DetailEngine.vignetteEdges(midpoint: 50, feather: 0,
+                                              pixelHalfDiagonal: 500)
+        XCTAssertLessThan(hard.upper - hard.lower, 0.01)
+        XCTAssertEqual((hard.upper + hard.lower) / 2, 0.6875, accuracy: 1e-12)
     }
 
     /// Both ends of the falloff are flat, and here is how flat, because it is the thing
     /// the owner reported and it deserves a number rather than a shrug.
     ///
-    /// A Hermite has zero derivative at both edges by construction. The consequence at
-    /// the outer edge is the one that reads as a defect on a photograph: the outer tenth
-    /// of the radius — visually "the corners" — carries 6.9% of the burn at the default
-    /// feather and 2.8% at feather 100, so the corner region is a plateau and the burn
-    /// stops deepening exactly where a vignette should be deepest.
+    /// RE-PINNED BY WS-41 (SPEC line 26) per feather to the new profile. The outer
+    /// tenth of the radius now carries nothing at feather 0 (a hard edge at 0.6875 is
+    /// long past by r = 0.9), the same 6.86 % at the default, and 20 % at feather 100,
+    /// where the transition runs past the corner instead of flattening into it.
     func testBothEndsOfTheFalloffAreFlatAndThisIsByHowMuch() {
-        for (feather, share) in [(0.0, 0.3520), (50.0, 0.0686), (100.0, 0.0280)] {
-            let inner = DetailEngine.vignetteInnerRadius(feather: feather)
-            let outerTenth = 1 - DetailEngine.vignetteFalloff(radius: 0.9, inner: inner)
+        for (feather, share) in [(0.0, 0.0), (50.0, 0.0686), (100.0, 0.2003)] {
+            let edges = DetailEngine.vignetteEdges(
+                midpoint: Look.vignetteMidpointDefault, feather: feather,
+                pixelHalfDiagonal: .infinity)
+            let outerTenth = 1 - DetailEngine.vignetteProfile(radius: 0.9,
+                                                              lower: edges.lower,
+                                                              upper: edges.upper)
             XCTAssertEqual(outerTenth, share, accuracy: 0.002,
                            "the outer tenth of the radius carries \(outerTenth) of the "
                                + "burn at feather \(feather)")
@@ -449,27 +455,60 @@ final class VignetteResponseTests: XCTestCase {
         let shape: (Double) -> Double
     }
 
-    /// Feather is the strength control and Amount is its ceiling — a twelvefold range in
-    /// the delivered picture at one Amount. Stated as a test because the Feather
-    /// tooltip now says it, and because it is the single most surprising fact about this
-    /// pair of sliders.
-    func testFeatherMovesTheDeliveredStrengthTwelvefold() {
-        let frame = flat()
-        let plain = ReferenceRenderer.render(frame, plan: RenderPlan(recipe: Recipe()))
-        var values: [Double] = []
-        for feather in [0.0, 25.0, 50.0, 75.0, 100.0] {
-            values.append(delivered(-3, feather: feather, frame: frame, plain: plain))
+    /// Feather keeps the 50 % contour where Midpoint put it and sets only the width.
+    ///
+    /// REPLACES `testFeatherMovesTheDeliveredStrengthTwelvefold` (WS-41 SPEC lines 7, 8
+    /// and 26): that test pinned feather as the strength control — a twelvefold spread
+    /// of delivered vignette at one Amount — which was the coupling of size and softness
+    /// the audit found (F1). Measured on the rendered reference along the diagonal, as
+    /// `scripts/proof/ws41/profile.py` does: r50 moves under 0.02 across the whole
+    /// feather travel, and the 10–90 % width rises at every step, from about two pixels
+    /// at 0 to at least the old widest (0.60) at 100.
+    func testFeatherKeepsTheMidpointAndSetsTheWidth() {
+        let frame = flat(301, 201)
+        var r50s: [Double] = []
+        var widths: [Double] = []
+        for feather in stride(from: 0.0, through: 100.0, by: 10.0) {
+            let out = DetailEngine.vignette(frame, ev: -2, feather: feather)
+            // The fraction of Amount along the centre→corner diagonal, by bisection on
+            // the analytic profile the render is checked against at its pixels.
+            let field = VignetteField(sourceWidth: 301, sourceHeight: 201)
+            let edges = DetailEngine.vignetteEdges(
+                midpoint: Look.vignetteMidpointDefault, feather: feather,
+                pixelHalfDiagonal: field.pixelHalfDiagonal)
+            for (x, y) in [(0, 0), (40, 30), (100, 70)] {
+                let p = field.uv(column: x, row: y)
+                let r = DetailEngine.vignetteRadius(u: p.u, v: p.v, exponent: 2, weight: 1)
+                let f = DetailEngine.vignetteProfile(radius: r, lower: edges.lower,
+                                                     upper: edges.upper)
+                XCTAssertEqual(log2(Double(out[x, y].g) / Double(frame[x, y].g)), -2 * f,
+                               accuracy: 1e-5, "render ≠ profile at feather \(feather)")
+            }
+            func radius(at level: Double) -> Double {
+                var lo = 0.0, hi = 1.0
+                for _ in 0..<60 {
+                    let mid = (lo + hi) / 2
+                    if DetailEngine.vignetteProfile(radius: mid, lower: edges.lower,
+                                                    upper: edges.upper) < level {
+                        lo = mid
+                    } else { hi = mid }
+                }
+                return (lo + hi) / 2
+            }
+            r50s.append(radius(at: 0.5))
+            widths.append(radius(at: 0.9) - radius(at: 0.1))
         }
-        print("VIGNETTE delivered at −3 EV by feather: "
-              + values.map { String(format: "%.4f", $0) }.joined(separator: ", "))
-        for (a, b) in zip(values, values.dropFirst()) {
-            XCTAssertGreaterThan(b, a, "more feather must deliver more vignette")
+        print("VIGNETTE feather r50 " + r50s.map { String(format: "%.4f", $0) }
+              .joined(separator: " ") + " | w " + widths.map { String(format: "%.4f", $0) }
+              .joined(separator: " "))
+        XCTAssertLessThanOrEqual(r50s.max()! - r50s.min()!, 0.02,
+                                 "feather moved the 50 % contour")
+        XCTAssertEqual(widths[5], 0.3803, accuracy: 0.006, "the default width moved")
+        XCTAssertGreaterThanOrEqual(widths[10], 0.60, "feather 100 narrower than before")
+        for i in 2..<widths.count {
+            XCTAssertGreaterThanOrEqual(widths[i] - widths[i - 1], 0.02,
+                                        "feather \((i - 1) * 10)→\(i * 10) adds too little")
         }
-        let ratio = values[4] / values[0]
-        XCTAssertGreaterThan(ratio, 8,
-                             "feather 100 delivers \(ratio)× what feather 0 does; the "
-                                 + "Feather tooltip quotes a twelvefold spread and is "
-                                 + "wrong if this drops much below it")
     }
 
     // MARK: - Frame statistics
@@ -478,6 +517,29 @@ final class VignetteResponseTests: XCTestCase {
         let mean: Double
         let percentAtLeast90: Double
         let percentAtMost10: Double
+    }
+
+    /// The new profile, `smoothstep(lower, upper, ρ)`, over the same 3:2 frame.
+    private static func falloffStatistics(lower: Double, upper: Double) -> FalloffStatistics {
+        let w = 300, h = 200
+        let halfW = Double(w) * 0.5, halfH = Double(h) * 0.5
+        var sum = 0.0
+        var hi = 0, lo = 0
+        for y in 0..<h {
+            let v = (Double(y) + 0.5 - halfH) / halfH
+            for x in 0..<w {
+                let u = (Double(x) + 0.5 - halfW) / halfW
+                let r = DetailEngine.vignetteRadius(u: u, v: v, exponent: 2, weight: 1)
+                let value = DetailEngine.vignetteProfile(radius: r, lower: lower, upper: upper)
+                sum += value
+                if value >= 0.9 { hi += 1 }
+                if value <= 0.1 { lo += 1 }
+            }
+        }
+        let n = Double(w * h)
+        return FalloffStatistics(mean: sum / n,
+                                 percentAtLeast90: 100 * Double(hi) / n,
+                                 percentAtMost10: 100 * Double(lo) / n)
     }
 
     /// The falloff over a 3:2 frame, for an arbitrary shape on [inner, 1]. Written once

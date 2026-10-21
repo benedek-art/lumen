@@ -863,6 +863,14 @@ public enum KernelLibrary {
         """
     }()
 
+    /// WS-41: the post-crop vignette's six controls, line for line with
+    /// `DetailEngine.vignette` — ρ is `DetailEngine.vignetteRadius` (`profile.zw` are
+    /// its exponent and v-weight), the falloff is `vignetteProfile` (`profile.xy` its
+    /// edges), the three branches below are `vignetteStops`' three cases (`control.y`
+    /// is `VignetteStyle.code`), and the Color Priority block is `vignetteChromaScale`
+    /// then `vignetteHoldColour` (the OKLab matrices arrive as rows). Every uniform is
+    /// `DetailEngine.vignetteUniforms`' (see `RenderGraph.applyVignette`).
+    ///
     /// Vignette as an EV multiply in scene-linear (docs/14 §2.1.11: the lens vignettes
     /// the light before it reaches the film, so this belongs upstream of the curve and
     /// gets highlight-priority behaviour free from the transform's shoulder).
@@ -894,20 +902,57 @@ public enum KernelLibrary {
     /// left.
     static let vignetteSource = """
     kernel vec4 lumenVignette(__sample image, __sample noise, vec2 centre,
-                              vec2 invRadius, vec3 axisX, vec3 axisY,
-                              float ev, float feather,
-                              vec3 lumaWeights, float threshold,
-                              float protection, float ditherEV) {
+                              vec2 invHalf, vec3 axisX, vec3 axisY,
+                              vec4 profile, vec3 control, vec3 lumaWeights,
+                              vec4 tone, vec4 knee, vec4 paint, vec4 chroma,
+                              vec3 lms0, vec3 lms1, vec3 lms2, vec3 lightRow,
+                              vec3 rgb0, vec3 rgb1, vec3 rgb2, float ditherEV) {
         vec3 sourcePoint = vec3(destCoord(), 1.0);
         vec2 oriented = vec2(dot(axisX, sourcePoint), dot(axisY, sourcePoint));
-        vec2 d = (oriented - centre) * invRadius;
-        float r = length(d);
-        float t = smoothstep(1.0 - feather, 1.0, r);
+        vec2 uv = abs((oriented - centre) * invHalf);
+        vec2 q = pow(uv, vec2(profile.z));
+        float rho = pow((q.x + profile.w * q.y) / (1.0 + profile.w), 1.0 / profile.z);
+        float t = smoothstep(profile.x, profile.y, rho);
+        float ev = control.x;
         float lum = dot(image.rgb, lumaWeights);
-        float protect = protection * smoothstep(threshold, threshold * 2.0, lum);
+        float l2 = log2(max(lum, control.z));
+        float stops;
+        if (control.y > 1.5) {
+            float cover = (ev < 0.0) ? max(l2 - paint.x, 0.0) * paint.y
+                                     : max(paint.z - l2, 0.0) * paint.w;
+            stops = ev * t * cover;
+        } else if (control.y > 0.5 && ev > 0.0) {
+            float lift = 1.0 - (1.0 - knee.w) * smoothstep(tone.w, tone.w + knee.z, l2);
+            stops = ev * t * lift;
+        } else {
+            float protect = tone.y * smoothstep(tone.x, tone.x * 2.0, lum);
+            if (ev < 0.0 && tone.z > 0.0) {
+                float held = tone.z * smoothstep(knee.x, knee.y, l2);
+                protect = protect + held * (1.0 - protect);
+            }
+            stops = ev * t * (1.0 - protect);
+        }
         float dith = noise.r * ditherEV * step(1e-6, t);
-        float gain = exp2(ev * t * (1.0 - protect) + dith);
-        return vec4(image.rgb * gain, image.a);
+        float gain = exp2(stops + dith);
+        vec3 rgb = image.rgb;
+        if (control.y > 0.5 && control.y < 1.5 && abs(stops) > 0.0) {
+            float phi;
+            if (ev < 0.0) {
+                phi = exp2(stops * chroma.x);
+            } else {
+                float lifted = log2(max(lum * exp2(stops), control.z));
+                phi = 1.0 + (exp2(stops * chroma.y) - 1.0)
+                    * smoothstep(chroma.z, chroma.w, lifted);
+            }
+            vec3 lms = vec3(dot(lms0, rgb), dot(lms1, rgb), dot(lms2, rgb));
+            vec3 n = sign(lms) * pow(abs(lms), vec3(1.0 / 3.0));
+            float light = dot(lightRow, n);
+            vec3 m = vec3(light) + phi * (n - vec3(light));
+            vec3 cube = m * m * m;
+            vec3 kept = vec3(dot(rgb0, cube), dot(rgb1, cube), dot(rgb2, cube));
+            rgb = max(kept, min(rgb, vec3(0.0)));
+        }
+        return vec4(rgb * gain, image.a);
     }
     """
 

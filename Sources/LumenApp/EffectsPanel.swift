@@ -6,8 +6,9 @@
 // Two things this panel makes visible that most editors hide:
 //   · The vignette is denominated in EV. A −0.7 EV edge burn means the same thing on
 //     every exposure, and because the display transform is hue-preserving, darkened
-//     corners do not colour-shift — so there is no "Highlight Priority / Colour
-//     Priority" dropdown to explain. Position in the pipeline does that work.
+//     corners do not colour-shift. The Style menu (WS-41) adds Lightroom's Color
+//     Priority — colour held through the display transform's toe and shoulder — and
+//     Paint Overlay; Highlight Priority is what position in the pipeline always gave.
 //   · Geometry runs last, so a crop re-runs one warp of an already-rendered buffer
 //     rather than the pipeline. Crop, straighten, perspective and lens distortion
 //     compose into a single resample.
@@ -118,69 +119,110 @@ struct EffectsPanel: View {
                        onReset: { binder.edit("look.vignette.reset") {
                            $0.look.vignette = 0
                            $0.look.vignetteFeather = Look.vignetteFeatherDefault
+                           $0.look.vignetteMidpoint = Look.vignetteMidpointDefault
+                           $0.look.vignetteRoundness = Look.vignetteRoundnessDefault
+                           $0.look.vignetteHighlights = Look.vignetteHighlightsDefault
+                           $0.look.vignetteStyle = .highlightPriority
                        } }) {
             VStack(alignment: .leading, spacing: Lumen.rowGap) {
+                // Lightroom's order (WS-41): Style, Amount, Midpoint, Roundness, Feather,
+                // Highlights. A menu rather than a segmented control, the Soft Proof
+                // Destination pattern: three two-word names do not fit a segment each.
+                LumenMenuPicker(title: "Style",
+                                options: vignetteStyleOptions,
+                                selection: binder.choice(\.look.vignetteStyle,
+                                                         "look.vignetteStyle"),
+                                help: "Highlight Priority burns like exposure and can "
+                                    + "hold bright areas back; Color Priority keeps the "
+                                    + "corners' colour, and lifts them without going "
+                                    + "pastel; Paint Overlay covers them with flat black "
+                                    + "or white paint")
+                    .help("Highlight Priority burns like exposure and can hold bright "
+                          + "areas back; Color Priority keeps the corners' colour, and "
+                          + "lifts them without going pastel; Paint Overlay covers them "
+                          + "with flat black or white paint")
                 // The range is the ENGINE's, read rather than restated: it moved from
                 // −3…+1 to −4…+2 and a slider carrying its own copy of a bound is how a
                 // control ends up refusing to reach a value the renderer accepts. The
-                // measurement behind the move is on `DetailEngine.vignetteAmountRange`;
-                // the short version is that at −3 the control was still delivering 73%
-                // of its rate at zero and at +1 it was delivering 81%, so both ends were
-                // stops rather than limits — the owner's "a little bit soft at both
-                // ends", which was never about the mapping.
+                // measurement behind the move is on `DetailEngine.vignetteAmountRange`.
                 LumenSlider(title: "Amount",
                             value: binder.value(\.look.vignette, "look.vignette"),
                             range: DetailEngine.vignetteAmountRange, hardRange: nil,
                             defaultValue: 0,
                             step: 0.01, decimals: 2,
-                            // Second sentence is the honest one and it is new. The
-                            // number is a CORNER number: r = 1 is the four corner
-                            // points, and the frame receives a fraction of the stated
-                            // EV set by Feather — measured over a 3:2 frame, 0.04 of it
-                            // at Feather 0, 0.29 at 50, 0.56 at 100. A photographer
-                            // reading "−3.00 EV" and seeing a mean of 0.87 EV of
-                            // darkening is entitled to know which of the two the slider
-                            // is promising.
                             help: "Darkens the corners below zero and lifts them "
-                                + "above, in stops AT THE CORNER — applied on "
-                                + "scene-linear data before the display transform, "
-                                + "so a burn keeps its colour and bright speculars "
-                                + "punch through. How much of that reaches the rest "
-                                + "of the frame is Feather's job below.")
-                // Reads the engine's own geometry (docs/32 Stream E item 4): the
-                // renderers derive the falloff's start from this via
-                // `DetailEngine.vignetteInnerRadius(feather:)`, and 50 is the fixed
-                // shape every recipe rendered with before the field existed.
+                                + "above, in stops AT THE CROP'S CORNER — applied on "
+                                + "scene-linear data before the display transform. "
+                                + "Midpoint, Roundness and Feather below decide how "
+                                + "much of it the rest of the frame receives.")
+                // Each shape control reads its engine mapping rather than restating
+                // it: `DetailEngine.vignetteCentre(midpoint:)`, `vignetteShape` and
+                // `vignetteWidth`. Their defaults are the vignette every recipe
+                // rendered before the fields existed.
+                LumenSlider(title: "Midpoint",
+                            value: binder.value(\.look.vignetteMidpoint,
+                                                "look.vignetteMidpoint"),
+                            range: 0...100, hardRange: nil,
+                            defaultValue: Look.vignetteMidpointDefault,
+                            step: 1, decimals: 0, bipolar: false,
+                            help: "Where the vignette reaches half its Amount — low "
+                                + "values draw it in toward the middle of the frame, "
+                                + "high values keep it in the corners. It changes "
+                                + "nothing at Amount 0.")
+                LumenSlider(title: "Roundness",
+                            value: binder.value(\.look.vignetteRoundness,
+                                                "look.vignetteRoundness"),
+                            range: -100...100, hardRange: nil,
+                            defaultValue: Look.vignetteRoundnessDefault,
+                            step: 1, decimals: 0, bipolar: true,
+                            help: "The vignette's shape — −100 a rounded rectangle "
+                                + "that follows the crop's edges, 0 an ellipse with "
+                                + "the crop's proportions, +100 a circle. It changes "
+                                + "nothing at Amount 0.")
                 LumenSlider(title: "Feather",
                             value: binder.value(\.look.vignetteFeather,
                                                 "look.vignetteFeather"),
                             range: 0...100, hardRange: nil,
                             defaultValue: Look.vignetteFeatherDefault,
                             step: 1, decimals: 0, bipolar: false,
-                            // "How much of Amount the frame gets" is the sentence this
-                            // row was missing, and it is the one that makes the pair
-                            // usable: measured over a 3:2 frame the mean falloff is
-                            // 0.04 at Feather 0, 0.29 at the default 50 and 0.56 at
-                            // 100, so this control moves the delivered strength by
-                            // twelve times while Amount is the one that reads like the
-                            // strength. Saying so costs a clause.
-                            help: "How gradually the burn arrives — 0 keeps it a "
-                                + "tight ring near the corners, 100 lets it fall off "
-                                + "across the whole frame from the centre. It is also "
-                                + "how much of Amount the frame actually receives: "
-                                + "about a twenty-fifth of it at 0, a third at 50, "
-                                + "over half at 100. It shapes the Amount above, so it "
-                                + "changes nothing at Amount 0.")
+                            help: "How soft the vignette's edge is, without moving "
+                                + "it — 0 is a hard edge at the Midpoint, 100 a "
+                                + "gradual fall-off. With a high Midpoint and Feather "
+                                + "the corner itself receives a little over half of "
+                                + "Amount. It changes nothing at Amount 0.")
+                LumenSlider(title: "Highlights",
+                            value: binder.value(\.look.vignetteHighlights,
+                                                "look.vignetteHighlights"),
+                            range: 0...100, hardRange: nil,
+                            defaultValue: Look.vignetteHighlightsDefault,
+                            step: 1, decimals: 0, bipolar: false,
+                            help: "Holds bright areas — sky, snow, white walls — "
+                                + "back from the burn so they stay bright while the "
+                                + "rest of the corner darkens. Acts only when Amount "
+                                + "is negative, and not in Paint Overlay.")
+                    .disabled(recipe.look.vignetteStyle == .paintOverlay)
             }
         }
     }
 
-    /// Feather counts while Amount is 0 — it renders nothing then, but the recipe
-    /// differs from its defaults and the header's Reset has to offer itself. Same rule
-    /// as `WorkspaceSection.nonDefault`'s `.effects` clause, and the two must agree.
+    /// The three styles, in Lightroom's order. No glyphs, for the reason the Soft Proof
+    /// destinations have none: a rendering style has no shape a 10-point icon can carry.
+    private var vignetteStyleOptions: [LumenMenuOption<VignetteStyle>] {
+        [LumenMenuOption(.highlightPriority, "Highlight Priority"),
+         LumenMenuOption(.colorPriority, "Color Priority"),
+         LumenMenuOption(.paintOverlay, "Paint Overlay")]
+    }
+
+    /// Every shape control counts while Amount is 0 — it renders nothing then, but the
+    /// recipe differs from its defaults and the header's Reset has to offer itself. Same
+    /// rule as `WorkspaceSection.nonDefault`'s `.effects` clause, and the two must agree.
     private var isVignetteModified: Bool {
         recipe.look.vignette != 0
             || recipe.look.vignetteFeather != Look.vignetteFeatherDefault
+            || recipe.look.vignetteMidpoint != Look.vignetteMidpointDefault
+            || recipe.look.vignetteRoundness != Look.vignetteRoundnessDefault
+            || recipe.look.vignetteHighlights != Look.vignetteHighlightsDefault
+            || recipe.look.vignetteStyle != .highlightPriority
     }
 
     // MARK: Grain

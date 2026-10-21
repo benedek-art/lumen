@@ -396,6 +396,12 @@ DEFAULT_RECIPE = {
         # the default is NOT zero, so an absent key keeps yesterday's pixels. Mirrors
         # Look.vignetteFeatherDefault.
         "vignetteFeather": 50,
+        # WS-41: the vignette's other shape controls and style, at the values that
+        # reproduce yesterday's pixels. Mirrors Look.vignette*Default.
+        "vignetteMidpoint": 50,
+        "vignetteRoundness": 0,
+        "vignetteHighlights": 0,
+        "vignetteStyle": "highlightPriority",
         "render": {"preset": "Neutral"},
     },
     "masks": [],

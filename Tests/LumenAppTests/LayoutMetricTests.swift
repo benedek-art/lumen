@@ -525,7 +525,7 @@ final class LayoutMetricTests: XCTestCase {
             (["Perceptual", "Relative"],
              PanelChain.Host.developTop.contentWidth(columnWidth: Lumen.minimumPanelWidth)
                 - Lumen.labelWidth - PanelChain.rowGap,
-             "EffectsPanel.swift:536 — proof intent"),
+             "EffectsPanel.swift:578 — proof intent"),
             (["Add", "Subtract", "Intersect"],
              PanelChain.Host.maskComponent.contentWidth(columnWidth: Lumen.minimumPanelWidth),
              "MaskPanel.swift:1147 — component operation"),

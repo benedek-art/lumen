@@ -16,7 +16,10 @@ final class RawDenoiseRecipeTests: XCTestCase {
     private static let defaultCanonical = #"{"pipelineVersion":2}"#
     private static let defaultFingerprint = "xxh64:fd50cceee634dfb4"
     private static let defaultDenoiseInput = "xxh64:d730b5c38ab52508"
-    private static let defaultFullTreeDigest = "68b478a3b73cfdea"
+    // WS-41: the full default tree gained `look.vignetteMidpoint/Roundness/Highlights/
+    // Style` at their defaults (the regenerated `default-recipe.json`); the sparse form
+    // and every fingerprint above are unchanged.
+    private static let defaultFullTreeDigest = "7e9e13d827ee6875"
     private static let editedCanonical =
         #"{"develop":{"denoise":{"amount":65,"mode":"ai","model":"nafnet/2.1"},"#
         + #""raw":{"temp":5600}},"pipelineVersion":2}"#

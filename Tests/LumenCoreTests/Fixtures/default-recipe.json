@@ -275,6 +275,10 @@
   },
   "vignette": 0,
   "vignetteFeather": 50,
+  "vignetteHighlights": 0,
+  "vignetteMidpoint": 50,
+  "vignetteRoundness": 0,
+  "vignetteStyle": "highlightPriority",
   "wheels": {
    "balance": 0,
    "blending": 50,

@@ -566,6 +566,10 @@ final class RecipeCodecToleranceTests: XCTestCase {
             bw: BlackAndWhite(bands: [1, 2, 3, 4, 5, 6, 7, 8], enabled: false),
             vignette: -0.75,
             vignetteFeather: 80,
+            vignetteMidpoint: 30,
+            vignetteRoundness: -40,
+            vignetteHighlights: 60,
+            vignetteStyle: .colorPriority,
             // Every field off its default, including the two that have a non-zero one:
             // a sample agreeing with a default cannot tell a decoder that read the key
             // from one that did not, which is this fixture's whole premise.

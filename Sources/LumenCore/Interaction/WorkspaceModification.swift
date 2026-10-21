@@ -142,6 +142,10 @@ extension WorkspaceSection {
         // out once `StrokeHeal` began rendering them, for the same reason: no `develop
         // .heal` field is an Effects edit any more.
         if look.vignette != 0 || look.vignetteFeather != Look.vignetteFeatherDefault
+            || look.vignetteMidpoint != Look.vignetteMidpointDefault
+            || look.vignetteRoundness != Look.vignetteRoundnessDefault
+            || look.vignetteHighlights != Look.vignetteHighlightsDefault
+            || look.vignetteStyle != .highlightPriority
             || grainIsModified {
             out.insert(.effects)
         }
@@ -263,6 +267,10 @@ extension WorkspaceSection {
         case .effects:
             recipe.look.vignette = 0
             recipe.look.vignetteFeather = Look.vignetteFeatherDefault
+            recipe.look.vignetteMidpoint = Look.vignetteMidpointDefault
+            recipe.look.vignetteRoundness = Look.vignetteRoundnessDefault
+            recipe.look.vignetteHighlights = Look.vignetteHighlightsDefault
+            recipe.look.vignetteStyle = .highlightPriority
             // Retouching — spots and painted heal strokes — survives an Effects reset;
             // see `nonDefault`.
             // The creative grain goes back to its own defaults — Amount 0, Size and

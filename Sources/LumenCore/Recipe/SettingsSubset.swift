@@ -166,6 +166,10 @@ extension Recipe {
             case .effects:
                 look.vignette = source.look.vignette
                 look.vignetteFeather = source.look.vignetteFeather
+                look.vignetteMidpoint = source.look.vignetteMidpoint
+                look.vignetteRoundness = source.look.vignetteRoundness
+                look.vignetteHighlights = source.look.vignetteHighlights
+                look.vignetteStyle = source.look.vignetteStyle
                 look.grain = source.look.grain
                 look.filmLab = source.look.filmLab
             case .masks, .spotRemoval:

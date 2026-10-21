@@ -50,6 +50,10 @@ final class SavedLookTests: XCTestCase {
             bw: BlackAndWhite(bands: [10, -20, 30, -40, 5, 15, -25, 35], enabled: false),
             vignette: -0.8,
             vignetteFeather: 72,
+            vignetteMidpoint: 64,
+            vignetteRoundness: -35,
+            vignetteHighlights: 45,
+            vignetteStyle: .paintOverlay,
             // The creative grain, set to something no default could be mistaken for.
             // It travels for the same reason the vignette does: it is an expression of
             // intent about a set of frames, and a saved look that dropped it would apply

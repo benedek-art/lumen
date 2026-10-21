@@ -154,7 +154,9 @@ public struct ControlIndex: Sendable {
 
         // Grade — Effects
         Control(id: "look.vignette", title: "Vignette", section: .effects,
-                aliases: ["vignetting", "corners", "edge darkening", "feather"]),
+                aliases: ["vignetting", "corners", "edge darkening", "feather", "midpoint",
+                          "roundness", "highlight priority", "color priority",
+                          "paint overlay"]),
         // `look.grain`, not `look.filmLab.grain`. The Effects section's Grain is the
         // CREATIVE grain now — Amount, Size, Roughness, on any photograph — and the
         // stock's two rows are the special case it stands aside for. The id is a recipe

@@ -81,6 +81,10 @@ final class ResetSemanticsTests: XCTestCase {
         recipe.look.printerLights = PrinterLights(master: 2, r: -1, g: 0, b: 3)
         recipe.look.vignette = -1.5
         recipe.look.vignetteFeather = 20
+        recipe.look.vignetteMidpoint = 70
+        recipe.look.vignetteRoundness = 45
+        recipe.look.vignetteHighlights = 80
+        recipe.look.vignetteStyle = .paintOverlay
         recipe.look.grain = CreativeGrain(amount: 40, size: 60, roughness: 70)
         recipe.look.render = RenderParams(preset: "Punchy", contrast: 1.4)
 

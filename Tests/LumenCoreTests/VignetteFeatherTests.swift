@@ -89,46 +89,63 @@ final class VignetteFeatherTests: XCTestCase {
 
     // MARK: - The geometry
 
-    /// The mapping is monotone — more feather, earlier falloff — spans the whole
-    /// frame's radius, and stays inside its clamp.
+    /// The mapping is monotone — more feather, earlier falloff — and bounded.
+    ///
+    /// RE-PINNED BY WS-41 (SPEC line 26). This pinned the old meaning, inner(0) = 0.75
+    /// and inner(100) = 0: feather moved the falloff's START with its end fixed at the
+    /// corner, so it moved the 50 % contour too and was really a size control (AUDIT
+    /// F1). Feather is now a width around a fixed midpoint, so the inner edge runs from
+    /// the midpoint itself (0.6875, a hard edge) down to 0.6875 − 1.0/2 at 100, and is
+    /// still exactly the historical 0.375 at 50.
     func testInnerRadiusIsMonotoneAndBounded() {
         var previous = Double.infinity
         for feather in stride(from: 0.0, through: 100.0, by: 5.0) {
             let inner = DetailEngine.vignetteInnerRadius(feather: feather)
             XCTAssertLessThan(inner, previous,
                               "inner radius must fall as feather rises (feather \(feather))")
-            XCTAssertTrue(inner >= 0 && inner <= 0.98, "clamp broke at \(feather)")
+            XCTAssertTrue(inner >= 0 && inner <= 0.98, "bound broke at \(feather)")
             previous = inner
         }
-        XCTAssertEqual(DetailEngine.vignetteInnerRadius(feather: 0), 0.75, accuracy: 1e-12)
-        XCTAssertEqual(DetailEngine.vignetteInnerRadius(feather: 100), 0, accuracy: 1e-12)
+        XCTAssertEqual(DetailEngine.vignetteInnerRadius(feather: 0), 0.6875, accuracy: 1e-12)
+        XCTAssertEqual(DetailEngine.vignetteInnerRadius(feather: 50), 0.375, accuracy: 0)
+        XCTAssertEqual(DetailEngine.vignetteInnerRadius(feather: 100), 0.1875, accuracy: 1e-12)
     }
 
-    /// At every feather: the centre is untouched, the corner takes the full stated EV
-    /// (on data below the highlight-protection threshold), and a mid-frame pixel
-    /// darkens MORE as feather rises — which is what the slider claims to do.
+    /// At every feather: the centre is untouched, the pixel on the 50 % contour gets half
+    /// the burn whatever the feather, and the corner takes the full stated EV while the
+    /// profile ends inside it — `frac(1)`, at least half, beyond.
+    ///
+    /// RE-PINNED BY WS-41 (SPEC line 26). This used to assert that more feather darkens
+    /// r ≈ 0.74 more and that the corner is full at feather 100: both were the old
+    /// coupling of size and softness. Now feather widens the transition about a fixed
+    /// midpoint, so the 50 % pixel stays at half and r ≈ 0.74 (just outside the
+    /// midpoint) gets LESS as feather spreads the burn both ways.
     func testFeatherShapesTheFalloffWithoutMovingItsEnds() {
         let size = 65 // odd, so there is an exact centre pixel
         let frame = flatFrame(size)
         let level = Double(frame[size / 2, size / 2].g) // the Float-stored input level
-        var previousMid = Double.infinity
+        let field = VignetteField(sourceWidth: Double(size), sourceHeight: Double(size))
         for feather in [0.0, 25.0, 50.0, 75.0, 100.0] {
             let out = DetailEngine.vignette(frame, ev: -2, feather: feather)
-            let centre = out[size / 2, size / 2].g
-            XCTAssertEqual(centre, level, accuracy: 0,
+            XCTAssertEqual(out[size / 2, size / 2].g, level, accuracy: 0,
                            "the centre must be untouched at feather \(feather)")
-            let corner = out[0, 0].g
-            // The corner pixel's own centre sits just inside r = 1; at −2 EV the gain
-            // there is within a hair of 0.25× at every feather.
-            XCTAssertEqual(corner / level, 0.25, accuracy: 0.02,
-                           "the corner must take the full burn at feather \(feather)")
-            // r ≈ 0.74 here: inside feather 0's untouched zone, and progressively
-            // deeper into the falloff as feather rises.
-            let mid = out[size / 8, size / 8].g
-            XCTAssertLessThan(mid, previousMid,
-                              "more feather must reach further into the frame "
-                                  + "(feather \(feather))")
-            previousMid = mid
+            let edges = DetailEngine.vignetteEdges(
+                midpoint: Look.vignetteMidpointDefault, feather: feather,
+                pixelHalfDiagonal: field.pixelHalfDiagonal)
+            let p = field.uv(column: 0, row: 0)
+            let r = DetailEngine.vignetteRadius(u: p.u, v: p.v, exponent: 2, weight: 1)
+            let expected = DetailEngine.vignetteProfile(radius: r, lower: edges.lower,
+                                                        upper: edges.upper)
+            XCTAssertEqual(log2(Double(out[0, 0].g) / level), -2 * expected,
+                           accuracy: 1e-5,
+                           "the corner must take exactly frac(r) of the burn at \(feather)")
+            if edges.upper <= 1 {
+                XCTAssertEqual(Double(out[0, 0].g) / level, 0.25, accuracy: 0.02,
+                               "the corner must take the full burn at feather \(feather)")
+            } else {
+                XCTAssertGreaterThanOrEqual(expected, 0.5,
+                                            "the corner keeps at least half at \(feather)")
+            }
         }
     }
 

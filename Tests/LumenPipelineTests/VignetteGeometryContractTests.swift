@@ -38,8 +38,13 @@ final class VignetteGeometryContractTests: XCTestCase {
                 let u = 2 * (Double(x) + 0.5 + readBounds.minX - extent.minX) / extent.width - 1
                 let v = 2 * (Double(y) + 0.5 + readBounds.minY - extent.minY) / extent.height - 1
                 let radius = sqrt((u * u + v * v) / 2)
-                let falloff = DetailEngine.vignetteFalloff(radius: radius,
-                    inner: DetailEngine.vignetteInnerRadius(feather: feather))
+                // WS-41: the shared profile, because feather 75 now means a width about
+                // the default midpoint rather than an earlier start (SPEC line 26).
+                let edges = DetailEngine.vignetteEdges(midpoint: Look.vignetteMidpointDefault,
+                                                       feather: feather,
+                                                       pixelHalfDiagonal: .infinity)
+                let falloff = DetailEngine.vignetteProfile(radius: radius, lower: edges.lower,
+                                                           upper: edges.upper)
                 let expected = RGB(gray: 0.18 * pow(2, ev * falloff))
                 worst = max(worst, pixels[x, y].maxAbsDifference(expected))
             }

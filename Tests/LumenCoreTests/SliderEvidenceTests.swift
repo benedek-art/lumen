@@ -80,6 +80,7 @@ final class SliderEvidenceTests: XCTestCase {
         "look.grain.reset": "section reset button",
         "look.lut.tap": "segmented picker — the LUT's declared space, display or log",
         "look.vignette.reset": "section reset button",
+        "look.vignetteStyle": "menu picker — Highlight Priority, Color Priority, Paint Overlay",
         "mask.name.*": "text field — the mask's name",
         "mask.wb.unit.*": "picker — relative or absolute white balance",
         "mixer.arc.*.*": "on-image drag — the mixer hue ring's band handles, not a slider",
@@ -245,8 +246,19 @@ final class SliderEvidenceTests: XCTestCase {
         "film.halationSize": .record(["film.halationSize"]),
         "film.halationRedness": .record(["film.halationRedness"]),
         "look.vignetteFeather": .contract(
-            "VignetteResponseTests.testFeatherMovesTheDeliveredStrengthTwelvefold — a "
+            "VignetteResponseTests.testFeatherKeepsTheMidpointAndSetsTheWidth — a "
                 + "contract, not a sweep: no authority floor and no monotonicity check."),
+        // WS-41's three new shape controls, pinned by contracts on the analytic profile
+        // and the reference render rather than by sweep records.
+        "look.vignetteMidpoint": .contract(
+            "VignetteGeometryTests.testMidpointSetsTheFiftyPercentRadius — r50 strictly "
+                + "increasing, 0.25 at 0, the historical 0.6875 at 50, 0.95 at 100."),
+        "look.vignetteRoundness": .contract(
+            "VignetteGeometryTests.testRoundnessShapesTheVignette — rounded rectangle, "
+                + "crop ellipse, circle; corner at 1 for every roundness."),
+        "look.vignetteHighlights": .contract(
+            "VignetteToneTests.testHighlightsHoldBrightAreasAndNeverInvertTone — monotone "
+                + "in Y and in Highlights, legacy at 0, gated to negative Amount."),
         // The creative LUT's Amount has no sweep record: a sweep needs a cube in the
         // proof frame's recipe, and the 135 committed records were left untouched on
         // purpose when the stage landed. What pins it is a contract on both renderers.

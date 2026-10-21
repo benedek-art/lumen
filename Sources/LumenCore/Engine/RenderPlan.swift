@@ -123,6 +123,9 @@ public struct RenderPlan: Sendable {
     /// the EV so both renderers read one resolved pair;
     /// `DetailEngine.vignetteInnerRadius(feather:)` turns it into geometry.
     public let vignetteFeather: Double
+    /// The whole vignette — Amount, Feather and WS-41's Midpoint, Roundness, Highlights
+    /// and Style — as the one value both renderers' S13 call lines pass on.
+    public let vignette: VignetteSettings
     /// The masks whose ADJUSTMENTS reach the picture: enabled, with their group's
     /// enable and Amount already folded in, so neither renderer has to know that
     /// folders exist.
@@ -493,6 +496,7 @@ public struct RenderPlan: Sendable {
         self.denoise = develop.denoise
         self.vignetteEV = look.vignette
         self.vignetteFeather = look.vignetteFeather
+        self.vignette = VignetteSettings(look: look)
         self.allMasks = recipe.masks
         self.masks = recipe.masks.compactMap { mask in
             let state = recipe.effective(mask)

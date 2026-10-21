@@ -279,6 +279,9 @@ public struct LookSubset: Codable, Equatable, Sendable {
                                                     toward: carried.primaries, t: t)
         out.vignette = Num.mix(own.vignette, carried.vignette, t)
         out.vignetteFeather = Num.mix(own.vignetteFeather, carried.vignetteFeather, t)
+        out.vignetteMidpoint = Num.mix(own.vignetteMidpoint, carried.vignetteMidpoint, t)
+        out.vignetteRoundness = Num.mix(own.vignetteRoundness, carried.vignetteRoundness, t)
+        out.vignetteHighlights = Num.mix(own.vignetteHighlights, carried.vignetteHighlights, t)
         out.filmLab = LookSubset.blendedFilm(from: own.filmLab, toward: carried.filmLab, t: t)
         out.bw = LookSubset.blendedTreatment(from: own.bw, toward: carried.bw, t: t)
         // Through `normalized` for the reason `CreativeGrain` states at length: nil has
