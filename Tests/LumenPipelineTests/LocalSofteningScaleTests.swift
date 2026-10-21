@@ -87,9 +87,11 @@ final class LocalSofteningScaleTests: XCTestCase {
         var gains: [Double] = []
         // Vary mask strength through sigma 1 on the same image. This exercises both
         // the exact small convolution and the established larger Gaussian path.
+        // −25, because the radius is 2.5·√t (`localSofteningRadius`): t = 0.25 is 1.25 px
+        // at 2560, so exactly sigma 1 at 2048 when strength is 100.
         for strength in [99.0, 99.9, 100, 100.1, 101] {
             var mask = Mask(id: "transition", amount: strength)
-            mask.adjust.sharpness = -50
+            mask.adjust.sharpness = -25
             let cpu = ReferenceRenderer.applyLocalAdjust(input, mask: mask,
                 plan: plan, space: .rec2020)
             let gpu = try XCTUnwrap(PipelineRenderer.buffer(from:

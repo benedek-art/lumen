@@ -71,10 +71,10 @@ with the minimum footprint and recorded here for acknowledgement.
 
 11. `ControlIndex` lists no mask controls; if search should reach mask rows, add Noise /
     Colour Noise alongside the others.
-12. **`Tests/LumenAppTests/LayoutMetricSupport.swift` needs two rows and six citations
-    moved**, or `LayoutMetricSelfTests.testEveryCitationInTheInventoryLandsOnTheRowItNames`
+12. **Done in this branch, please keep:** `Tests/LumenAppTests/LayoutMetricSupport.swift` got two rows
+    and six moved citations, without which `LayoutMetricSelfTests.testEveryCitationInTheInventoryLandsOnTheRowItNames`
     goes red on macOS. Generated with `scripts/recite-slider-inventory.py HEAD --write`
-    plus the two new rows; patch at `/tmp/claude-0/m8/build/layout-inventory.patch`:
+    plus the two new rows:
     ```
     SliderSpec("Noise", "MaskPanel.swift:2435", .developTop, 0...100, step: 1),
     SliderSpec("Colour Noise", "MaskPanel.swift:2439", .developTop, 0...100, step: 1),
@@ -82,10 +82,10 @@ with the minimum footprint and recorded here for acknowledgement.
     maskWheelBar "(MaskPanel.swift:3011)"→"(MaskPanel.swift:3030)"
     ```
     `callSiteCount` is unchanged (`adjustSlider` rows are not `LumenSlider(` sites).
-13. `Tests/LumenPipelineTests/LocalSofteningScaleTests.testZeroIsIdentityAndThe…`
+13. **Done in this branch:** `Tests/LumenPipelineTests/LocalSofteningScaleTests.testZeroIsIdentityAndThe…`
     sweeps Sharpness −50 at Amount 99…101 at 2048 px "through sigma 1". With the √t
     radius −50 sits at σ ≈ 1.41, so the sweep no longer crosses the 9-tap/CIGaussianBlur
-    boundary (it still passes). Sharpness −25 puts it back on σ = 1.0 exactly.
+    boundary (it still passed). Changed to −25, which is σ = 1.0 exactly.
 
 ## C3 (defringe), a global moiré engine, WS-40 (grain)
 
