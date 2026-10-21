@@ -36,29 +36,68 @@ public enum AppliedReadout {
     public struct ZoneFlattening: Equatable, Sendable {
         /// The engine's own report.
         public let flattening: ToneEngine.Flattening
-        /// Where the band sits on the normalized tonal axis — the strip's x axis,
-        /// `ToneEngine.normalizedAxis`, at the recipe's live anchors.
+        /// Where the band sits on the strip's x axis, `ToneEngine.zoneAxis` — the
+        /// default anchors, the axis the pivots are stored on, so Whites and Blacks do
+        /// not slide the mark off the tones it names.
         public let lowX: Double
         public let highX: Double
         /// The line under the strip.
         public let caption: String
     }
 
-    /// Nil while the Zones register renders exactly what it asks for.
+    /// Nil while the bake's clamp moves nothing.
     ///
-    /// No floor under the engine's report. Measured with Darks alone at the default
-    /// pivots, the clamp is idle through +1.25 EV and its first band (+1.5 EV) is
-    /// already 1.03 EV wide and 0.08 EV off — there is no stretch of numerical dust to
-    /// hide, and a floor would be a second definition of "flattened".
+    /// A Zones-only recipe never reaches it now: `ToneEngine.appliedZoneEV` eases the
+    /// zones first (reported by `zoneEasing`). What still can is the register combined
+    /// with Contrast or the six sliders, because the ease does not see them —
+    /// Contrast −100 with Darks +3 flattens a band below mid-grey.
+    ///
+    /// No floor under the engine's report: a floor would be a second definition of
+    /// "flattened".
     public static func zoneFlattening(tone: Tone, zones: Zones) -> ZoneFlattening? {
         let engine = ToneEngine(tone: tone, zones: zones)
         guard let f = engine.zoneFlattening() else { return nil }
         let caption = "Flattened: input \(ev(f.lowEV))…\(ev(f.highEV)) EV renders as one "
             + "tone, up to \(magnitude(f.worstEV)) EV from what the zones ask."
         return ZoneFlattening(flattening: f,
-                              lowX: engine.normalizedAxis(f.lowEV),
-                              highX: engine.normalizedAxis(f.highEV),
+                              lowX: ToneEngine.zoneAxis(f.lowEV),
+                              highX: ToneEngine.zoneAxis(f.highEV),
                               caption: caption)
+    }
+
+    /// One zone the register applies at less than its slider asks, in stops.
+    public struct ZoneEased: Equatable, Sendable {
+        /// The register's own row name: Darks, Shadows, Midtones, Lights, Brights.
+        public let name: String
+        public let requested: Double
+        public let applied: Double
+
+        /// The line under that zone's slider.
+        public var caption: String {
+            "Applied \(AppliedReadout.ev(applied)) EV — eased so no brighter tone "
+                + "renders darker."
+        }
+    }
+
+    /// The register's row names, in pivot order. `ZonesPanel` titles its rows from this.
+    public static let zoneNames = ["Darks", "Shadows", "Midtones", "Lights", "Brights"]
+
+    /// Every zone `ToneEngine.appliedZoneEV` holds back by more than 0.005 EV — the
+    /// half-step of the readout's two decimals, so a rounding difference never earns a
+    /// line. Empty for any single zone inside ±0.75 EV at the default pivots.
+    ///
+    /// `tone` is taken so the call reads like its siblings and keeps reading right if
+    /// the ease ever learns about the six sliders; today it does not consult it.
+    public static func zoneEasing(tone: Tone, zones: Zones) -> [ZoneEased] {
+        let applied = ToneEngine(tone: tone, zones: zones).appliedZoneEV
+        let requested = [zones.dark.ev, zones.shadow.ev, zones.mid.ev, zones.light.ev,
+                         zones.bright.ev]
+        var out: [ZoneEased] = []
+        for i in requested.indices where abs(requested[i] - applied[i]) > 0.005 {
+            out.append(ZoneEased(name: zoneNames[i], requested: requested[i],
+                                 applied: applied[i]))
+        }
+        return out
     }
 
     // MARK: - The four zonal Tone sliders

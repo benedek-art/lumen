@@ -666,23 +666,138 @@ public struct ToneEngine: Sendable {
         return pivot + d * effective
     }
 
-    /// Position on the normalized tonal axis the Zones panel and the grading wheels
-    /// share. One axis, so a zone means the same thing in every panel.
+    /// Position on the normalized tonal axis at the LIVE anchors, which Whites and
+    /// Blacks move. The grading wheels' axis (`GradeEngine` has its own copy) and what
+    /// the six sliders' callers read; the Zones register does NOT use it any more —
+    /// see `zoneAxis`.
     public func normalizedAxis(_ t: Double) -> Double {
         let span = whiteAnchorEV - blackAnchorEV
         guard span > 0 else { return 0.5 }
         return Num.saturate((t - blackAnchorEV) / span)
     }
 
-    /// Per-zone exposure from the Zones panel, in stops.
+    /// Where `t` sits on the Zones register's axis: the normalized axis through the
+    /// DEFAULT anchors, −9 … +5 EV, whatever Whites and Blacks do.
+    ///
+    /// Zones are defined in stops around mid-grey (docs/04: "means the same thing for
+    /// every camera"), and through the live anchors they were not: with Midtones +1,
+    /// Whites +100 moved the zone's peak to −0.96 EV and stretched every 2 EV gap to
+    /// 1.79, so setting a white point re-targeted a finished zone set (WS-08 audit Z-3).
+    /// The pivots are stored on this axis and the strip draws on it, so the handle,
+    /// the strip and the picture agree at every Whites and Blacks setting.
+    public static func zoneAxis(_ t: Double) -> Double {
+        Num.saturate((t - defaultBlackAnchorEV) / (defaultWhiteAnchorEV - defaultBlackAnchorEV))
+    }
+
+    /// The pivots the register is evaluated at: the stored ones, or the defaults when
+    /// the count is wrong. Pivots arrive from a sidecar or a catalog row, so their count
+    /// is untrusted; `exposureStops` requires one per zone and traps otherwise, in
+    /// release too.
+    private var zonePivots: [Double] {
+        zones.pivots.count == 5 ? zones.pivots : Zones.defaultPivots
+    }
+
+    /// The slowest the Zones register alone may make the tone response run: a quarter
+    /// of a stop out per stop in. Not zero, because a response that is merely monotone
+    /// still renders a band of input as near-one tone and the texture in it goes —
+    /// Darks +1.25 EV was monotone and measured slope 0.02 over 0.32 EV.
+    static let zoneSlopeFloor: Double = 0.25
+
+    /// The zone EVs the register actually applies, Darks … Brights — the requests,
+    /// eased so the response never runs slower than `zoneSlopeFloor`.
+    ///
+    /// WHY. Adjacent zones crossfade with a raised cosine, whose steepest slope is π/2 ×
+    /// the step over the gap. With 2 EV gaps the response INVERTED once two neighbours
+    /// differed by 4/π = 1.27 EV — a third of the slider — and the bake's forward clamp
+    /// then rendered whole bands as one grey: Darks +3 turned −3.75 … −0.85 EV into a
+    /// single code value and took the texture in it (WS-08 audit Z-1). The clamp is
+    /// `bakeGainLUT`'s backstop, not a limiter, and it no longer fires on a Zones-only
+    /// recipe.
+    ///
+    /// HOW, which is `solveZonalLimits`'s idea applied per seam. Between pivots i and
+    /// i+1 the response falls only if `a_i > a_{i+1}`, and stays at or above the floor
+    /// exactly when that drop is at most `limit = (1 − floor) · 2 · gap / π`, the gap in
+    /// EV — 0.955 EV at the default 2 EV gaps. A drop over `zonalKnee × limit` is eased
+    /// with `Num.softKnee`, so it approaches the limit and never reaches it, and the top
+    /// of the slider still moves. The crossfade itself is untouched (`ZoneWeights` is
+    /// shared with four other lanes), so this only chooses the five numbers it blends.
+    ///
+    /// WHO GIVES WAY. Only a zone that pulls its seam downhill is scaled, and only
+    /// toward zero, so a zone never changes sign or grows. A zone above zero pulls the
+    /// seam on its RIGHT down, one below zero the seam on its LEFT; each zone is
+    /// therefore eased by one seam at most, Darks below zero and Brights above zero
+    /// never, and a zone at zero never moves. Where both ends of a seam pull (a positive
+    /// zone next to a negative one) both share one scale. Where only one pulls, its
+    /// neighbour is relief already spent: a positive run is settled right to left and
+    /// a negative run left to right, so each seam is solved against the neighbour's
+    /// APPLIED value. A zone separated from a conflict by an untouched zone is never
+    /// scaled, and a request inside the knee — any single zone up to ±0.76 EV at the
+    /// default gaps — is applied exactly.
+    ///
+    /// The gaps are each list's own, so a legacy list closer than `minimumPivotGap`
+    /// eases harder instead of inverting.
+    public var appliedZoneEV: [Double] { Self.easedZoneEV(zones, pivots: zonePivots) }
+
+    static func easedZoneEV(_ zones: Zones, pivots: [Double]) -> [Double] {
+        let requested = [zones.dark.ev, zones.shadow.ev, zones.mid.ev, zones.light.ev,
+                         zones.bright.ev]
+        var applied = requested
+        let n = requested.count
+        guard pivots.count == n, requested.contains(where: { $0 != 0 }) else { return applied }
+        // The largest drop seam i can carry above the floor, per EV of gap.
+        let perGapEV: Double = 2 * (1 - zoneSlopeFloor) / Double.pi
+        let span: Double = defaultWhiteAnchorEV - defaultBlackAnchorEV
+        var limits = [Double](repeating: 0, count: n - 1)
+        for i in 0..<(n - 1) {
+            let gapEV: Double = Swift.max(pivots[i + 1] - pivots[i], 0) * span
+            limits[i] = gapEV * perGapEV
+        }
+        // The drop seam i may keep: exact inside the knee, approaching the limit after.
+        func eased(_ drop: Double, _ i: Int) -> Double {
+            let limit = limits[i]
+            guard limit > 0 else { return 0 }
+            // Inside the knee `softKnee` is the identity, and `limit × (drop / limit)`
+            // is not always `drop` to the last bit: answered here so exact means exact.
+            guard drop > zonalKnee * limit else { return drop }
+            return limit * Num.softKnee(drop / limit, knee: zonalKnee)
+        }
+        // Seams both ends pull: one shared scale, independent of everything else.
+        for i in 0..<(n - 1) where requested[i] > 0 && requested[i + 1] < 0 {
+            let drop = requested[i] - requested[i + 1]
+            let kept = eased(drop, i)
+            guard kept < drop else { continue }
+            applied[i] = requested[i] * kept / drop
+            applied[i + 1] = requested[i + 1] * kept / drop
+        }
+        // Positive zones over a non-negative right neighbour, right to left.
+        for i in stride(from: n - 2, through: 0, by: -1)
+            where requested[i] > 0 && requested[i + 1] >= 0 {
+            let drop = requested[i] - applied[i + 1]
+            guard drop > 0 else { continue }
+            let kept = eased(drop, i)
+            if kept < drop { applied[i] = applied[i + 1] + kept }
+        }
+        // Negative zones under a non-positive left neighbour, left to right.
+        for i in 1..<n where requested[i] < 0 && requested[i - 1] <= 0 {
+            let drop = applied[i - 1] - requested[i]
+            guard drop > 0 else { continue }
+            let kept = eased(drop, i - 1)
+            if kept < drop { applied[i] = applied[i - 1] - kept }
+        }
+        return applied
+    }
+
+    /// Per-zone exposure from the Zones panel, in stops: the raised-cosine crossfade of
+    /// the APPLIED zone EVs on the register's own axis, plus the global trim.
+    ///
+    /// Monotone with slope ≥ `zoneSlopeFloor` by construction, C¹ everywhere (the
+    /// crossfade is flat at every pivot and the shelves beyond the end pivots are
+    /// flat), and never past its two bounding zones' values, so a zone still acts most
+    /// at its own pivot and not at all at its neighbours'. `ZonesResponseTests`.
     public func zonePanelStops(_ t: Double) -> Double {
-        let ev = [zones.dark.ev, zones.shadow.ev, zones.mid.ev, zones.light.ev, zones.bright.ev]
-        guard ev.contains(where: { $0 != 0 }) || zones.global.ev != 0 else { return 0 }
-        // Pivots arrive from a sidecar or a catalog row, so their count is untrusted;
-        // `exposureStops` requires one per zone and traps otherwise, in release too.
-        let pivots = zones.pivots.count == ev.count ? zones.pivots : Zones.defaultPivots
-        return ZoneWeights.exposureStops(x: normalizedAxis(t), pivots: pivots,
-                                         zoneEV: ev, globalEV: zones.global.ev)
+        guard !zonePanelIsIdentity else { return 0 }
+        return ZoneWeights.exposureStops(x: Self.zoneAxis(t), pivots: zonePivots,
+                                         zoneEV: appliedZoneEV, globalEV: zones.global.ev)
     }
 
     /// Total gain in stops applied by S7 at zonal coordinate `t`.

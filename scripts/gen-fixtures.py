@@ -317,7 +317,8 @@ def fp(s):
 # ---------------------------------------------------------------------------
 
 def zone_adjust():
-    return {"ev": 0, "wheel": [0, 0], "sat": 0, "falloff": 0.5}
+    # ev only: wheel/sat/falloff were never read by any stage and are gone (WS-08 Z7).
+    return {"ev": 0}
 
 
 def wheel():

@@ -1,0 +1,398 @@
+// ZonesResponseTests.swift
+//
+// WS-08: the Zones register's response on its own, `y(t) = t + zonePanelStops(t)`, with
+// the tone sliders at default. Before this, two neighbouring zones more than 1.27 EV apart
+// made a brighter tone render darker (the raised cosine's steepest slope is π/2 × the step
+// over the gap), and the bake's forward clamp then rendered whole EV bands as one grey —
+// Darks +3 turned −3.75 … −0.85 EV into a single code value. The register now eases the
+// zone pulling a seam downhill (`ToneEngine.appliedZoneEV`) so the response never runs
+// slower than a quarter stop per stop, and the clamp never fires on a Zones-only recipe.
+// Every number here is a line of docs/quality/lanes/WS-08/SPEC.md.
+
+import XCTest
+@testable import LumenCore
+
+final class ZonesResponseTests: XCTestCase {
+
+    private static let span = ToneEngine.defaultWhiteAnchorEV - ToneEngine.defaultBlackAnchorEV
+
+    /// EV of a pivot on the register's axis.
+    private static func ev(ofPivot p: Double) -> Double {
+        ToneEngine.defaultBlackAnchorEV + p * span
+    }
+
+    private static func pivot(atEV ev: Double) -> Double {
+        (ev - ToneEngine.defaultBlackAnchorEV) / span
+    }
+
+    private static func zones(_ ev: [Double], global: Double = 0,
+                              pivots: [Double] = Zones.defaultPivots) -> Zones {
+        var z = Zones(pivots: pivots)
+        z.dark.ev = ev[0]
+        z.shadow.ev = ev[1]
+        z.mid.ev = ev[2]
+        z.light.ev = ev[3]
+        z.bright.ev = ev[4]
+        z.global.ev = global
+        return z
+    }
+
+    private static func engine(_ ev: [Double], global: Double = 0,
+                               pivots: [Double] = Zones.defaultPivots) -> ToneEngine {
+        ToneEngine(tone: Tone(), zones: zones(ev, global: global, pivots: pivots))
+    }
+
+    private static func y(_ e: ToneEngine, _ t: Double) -> Double { t + e.zonePanelStops(t) }
+
+    /// Every combination of `values` over the five zones.
+    private static func combinations(_ values: [Double]) -> [[Double]] {
+        var out: [[Double]] = [[]]
+        for _ in 0..<5 {
+            out = out.flatMap { prefix in values.map { prefix + [$0] } }
+        }
+        return out
+    }
+
+    /// G5: {−3, −1.5, 0, 1.5, 3}^5 at the default pivots, global 0 and 3.
+    private static let g5: [(ev: [Double], global: Double)] = {
+        let evs = combinations([-3, -1.5, 0, 1.5, 3])
+        return [0.0, 3].flatMap { g in evs.map { (ev: $0, global: g) } }
+    }()
+
+    /// The pivot sets G3 runs on: four with one adjacent pair exactly a stop apart, the
+    /// five pivots packed a stop apart at the bottom of the axis, 50 seeded random sets
+    /// with every gap at least a stop, and one legacy list with a 0.28 EV gap (Z4.2:
+    /// the ease reads each list's actual gaps).
+    private static let g3Pivots: [[Double]] = {
+        var sets: [[Double]] = []
+        let defaults = Zones.defaultPivots
+        for i in 0..<4 {
+            var p = defaults
+            p[i + 1] = p[i] + Zones.minimumPivotGap
+            sets.append(p)
+        }
+        sets.append((0..<5).map { Double($0) / 14 })
+        var rng = SplitMix(seed: 0x5EED_0808)
+        while sets.count < 4 + 1 + 50 {
+            // Five gaps of at least a stop inside the 14 EV axis: 4 stops of minimum gap,
+            // the other ten shared out at random.
+            var parts = (0..<6).map { _ in rng.unit() }
+            let total = parts.reduce(0, +)
+            parts = parts.map { $0 / total * 10 }
+            var p: [Double] = []
+            var at = parts[0]
+            for k in 0..<5 {
+                p.append(at / 14)
+                if k < 4 { at += 1 + parts[k + 1] }
+            }
+            sets.append(p)
+        }
+        sets.append([defaults[0], 0.5, 0.52, defaults[3], defaults[4]])
+        return sets
+    }()
+
+    private static let g3Values = combinations([-3, 0, 3])
+
+    private struct SplitMix {
+        var state: UInt64
+        init(seed: UInt64) { state = seed }
+        mutating func next() -> UInt64 {
+            state &+= 0x9E37_79B9_7F4A_7C15
+            var z = state
+            z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+            z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+            return z ^ (z >> 31)
+        }
+        mutating func unit() -> Double { Double(next() >> 11) / Double(1 << 53) }
+    }
+
+    /// Every engine G5 and G3 describe.
+    private static func allEngines() -> [(label: String, engine: ToneEngine, pivots: [Double])] {
+        var out: [(label: String, engine: ToneEngine, pivots: [Double])] = []
+        for c in g5 {
+            out.append((label: "\(c.ev) global \(c.global)",
+                        engine: engine(c.ev, global: c.global), pivots: Zones.defaultPivots))
+        }
+        for p in g3Pivots {
+            for v in g3Values {
+                out.append((label: "\(v) pivots \(p)", engine: engine(v, pivots: p), pivots: p))
+            }
+        }
+        return out
+    }
+
+    // MARK: - Z1
+
+    /// Z1.1. Slope ≥ 0.25 everywhere on −12 … +8 EV, at 0.01 EV.
+    func testMonotoneWithATextureFloor() {
+        var worst = Double.infinity
+        var worstAt = ""
+        for (label, e, _) in Self.allEngines() {
+            var previous = Self.y(e, -12)
+            for step in 1...2000 {
+                let t = -12 + Double(step) * 0.01
+                let current = Self.y(e, t)
+                let slope = (current - previous) / 0.01
+                if slope < worst { worst = slope; worstAt = "\(label) at \(t) EV" }
+                previous = current
+            }
+        }
+        print("ZonesResponse Z1.1: slowest slope \(worst) (\(worstAt))")
+        XCTAssertGreaterThanOrEqual(worst, 0.25 - 1e-9,
+                                    "the zone response runs at \(worst) stops per stop: \(worstAt)")
+    }
+
+    /// Z1.2. No C0 join anywhere: one-sided slopes agree at every 0.05 EV sample and at
+    /// every pivot.
+    func testNoSlopeBreakAnywhere() {
+        let delta = 1e-5
+        var worst = 0.0
+        var worstAt = ""
+        for (label, e, pivots) in Self.allEngines() {
+            var ts = (0...400).map { -12 + Double($0) * 0.05 }
+            ts += pivots.map { Self.ev(ofPivot: $0) }
+            for t in ts {
+                let y0 = Self.y(e, t)
+                let right = (Self.y(e, t + delta) - y0) / delta
+                let left = (y0 - Self.y(e, t - delta)) / delta
+                let jump = abs(right - left)
+                if jump > worst { worst = jump; worstAt = "\(label) at \(t) EV" }
+            }
+        }
+        print("ZonesResponse Z1.2: largest slope break \(worst) (\(worstAt))")
+        XCTAssertLessThanOrEqual(worst, 0.01, "slope breaks by \(worst): \(worstAt)")
+    }
+
+    /// Z1.3. Between two pivots the register never leaves its two zones' applied values;
+    /// below the first and above the last it is flat.
+    func testNoOvershootAndPeaksAtThePivot() {
+        for (label, e, pivots) in Self.allEngines() {
+            let a = e.appliedZoneEV
+            let g = e.zones.global.ev
+            let T = pivots.map { Self.ev(ofPivot: $0) }
+            for step in 0...2000 {
+                let t = -12 + Double(step) * 0.01
+                let z = e.zonePanelStops(t)
+                if t <= T[0] {
+                    XCTAssertEqual(z, a[0] + g, accuracy: 1e-9, "\(label) below T0 at \(t)")
+                } else if t >= T[4] {
+                    XCTAssertEqual(z, a[4] + g, accuracy: 1e-9, "\(label) above T4 at \(t)")
+                } else {
+                    let i = (0..<4).first { t >= T[$0] && t <= T[$0 + 1] } ?? 0
+                    let lo = Swift.min(a[i], a[i + 1]) + g - 1e-9
+                    let hi = Swift.max(a[i], a[i + 1]) + g + 1e-9
+                    XCTAssertTrue(z >= lo && z <= hi,
+                                  "\(label): \(z) at \(t) EV is outside zones \(i), \(i + 1)")
+                }
+            }
+        }
+    }
+
+    private static let singleZoneCases: [(zone: Int, ev: Double)] = (0..<5).flatMap { z in
+        (-15...15).map { (z, Double($0) * 0.05) }
+    }
+
+    /// Z1.4. Inside the knee a single zone is applied exactly, peaks at its own pivot
+    /// and is zero at the others.
+    func testSmallMovesAreExact() {
+        for (zone, v) in Self.singleZoneCases {
+            var ev = [Double](repeating: 0, count: 5)
+            ev[zone] = v
+            let e = Self.engine(ev)
+            XCTAssertEqual(e.appliedZoneEV, ev, "zone \(zone) at \(v) was eased")
+            for (k, p) in Zones.defaultPivots.enumerated() {
+                XCTAssertEqual(e.zonePanelStops(Self.ev(ofPivot: p)), k == zone ? v : 0,
+                               accuracy: 1e-9, "zone \(zone) at \(v), pivot \(k)")
+            }
+        }
+    }
+
+    /// Z1.5. A photographer's existing small zone edits do not visibly move.
+    func testSmallMovesMatchTodaysResponse() {
+        let oldAxis = ToneEngine()
+        for (zone, v) in Self.singleZoneCases where abs(v) <= 0.5 + 1e-12 {
+            var ev = [Double](repeating: 0, count: 5)
+            ev[zone] = v
+            let e = Self.engine(ev)
+            var worst = 0.0
+            for step in 0...2000 {
+                let t = -12 + Double(step) * 0.01
+                let old = ZoneWeights.exposureStops(x: oldAxis.normalizedAxis(t),
+                                                    pivots: Zones.defaultPivots,
+                                                    zoneEV: ev, globalEV: 0)
+                worst = Swift.max(worst, abs(e.zonePanelStops(t) - old))
+            }
+            XCTAssertLessThanOrEqual(worst, 0.02, "zone \(zone) at \(v) moved by \(worst) EV")
+        }
+    }
+
+    /// Z1.6. The ease has no dead top: every quarter stop of the slider still moves the
+    /// zone's own pivot, never past the request and never the other way.
+    func testTheEaseNeverGoesDead() {
+        for zone in 0..<5 {
+            let T = Self.ev(ofPivot: Zones.defaultPivots[zone])
+            func at(_ v: Double) -> (y: Double, a: Double) {
+                var ev = [Double](repeating: 0, count: 5)
+                ev[zone] = v
+                let e = Self.engine(ev)
+                return (Self.y(e, T), e.appliedZoneEV[zone])
+            }
+            for k in 0...23 {
+                let v = -3 + Double(k) * 0.25
+                let here = at(v), next = at(v + 0.25)
+                XCTAssertGreaterThan(next.y - here.y, 1e-4,
+                                     "zone \(zone): \(v) → \(v + 0.25) moved its pivot by "
+                                         + "\(next.y - here.y)")
+                XCTAssertEqual(here.a.sign, v.sign, "zone \(zone) at \(v) changed sign")
+                XCTAssertLessThanOrEqual(abs(here.a), abs(v), "zone \(zone) at \(v) grew")
+            }
+        }
+    }
+
+    /// Z1.7. What the ease does is reported, zone by zone, and nothing else is.
+    func testTheEaseIsReported() throws {
+        for (zone, v) in Self.singleZoneCases {
+            var ev = [Double](repeating: 0, count: 5)
+            ev[zone] = v
+            XCTAssertEqual(AppliedReadout.zoneEasing(tone: Tone(), zones: Self.zones(ev)), [],
+                           "zone \(zone) at \(v) is reported as eased")
+        }
+        let darks = AppliedReadout.zoneEasing(tone: Tone(), zones: Self.zones([3, 0, 0, 0, 0]))
+        XCTAssertEqual(darks.count, 1)
+        let entry = try XCTUnwrap(darks.first)
+        XCTAssertEqual(entry.name, "Darks")
+        XCTAssertEqual(entry.requested, 3)
+        XCTAssertLessThan(entry.applied, 3)
+        XCTAssertGreaterThan(entry.applied, 0)
+        XCTAssertTrue(entry.caption.contains(AppliedReadout.ev(entry.applied) + " EV"),
+                      entry.caption)
+    }
+
+    /// Z1.8. A zone separated from the conflict by an untouched zone is never scaled.
+    func testEasingIsLocal() {
+        let a = Self.engine([3, 0, 0, 0.5, 0]).appliedZoneEV
+        XCTAssertEqual(a[3], 0.5, accuracy: 1e-9)
+        XCTAssertLessThan(a[0], 3)
+        let b = Self.engine([0, 0, -3, 0, 1]).appliedZoneEV
+        XCTAssertEqual(b[4], 1, accuracy: 1e-9)
+        XCTAssertGreaterThan(b[2], -3)
+    }
+
+    /// Z1.9. With the ease in place the bake's forward clamp is idle on every G5 recipe.
+    func testTheClampNeverFiresOnAZonesOnlyRecipe() {
+        for c in Self.g5 {
+            let f = Self.engine(c.ev, global: c.global).zoneFlattening()
+            XCTAssertNil(f, "\(c.ev) global \(c.global) reached the clamp: \(String(describing: f))")
+        }
+    }
+
+    // MARK: - Z3
+
+    /// Zones are fixed in stops: Whites and Blacks move the display anchors and not the
+    /// zones.
+    func testWhitesAndBlacksDoNotMoveTheZones() {
+        var zones = Zones()
+        zones.mid.ev = 1
+        let plain = ToneEngine(tone: Tone(), zones: zones)
+        func peak(_ e: ToneEngine) -> Double {
+            var best = -Double.infinity, at = 0.0
+            for step in 0...4000 {
+                let t = -2 + Double(step) * 0.001
+                let z = e.zonePanelStops(t)
+                if z > best { best = z; at = t }
+            }
+            return at
+        }
+        let plainPeak = peak(plain)
+        for tone in [Tone(whites: 100), Tone(whites: -100), Tone(blacks: 100),
+                     Tone(blacks: -100)] {
+            let moved = ToneEngine(tone: tone, zones: zones)
+            for step in 0...2000 {
+                let t = -12 + Double(step) * 0.01
+                XCTAssertEqual(moved.zonePanelStops(t), plain.zonePanelStops(t),
+                               accuracy: 1e-12, "\(tone) moved the zones at \(t) EV")
+            }
+            XCTAssertLessThan(abs(peak(moved) - plainPeak), 0.01, "\(tone) moved the Mid peak")
+        }
+    }
+
+    // MARK: - Z4
+
+    func testPivotDragKeepsAOneStopGap() {
+        let gap = Zones.minimumPivotGap
+        XCTAssertEqual(gap, 1.0 / 14, accuracy: 1e-15)
+        let defaults = Zones.defaultPivots
+        for index in 0..<5 {
+            for k in -20...120 {
+                let target = Double(k) / 100
+                let out = Zones.movingPivot(index, to: target, in: defaults)
+                for i in 1..<5 {
+                    XCTAssertGreaterThanOrEqual(out[i] - out[i - 1], gap - 1e-12,
+                                                "pivot \(index) to \(target): \(out)")
+                }
+                XCTAssertTrue(out.allSatisfy { $0 >= 0 && $0 <= 1 })
+                for i in 0..<5 where i != index { XCTAssertEqual(out[i], defaults[i]) }
+            }
+            // Past a neighbour it stops a stop short of it.
+            if index > 0 {
+                XCTAssertEqual(Zones.movingPivot(index, to: 0, in: defaults)[index],
+                               defaults[index - 1] + gap, accuracy: 1e-12)
+            }
+            if index < 4 {
+                XCTAssertEqual(Zones.movingPivot(index, to: 1, in: defaults)[index],
+                               defaults[index + 1] - gap, accuracy: 1e-12)
+            }
+        }
+        // A legacy pair 0.02 apart can be pulled apart, and is never pushed together.
+        let legacy = [defaults[0], 0.5, 0.52, defaults[3], defaults[4]]
+        XCTAssertEqual(Zones.movingPivot(2, to: 0.6, in: legacy)[2], 0.6, accuracy: 1e-12)
+        XCTAssertEqual(Zones.movingPivot(2, to: 0.51, in: legacy)[2], 0.52)
+        XCTAssertEqual(Zones.movingPivot(2, to: 0.53, in: legacy)[2], 0.53, accuracy: 1e-12)
+        XCTAssertEqual(Zones.movingPivot(1, to: 0.45, in: legacy)[1], 0.45, accuracy: 1e-12)
+        XCTAssertEqual(Zones.movingPivot(1, to: 0.51, in: legacy)[1], 0.5)
+        // Garbage in: the defaults the engine reads it as, or nothing changed.
+        XCTAssertEqual(Zones.movingPivot(1, to: 0.4, in: [0.5]), defaults)
+        XCTAssertEqual(Zones.movingPivot(7, to: 0.4, in: defaults), defaults)
+        XCTAssertEqual(Zones.movingPivot(1, to: .nan, in: defaults), defaults)
+    }
+
+    func testDecodedRepairUsesTheOneStopGap() {
+        let repaired = Zones.decodedPivots([0.3, 0.3, 0.5, 0.7, 0.9])
+        XCTAssertEqual(repaired[1], 0.3 + Zones.minimumPivotGap, accuracy: 1e-12)
+        XCTAssertEqual(repaired, [0.3, repaired[1], 0.5, 0.7, 0.9])
+        // An ascending list, however close, is a list this app wrote and is not moved.
+        let legacy = [0.3, 0.32, 0.5, 0.7, 0.9]
+        XCTAssertEqual(Zones.decodedPivots(legacy), legacy)
+    }
+
+    // MARK: - Z5
+
+    func testMovingOnlyPivotsChangesNothing() {
+        for pivots in Self.g3Pivots {
+            let e = ToneEngine(tone: Tone(), zones: Zones(pivots: pivots))
+            XCTAssertTrue(e.isIdentity, "\(pivots)")
+            for step in 0...200 {
+                XCTAssertEqual(e.zonePanelStops(-12 + Double(step) * 0.1), 0)
+            }
+        }
+    }
+
+    // MARK: - Z7
+
+    /// A recipe written with the removed wheel / sat / falloff keys decodes, renders the
+    /// tone of the same recipe without them, and re-saves without them.
+    func testLegacyZoneFieldsDecodeAndRenderIdentically() throws {
+        let legacy = #"{"develop":{"zones":{"mid":{"ev":0.4,"sat":30,"wheel":[0.1,-0.2],"falloff":0.2}}}}"#
+        let clean = #"{"develop":{"zones":{"mid":{"ev":0.4}}}}"#
+        let old = try CanonicalJSON.decodeRecipe(from: Data(legacy.utf8))
+        let new = try CanonicalJSON.decodeRecipe(from: Data(clean.utf8))
+        XCTAssertEqual(old.develop.zones.mid.ev, 0.4)
+        XCTAssertEqual(old, new)
+        XCTAssertEqual(RenderPlan(recipe: old).toneGainLUT, RenderPlan(recipe: new).toneGainLUT)
+        let saved = try CanonicalJSON.canonicalRecipeJSON(old)
+        for key in ["\"sat\"", "\"wheel\"", "\"falloff\""] {
+            XCTAssertFalse(saved.contains(key), "re-saved with \(key): \(saved)")
+        }
+        XCTAssertTrue(saved.contains("\"mid\""), saved)
+    }
+}

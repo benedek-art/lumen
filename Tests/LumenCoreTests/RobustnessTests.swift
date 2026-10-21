@@ -1868,10 +1868,16 @@ final class RobustnessTests: XCTestCase {
             \.dark, \.shadow, \.mid, \.light, \.bright,
         ]
         let pivots = Zones.defaultPivots
+        // Three quarters of a stop, not one (WS-08). A lone zone at +1 EV over the 2 EV
+        // default gaps runs the response at 1 − π/4 = 0.21 stops per stop, under the
+        // register's 0.25 floor, so the ease now applies it as +0.89; inside ±0.75 EV
+        // the request is applied exactly (`ZonesResponseTests.testSmallMovesAreExact`),
+        // which is the contract this test is about.
+        let lift = 0.75
 
         for (index, path) in paths.enumerated() {
             var zones = Zones()
-            zones[keyPath: path].ev = 1
+            zones[keyPath: path].ev = lift
             let engine = ToneEngine(tone: Tone(), zones: zones)
 
             for (other, pivot) in pivots.enumerated() {
@@ -1880,12 +1886,12 @@ final class RobustnessTests: XCTestCase {
                     + pivot * (engine.whiteAnchorEV - engine.blackAnchorEV)
                 let stops = engine.zonePanelStops(ev)
                 if other == index {
-                    XCTAssertEqual(stops, 1, accuracy: 1e-9,
-                                   "\(names[index]) at +1 EV moved its own pivot by "
-                                       + "\(stops) rather than a stop")
+                    XCTAssertEqual(stops, lift, accuracy: 1e-9,
+                                   "\(names[index]) at +\(lift) EV moved its own pivot by "
+                                       + "\(stops) rather than \(lift) EV")
                 } else {
                     XCTAssertEqual(stops, 0, accuracy: 1e-9,
-                                   "\(names[index]) at +1 EV moved the \(names[other]) "
+                                   "\(names[index]) at +\(lift) EV moved the \(names[other]) "
                                        + "pivot by \(stops)")
                 }
             }

@@ -10,18 +10,20 @@
 // Lightroom impossible to use. `pasteSettings` could copy zones between photos; nothing
 // could originate a non-zero value.
 //
-// What this panel deliberately does NOT show: `ZoneAdjust.wheel`, `.sat` and `.falloff`.
-// They are a wire format that no stage reads — `zonePanelStops` takes `.ev` and nothing
-// else, and `zonePanelIsIdentity` inspects `.ev` alone, so a non-neutral zone wheel does
-// not even force a re-render. Shipping them as live sliders would cost the user the time
-// to find out. The panel used to say so in a note at its foot; it says so here instead,
-// because which fields have a wire format and no reader is a fact about this repository
-// and the photographer is not the one who needs it.
+// A zone is an exposure and nothing else. `ZoneAdjust` used to carry a wheel, a
+// saturation and a falloff that no stage ever read (WS-08 audit Z-7); they are gone from
+// the model rather than shown here, and colour by tonal range is Colour Grading's job.
 //
 // The pivots are zone CENTRES, not boundaries: `ZoneWeights.weights` finds the interval
 // containing x and crossfades between the two pivots bounding it with a raised cosine,
 // so a zone's influence peaks exactly at its own pivot and reaches zero at its
-// neighbours'. The strip draws that, which is why it is worth drawing at all.
+// neighbours'. The strip draws that, which is why it is worth drawing at all. The axis is
+// −9 … +5 EV whatever Whites and Blacks do (`ToneEngine.zoneAxis`), and pivots stay at
+// least a stop apart (`Zones.minimumPivotGap`).
+//
+// Two neighbours too far apart would make a brighter tone render darker, so the engine
+// eases the zone pulling that seam downhill (`ToneEngine.appliedZoneEV`) and the row says
+// what it applies instead (`AppliedReadout.zoneEasing`).
 
 #if os(macOS)
 
@@ -118,14 +120,17 @@ struct ZonesPanel: View {
     /// The register's rows with no header of their own: exactly what the section always
     /// wrapped, and the whole of what a caller supplying its own header wants.
     private var rows: some View {
-        // Astra AI-07. The register is the power tool and is deliberately not limited;
-        // its only guard is the bake's forward clamp, which keeps the response monotone
-        // by rendering a band of input tones as ONE value. The engine measures that band
-        // (`ToneEngine.zoneFlattening`), and this is where the photographer hears it —
-        // marked on the strip at the tones it covers, and named under it in EV. Nil on
-        // every combination that renders what it asks for, so the strip stays clean.
+        // Astra AI-07. The register eases its own seams (`easing`, below), so on its
+        // own it never reaches the bake's forward clamp. Combined with Contrast or the
+        // six sliders it still can, and the clamp renders a band of input tones as ONE
+        // value. The engine measures that band (`ToneEngine.zoneFlattening`), and this
+        // is where the photographer hears it — marked on the strip at the tones it
+        // covers, and named under it in EV. Nil whenever the clamp is idle.
         let flattened = AppliedReadout.zoneFlattening(tone: recipe.develop.tone,
                                                       zones: zones)
+        // The zones the engine applies at less than their slider asks, each captioned
+        // under its own row with the amount the render uses. Empty for ordinary edits.
+        let easing = AppliedReadout.zoneEasing(tone: recipe.develop.tone, zones: zones)
         return VStack(alignment: .leading, spacing: Lumen.rowGap) {
             ZonePivotStrip(pivots: normalizedPivots,
                            levels: Self.register.map { zones[keyPath: $0.path].ev },
@@ -163,6 +168,12 @@ struct ZonesPanel: View {
                                 + "is strongest at the zone's own pivot and fades to "
                                 + "nothing at its neighbours', so zones blend instead "
                                 + "of stepping.")
+                if let eased = easing.first(where: { $0.name == zone.name }) {
+                    Text(eased.caption)
+                        .font(.lumenCaption)
+                        .foregroundStyle(Lumen.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             // AND THEN IT DID NOT SURVIVE (U2). It was kept through the hairline cull
@@ -211,39 +222,30 @@ struct ZonesPanel: View {
     ///
     /// `zonePanelStops` falls back to the defaults when the count is wrong, and
     /// `ZoneWeights.weights` requires ascending pivots — a recipe can arrive from a
-    /// sidecar another tool wrote, so the panel must not assume either.
+    /// sidecar another tool wrote, so the panel must not assume either. Touching pivots
+    /// are pushed apart by `Zones.minimumPivotGap`, the gap `Zones.decodedPivots`
+    /// repairs with, so this is the identity on every list the decoder hands over.
     private var normalizedPivots: [Double] {
         let stored = zones.pivots
         guard stored.count == Zones.defaultPivots.count,
               stored.allSatisfy({ $0.isFinite }) else { return Zones.defaultPivots }
         var out = stored.map { Num.saturate($0) }
         for i in 1..<out.count where out[i] <= out[i - 1] {
-            out[i] = Swift.min(out[i - 1] + Self.minimumGap, 1)
+            out[i] = Swift.min(out[i - 1] + Zones.minimumPivotGap, 1)
         }
         return out
     }
 
-    /// Pivots cannot cross or coincide: `weights` divides by the gap between the two
-    /// bounding pivots, and a zero gap is a division by zero rather than a hard edge.
-    private static let minimumGap: Double = 0.02
-
+    /// Clamped against its neighbours by `Zones.movingPivot`, a stop apart, so a drag
+    /// cannot push two pivots together and collapse a zone's window. The rule lives in
+    /// LumenCore so a test can reach it.
     private func movePivot(_ index: Int, to position: Double) {
         state.updateRecipe(coalescingKey: "zones.pivot.\(index)") { recipe in
-            var pivots = recipe.develop.zones.pivots
-            guard pivots.count == Zones.defaultPivots.count,
-                  pivots.indices.contains(index) else {
-                pivots = Zones.defaultPivots
-                recipe.develop.zones.pivots = pivots
-                return
+            let moved = Zones.movingPivot(index, to: position,
+                                          in: recipe.develop.zones.pivots)
+            if moved != recipe.develop.zones.pivots {
+                recipe.develop.zones.pivots = moved
             }
-            // Clamped against its neighbours rather than against 0 and 1, so a drag
-            // cannot push two pivots together and collapse a zone's window.
-            let gap = Self.minimumGap
-            let lower = index > 0 ? pivots[index - 1] + gap : 0
-            let upper = index < pivots.count - 1 ? pivots[index + 1] - gap : 1
-            guard upper > lower else { return }
-            pivots[index] = Swift.min(Swift.max(position, lower), upper)
-            recipe.develop.zones.pivots = pivots
         }
     }
 
@@ -297,6 +299,14 @@ struct ZonePivotStrip: View {
         let base = position.isFinite ? position : 0
         let moved = base + (direction == .increment ? assistiveStep : -assistiveStep)
         return Num.saturate((moved / assistiveStep).rounded() * assistiveStep)
+    }
+
+    /// A pivot's position as a photographer reads it: stops from mid-grey on the
+    /// register's fixed −9 … +5 EV axis, not a percentage of the strip.
+    nonisolated static func pivotValue(_ position: Double) -> String {
+        let span = ToneEngine.defaultWhiteAnchorEV - ToneEngine.defaultBlackAnchorEV
+        let ev = ToneEngine.defaultBlackAnchorEV + Num.saturate(position) * span
+        return String(format: "%+.2f EV", ev).replacingOccurrences(of: "-", with: "\u{2212}")
     }
 
     nonisolated static func pivotLabel(index: Int, names: [String]) -> String {
@@ -394,7 +404,7 @@ struct ZonePivotStrip: View {
         // of control and were invisible to VoiceOver.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(Self.pivotLabel(index: index, names: names)))
-        .accessibilityValue(Text(CurveEditing.percent(position * 100) + "%"))
+        .accessibilityValue(Text(Self.pivotValue(position)))
         .accessibilityAdjustableAction { direction in
             switch direction {
             case .increment: stepPivot(index, from: position, .increment)

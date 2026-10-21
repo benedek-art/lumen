@@ -5,18 +5,24 @@
 // `toneGainLUT`, which `bakeGainLUT` builds AFTER its forward clamp — the Zones
 // panel's only limiter, which renders a band of input tones as one output tone. The
 // twins applied `tone.gain(at:)`, the gain the panel REQUESTED, so wherever the clamp
-// fires (`zoneFlattening` non-nil; Darks +4 EV moves the tone by up to 2.2 EV) the
+// fires (`zoneFlattening` non-nil; Darks +4 EV moved the tone by up to 2.2 EV) the
 // twins and the render disagreed by the clamp itself, and any golden on such a recipe
 // would have charged that to "interpolation error". These tests pin the twins to the
 // tone the renderers actually apply.
+//
+// The register now eases itself (WS-08, `ToneEngine.appliedZoneEV`) and Darks alone no
+// longer reaches the clamp, so the recipe here is the one that still does: Contrast −100
+// with Darks +3, which flattens −3.18 … −2.12 EV. The assertions are unchanged.
 
 import XCTest
 @testable import LumenCore
 
 final class ToneTwinClampTests: XCTestCase {
 
+    /// Darks at `ev` under Contrast −100, the Zones recipe that still reaches the clamp.
     private func darksPlan(_ ev: Double) -> RenderPlan {
         var recipe = Recipe()
+        recipe.develop.tone.contrast = -100
         recipe.develop.zones.dark.ev = ev
         return RenderPlan(recipe: recipe)
     }
@@ -26,10 +32,10 @@ final class ToneTwinClampTests: XCTestCase {
     /// table twin of `referenceColor` — the only difference left is the tone LUT's
     /// interpolation, which at 1024 samples is far below the tolerance here.
     func testReferenceColorAppliesTheClampedToneTheRendererApplies() throws {
-        let plan = darksPlan(4)
+        let plan = darksPlan(3)
         let f = try XCTUnwrap(plan.tone.zoneFlattening(),
-                              "precondition: Darks +4 EV must reach the bake's clamp")
-        let ev = -2.0
+                              "precondition: Contrast −100, Darks +3 EV must reach the bake's clamp")
+        let ev = -2.5
         XCTAssertTrue(ev > f.lowEV && ev < f.highEV, "precondition: \(ev) EV in the band")
         let grey = RGB(gray: 0.18 * pow(2, ev))
         let image = ImageBuffer(width: 8, height: 8) { _, _ in grey }
@@ -39,7 +45,7 @@ final class ToneTwinClampTests: XCTestCase {
                            (rendered.b, twin.b, "b")] {
             XCTAssertEqual(t, r, accuracy: 1e-3 * Swift.max(abs(r), 1e-3),
                            "referenceColor \(ch) \(t) against the rendered \(r) at \(ev) EV "
-                               + "under Darks +4 EV: the twin skipped the tone clamp")
+                               + "under Contrast −100, Darks +3 EV: the twin skipped the tone clamp")
         }
     }
 
@@ -47,7 +53,7 @@ final class ToneTwinClampTests: XCTestCase {
     /// renders darker. Inside the band the requested response falls; the rendered one
     /// is flat, so `exactColor`'s output may not fall either.
     func testExactColorNeverRendersABrighterGreyDarkerInsideTheClampedBand() throws {
-        let plan = darksPlan(4)
+        let plan = darksPlan(3)
         let f = try XCTUnwrap(plan.tone.zoneFlattening())
         var previous = -Double.infinity
         var ev = f.lowEV - 0.25
@@ -56,7 +62,7 @@ final class ToneTwinClampTests: XCTestCase {
             let y = RGBColorSpace.rec2020.luminance(out)
             XCTAssertGreaterThanOrEqual(y, previous - 1e-9,
                                         "exactColor renders \(ev) EV darker than the grey "
-                                            + "just below it under Darks +4 EV")
+                                            + "just below it under Contrast −100, Darks +3 EV")
             previous = y
             ev += 0.05
         }
@@ -66,7 +72,7 @@ final class ToneTwinClampTests: XCTestCase {
     /// everywhere else: both analytic, so the tone stage adds nothing to the
     /// table-against-exact error the goldens measure.
     func testTheTwinsShareOneToneStageGainOnTheClamp() throws {
-        let plan = darksPlan(4)
+        let plan = darksPlan(3)
         XCTAssertNotNil(plan.toneResponseFloor)
         let f = try XCTUnwrap(plan.tone.zoneFlattening())
         let lut = plan.toneGainLUT
@@ -84,9 +90,9 @@ final class ToneTwinClampTests: XCTestCase {
     /// A tone coordinate so large that its encoded value is infinite must read the last
     /// floor sample, not trap converting infinity to an index.
     func testAnInfiniteToneCoordinateReadsTheTopOfTheFloor() throws {
-        let plan = darksPlan(4)
+        let plan = darksPlan(3)
         let floor = try XCTUnwrap(plan.tone.bakeGainLUTAndFloor().floor,
-                                  "precondition: Darks +4 EV must produce a floor")
+                                  "precondition: Contrast −100, Darks +3 EV must produce a floor")
         for t in [64.0, 1024.0, 1e6] {
             let stops = plan.tone.renderedStops(at: t, floor: floor)
             XCTAssertEqual(stops, Swift.max(t + plan.tone.stops(at: t), floor[floor.count - 1]) - t,

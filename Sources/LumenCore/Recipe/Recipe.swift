@@ -619,9 +619,10 @@ public struct Zones: Codable, Equatable, Sendable {
     ///   · padded into a list that does NOT ascend — nobody wrote it, so the defaults
     ///     whole;
     ///   · the right length but out of order or touching — a list somebody did write,
-    ///     so repaired rather than discarded: saturated, sorted, and pushed apart by the
-    ///     same 0.02 gap `ZonesPanel` draws and drags with, so the panel's repair is
-    ///     the identity on whatever this returns and the strip and the picture agree.
+    ///     so repaired rather than discarded: saturated, sorted, and pushed apart by
+    ///     `minimumPivotGap`, the gap `ZonesPanel` draws and drags with, so the panel's
+    ///     repair is the identity on whatever this returns and the strip and the
+    ///     picture agree.
     ///
     /// Identity on every ascending list, so no recipe this app wrote moves a pixel.
     public static func decodedPivots(_ decoded: [Double]?) -> [Double] {
@@ -638,9 +639,41 @@ public struct Zones: Codable, Equatable, Sendable {
         return Self.strictlyAscending(out) ? out : defaults
     }
 
-    /// `ZonesPanel.minimumGap`'s value: `ZoneWeights` divides by the gap between two
-    /// bounding pivots, so two pivots may not coincide.
-    static let minimumPivotGap: Double = 0.02
+    /// The closest two pivots may sit: ONE STOP, on the default anchors' 14 EV axis.
+    ///
+    /// It was 0.02 of the axis, 0.28 EV, which only kept `ZoneWeights` from dividing by
+    /// zero. A crossfade's steepest slope is π/2 × the step over the gap, so at 0.28 EV
+    /// two zones a stop apart already rendered 6.6× contrast one way or flattened 0.9 EV
+    /// the other (WS-08 audit Z-4), and the ease in `ToneEngine.appliedZoneEV` had no
+    /// room left to work in. At a stop it still allows ±0.48 EV between neighbours
+    /// before easing. Stored lists closer than this are not moved (`decodedPivots` is
+    /// the identity on any ascending list); the ease reads each list's actual gaps.
+    public static let minimumPivotGap: Double =
+        1 / (ToneEngine.defaultWhiteAnchorEV - ToneEngine.defaultBlackAnchorEV)
+
+    /// Pivot `index` dragged toward `position`: kept on the axis and at least
+    /// `minimumPivotGap` from both neighbours. `ZonesPanel.movePivot` stores this.
+    ///
+    /// A list already closer than the gap (written under the old 0.02) is not repaired
+    /// here: the dragged pivot may stay where it is or move AWAY from a too-close
+    /// neighbour, never toward it, so a legacy pair can always be pulled apart and a
+    /// drag never makes it worse. A list of the wrong length, or one holding a
+    /// non-finite value, comes back as the defaults, which is what the engine reads it
+    /// as; an index the register does not have changes nothing.
+    public static func movingPivot(_ index: Int, to position: Double,
+                                   in pivots: [Double]) -> [Double] {
+        guard pivots.count == defaultPivots.count,
+              pivots.allSatisfy({ $0.isFinite }) else { return defaultPivots }
+        guard pivots.indices.contains(index), position.isFinite else { return pivots }
+        let current = pivots[index]
+        var lower = index > 0 ? pivots[index - 1] + minimumPivotGap : 0
+        var upper = index < pivots.count - 1 ? pivots[index + 1] - minimumPivotGap : 1
+        lower = Swift.min(lower, current)
+        upper = Swift.max(upper, current)
+        var out = pivots
+        out[index] = Swift.min(Swift.max(position, lower), upper)
+        return out
+    }
 
     private static func strictlyAscending(_ pivots: [Double]) -> Bool {
         guard pivots.allSatisfy({ $0.isFinite }) else { return false }
@@ -683,25 +716,27 @@ public struct Zones: Codable, Equatable, Sendable {
     }
 }
 
-/// Per-zone adjustment: exposure in stops, a color-wheel offset, saturation, falloff.
-/// Wire note: `sat` stores UI-percent − 100 (docs/04 shows 0…200% default 100;
-/// the wire form is the −100…+100 offset so the sparse default is 0).
+/// Per-zone adjustment: exposure in stops, and nothing else.
+///
+/// This carried a colour-wheel offset, a saturation and a falloff as well (docs/04
+/// promised all three). No stage ever read them: `zonePanelStops` takes `.ev` alone, and
+/// a recipe with every one of them set rendered byte-identically to the default on both
+/// paths (WS-08 audit Z-7). They were not harmless for being dead — they sat in the S7
+/// cache key, marked Tone modified and moved the fingerprint — so they are gone rather
+/// than implemented. Colour by tonal range is Colour Grading's job (`look.wheels`,
+/// `colorBalance`) on the same axis, and a falloff contradicts the two-zone partition
+/// the ease in `ToneEngine.appliedZoneEV` is solved over. A file that still carries the
+/// keys decodes (a keyed container ignores what it does not ask for) and re-saves
+/// without them, which drops values that never reached a pixel.
 public struct ZoneAdjust: Codable, Equatable, Sendable {
     public var ev: Double            // per-zone exposure, in stops (D7)
-    public var wheel: [Double]       // [a, b] chroma offset in the working perceptual plane
-    public var sat: Double           // −100…+100 (UI% − 100)
-    public var falloff: Double       // 0…1 transition softness at this zone's edges (docs/04)
 
-    public init(ev: Double = 0, wheel: [Double] = [0, 0], sat: Double = 0,
-                falloff: Double = 0.5) {
+    public init(ev: Double = 0) {
         self.ev = ev
-        self.wheel = wheel
-        self.sat = sat
-        self.falloff = falloff
     }
 
     private enum CodingKeys: String, CodingKey {
-        case ev, wheel, sat, falloff
+        case ev
     }
 
     /// Tolerant of a recipe written before any of these keys existed: each falls
@@ -709,11 +744,6 @@ public struct ZoneAdjust: Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.ev = try c.decodeIfPresent(Double.self, forKey: .ev) ?? 0
-        self.wheel = RecipeWire.fixedLength(
-            try c.decodeIfPresent([Double].self, forKey: .wheel),
-            default: [0, 0])
-        self.sat = try c.decodeIfPresent(Double.self, forKey: .sat) ?? 0
-        self.falloff = try c.decodeIfPresent(Double.self, forKey: .falloff) ?? 0.5
     }
 }
 
