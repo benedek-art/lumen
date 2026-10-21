@@ -144,3 +144,11 @@ Round 1 measured, in float with no 8-bit rounding, that CP and PO change the SCE
 - **19 (hue part), replaced:** (a) scene-linear hue change for PO is ≤ 0.1°; (b) in FLOAT display, |dh_PO| ≤ |dh_HP'| + 1.0°, where HP' is HP at the Amount that gives the same corner L within ±0.03 (a lightness-matched comparison, because PO lands at a different L by design).
 - **New 29:** feather 0 is anti-aliased on every crop aspect: the 10-90 % edge is ≥ 1.0 output px measured along the gradient on crops of 1:1, 3:2, 6:1 and 1:6, with no stair-steps (aa_rms ≤ 0.15 px).
 - **New 30:** Feather has no jump at the low end: the transition-width step per unit of feather over 0…10 is ≤ 3× the median step over 10…100.
+
+## Amendment A2 (lane lead, after verifier round 2; evidence in VERIFY-R2.md)
+
+- **18 (hue part), replaced** on the same evidence and rule as A1: VERIFY-R2 measured HP at matched lightness on skin mid_BR at +5.0° (L 0.830) against CP's +4.9° (L 0.832), at about a quarter of a JND on a chroma-0.06 patch. That is the display transform, not CP. New bar: in FLOAT display, |dh_CP| ≤ |dh_HP'| + 1.0°, where HP' is HP at the Amount giving the same corner L within ±0.03. The 8-bit |dh| is reported. C/C0, lift ≥ 60 % of HP and clip ≤ 1 % keep their thresholds.
+- **New 31 (CP lift on bright saturated colour):** for saturated patches (red, green, blue, skin at OKLab C ≥ 0.10) at scene Y 0.5, 1, 2, 4, sweeping Amount 0→+2 in steps of 0.125: display L is non-decreasing (worst reversal ≤ 0.002), the hue step between adjacent Amounts is ≤ 1.5°, and |dh| over the whole range is ≤ that of HP at matched L + 1.0°.
+- **New 32 (byte identity at every frame size):** line 1's identity holds for frames as small as 1×1, 2×3, 5×5 and 7×4 px, at defaults with legacy amounts.
+- **New 33 (no hot pixels from lift):** in every style at +2, no output pixel's display value exceeds that of the same input pixel at HP +2 by more than 8 codes in any channel, and pixels with input luminance ≤ 0.001 (including negative) gain at most 2^Amount. Checked on 1569, 983 and a synthetic with negative and zero pixels.
+- **New 34 (feather has no kink):** the per-unit change in transition width just below and just above any feather value differs by at most 3× everywhere on 2…100. Feathers 0–2 may render alike where the anti-aliasing floor dominates, which is pixel-limited.
