@@ -85,10 +85,26 @@ does not document it.
 
 On 6929 at Purple 20, purple-band edge pixels lose 85 % of their chroma, blue-band (230–279°)
 6 % and green 0 %, nothing moves away from edges, and whole-frame ΔE2000 at Purple 5 /
-Green 5 is 0.038 (1840) and 0.0001 (4213). The auditor tool's fringe-edge count on 6929
-falls only 5–25 %: much of that frame's rim is blue-violet, below Lightroom's default purple
-range, as it would be in Lightroom; widening Hue From to ~10 reaches it, at the cost of
-touching blue sky edges, which is why the default does not.
+Green 5 is 0.038 (1840) and 0.0001 (4213). `evidence/defringe-sweep.png` shows the violet
+rims fading from 0 to 2 to 5 and gone at 20, foliage and sky untouched.
+
+**Spec 3.5's second clause FAILS and is reported as such:** the auditor tool's
+purple+green fringe-edge count in the corner zone falls 7 % (1840, Purple 5 / Green 5) and
+5–25 % (6929, Purple 20), against ≥ 50 %. Two reasons, neither fixed here:
+
+- The tool calls a pixel a fringe when its colour departs from a prediction interpolated
+  from the two flat sides of the edge, and classes the DEPARTURE's hue. Defringe pulls a
+  purple pixel to grey; beside green foliage the prediction is green, so grey departs from it
+  toward magenta and is still counted purple. A desaturating Defringe, Lightroom's included,
+  cannot satisfy this metric beside coloured surfaces. The chroma measurement above shows
+  the pixels did lose their colour.
+- Much of 6929's rim is blue-violet (230–279° OKLab), below Lightroom's default purple
+  range (279–351° on the one published measurement). Widening Hue From to ~10 reaches it but
+  also greys blue sky along every branch, which is why the default does not.
+
+A fair test of 3.5 needs a fringe metric that compares against the pixel's neutral rather
+than a predicted colour, or Lightroom references (`corpus/lightroom/` holds none for these
+photos).
 
 ## 4. Changes outside this lane's functions (see NEEDS.md)
 
