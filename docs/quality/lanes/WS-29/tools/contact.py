@@ -7,7 +7,7 @@ from PIL import Image, ImageDraw
 L = os.path.dirname(os.path.abspath(__file__))
 PHOTOS = ["6929_sony-ilce-7m4", "2545_panasonic-dmc-gx85", "1569_panasonic-dmc-gx80",
           "4694_canon-eos-r5", "1332_canon-eos-77d", "1192_fujifilm-x-t10"]
-LOOKS = [("None", "-")] + [(os.path.basename(p)[3:-5].replace("-", " ").title().replace("Bw ", "B&W "), p)
+LOOKS = [("None", "-")] + [(os.path.basename(p)[3:-5].replace("-", " ").title().replace("Bw ", "B&W ").replace("B&W Contrast", "B&W High Contrast"), p)
                            for p in sorted(glob.glob(f"{L}/json/*.json"))]
 TILE, LABEL = 256, 18
 os.makedirs(f"{L}/r", exist_ok=True)

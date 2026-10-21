@@ -12,7 +12,7 @@ Best evidence: `evidence/lut-contrast709-amount-0-200.png`, `evidence/lut-log270
 
 ## Verdict per spec line
 
-Final verifier: VERDICT_PLACEHOLDER
+Final verifier (round 3 of 3, fresh agent, spec + diff only): **PASS**. Rounds 1 and 2 failed; their findings are fixed in 7d24962 and 7bce34f.
 
 | # | Verdict | Measured |
 |---|---|---|
@@ -24,7 +24,7 @@ Final verifier: VERDICT_PLACEHOLDER
 | L6 residual for out-of-domain values | PASS | 1.6e-15 |
 | L7 camera log-to-709 LUT | **BLOCKED** | mean ΔE2000 28.1 (log tap), 30.5 (display tap); NEEDS.md |
 | L8 GPU parity incl. 200% and out-of-domain | macOS CI | `CreativeLUTParityTests` + new unclamped stage test; see CI below |
-| L9 non-finite input, DOMAIN honoured | PASS (reference) | finite at all taps/Amounts; DOMAIN identity < 1e-6. GPU NaN handling: NEEDS.md |
+| L9 non-finite input, DOMAIN honoured | PASS (reference); GPU half BLOCKED on WS-58 | finite at all taps/Amounts; one NaN channel leaves the other two (1e-16); DOMAIN identity ≤ 1.95e-7 incl. per-channel domains. GPU NaN: NEEDS.md; GPU DOMAIN clamp read term-for-term, no parity case yet |
 
 ## What changed and why
 
@@ -40,3 +40,4 @@ Final verifier: VERDICT_PLACEHOLDER
 - L7 (above).
 - GPU NaN handling needs a finite-test kernel (NEEDS.md). Before this lane the GPU was already NaN-out below 100%.
 - Amount above 100 is not version-gated: an older build clamps it to 100.
+- Inputs ≥ 1e308 now overflow in the display matrix (non-finite folding runs before it, so one NaN channel no longer blacks out the pixel). No real pixel gets there.

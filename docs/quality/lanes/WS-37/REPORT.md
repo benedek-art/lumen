@@ -10,7 +10,7 @@ Best evidence: `evidence/printer-red-trim-gx85.png`.
 
 ## Verdict per spec line
 
-Final verifier: VERDICT_PLACEHOLDER
+Final verifier (round 3 of 3, fresh agent, spec + diff only): **PASS**. Rounds 1 and 2 failed; their findings are fixed in 7d24962 and 7bce34f.
 
 | # | Verdict | Measured |
 |---|---|---|
