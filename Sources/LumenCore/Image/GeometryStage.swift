@@ -511,9 +511,11 @@ public enum GeometryStage {
     /// changes the output size, never where the crop falls.
     public static func apply(_ image: ImageBuffer, geometry: Geometry,
                              targetLongEdge: Int? = nil,
-                             filter: GeometryResample.Filter = .lanczos3) -> ImageBuffer {
+                             filter: GeometryResample.Filter = .lanczos3,
+                             skipCrop: Bool = false) -> ImageBuffer {
         let map = GeometryMap(geometry: geometry, sourceWidth: image.width,
-                              sourceHeight: image.height, targetLongEdge: targetLongEdge)
+                              sourceHeight: image.height, targetLongEdge: targetLongEdge,
+                              skipCrop: skipCrop)
         return GeometryResample.apply(image, map: map, filter: filter)
     }
 }

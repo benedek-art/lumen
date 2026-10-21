@@ -1,14 +1,14 @@
 {
-  "authority" : 61.98632024811586,
+  "authority" : 62.95753800761605,
   "deadSteps" : 0,
   "frame" : "neutralRamp",
-  "frontLoading" : 0.5618735462329391,
+  "frontLoading" : 0.5625576455493554,
   "givenBack" : 0,
   "id" : "curve.darks",
   "isMonotone" : true,
-  "meanSeparation" : 6.3316862405394225,
+  "meanSeparation" : 6.3865240714900935,
   "panel" : "Curve",
-  "smallestLiveStep" : 3.0149828898252053,
+  "smallestLiveStep" : 3.06002828811188,
   "travelHigh" : 100,
   "travelLow" : -100
 }

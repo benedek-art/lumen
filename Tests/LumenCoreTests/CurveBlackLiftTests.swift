@@ -181,9 +181,16 @@ final class CurveBlackLiftTests: XCTestCase {
                 let grey = RGB(scene, scene, scene)
                 let encoded = LumenLog.encode(grey)
                 let exact = plan.exactColor(grey)
+                // The GPU composes the stage as the reference does since the curve left
+                // the cube (WS-01, `RenderGraph.applyCurveStage`): the table, its white,
+                // then the curve on the formed pixel.
+                let table = trilinear(plan.finishLUT, encoded) * plan.finishScale
+                let gpu = plan.curveStage.map {
+                    $0.apply(table, white: plan.finishScale, space: plan.curveSpace)
+                } ?? table
                 let paths: [(String, RGB)] = [
                     ("reference", plan.finishedColor(encoded: encoded)),
-                    ("gpu", trilinear(plan.finishLUT, encoded) * plan.finishScale)
+                    ("gpu", gpu)
                 ]
                 for (path, out) in paths {
                     let spread = out.maxComponent - Swift.min(out.r, out.g, out.b)

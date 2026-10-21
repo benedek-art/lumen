@@ -408,6 +408,27 @@ final class GeometryStageTests: XCTestCase {
         XCTAssertEqual(out.width, map.outputWidth)
         XCTAssertEqual(out.height, map.outputHeight)
     }
+
+    /// WS-01 for WS-25: the crop tool's uncropped view on the CPU path.
+    /// `PipelineRenderer.renderReference(showingUncropped:)` reaches S16 as `skipCrop`,
+    /// which must frame exactly what `GeometryMap(skipCrop:)` — the map the GPU's
+    /// `applyGeometry(skipCrop:)` evaluates — frames: the straightened frame without its
+    /// crop, the same pixels as a geometry whose crop is the whole frame.
+    func testSkipCropRendersTheStraightenedFrameWithoutItsCrop() {
+        let image = textured(120, 90)
+        let geo = Geometry(crop: Crop(x: 0.2, y: 0.1, w: 0.5, h: 0.6), angle: 4)
+        let cropped = GeometryStage.apply(image, geometry: geo)
+        let whole = GeometryStage.apply(image, geometry: geo, skipCrop: true)
+        var uncropped = geo
+        uncropped.crop = Crop()
+        let expected = GeometryStage.apply(image, geometry: uncropped)
+        let map = GeometryMap(geometry: geo, sourceWidth: 120, sourceHeight: 90, skipCrop: true)
+        XCTAssertEqual(whole.width, map.outputWidth)
+        XCTAssertEqual(whole.height, map.outputHeight)
+        XCTAssertGreaterThan(whole.width, cropped.width)
+        XCTAssertEqual(whole.pixels, expected.pixels,
+                       "skipCrop must be the same stage with the crop left off")
+    }
 }
 
 /// Deterministic test randomness.

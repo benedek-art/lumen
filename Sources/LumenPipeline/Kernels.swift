@@ -1293,6 +1293,9 @@ public enum KernelLibrary {
     // Every baked table's lookup (`ColorCube.filter`). General: it reads the atlas at
     // computed coordinates, which a colour kernel may not do.
     public static let cubeLookup = makeGeneral(cubeLookupSource)
+    // S15, the tone curve after the finish table (`CurveStage`, wired by WS-01). General:
+    // it reads its five 1-D tables at computed coordinates.
+    public static let curveStage = makeGeneral(CurveStage.kernelSource)
 
     /// Every kernel compiled. False means this macOS build rejected the kernel
     /// language and the renderer must use the CPU reference path.
@@ -1341,6 +1344,9 @@ public enum KernelLibrary {
             // Every table in the graph goes through it; without it the CPU path is the
             // honest fallback, not `CIColorCube`'s 8-bit lookup.
             ("cubeLookup", cubeLookup),
+            // The curve is no longer inside the finish table, so a missing curve kernel
+            // would drop the photograph's curve outright: core roster, CPU fallback.
+            ("curveStage", curveStage),
         ]
         return all.filter { $0.1 == nil }.map { $0.0 }
     }

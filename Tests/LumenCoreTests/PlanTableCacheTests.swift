@@ -74,9 +74,17 @@ final class PlanTableCacheTests: XCTestCase {
             // so a colour control still has to move SOMETHING the plan carries.
             XCTAssertEqual(viaCache.colorStage, fresh.colorStage,
                            "colorStage differs after \(name)")
+            // The curve is its own stage since WS-01 (`RenderPlan.curveStage`), held by
+            // `CurveStageMemo` rather than this cache; a curve control has to move it.
+            func curve(_ plan: RenderPlan) -> [[Float]?] {
+                guard let stage = plan.curveStage else { return [] }
+                return [stage.master, stage.luma] + stage.channels
+            }
+            XCTAssertEqual(curve(viaCache), curve(fresh), "curveStage differs after \(name)")
             XCTAssertTrue(base.finishLUT != fresh.finishLUT
                             || base.gradeLUT != fresh.gradeLUT
-                            || base.colorStage != fresh.colorStage,
+                            || base.colorStage != fresh.colorStage
+                            || curve(base) != curve(fresh),
                           "\(name) moved nothing the plan carries, so it cannot "
                               + "exercise the key")
         }
@@ -594,6 +602,11 @@ final class PlanTableCacheTests: XCTestCase {
     /// the one an eagerly built stack produces, bit for bit, cold AND warm, and two
     /// different curves must still produce two different tables — the case a closure
     /// that captured the wrong curve, or a stack built from a stale value, would fail.
+    ///
+    /// Since WS-01 the curve is in the table only when a soft proof is on (the proof has
+    /// to see the curved picture; `RenderPlan.curveIsInFinishTable`), so the lazy build
+    /// is held on a proofed plan's pre-proof table, and the unproofed plan's table is
+    /// held to the same bake with no curve at all.
     func testTheLazilyBuiltCurveBakesTheSameFinishTableAsAnEagerOne() {
         var recipe = liveRecipe()
         recipe.develop.curve.parametric.lights = 15
@@ -602,12 +615,18 @@ final class PlanTableCacheTests: XCTestCase {
         recipe.develop.curve.luma = [[0, 0.02], [0.6, 0.62], [1, 1]]
         recipe.develop.curve.r = [[0, 0], [0.5, 0.55], [1, 1]]
         recipe.develop.curve.b = [[0, 0.03], [1, 0.97]]
+        let proof = SoftProof(enabled: true, space: .srgb, intent: .perceptual,
+                              showGamutWarning: true, simulatePaperWhite: false)
 
         PlanTableCache.clear()
         let cold = RenderPlan(recipe: recipe, asShotKelvin: 5500, asShotTint: 0,
-                              lutSize: 17)
+                              lutSize: 17, softProof: proof)
         let warm = RenderPlan(recipe: recipe, asShotKelvin: 5500, asShotTint: 0,
-                              lutSize: 17)
+                              lutSize: 17, softProof: proof)
+        let unproofed = RenderPlan(recipe: recipe, asShotKelvin: 5500, asShotTint: 0,
+                                   lutSize: 17)
+        XCTAssertTrue(cold.curveIsInFinishTable)
+        XCTAssertFalse(unproofed.curveIsInFinishTable)
 
         // The reference: the display transform with the stack built up front, exactly
         // as the plan did before the build moved into the bake. No film is loaded, so
@@ -621,20 +640,26 @@ final class PlanTableCacheTests: XCTestCase {
                                          gamut: RenderPlan.sharedGamutBoundary)
             return curve.apply(formed, white: white, space: .rec2020) / scale
         }
+        let uncurved = LUT3D(size: 17) { encoded in
+            transform.apply(LumenLog.decode(encoded),
+                            gamut: RenderPlan.sharedGamutBoundary) / scale
+        }
 
-        XCTAssertEqual(cold.finishLUT.data, eager.data,
+        XCTAssertEqual(cold.finishLUTBeforeProof?.data, eager.data,
                        "the lazily built curve baked a different finish table")
-        XCTAssertEqual(warm.finishLUT.data, eager.data,
+        XCTAssertEqual(warm.finishLUTBeforeProof?.data, eager.data,
                        "the cached finish table differs from an eager bake")
         XCTAssertEqual(cold.finishScale, scale)
+        XCTAssertEqual(unproofed.finishLUT.data, uncurved.data,
+                       "without a proof the curve must not be in the finish table")
 
         // A different curve must reach the bake: had the closure kept a stale stack,
         // this would come back equal to the first.
         var other = recipe
         other.develop.curve.parametric.lights = -30
         let moved = RenderPlan(recipe: other, asShotKelvin: 5500, asShotTint: 0,
-                               lutSize: 17)
-        XCTAssertNotEqual(moved.finishLUT.data, cold.finishLUT.data,
+                               lutSize: 17, softProof: proof)
+        XCTAssertNotEqual(moved.finishLUTBeforeProof?.data, cold.finishLUTBeforeProof?.data,
                           "a different parametric curve baked the same finish table")
     }
 }

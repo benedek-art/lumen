@@ -3020,6 +3020,7 @@ public final class PipelineRenderer {
     /// two, and a machine whose kernels will not compile still gets correct pixels.
     public func renderReference(source: any ImageSource, recipe: Recipe,
                                 maxLongEdge: Int,
+                                showingUncropped: Bool = false,
                                 strokeSets: [String: BrushStrokeSet] = [:],
                                 softProof: SoftProof? = nil) throws -> CGImage {
         let native = source.nativeLongEdge
@@ -3056,11 +3057,19 @@ public final class PipelineRenderer {
             staged, plan: plan,
             // Mattes too, for the same reason: a fallback that drops the subject mask
             // renders a different picture from the one the user was looking at.
+            // And S3's scale reaches S11 as well: a mask's Noise rows obey the same
+            // preview rule (`ClassicalDenoise.scaled`, identity at ≤ 0.5) that the GPU
+            // graph's `options.noiseScale` applies, so the fallback no longer runs local
+            // Noise at full strength on a preview where the graph skips it (WS-53).
             inputs: ReferenceRenderer.Inputs(strokeSets: strokeSets,
-                                             aiMattes: mattes[source.url]?.planes ?? [:]))
+                                             aiMattes: mattes[source.url]?.planes ?? [:],
+                                             noiseScale: scale * scale))
         // S16 (WS-25): the CPU twin of `applyGeometry`, same map, same Lanczos-3 chain.
+        // `showingUncropped` is the crop tool's whole-frame view, exactly as the GPU
+        // path's `applyGeometry(skipCrop:)` takes it.
         let framed = GeometryStage.apply(rendered, geometry: recipe.develop.geometry,
-                                         targetLongEdge: maxLongEdge)
+                                         targetLongEdge: maxLongEdge,
+                                         skipCrop: showingUncropped)
         guard let cgImage = Self.cgImage(from: framed) else {
             throw RenderError.renderFailed
         }

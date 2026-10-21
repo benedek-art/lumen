@@ -276,6 +276,14 @@ public struct RenderGraph {
             ColorCube.filter(plan.finishLUT, image: encoded)
         }) {
             image = Self.applyMatrix(formed, Mat3.diagonal(RGB(gray: plan.finishScale)))
+            // S15, the curve, as its own stage on the formed display-linear picture —
+            // `RenderPlan.finishedColor`'s order exactly: table, `finishScale`, curve,
+            // then the gamut flag below (which only exists with a proof on, and then the
+            // curve is inside the table and `curveStage` is nil).
+            if let stage = plan.curveStage {
+                image = Self.applyCurveStage(image, stage, white: plan.finishScale,
+                                             space: plan.curveSpace) ?? image
+            }
         } else {
             // Picture formation failing is not a stage to skip: handing back
             // scene-referred data as if it were a picture is worse than any fallback.
@@ -904,6 +912,31 @@ public struct RenderGraph {
     /// box blur, the gradient magnitude, the 3×3 neighbourhood — is symmetric under a
     /// y flip.
     static func clamped(_ image: CIImage) -> CIImage { image.clampedToExtent() }
+
+    // MARK: - S15 curve
+
+    /// `CurveStage.apply` on the GPU: `CurveStage.kernelSource` over the stage's five
+    /// tables as one RGBAf image. Nil when the kernel did not compile — which the core
+    /// roster already turned into the CPU path — or for a non-sRGB stage, which
+    /// `RenderPlan` never builds.
+    static func applyCurveStage(_ image: CIImage, _ stage: CurveStage, white: Double,
+                                space: RGBColorSpace) -> CIImage? {
+        guard let kernel = KernelLibrary.curveStage, stage.encoding == .srgb else { return nil }
+        let width = stage.atlasWidth
+        let data = stage.atlasRGBA.withUnsafeBufferPointer { Data(buffer: $0) }
+        let tables = CIImage(bitmapData: data, bytesPerRow: width * 16,
+                             size: CGSize(width: width, height: CurveStage.rows),
+                             format: .RGBAf, colorSpace: nil).samplingNearest()
+        let u = stage.kernelUniforms(white: white, space: space)
+        let tablesExtent = tables.extent
+        return kernel.apply(extent: image.extent,
+                            roiCallback: { index, rect in index == 0 ? rect : tablesExtent },
+                            arguments: [image, tables, Float(u.n),
+                                        CIVector(x: u.on[0], y: u.on[1], z: u.on[2], w: u.on[3]),
+                                        CIVector(x: u.ch[0], y: u.ch[1], z: u.ch[2]),
+                                        CIVector(x: u.p[0], y: u.p[1], z: u.p[2], w: u.p[3]),
+                                        CIVector(x: u.w[0], y: u.w[1], z: u.w[2])])
+    }
 
     // MARK: - S6
 

@@ -102,6 +102,30 @@ public struct RenderPlan: Sendable {
     /// value's table. Nil when there is no warning to draw, so nothing pays for it.
     public let finishLUTBeforeProof: LUT3D?
 
+    /// S15, the tone curve, as its own stage after the finish table (WS-12b N1, wired
+    /// by WS-01). Nil when the curve is the identity — and nil when it is baked into
+    /// the table instead (`curveIsInFinishTable`).
+    ///
+    /// The finish cube's lattice is LumenLog-shaped, about eleven nodes across visible
+    /// tones at 33, so a curve inside it rendered up to 9 codes (an S), 33 (a steep
+    /// curve) and 101 (a dip) away from the one drawn, and preview and export disagreed
+    /// by up to 37 codes (`CurveStage`'s header has the table). Out here it is five
+    /// 8192-sample 1-D tables and `CurveStack.run`'s arithmetic, within a fraction of a
+    /// code of the exact curve at every table size, and a curve drag no longer re-bakes
+    /// the 33³/65³ cube. Both renderers apply it: `finishedColor` (the reference) and
+    /// `RenderGraph.applyCurveStage` (the GPU twin, the same arithmetic).
+    public let curveStage: CurveStage?
+
+    /// True when the curve stays inside `finishLUT`, which is exactly when a soft proof
+    /// is on. The proof is composed onto the END of the finish table and has to see the
+    /// CURVED picture (curve, then proof — its order since it was added); moving the
+    /// curve out from under it would proof the uncurved picture. A proof is a viewing
+    /// mode, so it keeps the table-borne curve; every other render runs the stage.
+    public let curveIsInFinishTable: Bool
+
+    /// The working space the plan was built in — the curve's luminance weights.
+    public let curveSpace: RGBColorSpace
+
     // MARK: Display
     public let displayWhite: Double
     public let displayTransform: DisplayTransform
@@ -331,11 +355,16 @@ public struct RenderPlan: Sendable {
         // precisely the defect — see `pairedTableAllowingStale`.
         let proof = softProof?.transform(working: space)
         self.softProof = proof
+        // S15 out of the table unless a proof needs it inside (see `curveIsInFinishTable`).
+        let curveInTable = proof != nil
+        self.curveIsInFinishTable = curveInTable
+        self.curveSpace = space
+        self.curveStage = curveInTable ? nil : CurveStageMemo.stage(for: develop.curve)
         // One closure, used for both tables, so the proofed and unproofed versions
         // cannot drift into being different pictures with one difference. It takes the
         // built stack as an argument so the stack is built once per BAKE, never once
         // per sample, which would be the parametric bake 35 937 times over.
-        let display: @Sendable (CurveStack) -> @Sendable (RGB) -> RGB = { curve in { encoded in
+        let display: @Sendable (CurveStack?) -> @Sendable (RGB) -> RGB = { curve in { encoded in
             let scene = LumenLog.decode(encoded)
             let formed: RGB
             if let chain {
@@ -349,6 +378,7 @@ public struct RenderPlan: Sendable {
             // value would put an HDR rendition's 4.0 through a table whose whole
             // question is "does this fit in the file", and every highlight would answer
             // no for the wrong reason.
+            guard let curve else { return formed / scale }
             return curve.apply(formed, white: white, space: space) / scale
         } }
 
@@ -373,18 +403,27 @@ public struct RenderPlan: Sendable {
         } else {
             filmPart = "-"
         }
+        // The curve is in this key only when it is in this TABLE. Out of it, every curve
+        // shares one table (keyed with the identity set and an "out" marker, so it can
+        // never collide with a table that bakes the identity curve in), and a curve drag
+        // re-keys nothing here — `CurveStageMemo` is the curve's own cache.
+        let keyedCurve = curveInTable ? develop.curve : CurveSet()
         let baseKey = filmPart.flatMap { film in
             RenderPlan.finishKeyMemo.key(
                 ["fin", "\(lutSize)", "\(space)", film,
                  CanonicalJSON.canonicalNumber(white),
                  CanonicalJSON.canonicalNumber(toneEngine.whiteAnchorEV),
                  CanonicalJSON.canonicalNumber(toneEngine.blackAnchorEV),
-                 displayWhiteTarget.map(CanonicalJSON.canonicalNumber) ?? "-"],
-                inputs: FinishKeyInputs(render: look.render, curve: develop.curve)) {
-                [look.render, develop.curve]
+                 displayWhiteTarget.map(CanonicalJSON.canonicalNumber) ?? "-",
+                 curveInTable ? "curve-in" : "curve-out"],
+                inputs: FinishKeyInputs(render: look.render, curve: keyedCurve)) {
+                [look.render, keyedCurve]
             }
         }
-        let bakePlain = { LUT3D(size: lutSize, transform: display(CurveStack(curveSet))) }
+        let bakePlain = {
+            LUT3D(size: lutSize,
+                  transform: display(curveInTable ? CurveStack(curveSet) : nil))
+        }
         // The proofed variant below is a map over whichever `plain` is served, cached
         // under THAT table's key, so a stale `plain` and its proof stay consistent.
         //
@@ -630,7 +669,13 @@ public struct RenderPlan: Sendable {
     /// compose the last stage. Factored out so the reference renderer, the GPU graph's
     /// twin and `referenceColor` all say it once.
     public func finishedColor(encoded: RGB) -> RGB {
-        let proofed = finishLUT.sample(encoded) * finishScale
+        let table = finishLUT.sample(encoded) * finishScale
+        // S15 on the formed, display-linear pixel, white at `finishScale` — the white of
+        // the table actually served, as everywhere downstream of it. Nil when the curve
+        // is the identity or is baked in (a proof is on; then the gamut flag below sees
+        // the curved value exactly as before).
+        let proofed = curveStage.map { $0.apply(table, white: finishScale, space: curveSpace) }
+            ?? table
         guard let softProof, softProof.settings.showGamutWarning,
               let plain = finishLUTBeforeProof else { return proofed }
         // The flag is asked of the value BEFORE the proof mapped it, which is the whole

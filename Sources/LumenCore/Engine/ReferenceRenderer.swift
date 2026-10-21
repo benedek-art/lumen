@@ -69,10 +69,14 @@ public enum ReferenceRenderer {
             image = StrokeHeal.apply(image, strokes: healStrokes)
         }
 
-        // S6 — the fused linear matrix.
+        // S6 — the fused linear matrix, through `LinearStage.apply` so the per-channel
+        // ±65504 clamp the GPU twin fuses after `CIColorMatrix` (`RG.applyMatrix`, the
+        // RGBAh store's ceiling) is applied here too. The bare `matrix.apply` wrote values
+        // past 65504 that the graph cannot hold, so CPU and GPU agreed only below
+        // 65504 / 2^EV (WS-04 NEEDS N-1).
         if !plan.linear.isIdentity {
-            let matrix = plan.linear.matrix
-            image = image.map { matrix.apply($0) }
+            let linear = plan.linear
+            image = image.map { linear.apply($0) }
         }
 
         // S7 — tone, weighted by the exposure-independent guided mask so a zone edit
