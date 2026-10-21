@@ -292,6 +292,36 @@ final class SkyDetectorTests: XCTestCase {
         XCTAssertLessThan(takenKite, 0.1)
     }
 
+    // S20: a studio backdrop — light grey at the top, darkening smoothly downward,
+    // a person in the middle — is not sky. (Round 3's growth floor turned exactly
+    // this kind of frame into 37% sky; 2062, 4144 and 832 in the corpus likewise.)
+    func testStudioBackdropIsNotSky() {
+        let w = 512, h = 768
+        var r = [Float](repeating: 0, count: w * h), g = r, b = r
+        for y in 0..<h {
+            for x in 0..<w {
+                let i = y * w + x
+                let n = Self.noise(x, y) * 0.004
+                let dx = Double(x - 256), dy = Double(y - 300)
+                let head = dx * dx / (100 * 100) + dy * dy / (130 * 130) < 1
+                let body = y > 430 && abs(dx) < 210
+                if head || body {
+                    let t = Self.noise(x / 2, y / 2, 4) * 0.08
+                    r[i] = 0.7 + t; g[i] = 0.5 + t; b[i] = 0.42 + t
+                } else {
+                    let v = Float(0.75 - 0.6 * Double(y) / Double(h))
+                    r[i] = v + n; g[i] = v + n; b[i] = v + 0.01 + n
+                }
+            }
+        }
+        let coverage = SkyDetector.detect(
+            guide: MatteGuide(width: w, height: h, r: r, g: g, b: b)).map { p in
+                Double(p.values.reduce(0, +)) / Double(p.values.count)
+            } ?? 0
+        print("S20 studio backdrop coverage \(coverage)")
+        XCTAssertLessThan(coverage, 0.01)
+    }
+
     // S10
     func testSkyCost() {
         let s = Self.scene()

@@ -62,7 +62,28 @@ box-downsampled 8x and bilinearly upsampled (what the old path delivered).
 | # | claim | threshold | measured by |
 |---|---|---|---|
 | S19 | Objects enclosed by sky (red balloon 0.7%, dark kite) are not filled as sky | each < 0.1 | `testObjectsInTheSkyAreNotSky` |
-| V4 | 1346 (defocused dark background, chart): no near-black pixel selected | judged on the corpus harness | REPORT |
+| V4 | 1346 (defocused dark background, chart): no near-black pixel selected | judged on the corpus harness | REPORT: **BLOCKED**, see below |
+
+### Added after verifier round 3 (FAIL, final round)
+
+| # | claim | threshold | measured by |
+|---|---|---|---|
+| S20 | A studio backdrop (light grey at the top, darkening downward, person in the middle) is not sky | coverage < 1% | `testStudioBackdropIsNotSky` |
+
+Round 3's per-pixel growth floor fixed V4 but made 2062, 4144 and 832 (no sky) 26-57% sky.
+It was removed (restoring behaviour the round-3 verifier measured with the floor switched
+off: those three at 0, 1346 at 0.33). V4 is therefore open.
+
+### Documented limits (not claimed)
+
+- A pale, smooth, non-sky region touching the top of the frame is taken as sky: 3582
+  (13%), 1332 (16%), 1346 (33%, running into its defocused background).
+- Sky behind dense fine branches is partial (2545 flecks) or absent (3437, which shows
+  very little sky).
+- Bright, grey objects the sky encloses are filled as cloud: the moon, a bird.
+- 983's defocused snowy mountain is partly selected next to the lantern.
+- A grey storm sky covering more than about half the frame is not detected unless it is
+  bright (OKLab L > 0.72): the relative-brightness test has nothing to compare it with.
 
 Round-1 notes kept honest: S2's perfect step flatters the filter, so S2b is the line that
 matters. S8 puts the wall at the bottom; a bright smooth ceiling or wall touching the TOP
@@ -72,8 +93,7 @@ is a known false positive (3582), recorded in REPORT, not claimed.
 
 - V1. `evidence/sky-corpus.png`: on 983, 1840, 3437, 4213, 2545 (plus 7301, 6001, 3582
   added in round 2), the sky alpha follows the real skyline, includes clouds, and does not
-  take buildings, water or snow. Sky behind dense fine branches (2545, 3437) is partial;
-  a smooth interior wall touching the top (3582) is taken. Both are stated limits.
+  take buildings or water. See "Documented limits" for where it does not hold.
 - V2. `evidence/refine-crop.png`: 100% crop of the synthetic hair fan. Old matte is a
   blur; refined matte resolves individual strands with no light ring outside.
 - V3. On macOS (owner): Subject on a portrait against a busy background, exported at
