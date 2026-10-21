@@ -35,6 +35,7 @@
 import AppKit
 import Foundation
 @testable import LumenApp
+import LumenCore
 
 // MARK: - Type
 
@@ -388,8 +389,14 @@ struct SliderSpec {
     /// Kelvin control that never goes negative inflates the column by a whole glyph.
     var widestReadout: String {
         let bounds = hardRange ?? range
-        let candidates = [String(format: "%.\(decimals)f", bounds.lowerBound),
+        // U2: a zero-centred row prints a "+" on its positive side (`SliderReadout`),
+        // and "+" is wider than "-", so the signed upper end is a candidate too.
+        var candidates = [String(format: "%.\(decimals)f", bounds.lowerBound),
                           String(format: "%.\(decimals)f", bounds.upperBound)]
+        if bounds.lowerBound < 0 && bounds.upperBound > 0 {
+            candidates.append(SliderReadout.text(bounds.upperBound, decimals: decimals,
+                                                 signed: true))
+        }
         return candidates.max { TextMetric.width($0, LayoutFont.numericStrong)
                                 < TextMetric.width($1, LayoutFont.numericStrong) } ?? ""
     }

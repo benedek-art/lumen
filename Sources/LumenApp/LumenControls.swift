@@ -558,6 +558,13 @@ struct LumenSlider: View {
     var accessibilityName: String? = nil
 
     @State private var isDragging = false
+    @State private var isHoveringTrack = false
+    /// The row holds focus because the KEYBOARD put it there (Tab), not a press. Only
+    /// then does the row carry the focus fill — `:focus-visible`, in web terms. A press
+    /// focuses the row too, so the arrows nudge what was just touched, and that state is
+    /// shown on the thumb instead: a fill on every row the pointer ever touched was the
+    /// edge-to-edge highlight in the baseline snapshots.
+    @State private var keyboardFocus = false
     @State private var dragStartValue: Double = 0
     /// The gesture's gearbox: ⇧ makes the drag fine, and this is what stops the thumb
     /// jumping at the moment the modifier changes. See `FineDrag` in LumenCore, where
@@ -749,7 +756,19 @@ struct LumenSlider: View {
         // Focus keeps the surface, because focus has nothing else to show it — and it is
         // there instead of the accent ring the owner reported on sight: the ring fired on
         // mouse-DOWN, so every drag of every slider began with a blue border.
-        .lumenFocusSurface(focused: rowFocused)
+        // OUTSET, so the label does not sit flush against the fill's edge: the content
+        // keeps its x (every groove in the panel still starts at the same place) and
+        // the fill reaches `focusOutset` past it on both sides.
+        //
+        // The fill lives on a background that takes no hits: `lumenFocusSurface` carries
+        // its own content shape, and on the outset that would have stretched this row's
+        // click target 6 pt into its neighbours. The row's own shape stays its own frame.
+        .contentShape(Rectangle())
+        .background(
+            Color.clear
+                .lumenFocusSurface(focused: rowFocused && keyboardFocus)
+                .padding(.horizontal, -CGFloat(SliderMetrics.focusOutset))
+                .allowsHitTesting(false))
         // KEYBOARD NUDGE (docs/28 Phase 7), and the three things it needed.
         //
         // One: the row is focusable, with the system's own ring turned off. macOS draws
@@ -771,6 +790,24 @@ struct LumenSlider: View {
         .focusEffectDisabled()
         .focused($rowFocused)
         .onChange(of: rowFocused) { _, focused in
+            if focused {
+                switch Self.focusOrigin(lastPress: firstClickAt) {
+                case .keyboard:
+                    keyboardFocus = true
+                case .pointer:
+                    keyboardFocus = false
+                case .unasked:
+                    // FOCUS NOBODY ASKED FOR is refused. A window hands its first
+                    // focusable view focus as it opens, which is how the baseline
+                    // snapshots came to show Exposure filled — and a row holding focus
+                    // makes the dispatcher hand it the arrows, so ← and → would nudge
+                    // Exposure instead of paging photographs until something was clicked.
+                    rowFocused = false
+                    return
+                }
+            } else {
+                keyboardFocus = false
+            }
             sliderFocusChanged(focused)
         }
         // A NEW PHOTOGRAPH LETS GO OF THE ROW. Focus taken by a drag on frame A used to
@@ -947,12 +984,13 @@ struct LumenSlider: View {
     // its diameter or the drawn handle sits off the value it reports — a silent,
     // pixel-scale lie in the one place this app cannot afford one — and that used to be
     // two literals a reader had to check against each other by eye.
-    private static let grooveHeight: CGFloat = 5
-    private static let thumbDiameter: CGFloat = 9
-    private static let thumbDraggingDiameter: CGFloat = 11
-    /// Tall enough to clear the groove's lip at both ends, short enough that the thumb
-    /// covers it whole when the control is sitting on its default.
-    private static let neutralMarkHeight: CGFloat = 8
+    //
+    // The numbers themselves are `SliderMetrics` in LumenCore now, beside the test that
+    // says the zero tick and the deviation underline can no longer meet (U2).
+    private static let grooveHeight = CGFloat(SliderMetrics.grooveHeight)
+    private static let thumbDiameter = CGFloat(SliderMetrics.thumbDiameter)
+    private static let thumbHoverDiameter = CGFloat(SliderMetrics.thumbHoverDiameter)
+    private static let thumbDraggingDiameter = CGFloat(SliderMetrics.thumbDraggingDiameter)
 
     /// The groove, whichever substance fills it, finished as a WELL: a hard shadow
     /// under the near lip and a trace of light on the far one.
@@ -990,7 +1028,8 @@ struct LumenSlider: View {
             // rendering artefact rather than as a mark, and this only draws at all when
             // the control has moved.
             .frame(width: max(abs(fraction - zeroFraction) * width, 2), height: 2)
-            .offset(x: min(fraction, zeroFraction) * width, y: 4.5)
+            .offset(x: min(fraction, zeroFraction) * width,
+                    y: CGFloat(SliderMetrics.underlineCentre))
     }
 
     private var track: some View {
@@ -1009,7 +1048,8 @@ struct LumenSlider: View {
             // have drawn the thumb somewhere the drag would not have put it.
             let fraction = geometryOfDrag.fraction(of: value)
             let zeroFraction = geometryOfDrag.fraction(of: defaultValue)
-            let thumb = isDragging ? Self.thumbDraggingDiameter : Self.thumbDiameter
+            let thumb = isDragging ? Self.thumbDraggingDiameter
+                : (isHoveringTrack ? Self.thumbHoverDiameter : Self.thumbDiameter)
             ZStack(alignment: .leading) {
                 if let trackStops {
                     // The groove IS the information on these rows. Stops are placed by
@@ -1089,30 +1129,23 @@ struct LumenSlider: View {
                                       zeroFraction: zeroFraction,
                                       width: width)
                 }
-                // The neutral mark. Sits under the thumb so the thumb covers it when
-                // the control is at its default, which is exactly when you do not
-                // need to be told where the default is.
+                // The neutral mark: A TICK ABOVE THE GROOVE (U2).
+                //
+                // It was an 8 pt bar through the 5 pt groove — on a ramped row a black
+                // halo with a white line in it — and the deviation underline began at the
+                // same x 4.5 pt below. Together they drew an "L" at the centre of
+                // Exposure and Contrast that read as a rendering glitch. Above the lip
+                // it sits on the panel's own grey, so one colour reads on every stop
+                // and nothing drawn under the groove can meet it. Geometry, and the
+                // test that it stays apart, in `SliderMetrics`.
                 if bipolar && zeroFraction > 0.001 && zeroFraction < 0.999 {
-                    if trackStops == nil {
-                        Rectangle()
-                            .fill(Lumen.separator)
-                            .frame(width: 1, height: Self.neutralMarkHeight)
-                            .offset(x: zeroFraction * width - 0.5)
-                    } else {
-                        // A 0.30-grey line vanishes against a saturated stop, and which
-                        // stop it lands on depends on the photograph's as-shot neutral —
-                        // so the mark carries its own contrast instead of assuming the
-                        // background: a dark halo under a light line reads on the green
-                        // end and the magenta end alike.
-                        Rectangle()
-                            .fill(Color.black.opacity(0.45))
-                            .frame(width: 3, height: Self.neutralMarkHeight)
-                            .offset(x: zeroFraction * width - 1.5)
-                        Rectangle()
-                            .fill(Color.white.opacity(0.85))
-                            .frame(width: 1, height: Self.neutralMarkHeight)
-                            .offset(x: zeroFraction * width - 0.5)
-                    }
+                    Rectangle()
+                        .fill(Lumen.secondaryText)
+                        .frame(width: CGFloat(SliderMetrics.neutralTickWidth),
+                               height: CGFloat(SliderMetrics.neutralTickHeight))
+                        .offset(x: zeroFraction * width
+                                    - CGFloat(SliderMetrics.neutralTickWidth / 2),
+                                y: CGFloat(SliderMetrics.neutralTickCentre))
                 }
                 // The handle. Sizes and the reason for them are with the constants;
                 // what is here is that it is LIT rather than filled.
@@ -1138,11 +1171,25 @@ struct LumenSlider: View {
                                        startPoint: .top, endPoint: .bottom),
                         lineWidth: 0.5))
                     .frame(width: thumb, height: thumb)
+                    // HELD FOCUS IS SHOWN ON THE THUMB. A press focuses the row so the
+                    // arrows nudge it; the row fill that used to say so is kept for
+                    // keyboard focus only (see `keyboardFocus`), and this ring is the
+                    // quiet answer to "which slider do the arrows move?".
+                    .overlay(Circle()
+                        .strokeBorder(Lumen.secondaryText, lineWidth: 1)
+                        .padding(-2.5)
+                        .opacity(rowFocused ? 1 : 0))
                     .offset(x: fraction * width - thumb / 2)
                     .shadow(color: .black.opacity(0.5), radius: isDragging ? 3 : 1.5, y: 0.5)
             }
             .frame(height: Lumen.rowHeight)
             .contentShape(Rectangle())
+            // POINTER FEEDBACK ON THE THUMB, NOT THE ROW. The owner had the row's hover
+            // fill taken out (LumenFocus.swift holds his words) and he was right about
+            // the fill; but a track that gives no sign it is under the pointer is a
+            // track you have to trust blind. One point of thumb is the smallest thing
+            // that says "this is what you will move" and it moves nothing else.
+            .onHover { isHoveringTrack = $0 }
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { drag in
@@ -1307,6 +1354,8 @@ struct LumenSlider: View {
                     // focus behind it and digits reaching the key grammar as ratings.
                     .onAppear { textFocused = true }
                     .onSubmit { commitText() }
+                    .onKeyPress(.upArrow) { typedNudge(1) }
+                    .onKeyPress(.downArrow) { typedNudge(-1) }
                     .onExitCommand { isEditingText = false }
                     // COMMIT ON BLUR, as Lightroom and Capture One do. The field used to
                     // close only on Return or Escape, so clicking elsewhere left it open
@@ -1329,7 +1378,7 @@ struct LumenSlider: View {
                     .foregroundStyle(isModified ? Lumen.primaryText : Lumen.secondaryText)
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        textValue = formatted
+                        textValue = SliderReadout.editingText(value, decimals: decimals)
                         isEditingText = true
                     }
                     // THE CURSOR IS THE ADVERTISEMENT. This readout is the app's
@@ -1418,8 +1467,52 @@ struct LumenSlider: View {
         .animation(Lumen.motionState, value: isModified)
     }
 
+    /// The pill's digits — `SliderReadout` in LumenCore, where the rules are tested:
+    /// never "-0", and a "+" on a zero-centred bipolar control the way Lightroom prints
+    /// `+0.35` and `+24`.
     private var formatted: String {
-        String(format: "%.\(decimals)f", value)
+        SliderReadout.text(value, decimals: decimals,
+                           signed: bipolar && SliderReadout.isSigned(
+                               defaultValue: defaultValue,
+                               lowerBound: range.lowerBound, upperBound: range.upperBound))
+    }
+
+    private enum FocusOrigin { case keyboard, pointer, unasked }
+
+    /// What put focus on the row, read off the event AppKit is handling. A key (Tab) is
+    /// the keyboard; a mouse event, or a press on this track in the last half second, is
+    /// the pointer; anything else — the window opening, nothing at all — asked for
+    /// nothing.
+    private static func focusOrigin(lastPress: Date) -> FocusOrigin {
+        switch NSApp.currentEvent?.type {
+        case .keyDown?:
+            return .keyboard
+        case .leftMouseDown?, .leftMouseUp?, .leftMouseDragged?,
+             .rightMouseDown?, .otherMouseDown?:
+            return .pointer
+        default:
+            return Date().timeIntervalSince(lastPress) < 0.5 ? .pointer : .unasked
+        }
+    }
+
+    /// ↑/↓ while typing: one step, ten under ⇧, from whatever the field holds now.
+    ///
+    /// Same arithmetic as the row's arrows (`SliderTrack.nudged`: the step, the one-sided
+    /// soft clamp), applied live so the picture answers while the field is open. The
+    /// field's text follows, so Return commits what is on screen.
+    private func typedNudge(_ direction: Int) -> KeyPress.Result {
+        let base = SliderEntry.value(of: textValue, current: value) ?? value
+        let moved = scrubTrack.nudged(base, steps: direction * (Self.shiftIsDown ? 10 : 1))
+        let next = min(max(moved, effectiveHardRange.lowerBound), effectiveHardRange.upperBound)
+        guard next.isFinite else { return .handled }
+        textValue = SliderReadout.editingText(next, decimals: decimals)
+        guard next != value else { return .handled }
+        onEditingChanged?(true)
+        sliderGestureChanged(true)
+        commit(next)
+        onEditingChanged?(false)
+        sliderGestureChanged(false)
+        return .handled
     }
 
     // There is deliberately no `clamp` here any more either, for the same reason:
@@ -1468,10 +1561,13 @@ struct LumenSlider: View {
         guard let parsed = SliderEntry.value(of: textValue, current: value) else { return }
         // Typing reaches the hard limit; dragging does not. That asymmetry is what
         // makes soft limits helpful instead of restrictive.
+        let next = min(max(parsed, effectiveHardRange.lowerBound),
+                       effectiveHardRange.upperBound)
+        // ↑/↓ in the field already wrote what it holds; Return on that is not an edit.
+        guard !SliderReadout.isNoChange(next, from: value, step: step) else { return }
         onEditingChanged?(true)
         sliderGestureChanged(true)
-        value = min(max(parsed, effectiveHardRange.lowerBound),
-                    effectiveHardRange.upperBound)
+        value = next
         onEditingChanged?(false)
         sliderGestureChanged(false)
     }

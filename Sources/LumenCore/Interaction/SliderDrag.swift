@@ -424,8 +424,29 @@ public struct FineDrag: Equatable, Sendable {
         return out.value
     }
 
+    /// The fine gear for one track: `scale`, or finer where a quarter still cannot
+    /// address every step.
+    ///
+    /// A quarter is right for the ±100 controls: 142 pt over 200 steps is 0.71 pt a
+    /// step coarse and 2.84 fine. It was not enough for Exposure, which is ±5 in
+    /// hundredths: 0.142 pt a step coarse and 0.568 fine, so ⇧ still skipped values and
+    /// "fine" could not place 0.37. The gear here is the one that makes a fine step at
+    /// least `finePointsPerStep` of travel, never coarser than `scale` and never finer
+    /// than `minimumGear` (below that a fine drag is a crawl, and the readout scrub and
+    /// the arrows are the better instruments). Linear tracks only: on a reciprocal or a
+    /// log axis points per step vary along the track, so those keep `scale`.
+    public static let finePointsPerStep: Double = 1
+    public static let minimumGear: Double = 0.05
+
+    public static func fineGear(for track: SliderTrack) -> Double {
+        guard track.scale == .linear, track.isUsable, track.step > 0 else { return scale }
+        let coarsePointsPerStep = track.width * track.step / track.span
+        let gear = coarsePointsPerStep / finePointsPerStep
+        return Swift.min(scale, Swift.max(minimumGear, gear))
+    }
+
     private func resolved(track: SliderTrack, travelled: Double) -> Double {
-        let gear = isFine ? Self.scale : 1
+        let gear = isFine ? Self.fineGear(for: track) : 1
         return track.value(from: anchorValue,
                            travelled: (travelled - anchorTravel) * gear)
     }
