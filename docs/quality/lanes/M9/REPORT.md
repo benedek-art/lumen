@@ -38,13 +38,13 @@ Per frame, before this lane:
 
 | # | Claim | Verdict | Evidence |
 |---|---|---|---|
-| 1 | Adjustment-only edits rasterize nothing, draft and settle | CI_PENDING | `MaskSpeedTests.testAdjustmentOnlyEditsNeverRebakeAtSettle` |
-| 2 | Settle rasters held within budget, exports not | CI_PENDING | `MaskPerfTests.testTheRasterCacheHoldsSettleRastersWithinItsByteBudget` |
-| 3 | Range masks: 0 bakes, 0 readbacks, draft and settle | CI_PENDING | `MaskSpeedTests.testRangeMasksTakeTheGPUPath`, `…OverTheRealStageIsTheCPUDefinition` |
-| 4 | Kernel parity at 3 sizes, RGBAf and RGBAh | CI_PENDING | `MaskRangeGPUParityTests` |
-| 5 | Eligibility exact | CI_PENDING | `MaskRangeGPUParityTests.testOnlyPointwiseChainsAndRangeKindsTakeTheGPUPath` |
-| 6 | Cheap bake never stale; expensive still is | CI_PENDING | `MaskSpeedTests.testACheapBrushBakeIsNeverServedStale`, `testAnExpensiveBakeStillServesStaleOnADraft` |
-| 7 | No regression | Linux PASS (3045 LumenCoreTests); macOS CI_PENDING | see below |
+| 1 | Adjustment-only edits rasterize nothing, draft and settle | PASS | `MaskSpeedTests.testAdjustmentOnlyEditsNeverRebakeAtSettle` |
+| 2 | Settle rasters held within budget, exports not | PASS | `MaskPerfTests.testTheRasterCacheHoldsSettleRastersWithinItsByteBudget` |
+| 3 | Range masks: 0 bakes, 0 readbacks, draft and settle | PASS | `MaskSpeedTests.testRangeMasksTakeTheGPUPath`, `…OverTheRealStageIsTheCPUDefinition` |
+| 4 | Kernel parity at 3 sizes, RGBAf and RGBAh | PASS | `MaskRangeGPUParityTests` |
+| 5 | Eligibility exact | PASS | `MaskRangeGPUParityTests.testOnlyPointwiseChainsAndRangeKindsTakeTheGPUPath` |
+| 6 | Cheap bake never stale; expensive still is | PASS | `MaskSpeedTests.testACheapBrushBakeIsNeverServedStale`, `testAnExpensiveBakeStillServesStaleOnADraft` |
+| 7 | No regression | PASS: Linux 3045 LumenCoreTests; macOS gpu-parity 266 tests, 0 failures (`7727e3a`) | see below |
 | 8 | Timings | reported below | `evidence/bench-cpu-raster.txt` |
 | 9, 10 | Visual | human | "For the owner" 1 and 2 |
 
@@ -102,4 +102,4 @@ After this lane, the CPU functions themselves are unchanged (they are other lane
   - The settle memo exceeded the memory budget. Removed.
   - Several tests were weaker than the spec. Strengthened.
   - The macOS compile failed on a test typo.
-- macOS CI: CI_PENDING.
+- macOS CI: PASS.
