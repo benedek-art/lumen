@@ -157,6 +157,10 @@ public enum LateralCAEstimator {
     /// Per-tile radial misregistration of R and of B against G. Exposed for the
     /// diagnostics and for the macOS probe that asks whether Apple's decode already
     /// removed it.
+    /// Tuning knobs, fixed in production (WS-28 REPORT records how they were chosen).
+    nonisolated(unsafe) static var tileCap = 48
+    nonisolated(unsafe) static var correlationGate = 0.85
+
     public typealias TileFetch = (_ x: Int, _ y: Int, _ width: Int, _ height: Int) -> ImageBuffer?
 
     public static func measure(_ image: ImageBuffer, maxTiles: Int = 600) -> [Sample]? {
@@ -185,7 +189,7 @@ public enum LateralCAEstimator {
         let s = Double(preview.width) / Double(w)
         let cx = Double(w) / 2, cy = Double(h) / 2
         let norm = 0.5 * (Double(w * w + h * h)).squareRoot()
-        let tile = Swift.min(48, Swift.max(16, Swift.max(w, h) / 60))
+        let tile = Swift.min(tileCap, Swift.max(16, Swift.max(w, h) / 60))
         let margin = 6
         let border = margin
 
@@ -510,7 +514,7 @@ public enum LateralCAEstimator {
                 sbb += gradG[i] * gradG[i]
             }
             let corr = sab / Swift.max((saa * sbb).squareRoot(), 1e-18)
-            guard corr > 0.85 else { return nil }
+            guard corr > LateralCAEstimator.correlationGate else { return nil }
             return (shift, sbb / (meanG * meanG) * corr * corr)
         }
     }
