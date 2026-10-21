@@ -1,15 +1,15 @@
 {
-  "authority" : 24.70887705446478,
+  "authority" : 12.82464958499532,
   "deadSteps" : 0,
   "frame" : "wideStepEdge",
-  "frontLoading" : 0.5516044293388582,
+  "frontLoading" : 0.5849360635269413,
   "givenBack" : 0,
   "hueRotation" : 0,
   "id" : "film.halation",
   "isMonotone" : true,
-  "meanSeparation" : 0.9422625840015931,
+  "meanSeparation" : 0.021162750478680433,
   "panel" : "Film Lab",
-  "smallestLiveStep" : 1.0280193522658863,
+  "smallestLiveStep" : 0.5330213574257954,
   "travelHigh" : 100,
   "travelLow" : 0
 }

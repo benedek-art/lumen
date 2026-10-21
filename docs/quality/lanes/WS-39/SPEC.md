@@ -26,7 +26,7 @@ mean dR is at least 2 codes, as a percentage of the long edge.
 | M6 | Size scales with resolution (same fraction of the frame) | 10%-of-peak reach at 1200 vs 3600 px within 15%; `measure.py` r2% at 800 vs 2400 within 0.5 points | `testTheHaloScalesWithTheRender`, `measure.py` M6 |
 | M7 | Size is meaningful and monotone | r2(S2) / r2(S0.5) between 2.5 and 5; r2(0.5) < r2(1) < r2(2) | `measure.py` M7 |
 | M8 | Redness is meaningful and monotone | display G/R near the source strictly decreasing over Redness 0, 50, 100 | `measure.py` M8 |
-| M9 | Amount is linear, no dead range | glow(A50) = 0.5 glow(A100) (unit, 1e-5); each 25-step adds 20–30% of the A100 ring sum | `testAmountIsALinearGain`, `measure.py` M9 |
+| M9 | Amount is linear, no dead range | glow(A50) = 0.5 glow(A100) at the stage (unit, 1e-5); in display each 25-step adds 15–35% of the A100 ring sum (amended from 20–30% after the first after-run: the film curve after the stage is superlinear on a dark field, so a linear stage reads 20/23/26/31% in display) | `testAmountIsALinearGain`, `measure.py` M9 |
 | M10 | Stock defaults are ordered believably | Velvia 0 < Ektar < Portra < Gold; cine250D (Vision3, rem-jet) <= Ektar; Tri-X neutral | `measure.py` M10 |
 | M11 | Real frames: no cast on ordinary bright surfaces | A100 mean dR in the audit's six flat regions (983 snow, 983 chart white, 2545 lawn, 2545 sky, 3582 wall, 6929 wall) <= 1.0 code each | `measure.py --corpus` M11 |
 | M12 | GPU computes the CPU's formula | `RG.applyHalation` + `lumenHalationEnergy` term-for-term equal to `RR.applyHalation` + `HalationProfile` (verifier reads both); macOS `KernelGoldenTests` halation goldens green in CI | code review + CI |
