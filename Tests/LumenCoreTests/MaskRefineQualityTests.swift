@@ -135,6 +135,32 @@ final class MaskRefineQualityTests: XCTestCase {
         }
     }
 
+    /// AT THE FRAME BORDER TOO. The octagon is four chained passes, and when each one
+    /// clipped at the frame a pixel near the edge could only be reached through a point
+    /// outside it — so the radius-9 octagon did not contain the radius-8 disc there and
+    /// Edge 8 → 9 dropped (0, 12) from 1.0 to 0.04 (the verifier's reproduction). The
+    /// fixtures above are empty at the border, which is why they never saw it.
+    func testExpandIsMonotoneAtTheFrameBorder() {
+        var dot = Plane(width: 40, height: 40)
+        dot[0, 20] = 1
+        var rng = LCG(state: 5)
+        let border = Plane(width: 120, height: 90) { _, _ in rng.next() < 0.3 ? rng.next() : 0 }
+        for (name, plane, longEdge) in [("dot on the edge", dot, 5000),
+                                        ("speckle to the edge", border, 2400)] {
+            var previous = MaskRaster.edgeShifted(plane, edge: -50, longEdge: longEdge)
+            for step in -49...50 {
+                let p = MaskRaster.edgeShifted(plane, edge: Double(step), longEdge: longEdge)
+                var worst: Float = 0
+                for i in 0..<p.values.count {
+                    worst = Swift.max(worst, previous.values[i] - p.values[i])
+                }
+                XCTAssertLessThanOrEqual(worst, 1e-6, "\(name): Edge \(step - 1) → \(step) "
+                                         + "lowered a pixel by \(worst)")
+                previous = p
+            }
+        }
+    }
+
     func testExpandNeverAddsSpeckle() {
         let plane = speckled(160)
         let base = speckleCount(plane)
