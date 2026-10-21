@@ -83,7 +83,7 @@ struct Args {
     private var values: [String: [String]] = [:]
     private var flags: Set<String> = []
 
-    static let flagNames: Set<String> = ["no-dither", "json", "help"]
+    static let flagNames: Set<String> = ["no-dither", "json", "help", "legacy"]
 
     init(_ argv: [String]) throws {
         guard let first = argv.first else { throw InputError.message(LumenRenderCLI.usage) }
@@ -171,6 +171,10 @@ enum LumenRenderCLI {
       lumen-render synth  --out test.lfi [--width 960] [--height 540]
       lumen-render upright --input in.lfi [--long-edge 1024] [--modes level,vertical]
                           [--out-dir dir]   (Upright lines, solve and residual tilt)
+      lumen-render auto   --input in.lfi [--base r.json] [--long-edge 1024]
+                          [--out-before b.png] [--out-after a.png] [--report r.json]
+      lumen-render match  --input ref.lfi --input other.lfi [...] [--shutter 1/50
+                          --aperture 5.6 --iso-exif 250, once per input] [--out-dir d]
     shared: --as-shot-kelvin 5500 --as-shot-tint 0 --iso N --space srgb|p3
             --no-dither --lut-size 33 --resampler lanczos3|bicubic|bilinear
     (full manual: the header of Sources/LumenRender/main.swift)
@@ -185,6 +189,8 @@ enum LumenRenderCLI {
             case "keys": try keys(args)
             case "synth": try synth(args)
             case "upright": try upright(args)
+            case "auto": try auto(args)
+            case "match": try match(args)
             case "help", "--help", "-h": print(usage)
             default: throw InputError.message("unknown command '\(args.command)'\n\(usage)")
             }

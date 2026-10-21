@@ -564,11 +564,11 @@ struct DevelopPanel: View {
         VStack(spacing: 4) {
             HStack(spacing: 4) {
                 // Auto reads a proxy of the actual render — including the crop — and
-                // writes the six sliders through `AutoTone.suggest(from:)`. The result
-                // is ordinary slider positions: visible, arguable, one undo step.
+                // writes the six sliders and Vibrance through `AutoTone.auto(from:)`. The
+                // result is ordinary slider positions: visible, arguable, one undo step.
                 DevelopFooterButton(title: "Auto", systemImage: "wand.and.stars",
-                                    help: "Set the six tone sliders from the scene's "
-                                        + "own statistics (⇧⌘A). Every value stays "
+                                    help: "Set the tone sliders and Vibrance from the "
+                                        + "scene's own statistics (⇧⌘A). Every value stays "
                                         + "visible and individually revertable.",
                                     action: { state.applyAutoTone() })
                 DevelopFooterButton(title: "Reset", systemImage: "arrow.uturn.backward",
