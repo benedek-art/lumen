@@ -530,8 +530,9 @@ struct BasicPanel: View {
                         range: -100...100, hardRange: nil, defaultValue: 0,
                         step: 1, decimals: 0,
                         help: "Lifts or darkens the dark zone alone, through an "
-                            + "edge-aware mask that will not halo a backlit edge. "
-                            + "Mid-grey and above never move.")
+                            + "edge-aware mask. Lifting opens the quarter tones and "
+                            + "leaves the black point to Blacks. Mid-grey and above "
+                            + "never move.")
             LumenSlider(title: "Whites",
                         value: binder.value(\.develop.tone.whites, "tone.whites"),
                         range: -100...100, hardRange: nil, defaultValue: 0,

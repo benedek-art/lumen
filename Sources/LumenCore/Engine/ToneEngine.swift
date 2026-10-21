@@ -3,19 +3,27 @@
 // docs/14 §S7): every tonal control compiles to a per-pixel gain, in stops, over the
 // zonal coordinate `t = log2(luminance / 0.18)`.
 //
-// One property is structural rather than enforced:
-//   · Whites and Blacks do not gain anything — they move the anchors the display
-//     transform maps to display white and black. That is what "Whites owns the white
-//     point" means when you build it instead of writing it down.
+// One property is structural rather than enforced, and it changed in WS-05:
+//   · Every slider here is a scalar GAIN on scene-linear RGB, except that Blacks also
+//     moves the black anchor. Whites used to move the white anchor as well, and that
+//     was not free: the display transform's path-to-white blend reads the anchor
+//     (`shoulderU` in `DisplayTransform.apply`), so Whites ±100 re-hued saturated blues
+//     it applied no gain to — 14.05° on rec709 blue at +2 EV, 2.35° mean over the
+//     whole midtone hue wheel (WS-05 SPEC H6/H1). Whites now moves the white CLIP POINT
+//     with gain alone — `whiteWeight` saturates below the anchor, so a tone that much
+//     under white is carried onto it — and the transform stays the default one. A
+//     slider that is a pure gain renders a colour exactly as Exposure would at the same
+//     luminance, which is the only hue promise a tone control can make.
 //
 // A second one used to be, and this file said so for longer than it was true. The claim
 // was that Highlights' weight window "tapers to zero at the white anchor, so Highlights
 // can never push a pixel past display white — LrC's most load-bearing hidden rule,
 // implemented as geometry". It is not geometry any more. The bump became a shelf for
-// the reasons `highlightShelfEnd` gives at length, and a shelf saturates: `smoothstep(0,
-// whiteAnchorEV, t)` is 1 AT the anchor and 1 above it, so Highlights ±100 applies its
-// full ±2 EV to pixels already at and beyond white. That was the point of the rework —
-// a bump left a blown sky exactly where it was — and the words simply did not follow.
+// the reasons `highlightShelfEndEV` gives at length, and a shelf saturates:
+// `smoothstep(0, 5, t)` is 1 AT the +5 EV anchor and 1 above it, so Highlights ±100
+// applies its full ±2 EV to pixels already at and beyond white.
+// That was the point of the rework — a bump left a blown sky exactly where it was — and
+// the words simply did not follow.
 //
 // The invariant it claimed is still TRUE, and it is now the display transform's: the
 // scene→display curve saturates at the white anchor, so nothing this engine hands it
@@ -36,17 +44,20 @@ public struct ToneEngine: Sendable {
     public let tone: Tone
     public let zones: Zones
 
-    /// Scene EV of the display transform's anchors after Whites/Blacks move them.
+    /// Scene EV of the display transform's anchors. Blacks moves the black one; the white
+    /// one is the base anchor at every Whites value (see the file header and
+    /// `anchors(for:)`).
     public let whiteAnchorEV: Double
     public let blackAnchorEV: Double
 
-    /// ±100 on Highlights/Shadows ⇒ this many stops of peak zonal gain (docs/04 §3.4).
+    /// ±100 on Highlights ⇒ this many stops of peak zonal gain (docs/04 §3.4).
     public static let highlightShadowRangeEV: Double = 2.0
-    /// ±100 on Whites/Blacks ⇒ this many stops of end-point shift.
+    /// ±100 on Blacks ⇒ this many stops of black-anchor shift. It used to move the white
+    /// anchor for Whites too; Whites is now a gain (`whiteToneEV`), see the file header.
     public static let whiteBlackRangeEV: Double = 1.5
 
-    /// Where the Highlights and Shadows shelves reach full strength, as a fraction of
-    /// the anchor. They SATURATE rather than returning to zero.
+    /// How far past the white anchor the Highlights shelf reaches full strength, in EV.
+    /// It SATURATES rather than returning to zero.
     ///
     /// These were raised cosines of a sine — bumps, peaking halfway to the anchor and
     /// falling back to zero AT it. Two things followed, both bad. A bump means
@@ -63,9 +74,19 @@ public struct ToneEngine: Sendable {
     /// which at 2 EV over 5 EV is 0.6. Monotone at full deflection with margin, so the
     /// limiter no longer binds and the slider means the same thing wherever its
     /// neighbours are.
-    public static let highlightShelfEnd: Double = 1.0
+    ///
+    /// WHY AN ABSOLUTE EV AND NOT A FRACTION OF THE ANCHOR. This was `highlightShelfEnd`,
+    /// 1.0 x the white anchor, which is the same 0 … +5 EV on the factory +5 EV anchor
+    /// and is unchanged there. Since WS-05 no slider moves the white anchor any more (the
+    /// file header), so the fraction bought nothing — and it would have cost the shelf if
+    /// the default anchor moves (WS-13's request for +3 EV): 1.0 x 3 EV is a 2 EV rise
+    /// over 3 EV, slope 1.0, which binds the limiter on Highlights −100 alone at
+    /// Contrast 0. In EV the shelf keeps its 0.6 slope and the place where full
+    /// Highlights −100 (2 EV) carries a tone back onto white (SPEC R1) on either anchor.
+    public static let highlightShelfEndEV: Double = 5.0
 
-    /// The same for Shadows, as a fraction of |black anchor|.
+    /// Where Shadows −100's shelf reaches full strength, as a fraction of |black anchor|.
+    /// Darkening only: Shadows +100 is the bump below (`shadowLiftRangeEV`).
     ///
     /// Not 1.0, because the two ends of the range are not symmetric in what a viewer
     /// can see. The black anchor is 9 stops below mid-grey and the display transform's
@@ -76,34 +97,106 @@ public struct ToneEngine: Sendable {
     /// Saturating at half the anchor puts full strength at −4.5 EV instead.
     public static let shadowShelfEnd: Double = 0.5
 
-    /// Where the Whites shelf runs, as a fraction of the white anchor: +1 … +4 EV on the
-    /// default anchors.
+    /// Shadows +100: a BUMP below mid-grey, not the shelf −100 uses.
     ///
-    /// IT OVERLAPS HIGHLIGHTS, and this sentence used to say it did not ("they start
-    /// above where Highlights and Shadows have already saturated", W2/A1-05). Highlights'
-    /// shelf rises over 0 … +5 EV (`highlightShelfEnd`), so Whites' whole travel lies
-    /// inside it: at Whites' first stop Highlights is at 0.10, at Whites' last (+4 EV) it
-    /// is at 0.90 and still at its steepest. The two are still different controls —
-    /// Whites peaks higher and also moves the white anchor — but they share the top of
-    /// the range, which is why Highlights −60 then Whites +60 partly cancel.
+    /// Lifting with the shelf gave the full +2 EV from −4.5 EV all the way down to the
+    /// black anchor, so the darkest pixels got the largest lift: on the A7 IV frame
+    /// Shadows +100 raised the 1st percentile 29.4 codes against 23.6 for the quartile —
+    /// a veil over the black point, not opened shadows (WS-05 AUDIT F5). Lightroom's
+    /// Shadows opens the quarter tones and leaves the darkest values where Blacks puts
+    /// them; Blacks owns zone 0. So the lift rises over 0 … `shadowPeak` and then TAPERS
+    /// by `shadowTaperDepth` between `shadowTaperStart` and `shadowTaperEnd` toward the
+    /// black anchor (fractions of |black anchor|).
+    ///
+    /// Darkening keeps the shelf, and the asymmetry is deliberate. Pushing the deep
+    /// shadows further down is harmless — the toe already holds them near black — and
+    /// the shelf only rises, so Shadows −100 is never eased and keeps its measured
+    /// behaviour (and halos) exactly. The taper exists for one direction only.
+    ///
+    /// The lift's rising side is bounded by monotonicity, as the shelves are: it falls
+    /// toward mid-grey at most 1.5 x `shadowLiftRangeEV` / peak stops per stop, which has
+    /// to stay under `zonalKnee`'s 0.8 so a single Shadows move is never scaled at
+    /// Contrast 0. The taper side RISES with `t`, so its steepness costs no monotonicity.
+    ///
+    /// The numbers, on the default anchors, and what holds each one where it is
+    /// (WS-05 SPEC §1, measured with `lumen-render sweep` on eight raw frames):
+    ///   · height 1.5 EV, peak at −3.5 EV: the rising side falls toward mid-grey at
+    ///     1.5 x 1.5 / 3.5 = 0.64 stops per stop. That is the binding number: against
+    ///     Contrast −100's 0.4 it solves to 0.615, over the 0.60 floor
+    ///     `RobustnessTests` holds one tone control paired with Contrast to; a peak at
+    ///     −3.0 EV (0.75) solved to 0.53. The quarter tones still open more than the
+    ///     shelf did (6929 p25/p50 +20.5 codes against +17.9, 4213 +29.8 against +28.1).
+    ///   · taper from −3.15 to −4.15 EV, down to 5 % of the height: the 1st percentile
+    ///     of 6929 and 4213 sits near −3.9 EV and now rises 7.6 / 7.2 codes, not 29.4 /
+    ///     29.2; the −6 EV ramp code stays at 2 and zone 0 moves 3.6 codes against
+    ///     Blacks' 7.1. The taper's slope, 1.5 x 0.95 x 1.5 / 1.0 = 2.1 stops per stop,
+    ///     EXPANDS the band it crosses rather than flattening it.
+    ///   · the two pull against each other on the darkest frames, whose shadow mass is at
+    ///     −3 EV, right where the taper starts: 1840's shadow pixels rise 19.6 codes,
+    ///     just over the 0.6 x 31.2 the spec holds as an authority floor (S6). Moving
+    ///     the taper 0.15 EV either way fails one of S1 or S6. And no setting of this
+    ///     family keeps every border between a shadow and a brighter neighbour at 95 %
+    ///     of its contrast (S3) while also lifting those frames that far — BUILD-NOTES.md
+    ///     has the trade measured.
+    public static let shadowLiftRangeEV: Double = 1.5
+    public static let shadowPeak: Double = 3.5 / 9
+    public static let shadowTaperStart: Double = 3.15 / 9
+    public static let shadowTaperEnd: Double = 4.15 / 9
+    public static let shadowTaperDepth: Double = 0.95
+
+    /// Where the Whites +100 shelf runs, in EV BELOW the white anchor: +1.2 … +4.4 EV on
+    /// the default anchor. Full strength 0.6 EV under white, so Whites +100
+    /// (`whiteToneEV`) carries the tones from about +4 EV past white: on `top_steps` the
+    /// +4.0 EV step clips under +100 against +5.0 at 0 — the white clip point moved one
+    /// stop, inside Lightroom's 0.5 … 1.5 (SPEC W2) — and it is moved by gain, so the
+    /// display transform does not change (file header).
+    ///
+    /// IT OVERLAPS HIGHLIGHTS, as it always has (`highlightShelfEndEV` rises over
+    /// 0 … +5 EV), but it is now confined to the top. The old shelf ran +1 … +4 EV at
+    /// 1.3 EV PLUS a 1.5 EV anchor move, so +100 clipped from +2.5 EV — half the
+    /// headroom — and moved the ramp's zone 7 by 25.7 codes against Highlights' 16.5.
+    /// Starting 3.8 EV under white keeps zone 6 still and zone 7 to about 2 codes, and
+    /// still moves C0 − 2 EV (+3 EV) by 12 codes (SPEC W4/W5). The width keeps the
+    /// slope at 1.5 x 1.2 / 3.2 = 0.56 stops per stop.
     /// `EngineTests.testTheEndShelvesOverlapTheZonalOnesAsTheCommentSays` holds these
-    /// numbers; moving `endShelfStart` up to where Highlights has saturated is the other
-    /// way to make the old sentence true, and it costs Whites authority (DECISION, P12).
-    public static let endShelfStart: Double = 0.20
-    public static let endShelfEnd: Double = 0.80
+    /// numbers. Whites −100 uses its own two shelves (`whiteRecoveryEV`).
+    public static let whiteShelfStartBelowAnchorEV: Double = 3.8
+    public static let whiteShelfEndBelowAnchorEV: Double = 0.6
 
     /// Blacks' shelf, as a fraction of |black anchor|: −1.35 … −5.58 EV on the default
-    /// anchors. Deeper than Shadows' and wider, so the two slopes do not peak together —
-    /// Shadows' steepest point is at −2.25 EV, Blacks' at −3.47 EV (each shelf's
-    /// midpoint), 1.2 stops apart. This said −5.9 for Blacks, a number for some earlier
-    /// pair of constants, which overstated the separation threefold.
+    /// anchors. Shadows −100's shelf saturates at −4.5 EV and Blacks' steepest point is
+    /// −3.47 EV, the shelf's midpoint; Shadows +100's lift tapers away from −3.15 EV,
+    /// so below about −4 EV Blacks +100 is the stronger of the two (SPEC S5).
     public static let blackShelfStart: Double = 0.15
     public static let blackShelfEnd: Double = 0.62
 
-    /// ±100 on Whites/Blacks ⇒ this many stops of tonal shift at the extreme, on top of
-    /// the anchor move. Sized so the shelf's slope (1.5 / (0.8 x anchor) x range) plus
-    /// the Highlights shelf's stays under the identity's 1.0 at every point.
-    public static let whiteToneEV: Double = 1.3
+    /// ±100 on Whites ⇒ this many stops of gain at the top of the range. It used to be
+    /// 1.3 EV on top of a 1.5 EV anchor move; it is the whole move now.
+    public static let whiteToneEV: Double = 1.2
+
+    /// Whites −100 is not the mirror of +100, and the reason is Contrast's shoulder.
+    ///
+    /// Mirrored, −100 would fall at up to 0.56 stops per stop across +2 … +4 EV, which is
+    /// where Contrast +100's shoulder is flattest (its slope bottoms out at 0.41 at
+    /// +3.85 EV, 0.77 of the reach) and where Highlights −100 is still steep. The limiter
+    /// has to share that 0.41 between them: measured, Highlights −100 with Whites −100
+    /// under Contrast +100 solved to 0.42 — past the 0.62 floor `RobustnessTests` holds
+    /// the four controls to. So −100 is two shelves that stay off that band:
+    ///   · a HOLD of `whiteHoldEV` from `whiteShelfStartBelowAnchorEV` to
+    ///     `whiteHoldEndBelowAnchorEV` under white (+1.2 … +3.2 EV), which pulls the upper
+    ///     tones down and is flat by the time Contrast is;
+    ///   · a RECOVERY of `whiteRecoveryEV` from `whiteRecoveryStartBelowAnchorEV` under
+    ///     the anchor to `whiteRecoveryEndAboveAnchorEV` over it (+3.8 … +6.6 EV), most of
+    ///     it where Contrast is the identity again, which carries tones up to 1.9 EV over
+    ///     white back under it — the clip point moved the other way, as the old anchor
+    ///     move did, without moving the anchor.
+    /// They fall at most 0.68 and 0.54 stops per stop, so a single Whites −100 is still
+    /// never scaled at Contrast 0, and the four-way corner solves to 0.687.
+    public static let whiteHoldEV: Double = 0.9
+    public static let whiteHoldEndBelowAnchorEV: Double = 1.8
+    public static let whiteRecoveryEV: Double = 1.0
+    public static let whiteRecoveryStartBelowAnchorEV: Double = 1.2
+    public static let whiteRecoveryEndAboveAnchorEV: Double = 1.6
     /// Blacks needs more stops than Whites for the same visible authority, because the
     /// toe compresses far harder than the shoulder: one stop at +4 EV is worth about 12
     /// code values, one stop at −5 EV about 4.
@@ -146,13 +239,17 @@ public struct ToneEngine: Sendable {
     /// so with Whites at +100 it drew the crossfades 10.7 % narrower than the ones being
     /// rendered and dropped a Balance-shifted handle 0.21 EV from where it was released
     /// (B2-05). `GradeStripAxisTests` pins the agreement.
+    ///
+    /// The white anchor is the base one at every Whites value. Whites moved it by
+    /// 1.5 EV per 100 until WS-05, and the display transform's path-to-white blend is
+    /// normalised by it, so the move re-hued colours Whites applied no gain to (file
+    /// header). The white clip point still moves — by gain, in `whiteWeight`.
     public static func anchors(for tone: Tone,
                                baseWhiteAnchorEV: Double = ToneEngine.defaultWhiteAnchorEV,
                                baseBlackAnchorEV: Double = ToneEngine.defaultBlackAnchorEV)
         -> (white: Double, black: Double) {
-        let whites = Num.clamp(tone.whites, -100, 100) / 100
         let blacks = Num.clamp(tone.blacks, -100, 100) / 100
-        return (white: baseWhiteAnchorEV - Self.whiteBlackRangeEV * whites,
+        return (white: baseWhiteAnchorEV,
                 black: baseBlackAnchorEV - Self.whiteBlackRangeEV * blacks)
     }
 
@@ -272,6 +369,18 @@ public struct ToneEngine: Sendable {
     /// forward clamp is the backstop for anything that does.
     static let monotoneStepEV: Double = 0.05
 
+    /// What the solved limit gives back for the sweep being a set of secants.
+    ///
+    /// The ratio is exact for the 0.05 EV intervals it measures, but a window's slope
+    /// peaks INSIDE an interval, where the secant under-reads it by a second-order
+    /// amount. The shelves never showed it; the Shadows lift (WS-05), whose rising side
+    /// is the binding window against Contrast −100, did: `Tone(contrast: −100,
+    /// shadows: 100, blacks: −100)` left one 1024-sample bake step at −1.09 EV
+    /// 8.7e-6 EV below its neighbour, and the forward clamp flattened it
+    /// (`ZoneFlatteningTests`). 0.1 % of the limit is four times what that needs, and
+    /// a thousand times less than the 2 % `RobustnessTests` holds the limiter to.
+    static let secantMargin: Double = 1e-3
+
     /// Above this the request is treated as having room to spare and left alone. It has
     /// to sit above `1 / zonalKnee`, or a setting that is comfortably safe would still
     /// be eased.
@@ -310,12 +419,16 @@ public struct ToneEngine: Sendable {
     ///   and Highlights cannot reach a shadow through the scale any more than it can
     ///   through its own weight.
     ///
-    /// · **Each window's slope has ONE sign, the sign of its slider.** A window is a
-    ///   monotone shelf times a scalar, so Highlights below zero falls across its whole
-    ///   support and never rises; Whites below zero the same; Shadows and Blacks ABOVE
-    ///   zero fall, because their shelves ascend toward the black anchor. So "which
-    ///   windows can pull the mapping downhill" is decided by four signs before the
-    ///   sweep starts, and is the same at every `t`.
+    /// · **A window that can fall is decided by its slider's sign.** A shelf times a
+    ///   scalar is monotone, so Highlights below zero falls across its whole support and
+    ///   never rises; Whites below zero the same; Blacks ABOVE zero falls, because its
+    ///   shelf ascends toward the black anchor. Shadows below zero is a shelf that only
+    ///   rises; ABOVE zero it is a bump (`shadowLiftRangeEV`) whose slope has both signs —
+    ///   it rises out of the deep shadows and falls toward mid-grey — so it sits in the
+    ///   eased set. That is still exact: on an interval where an eased window rises,
+    ///   `Δfalling ≥ 0` and the interval constrains nothing; where it falls, the ratio
+    ///   below is the bound. So "which windows can pull the mapping downhill" is decided
+    ///   by four signs before the sweep starts, and is the same at every `t`.
     ///
     /// · **A window that cannot fall cannot cause an inversion**, so it is never scaled
     ///   and its full contribution is available as slack to the ones that can. That is
@@ -388,7 +501,7 @@ public struct ToneEngine: Sendable {
             parts = next
             fixed = nextFixed
         }
-        return limit
+        return limit < Self.searchCeiling ? limit * (1 - Self.secantMargin) : limit
     }
 
     /// One half's zonal contribution, split by whether the window runs downhill.
@@ -405,10 +518,12 @@ public struct ToneEngine: Sendable {
         if upper {
             let h = effectiveHighlights * Self.highlightShadowRangeEV * highlightWeight(t)
             if effectiveHighlights < 0 { parts.falling += h } else { parts.rising += h }
-            let w = effectiveWhites * Self.whiteToneEV * whiteWeight(t)
+            let w = effectiveWhites * whiteStops(t, lifting: effectiveWhites > 0)
             if effectiveWhites < 0 { parts.falling += w } else { parts.rising += w }
         } else {
-            let s = effectiveShadows * Self.highlightShadowRangeEV * shadowWeight(t)
+            // Above zero a bump, eased as a whole (see `solveZonalLimits`); below zero a
+            // shelf that only rises.
+            let s = effectiveShadows * shadowStops(t, lifting: effectiveShadows > 0)
             if effectiveShadows > 0 { parts.falling += s } else { parts.rising += s }
             let b = effectiveBlacks * Self.blackToneEV * blackWeight(t)
             if effectiveBlacks > 0 { parts.falling += b } else { parts.rising += b }
@@ -425,9 +540,10 @@ public struct ToneEngine: Sendable {
         let shadows = Num.clamp(tone.shadows, -100, 100) / 100
         let whites = Num.clamp(tone.whites, -100, 100) / 100
         let blacks = Num.clamp(tone.blacks, -100, 100) / 100
+        let anchors = Self.anchors(for: tone)
         self.init(tone: tone, zones: Zones(),
-                  whiteAnchorEV: Self.defaultWhiteAnchorEV - Self.whiteBlackRangeEV * whites,
-                  blackAnchorEV: Self.defaultBlackAnchorEV - Self.whiteBlackRangeEV * blacks,
+                  whiteAnchorEV: anchors.white,
+                  blackAnchorEV: anchors.black,
                   effectiveHighlights: highlights * (highlights < 0 ? upper : 1),
                   effectiveShadows: shadows * (shadows > 0 ? lower : 1),
                   effectiveWhites: whites * (whites < 0 ? upper : 1),
@@ -465,10 +581,10 @@ public struct ToneEngine: Sendable {
             s += effectiveHighlights * Self.highlightShadowRangeEV * highlightWeight(t)
         }
         if effectiveShadows != 0 {
-            s += effectiveShadows * Self.highlightShadowRangeEV * shadowWeight(t)
+            s += effectiveShadows * shadowStops(t, lifting: effectiveShadows > 0)
         }
         if effectiveWhites != 0 {
-            s += effectiveWhites * Self.whiteToneEV * whiteWeight(t)
+            s += effectiveWhites * whiteStops(t, lifting: effectiveWhites > 0)
         }
         if effectiveBlacks != 0 {
             s += effectiveBlacks * Self.blackToneEV * blackWeight(t)
@@ -483,34 +599,52 @@ public struct ToneEngine: Sendable {
     // MARK: - Zonal windows
 
     /// Highlights window: a SHELF that rises from zero at mid-grey, reaches full
-    /// strength at the white anchor and stays there above it.
+    /// strength at `highlightShelfEndEV` (+5 EV) and stays there above it.
     ///
     /// It was a raised-cosine bump returning to zero at the anchor, and this comment
-    /// went on saying so after `highlightShelfEnd` replaced it. Full strength above the
-    /// anchor is the behaviour: a blown sky is the one thing Highlights exists to pull
-    /// down, and a window that shuts at white is a window that cannot reach it.
+    /// went on saying so after the shelf replaced it. Full strength above the anchor is
+    /// the behaviour: a blown sky is the one thing Highlights exists to pull down, and a
+    /// window that shuts at white is a window that cannot reach it.
     public func highlightWeight(_ t: Double) -> Double {
         let hi = whiteAnchorEV
         guard hi > 0 else { return 0 }
-        return Num.smoothstep(0, hi * Self.highlightShelfEnd, t)
+        return Num.smoothstep(0, Self.highlightShelfEndEV, t)
     }
 
-    /// Whites: a shelf in the top of the range, inside Highlights' rising ramp rather
-    /// than above it — see `endShelfStart` for the overlap, measured.
+    /// Whites +100's window: a shelf at the top of the range that carries the tones just
+    /// under white onto it — the white clip point, moved by gain. See
+    /// `whiteShelfStartBelowAnchorEV` for where it sits and why; −100 uses
+    /// `whiteRecoveryStops`.
     ///
-    /// Whites used to move the white ANCHOR and nothing else. Measured on a -9…+5 EV
-    /// grey ramp, full travel was worth 26.7 code values up and 12.3 down — and Blacks,
-    /// on the same measurement, was worth 0.20. The anchor sets where the transform's
-    /// endpoint lands, which is a real thing to control, but the toe and shoulder have
-    /// already compressed those regions, so on its own it is a slider a photographer
-    /// would call dead. The anchor move is kept; this adds the tonal authority.
+    /// Whites used to move the white ANCHOR, first alone and then with a shelf on top.
+    /// Alone it was a slider a photographer would call dead (26.7 codes up and 12.3 down
+    /// on a −9 … +5 EV ramp), and with the shelf it was both too strong (clipping from
+    /// +2.5 EV of a +5 EV anchor) and a hue control nobody asked for (file header).
     public func whiteWeight(_ t: Double) -> Double {
         let hi = whiteAnchorEV
-        guard hi > 0 else { return 0 }
-        return Num.smoothstep(hi * Self.endShelfStart, hi * Self.endShelfEnd, t)
+        return Num.smoothstep(hi - Self.whiteShelfStartBelowAnchorEV,
+                              hi - Self.whiteShelfEndBelowAnchorEV, t)
     }
 
-    /// Shadows window: mirror image below mid-grey, zero at the black anchor.
+    /// Whites −100's window, in stops at full deflection: a small shelf under white
+    /// and the recovery shelf over it — see `whiteRecoveryEV` for why it is two.
+    public func whiteRecoveryStops(_ t: Double) -> Double {
+        let hi = whiteAnchorEV
+        return Self.whiteHoldEV * Num.smoothstep(hi - Self.whiteShelfStartBelowAnchorEV,
+                                                 hi - Self.whiteHoldEndBelowAnchorEV, t)
+            + Self.whiteRecoveryEV * Num.smoothstep(hi - Self.whiteRecoveryStartBelowAnchorEV,
+                                                    hi + Self.whiteRecoveryEndAboveAnchorEV, t)
+    }
+
+    /// Stops per unit of applied Whites: the clip-point shelf when pushing, the hold and
+    /// recovery shelves when pulling.
+    func whiteStops(_ t: Double, lifting: Bool) -> Double {
+        lifting ? Self.whiteToneEV * whiteWeight(t) : whiteRecoveryStops(t)
+    }
+
+    /// Shadows −100's window: the mirror image of Highlights' shelf below mid-grey, full
+    /// from `shadowShelfEnd` of the way to the black anchor down. Shadows +100 lifts with
+    /// `shadowLiftWeight` instead; `shadowStops` picks.
     public func shadowWeight(_ t: Double) -> Double {
         let lo = blackAnchorEV
         guard lo < 0 else { return 0 }
@@ -523,6 +657,26 @@ public struct ToneEngine: Sendable {
         return Num.smoothstep(0, -lo * Self.shadowShelfEnd, -t)
     }
 
+    /// Shadows +100's window: a bump that peaks in the quarter tones and tapers toward
+    /// the black anchor — see `shadowLiftRangeEV`. Its peak is 1 and it does not return
+    /// to zero: `shadowTaperDepth` leaves a fraction of the lift in the deepest shadows,
+    /// so they still separate a little, but the black point stays Blacks'.
+    public func shadowLiftWeight(_ t: Double) -> Double {
+        let lo = blackAnchorEV
+        guard lo < 0 else { return 0 }
+        let depth = -lo
+        let rise = Num.smoothstep(0, depth * Self.shadowPeak, -t)
+        let taper = Num.smoothstep(depth * Self.shadowTaperStart,
+                                   depth * Self.shadowTaperEnd, -t)
+        return rise * (1 - Self.shadowTaperDepth * taper)
+    }
+
+    /// Stops per unit of applied Shadows: the bump when lifting, the shelf when not.
+    func shadowStops(_ t: Double, lifting: Bool) -> Double {
+        lifting ? Self.shadowLiftRangeEV * shadowLiftWeight(t)
+                : Self.highlightShadowRangeEV * shadowWeight(t)
+    }
+
     /// Blacks: the mirror of Whites, a shelf in the bottom of the range.
     public func blackWeight(_ t: Double) -> Double {
         let lo = blackAnchorEV
@@ -533,7 +687,7 @@ public struct ToneEngine: Sendable {
     /// No room between the pivot and an anchor means that side of the picture is
     /// already past the end of the scale, and contrast leaves it alone rather than
     /// dividing by a reach of zero. Reachable in the shipped ranges: the pivot clamps
-    /// to ±4 and Whites +100 pulls the white anchor down to +3.5.
+    /// to ±4 and the white anchor is a base the caller may set below it.
     public static let minContrastReachEV: Double = 1e-6
 
     /// How far toward the anchor the full slope holds before the shoulder starts, as a
@@ -844,8 +998,11 @@ public struct ToneEngine: Sendable {
             && zones.light.ev == 0 && zones.bright.ev == 0 && zones.global.ev == 0
     }
 
-    /// Feed the anchors into the display transform. This is the seam that makes
-    /// Whites/Blacks mean "white point" and "black point" rather than "more gain".
+    /// Feed the anchors into the display transform: the base white anchor
+    /// (`defaultWhiteAnchorEV`, which is how that constant reaches every render —
+    /// `DisplayTransformParams.whiteAnchorEV` defaults to 5 and `DisplayTransform.forRecipe`
+    /// overwrites it here) and the black anchor Blacks moves. Whites does not move the
+    /// white one any more; its white point is gain (file header).
     public func applyAnchors(to params: inout DisplayTransformParams) {
         params.whiteAnchorEV = whiteAnchorEV
         params.blackAnchorEV = blackAnchorEV

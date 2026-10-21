@@ -261,3 +261,32 @@ because they read the live anchor:
 | WS-08 | `Zones.defaultPivots` | It is derived from `defaultWhiteAnchorEV` (Recipe.swift:604-607), so the pivots keep their scene EVs, -4…+4. With the anchor at +3, though, the "Bright" pivot at +4 EV lies past display white. Re-place it (for example at +2.5 EV). |
 | colour grading | `GradeEngine` defaults | The `whiteAnchorEV: Double = 5.0` defaults (GradeEngine.swift:98, 188, 369) only matter for callers that do not pass the plan's anchors. Check them. |
 | integrator | committed records | The committed ControlProof records and any golden image with tones above mid-grey change. This is a global look change for the owner to sign off. |
+
+---
+
+## Added by the WS-05 builder
+
+### N9. WS-07 (halos): what WS-05's reshaped Shadows and Whites cost at edges
+
+Measured on the lane branch (default white anchor +5 EV, so every scene tone is where it
+was at base; `ASHIFT=0`):
+
+| control | HA1 `edges` probe (width px / peak codes) | HA3 real skylines (excess p90) |
+|---|---|---|
+| Highlights ±100 | 25 / 5.0 and 17 / 4.0 — identical to base (same shelf) | identical to base |
+| Shadows −100 | 25 / 3.9 — identical to base (same shelf) | 1840 7.8 = base |
+| **Shadows +100** | **33 / 5.5** against 29 / 5.3 | **1840 9.3** against 7.8 (1.19x; tolerance 1.15x) |
+| Whites +100 | 14 / 3.0 against 34 / 7.6 (better) | 1840 3.0 against 36.9, 4213 3.0 against 27.0 (better) |
+| **Whites −100** | **24 / 5.0** against 12 / 2.6 | 1840 5.7 against 6.1; **4213 5.4** against 3.2 |
+
+- Whites −100 was mostly an anchor move at base, which acts per pixel in the display
+  transform and cannot halo. SPEC H6 forbids that move (it re-hued blues by up to 14°),
+  so −100 is now a gain and goes through the guided mask like every S7 control. Any −100
+  that darkens a sky against its foreground by the amount W5 asks for (≥12 codes at
+  C0 − 1 EV) has this edge cost with today's mask.
+- Shadows +100 opens the quarter tones more than the old shelf near mid-grey (S2), so the
+  gain step across a 0 / −1 EV edge is larger. Measured trade on the same frames: a lift
+  peaking at −4.0 EV instead of −3.5 brings HA1 to 25 / 4.7 and HA3 1840 to 7.3, but
+  1840's shadow lift falls to 17.1 (S6 floor 18.7); peaking at −3.75 keeps S6 (20.0) but
+  lifts the black point (S1 10.6 > 8). WS-05 keeps S1 and S6.
+- The fix that removes all of these is N2's (two-scale or base/detail mask).

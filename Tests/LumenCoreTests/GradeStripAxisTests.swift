@@ -79,25 +79,33 @@ final class GradeStripAxisTests: XCTestCase {
         }
     }
 
-    /// The audit's own case: Whites +100 at Blending 50 renders a 0.1200 half-width,
-    /// and the factory axis would have drawn 0.1071.
-    func testAtWhitesPlusOneHundredTheStripDrawsTheWiderRenderedCrossfade() {
-        let r = recipe(whites: 100, blacks: 0)
+    /// The audit's own case was Whites +100, which moved the white anchor. WS-05: Whites
+    /// no longer moves an anchor (its white point is gain, so the transform's hue
+    /// blend does not shift under it), so the anchor this guards is the one that still
+    /// moves — Blacks'. Blacks +100 at Blending 50 renders over a 15.5 EV span (−10.5 …
+    /// +5), and the factory axis (−9 … +5, 14 EV) would draw 1.5 / 14.
+    func testAtBlacksPlusOneHundredTheStripDrawsTheWiderRenderedCrossfade() {
+        let r = recipe(whites: 0, blacks: 100)
         let drawn = ZoneWindows(gradeOf: r)
-        XCTAssertEqual(drawn.spanEV, 12.5, accuracy: 1e-12)
-        XCTAssertEqual(drawn.shadowHalfWidth, 1.5 / 12.5, accuracy: 1e-9,
-                       "the strip must draw the crossfade the engine renders at span 12.5, "
+        XCTAssertEqual(drawn.spanEV, 15.5, accuracy: 1e-12)
+        XCTAssertEqual(drawn.shadowHalfWidth, 1.5 / 15.5, accuracy: 1e-9,
+                       "the strip must draw the crossfade the engine renders at span 15.5, "
                        + "not the factory axis's 1.5 / 14")
         XCTAssertEqual(drawn.shadowHalfWidth, renderedWindows(r).shadowHalfWidth,
+                       accuracy: 1e-12)
+        // And Whites, which no longer moves an anchor, leaves the axis alone.
+        XCTAssertEqual(ZoneWindows(gradeOf: recipe(whites: 100, blacks: 0)).spanEV, 14,
                        accuracy: 1e-12)
     }
 
     /// Dropping a handle stores `handle − Balance shift`; the shift has to be converted
     /// on the rendered span, or the pivot the engine solves is not where the handle was
-    /// released. Converted on 14 EV at Whites +100 and Balance ±100 it missed by 0.214 EV.
-    func testABalanceShiftedHandleRendersWhereItWasReleasedWhenWhitesMove() {
+    /// released. WS-05: driven by Blacks +100 (span 15.5) now that Whites moves no anchor;
+    /// converted on the factory 14 EV it misses by 2 EV x (15.5 / 14 − 1) = 0.214 EV —
+    /// the same 0.214 the Whites case measured, by the symmetry of a 1.5 EV move.
+    func testABalanceShiftedHandleRendersWhereItWasReleasedWhenBlacksMove() {
         for balance in [-100.0, 100] {
-            let r = recipe(whites: 100, blacks: 0, balance: balance)
+            let r = recipe(whites: 0, blacks: 100, balance: balance)
             let windows = ZoneWindows(gradeOf: r)
             let released = 0.55
             let stored = released - ZoneWindows.pivotShift(balance: balance,

@@ -207,7 +207,7 @@ final class MaskingTests: XCTestCase {
     /// could go on describing a previous engine.
     ///
     /// Measured in STOPS, against the model's own numbers rather than against "it
-    /// changed": `whiteToneEV` is 1.3 and `blackToneEV` is 2.2, so the bar is most of
+    /// changed": `whiteToneEV` is 1.2 and `blackToneEV` is 2.2, so the bar is most of
     /// the shelf rather than an epsilon. And the SHAPE is asserted as well as the
     /// magnitude — mid-grey must not move, and neither slider may reach the other's end
     /// of the range — because a global lift would satisfy a bare "something moved" and
@@ -245,10 +245,14 @@ final class MaskingTests: XCTestCase {
 
         let whites = shift { $0.whites = 100 }
         let top = whites[width - 1]
-        XCTAssertGreaterThan(top, 1.0,
+        // WS-05: `whiteToneEV` is 1.2 now (it was 1.3 on top of a 1.5 EV anchor move);
+        // "most of the shelf" is 0.9 of it, measured at the ramp's top (+4 EV, 0.6 EV
+        // under the +4.4 EV end of the shelf).
+        XCTAssertGreaterThan(top, 0.9 * ToneEngine.whiteToneEV,
                              "a mask with only Whites +100 lifted the top of its range "
-                                 + "by \(top) stops; `ToneEngine.whiteToneEV` is 1.3 "
-                                 + "and the panel used to say it moved nothing at all")
+                                 + "by \(top) stops; `ToneEngine.whiteToneEV` is "
+                                 + "\(ToneEngine.whiteToneEV) and the panel used to say "
+                                 + "it moved nothing at all")
         XCTAssertEqual(whites[midGrey], 0, accuracy: 0.02,
                        "Whites moved mid-grey by \(whites[midGrey]) stops — it is a "
                            + "shelf at the top of the range, not a global lift")
