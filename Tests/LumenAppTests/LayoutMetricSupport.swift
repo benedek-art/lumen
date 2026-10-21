@@ -622,11 +622,13 @@ enum SliderInventory {
         SliderSpec("Texture", "MaskPanel.swift:2417", .developTop, -100...100, step: 1),
         SliderSpec("Clarity", "MaskPanel.swift:2421", .developTop, -100...100, step: 1),
         SliderSpec("Dehaze", "MaskPanel.swift:2424", .developTop, -100...100, step: 1),
-        SliderSpec("Sharpness", "MaskPanel.swift:2429", .developTop, -100...100, step: 1),
-        SliderSpec("Temp", "MaskPanel.swift:2944", .developTop, 2000...50000, step: 50),
-        SliderSpec("Tint", "MaskPanel.swift:2956", .developTop, -150...150, step: 1),
-        SliderSpec("Temp", "MaskPanel.swift:2944", .developTop, -100...100, step: 1),
-        SliderSpec("Tint", "MaskPanel.swift:2956", .developTop, -100...100, step: 1),
+        SliderSpec("Noise", "MaskPanel.swift:2435", .developTop, 0...100, step: 1),
+        SliderSpec("Colour Noise", "MaskPanel.swift:2439", .developTop, 0...100, step: 1),
+        SliderSpec("Sharpness", "MaskPanel.swift:2446", .developTop, -100...100, step: 1),
+        SliderSpec("Temp", "MaskPanel.swift:2963", .developTop, 2000...50000, step: 50),
+        SliderSpec("Tint", "MaskPanel.swift:2975", .developTop, -150...150, step: 1),
+        SliderSpec("Temp", "MaskPanel.swift:2963", .developTop, -100...100, step: 1),
+        SliderSpec("Tint", "MaskPanel.swift:2975", .developTop, -100...100, step: 1),
 
         // Masks — the floating pop-out: what the mask IS. A 272 pt host that never resizes.
         SliderSpec("Contribution", "MaskPanel.swift:1476", .maskComponent, 0...100, step: 1),
@@ -681,7 +683,7 @@ enum SliderInventory {
         // `MaskPanel`'s four-up gets 50 points for 200 steps, a quarter of a point each.
         SliderSpec("", "LumenControls.swift:2222 (LookPanel.swift:986)", .gradeWheelBar,
                    -1...1, step: 0.01, decimals: 2),
-        SliderSpec("", "LumenControls.swift:2222 (MaskPanel.swift:3011)", .maskWheelBar,
+        SliderSpec("", "LumenControls.swift:2222 (MaskPanel.swift:3030)", .maskWheelBar,
                    -1...1, step: 0.01, decimals: 2),
 
         // The Heal tool's bar on the loupe. Size is in pixels of the original file.

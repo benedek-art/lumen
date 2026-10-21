@@ -49,11 +49,14 @@ enum Renderer {
                               bandMeanHues: ColorEngine.needsMeasuredBandHues(
                                   recipe.develop.mixer) ? input.bandHues : nil)
         var staged = input.image
+        let noiseScale = input.scale * input.scale
         if !plan.denoiseIsIdentity {
-            staged = plan.classicalDenoise.scaled(noiseScale: input.scale * input.scale)
+            staged = plan.classicalDenoise.scaled(noiseScale: noiseScale)
                 .apply(staged)
         }
-        let rendered = ReferenceRenderer.render(staged, plan: plan)
+        // The same scale to S11, where a mask's Noise rows obey S3's preview rule.
+        let rendered = ReferenceRenderer.render(
+            staged, plan: plan, inputs: ReferenceRenderer.Inputs(noiseScale: noiseScale))
         // S16, as `PipelineRenderer.renderReference` runs it: after the render, before
         // the encode, in display-linear light. An automatic Upright with no stored lines
         // is solved from lines detected on this input, which is what the app does once

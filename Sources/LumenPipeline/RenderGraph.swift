@@ -695,13 +695,24 @@ public struct RenderGraph {
     /// and it is the noise PROFILE that follows the render scale, through
     /// `options.noiseScale`.
     func applyDenoise(_ image: CIImage, plan: RenderPlan, options: Options) -> CIImage {
-        guard !plan.denoiseIsIdentity, KernelLibrary.denoiseAvailable else { return image }
+        guard !plan.denoiseIsIdentity else { return image }
+        return Self.applyClassicalDenoise(image, engine: plan.classicalDenoise,
+                                          noiseScale: options.noiseScale)
+    }
+
+    /// The body of S3, for any engine: the global one above, and a mask's Noise rows at
+    /// S11 (`LocalNoise`). Extracted rather than copied so the local stage runs these
+    /// exact kernels with these exact uniforms — the arithmetic is unchanged, only the
+    /// engine and the scale are parameters now instead of being read off the plan.
+    static func applyClassicalDenoise(_ image: CIImage, engine: ClassicalDenoise,
+                                      noiseScale: Double) -> CIImage {
+        guard KernelLibrary.denoiseAvailable else { return image }
         let extent = image.extent
         guard extent.width >= 2, extent.height >= 2 else { return image }
 
-        let gpu = plan.classicalDenoise.gpuPlan(width: Int(extent.width),
-                                                height: Int(extent.height),
-                                                noiseScale: options.noiseScale)
+        let gpu = engine.gpuPlan(width: Int(extent.width),
+                                 height: Int(extent.height),
+                                 noiseScale: noiseScale)
         var work = image
         if gpu.hotPixelK.isFinite, KernelLibrary.hotPixel != nil {
             work = Self.applyHotPixels(work, gpu: gpu) ?? work
@@ -1286,7 +1297,8 @@ public struct RenderGraph {
             guard let alpha = maskImages[mask.id] else { continue }
             let adjusted = Self.applyLocalAdjust(out, mask: mask, plan: plan,
                                                  longEdge: options.longEdge,
-                                                 lutSize: options.lutSize)
+                                                 lutSize: options.lutSize,
+                                                 noiseScale: options.noiseScale)
             guard let blended = Self.compositeLocal(base: out, adjusted: adjusted,
                 alpha: alpha, blend: mask.blend) else { continue }
             out = blended
@@ -1314,7 +1326,8 @@ public struct RenderGraph {
     /// over the global ones, so this is the same maths as the global path with a
     /// different parameter set — never a parallel implementation.
     static func applyLocalAdjust(_ image: CIImage, mask: Mask, plan: RenderPlan,
-                                 longEdge: Int, lutSize: Int) -> CIImage {
+                                 longEdge: Int, lutSize: Int,
+                                 noiseScale: Double = 1) -> CIImage {
         let scale = Num.clamp(mask.amount, 0, 200) / 100.0
         let a = mask.adjust
         var out = image
@@ -1366,6 +1379,12 @@ public struct RenderGraph {
         // the result through the mask's alpha, which is why a masked Clarity needs no
         // cropped decomposition of its own. Without this the mask panel's Texture,
         // Clarity, Dehaze and Sharpness sliders moved and nothing happened.
+        //
+        // Noise and Colour Noise first, as on the reference: the S3 kernels with the
+        // mask's engine (`LocalNoise`), before texture and sharpening can lift the grain.
+        if let engine = LocalNoise.engine(for: mask, plan: plan) {
+            out = Self.applyClassicalDenoise(out, engine: engine, noiseScale: noiseScale)
+        }
         var localDetail = Detail()
         localDetail.texture = DetailEngine.scaledPresenceAmount(a.texture, strength: scale)
         localDetail.clarity = DetailEngine.scaledPresenceAmount(a.clarity, strength: scale)
@@ -1376,13 +1395,16 @@ public struct RenderGraph {
 
         let sharpness = a.sharpness * scale
         if sharpness > 0 {
+            // The global Radius / Detail / Masking / Halo with the mask's Amount: one
+            // construction shared with the reference.
             out = Self.applySharpen(out,
-                                    ManualSharpen(amount: Num.clamp(sharpness, 0, 150)),
+                                    ReferenceRenderer.localSharpen(sharpness, plan: plan),
                                     longEdge: longEdge)
         } else if sharpness < 0 {
-            // Negative Sharpness is a softening; `applySharpen` clamps at zero.
+            // Negative Sharpness is a softening; `applySharpen` clamps at zero. The
+            // radius mapping (√t, no dead first quarter) is the reference's.
             let sigma = SpatialOps.frameDenominatedSigma(
-                radius: Num.clamp(-sharpness / 100, 0, 1) * 2.5,
+                radius: ReferenceRenderer.localSofteningRadius(sharpness),
                 longEdge: longEdge)
             out = Self.applyLocalSoftening(out, sigma: sigma)
         }

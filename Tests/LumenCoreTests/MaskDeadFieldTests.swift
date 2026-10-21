@@ -1,11 +1,16 @@
 // MaskDeadFieldTests.swift
-// The five local fields that are carried and not rendered, held to both halves of
+// The three local fields that are carried and not rendered, held to both halves of
 // that promise.
 //
 // The owner's complaint was "I don't know how much of these is actually working", and
-// the answer for `noise`, `noiseChroma`, `moire`, `defringe` and `grainAmount` is: none
-// of them, on either renderer. `LocalAdjust`'s own header says so and says what each
-// would take. This file is what stops that comment from going quietly out of date.
+// the answer for `moire`, `defringe` and `grainAmount` is: none of them, on either
+// renderer. `LocalAdjust`'s own header says so and says why each is waiting. This file
+// is what stops that comment from going quietly out of date.
+//
+// `noise` and `noiseChroma` used to be rows here too. They render now — the global
+// classical engine inside the mask (`LocalNoise`, WS-55) — so this file's second test
+// failed exactly as it promised to, and they moved to `LocalNoiseTests`, which holds
+// what they DO rather than that they do nothing.
 //
 // TWO ASSERTIONS, and they pull in opposite directions on purpose:
 //
@@ -27,8 +32,6 @@ final class MaskDeadFieldTests: XCTestCase {
 
     /// Every field in the block, with a value well clear of its default.
     private static let carried: [(String, (inout LocalAdjust) -> Void, (LocalAdjust) -> Double)] = [
-        ("noise", { $0.noise = 70 }, { $0.noise }),
-        ("noiseChroma", { $0.noiseChroma = 65 }, { $0.noiseChroma }),
         ("moire", { $0.moire = 55 }, { $0.moire }),
         ("defringe", { $0.defringe = 80 }, { $0.defringe }),
         ("grainAmount", { $0.grainAmount = 45 }, { $0.grainAmount }),
