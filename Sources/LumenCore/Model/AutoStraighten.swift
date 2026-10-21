@@ -41,7 +41,7 @@ public enum AutoStraighten {
     /// than an honest "nothing to level".
     public static let minimumConfidence: Double = 1.35
 
-    public struct Estimate: Equatable, Sendable {
+    public struct LevelEstimate: Equatable, Sendable {
         /// The angle `geometry.angle` should hold to level the lines, clamped to the
         /// straighten range.
         public var angle: Double
@@ -59,7 +59,7 @@ public enum AutoStraighten {
     /// draws it with the flip applied). Size it to ~800 px on the long edge: finer
     /// costs time for no accuracy, coarser loses short lines.
     public static func estimate(luma: [Float], width: Int, height: Int,
-                                plateIsFlipped: Bool = false) -> Estimate? {
+                                plateIsFlipped: Bool = false) -> LevelEstimate? {
         guard width >= 16, height >= 16, luma.count == width * height else { return nil }
 
         // 1. Sobel, and the strong edge points with their local line direction.
@@ -167,7 +167,7 @@ public enum AutoStraighten {
 
         let observed = best.0
         let angle = plateIsFlipped ? observed : -observed
-        return Estimate(angle: Num.clamp(angle, -Straighten.limitDegrees, Straighten.limitDegrees),
+        return LevelEstimate(angle: Num.clamp(angle, -Straighten.limitDegrees, Straighten.limitDegrees),
                         observedTilt: observed, confidence: confidence)
     }
 }
