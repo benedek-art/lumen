@@ -157,9 +157,15 @@ public enum LateralCAEstimator {
     /// Per-tile radial misregistration of R and of B against G. Exposed for the
     /// diagnostics and for the macOS probe that asks whether Apple's decode already
     /// removed it.
-    /// Tuning knobs, fixed in production (WS-28 REPORT records how they were chosen).
-    nonisolated(unsafe) static var tileCap = 48
-    nonisolated(unsafe) static var correlationGate = 0.85
+    /// Native tile edge cap, px.
+    static let tileCap = 48
+    /// Minimum correlation of a channel's radial gradients with green's at the
+    /// registered shift. 0.7, not 0.85: the tiles that carry the most lateral CA also
+    /// carry the most axial blur difference, and at 0.85 the outer bands kept 11–28
+    /// tiles (1840, 3437) — medians of noise. At 0.7 they keep 94–130 and 1840 reads
+    /// +0.26 / +0.44 / +0.50 px red over r 0.3–0.6 / 0.6–0.8 / 0.8–1, the independent
+    /// tool's numbers.
+    static let correlationGate = 0.7
 
     public typealias TileFetch = (_ x: Int, _ y: Int, _ width: Int, _ height: Int) -> ImageBuffer?
 
