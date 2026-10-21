@@ -1,6 +1,6 @@
 # U2: slider and control components (report)
 
-Branch `quality/u2-slider-component`, head a3b24ed (code). Baseline snapshots are from
+Branch `quality/u2-slider-component`, code head 5494e77. Baseline snapshots are from
 `claude-inspiring-dirac-ulgpch/a93efb2`; after snapshots are from `quality-u2-slider-component/a3b24ed`
 (36 of 36 rendered, no test failures in log-excerpt).
 
@@ -38,7 +38,8 @@ an empty undo step. The a3b24ed snapshots were then judged against the baseline 
 fix, the hit-target fix and the snapshots, but FAILED the undo fix: `guard next != value` compared Doubles
 exactly, and a snapped `0.35000000000000003` never equals the parsed "0.35" (124 of Exposure's 1001 values).
 Round 3: `SliderReadout.isNoChange` compares within a thousandth of a step, with a test that walks all 1001
-Exposure values.
+Exposure values. Verifier round 3: PASS (111 tests, 0 failures; independent recompute found every
+mismatch under 1.4e-14 against tolerances of at least 2e-6). Code head 5494e77.
 
 ## What changed and why
 
