@@ -1274,6 +1274,8 @@ struct LoupeView: View {
     @ObservedObject private var panel: PanelLayout = PanelLayout.shared
     /// The Heal tool: whether its canvas and bar are up, and which spot is selected.
     @ObservedObject private var healTool: HealTool = HealTool.shared
+    /// ⌥, observed, for the Masking drag view (`sharpenMaskShowing`).
+    @ObservedObject private var modifiers: ModifierKeys = ModifierKeys.shared
     /// The screen's EDR headroom, for the HDR preview. Publishes only when the headroom
     /// moves by an eighth of a stop or the display gains or loses HDR altogether, and
     /// only while the preview is on (`EDRDisplay.setActive`).
@@ -2079,6 +2081,15 @@ struct LoupeView: View {
             // zoomed region that this view would stretch over the whole frame.
             if healVisualizing, let sampler {
                 SpotVisualizationView(sampler: sampler, threshold: healTool.visualizeThreshold)
+                    .frame(width: drawn.width, height: drawn.height)
+            }
+
+            // ⌥-DRAG ON MASKING (Lightroom's Alt-drag): the edge mask replaces the
+            // picture while the drag lasts. Named in `samplerNeeded` and `regionActive`
+            // for the same reasons as the dust view above.
+            if sharpenMaskShowing, let sampler {
+                SharpenMaskView(sampler: sampler,
+                                masking: recipe.develop.detail.sharpen.masking)
                     .frame(width: drawn.width, height: drawn.height)
             }
 
@@ -2972,6 +2983,7 @@ struct LoupeView: View {
             && state.clippingOverlay == nil
             && shownMaskOverlay == nil
             && !healVisualizing
+            && !sharpenMaskShowing
             && !panel.layout.isMasking
             && !needsBeforeRender
     }
@@ -2980,6 +2992,11 @@ struct LoupeView: View {
     /// circles are drawn on (not masking, not cropping).
     private var healVisualizing: Bool {
         healTool.armed && healTool.visualize && !panel.layout.isMasking && !cropArmed
+    }
+
+    /// The Sharpening Masking slider is being dragged with ⌥ held.
+    private var sharpenMaskShowing: Bool {
+        state.sharpenMaskDragging && modifiers.optionHeld && !cropArmed
     }
 
     /// The zoomed region ask for the current viewport, or nil for whole-frame.
@@ -3072,6 +3089,7 @@ struct LoupeView: View {
             || state.focusPeaking.isOn
             // The Heal tool's Visualize Spots view reads it the same way.
             || healVisualizing
+            || sharpenMaskShowing
     }
 
     private struct SamplerKey: Equatable {

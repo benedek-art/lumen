@@ -236,8 +236,8 @@ public struct DetailEngine: Sendable {
     /// image, immediately after denoise) and creative sharpening is S12 (after local
     /// adjustments, so masked clarity is never double-sharpened). Folding either into
     /// this call would put it after tone, which is the wrong place for both. Callers
-    /// invoke `captureSharpen` and `applySharpen` at their own stages; on the Apple
-    /// RAW path S4 is Apple's at-demosaic sharpener.
+    /// run S4 (`RenderPlan.capture`, right after S3) and `applySharpen` at their own
+    /// stages.
     public static func apply(_ image: ImageBuffer, detail: Detail,
                              decomposition: Decomposition) -> ImageBuffer {
         var out = applyTexture(image, amount: detail.texture, decomposition: decomposition)
@@ -487,156 +487,38 @@ public struct DetailEngine: Sendable {
 
     // MARK: - Capture sharpening (S4)
 
-    /// Capture sharpening: auto-σ Richardson–Lucy deconvolution on luminance (D24).
+    /// Capture sharpening on one buffer at native scale — `CaptureStage`, the S4 stage
+    /// both renderers run, at the base-ISO noise profile.
     ///
-    /// σ comes from the image's own pixels (`SpatialOps.estimatePSFSigma`) unless the recipe
-    /// pins a radius — the trust device docs/06 builds the whole UI around, because it
-    /// measures *this* lens at *this* aperture with no lens database in the loop.
+    /// The render does not come through here: it runs `RenderPlan.capture`, which knows
+    /// the file's ISO and the decode scale. This entry is for callers holding a buffer
+    /// and a recipe field and nothing else (tests, probes). It used to be its own
+    /// deconvolution with its own gate and its own auto-σ estimate, and it had no
+    /// caller at all; one definition now, so a probe that passes here passes on the
+    /// render.
     ///
-    /// A noise gate keeps the deconvolution away from low-contrast regions so it can never
-    /// amplify noise; the gate rides on the log-domain gradient, which makes its threshold
-    /// exposure-invariant. Recombination is by RGB ratio, so a sharpened edge cannot fringe.
-    ///
-    /// Not modelled here: corner boost (needs the field position of the *uncropped* frame)
-    /// and the ISO-adaptive iteration drop (needs the decode's ISO metadata). Both are
-    /// pipeline-level inputs this pure function does not receive.
+    /// The strength comes from `CaptureSharpen.strengthFraction`, the ONE mapping every
+    /// reader shares, and `auto` is its on switch (W2/E2-07): with the toggle off this
+    /// is the identity whatever radius the recipe carries.
     public static func captureSharpen(_ image: ImageBuffer, _ params: CaptureSharpen,
                                       space: RGBColorSpace = .rec2020) -> ImageBuffer {
-        // The strength comes from `CaptureSharpen.strengthFraction`, the ONE mapping both
-        // readers share, and `auto` is its on switch. This function used to re-derive it
-        // — `auto || radius != nil` to run, `(amount ?? 100) / 100` to scale — which is
-        // the exact expression `AppleRawSource` had to have removed: with the toggle off
-        // and a radius left over from another build's recipe it sharpened at full
-        // strength while the panel said capture sharpening was off (W2/E2-07).
-        let strength = params.strengthFraction
-        guard strength > 0 else { return image }
-        let w = image.width
-        let h = image.height
-
-        let lum = image.luminancePlane(space: space)
-        let sigma: Double
-        if let r = params.radius {
-            sigma = Num.clamp(r, SpatialOps.minPSFSigma, SpatialOps.maxPSFSigma)
-        } else {
-            sigma = SpatialOps.estimatePSFSigma(lum)
-        }
-
-        // docs/06 §11.1: 8 iterations by default.
-        let sharpened = SpatialOps.richardsonLucy(lum, sigma: sigma, iterations: 8)
-
-        let logLum = lum.map { Num.safeLog2($0 / 0.18) }
-        let structure = structureTensor(logLum, radius: 1)
-        let gate = structure.magnitude
-
-        var out = image
-        for y in 0..<h {
-            for x in 0..<w {
-                let base = lum[x, y]
-                guard base > 1e-6 else { continue }
-                // Strength scales the CORRECTION, not the mix fraction. Folding it
-                // into a saturated mix meant everything above 100 pinned at 1 wherever
-                // the edge gate was open — which is every edge, the only place this
-                // stage does anything — so the upper half of the range was inert.
-                let ratio = Num.clamp(sharpened[x, y] / base, 0.25, 4)
-                let g = Num.smoothstep(0.02, 0.12, gate[x, y])
-                let scaled = 1 + (ratio - 1) * strength
-                let k = Num.mix(1.0, Num.clamp(scaled, 0.25, 4), g)
-                if k != 1 { out[x, y] = image[x, y] * k }
-            }
-        }
-        return out
+        CaptureStage(capture: params, captureISO: 100).apply(image, space: space)
     }
 
     // MARK: - Manual sharpening (S12)
 
-    /// Manual/creative sharpening: LR's four-slider contract plus C1's halo suppression
-    /// (docs/06 §11.3). Luma-only, in the log domain, applied as an RGB ratio — so no
-    /// colour fringing at edges, and Amount means the same thing at any exposure.
+    /// Creative sharpening — `SharpenStage`, the definition both renderers share
+    /// (CreativeSharpening.swift says what it does and why it changed).
     ///
-    /// `detail` cross-fades between a halo-damped unsharp component at the user's radius
-    /// (detail = 0) and a deconvolution-weighted component built from the finest à-trous
-    /// scales of the cached stack (detail = 100). `masking` derives its edge mask from the
-    /// same cached gradient the stack already produced — free, per docs/06.
-    ///
-    /// `haloSuppression` damps only the **bright** side of an overshoot. Asymmetry is the
-    /// point: dark-side undershoot reads as edge definition, bright-side overshoot reads as
-    /// a halo, and treating them the same is why symmetric clamps make sharpening look dull.
-    ///
-    /// Note on the cached stack: it was built from the S8 input, while this stage runs after
-    /// Texture/Clarity/Dehaze have moved the pixels. The unsharp component is therefore
-    /// computed on the *current* image (correct), and only the fine-scale component reuses
-    /// the cache (an approximation the shared-stack budget buys, and one that only shifts
-    /// the fine band's weighting).
+    /// `decodeScale` is the buffer's scale against the sensor (1 at 1:1 and on export),
+    /// because Radius is in native pixels. `decomposition` is no longer read: S12 works
+    /// from its own input, which is what the GPU path always did. The parameter stays so
+    /// the mask stage's local Sharpness and older call sites keep compiling.
     public static func applySharpen(_ image: ImageBuffer, params: ManualSharpen,
-                                    decomposition d: Decomposition) -> ImageBuffer {
-        let amount = Num.clamp(params.amount, 0, 150) / 100
-        guard amount > 0 else { return image }
-        let w = image.width
-        let h = image.height
-
-        let radius = Num.clamp(params.radius, 0.5, 3.0)
-        let detail = Num.clamp(params.detail, 0, 100) / 100
-        let masking = Num.clamp(params.masking, 0, 100) / 100
-        let halo = Num.clamp(params.haloSuppression, 0, 100) / 100
-
-        let lum = image.luminancePlane(space: d.space)
-        let logLum = lum.map { Num.safeLog2($0 / 0.18) }
-        // DENOMINATED IN THE FRAME, not in the buffer this render happens to land in.
-        // Radius went into `gaussianBlur` as a pixel count, so the same setting
-        // addressed a different FRACTION of the photograph at every render size —
-        // measured, a texture 1/200 of the frame wide took +3.81 code values of added
-        // contrast at 1600 px and +0.29 at 7008, so a delivered file received 7% of the
-        // sharpening the fit preview was judged on. Every neighbouring spatial stage
-        // already tracks the long edge (`pyramidLevels`, `bandCenter`,
-        // `RenderGraph.structureRadius` — sharpening's own masking gate); this is the
-        // one that did not. `frameDenominatedSigma` carries the reference frame and the
-        // reasoning; `RenderGraph.applySharpen` reads the same two functions.
-        //
-        // The long edge is the RENDER's, because `logLum` is this render's own grid and
-        // a sigma is a count of its pixels. A 2560 px render is unchanged: that is the
-        // frame every one of these stages is quoted at.
-        let sigma = SpatialOps.frameDenominatedSigma(radius: radius,
-                                                     longEdge: Swift.max(w, h))
-        let blurred = SpatialOps.gaussianBlur(logLum, sigma: sigma)
-
-        // Fine-scale component: the two finest à-trous bands the FRAME asks for, which
-        // is where a deconvolution-weighted sharpener puts its energy. Fixed at
-        // `details[0] + 0.5·details[1]` this was the second half of the same defect —
-        // à-trous steps 1 and 2 are fixed pixel scales — and the level is continuous
-        // rather than rounded so the band does not step an octave as the preview ladder
-        // does (`SpatialOps.fineBandLevel`).
-        //
-        // The long edge here is the DECOMPOSITION's, not the render's: the level picks
-        // an à-trous dilation, which is a fact about the stack's own sampling, and the
-        // band is resampled onto the render extent afterwards. At 2560 px the level is
-        // 0 and this is the exact expression that stood here before.
-        var fine = Plane(width: w, height: h)
-        if let band = SpatialOps.fineDetailBand(d.details,
-                                                longEdge: Swift.max(d.width, d.height)) {
-            fine = fit(band, width: w, height: h)
-        }
-        let gradient = fit(d.gradient, width: w, height: h)
-
-        var delta = Plane(width: w, height: h)
-        for y in 0..<h {
-            for x in 0..<w {
-                let usm = logLum[x, y] - blurred[x, y]
-                var v = amount * Num.mix(usm, fine[x, y], detail)
-                if v > 0 && halo > 0 {
-                    // Only the bright overshoot is damped, and only once it is large
-                    // enough to read as a rim rather than as edge definition.
-                    v *= 1.0 - halo * Num.smoothstep(0.15, 0.60, usm)
-                }
-                if masking > 0 {
-                    let edge = Num.smoothstep(0.02 + 0.10 * masking,
-                                              0.10 + 0.25 * masking,
-                                              gradient[x, y])
-                    v *= Num.mix(1.0, edge, masking)
-                }
-                delta[x, y] = v
-            }
-        }
-        return applyLumaRatio(image, deltaEV: delta, limit: 2)
+                                    decomposition _: Decomposition? = nil,
+                                    decodeScale: Double = 1,
+                                    space: RGBColorSpace = .rec2020) -> ImageBuffer {
+        SharpenStage(params, decodeScale: decodeScale).apply(image, space: space)
     }
 
     // MARK: - Vignette (S13)

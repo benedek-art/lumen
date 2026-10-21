@@ -4,23 +4,25 @@
 // which is upstream of both).
 //
 // The panel's job is to keep the division of labour visible: capture sharpening
-// undoes the sensor's own blur once, at decode, from the frame's measured PSF; manual
+// undoes the sensor's own blur once, right after noise reduction (S4); manual
 // sharpening is a creative amount applied late, after local edits, so masked clarity
 // is never double-sharpened. A user who understands that stops stacking one on top of
 // the other to fix the other's artefacts.
 //
-// Optional-field policy (CaptureSharpen.amount): nil means "measured from the frame's
-// own greens" — a real number that only the decode knows. The Amount row stands in the
-// engine's own 100 while the field is nil and badges the section AUTO; the first move
-// pins a concrete value, and "Use measured values" writes nil back.
+// Optional-field policy (CaptureSharpen.amount, .radius): nil means "Lumen's default"
+// — Amount 100 and a 0.8 px native PSF (`CaptureStage.defaultRadius`). Each row stands
+// in that default while its field is nil and the section badges DEFAULT; the first move
+// pins a concrete value, and "Use defaults" writes nil back.
 //
-// There is no Radius row and no Overrides fold, both deliberately.
-// `CaptureSharpen.radius` reaches only `DetailEngine.captureSharpen`, which has no
-// caller — the RAW stage reads `strengthFraction` and nothing else — so the control
-// stored a number no stage read, and the panel had to carry a paragraph saying so. A
-// fold whose two rows were one live control and one dead one is depth bought with a
-// lie. Both come back with the stage.
-//
+// THE RADIUS ROW IS BACK, because the stage that reads it is. Capture sharpening is
+// Lumen's own S4 now — Richardson–Lucy deconvolution right after S3, in both renderers
+// (`CaptureStage`, `RenderGraph.applyCaptureSharpen`) — and `CaptureSharpen.radius` is
+// its PSF σ in native sensor pixels. Before, the only capture stage was Apple's
+// at-demosaic sharpener, which takes one scalar, so the field was stored and read by
+// nothing and the row had been removed rather than ship a dead control. The badge row
+// also stopped saying "Measured from the file": nothing measured anything, then or now.
+// The radius is a stated default, and the panel says so.
+
 // All three belong to Develop's Detail (docs/28 §5.1), and Denoise is a fold inside it
 // rather than a section of its own — which is the difference between Develop being six
 // rows deep and being eight. `only` is how the column asks for the section; the panel
@@ -35,9 +37,9 @@ import SwiftUI
 /// What the capture-sharpen Amount row shows while the recipe says "auto" — the
 /// engine's own default strength.
 ///
-/// 100, not 50: both readers of `CaptureSharpen.amount` treat nil as 100
-/// (`DetailEngine.captureSharpen`, `AppleRawSource`). Showing 50 while auto renders at
-/// 100 meant the first nudge of the slider halved the sharpening.
+/// 100, not 50: the one reader of `CaptureSharpen.amount` (`strengthFraction`, via
+/// `CaptureStage`) treats nil as 100. Showing 50 while auto renders at 100 meant the
+/// first nudge of the slider halved the sharpening.
 private let captureAmountStandIn: Double = 100
 
 struct DetailPanel: View {
@@ -95,10 +97,11 @@ struct DetailPanel: View {
             // A comment is not a modifier, and this is how that survived: nothing could
             // fail. `CaptureSharpenScopeTests` now reads this line.
             //
-            // Why it reaches nothing: both the toggle and the Amount row write fields
-            // whose ONLY reader is `AppleRawSource` — the raw decoder — and a rendered
-            // file goes through `RenderedImageSource`, whose whole `decode` reads
-            // nothing out of the recipe but the scale factor. docs/06 §Capture
+            // Why it reaches nothing: the toggle, Amount and Radius feed S4
+            // (`RenderPlan.capture`), and a plan built without a capture ISO has no S4 —
+            // a rendered file goes through `RenderedImageSource`, which reports
+            // `iso: nil` and whose `decode` reads nothing out of the recipe but the
+            // scale factor. docs/06 §Capture
             // Sharpening has said so from the start: "on (raw only)", "off for
             // JPEG/HEIC (already sharpened in camera)". Only the code disagreed.
             //
@@ -137,26 +140,20 @@ struct DetailPanel: View {
 
     /// The toggle's tooltip.
     ///
-    /// The non-raw branch is new; the raw branch had a claim in it that stopped being
-    /// true. It read "has no caller and no test", and half of that is now false:
-    /// `FieldBaselineProbeTests` renders a blurred edge through
-    /// `DetailEngine.captureSharpen` — and so through `richardsonLucy` — and asserts it
-    /// recovers the edge. What survives is narrower and worth stating exactly, because
-    /// the argument for this panel is that its disclosures can be checked: the
-    /// deconvolution has a baseline probe and no caller, and the per-frame radius
-    /// measurement has neither, since that probe pins a radius rather than measuring
-    /// one.
+    /// The non-raw branch says why the switch is dead; the raw branch says what the
+    /// stage does, and the two promises it makes (flat areas untouched, no halo) are
+    /// lines of docs/quality/lanes/WS-18/SPEC.md with tests behind them
+    /// (`CaptureStageTests`).
     private var captureToggleHelp: String {
         if isRenderedFile {
-            return "Capture sharpening happens inside the raw decode, which this file "
-                + "does not go through — it was demosaiced and sharpened in the camera, "
-                + "so there is nothing here for this stage to undo. Sharpening below "
-                + "does run on this file."
+            return "Capture sharpening runs only on raw files. This one was demosaiced "
+                + "and sharpened in the camera, so there is nothing here for the stage "
+                + "to undo. Sharpening below does run on this file."
         }
-        return "Scales the decoder's own at-demosaic sharpener. Lumen's own "
-            + "measured-PSF deconvolution has a baseline probe in the test suite but no "
-            + "caller, and the per-frame radius measurement has neither, so no radius "
-            + "is measured for this frame in this build."
+        return "Undoes the softness the lens, the sensor and the demosaic leave, by "
+            + "deconvolution right after noise reduction. It never touches flat areas "
+            + "— the threshold is this camera's own noise level at this ISO — and it "
+            + "holds edges inside their own range, so it cannot draw a halo."
     }
 
     /// The reason, on the panel rather than only in a tooltip.
@@ -183,33 +180,33 @@ struct DetailPanel: View {
         VStack(alignment: .leading, spacing: Lumen.rowGap) {
             // The badge row explains itself on hover — the owner's report was "the
             // Auto for the measured is just kind of sitting there and I'm not really
-            // sure what that does." The caption now says where the values come from,
-            // and the row's help says what Auto means and how to leave or return to
-            // it. Nothing in this row lights up, because nothing in it is clickable
-            // except the "Use measured values" button, which carries its own help.
+            // sure what that does." The caption says where the values come from (a
+            // stated default, not a measurement), and the row's help says how to leave
+            // or return to it. Nothing in this row lights up, because nothing in it is
+            // clickable except the "Use defaults" button, which carries its own help.
             HStack(spacing: 6) {
-                Text(hasCaptureOverride ? "Manual" : "Measured from the file")
+                Text(hasCaptureOverride ? "Manual" : "Lumen default")
                     .font(.lumenCaption)
                     .foregroundStyle(Lumen.secondaryText)
                 Spacer()
                 if hasCaptureOverride {
-                    Button("Use measured values") { clearCaptureOverrides() }
+                    Button("Use defaults") { clearCaptureOverrides() }
                         .buttonStyle(.plain)
                         .font(.lumenCaption)
                         .foregroundStyle(Lumen.accent)
-                        .help("Clears the hand-set Amount back to the strength the "
-                              + "decode measured")
+                        .help("Clears the hand-set Amount and Radius back to Lumen's "
+                              + "defaults (100, 0.8 px)")
                 } else {
-                    LumenBadge(text: "Auto")
+                    LumenBadge(text: "Default")
                 }
             }
             .frame(height: Lumen.rowHeight)
             .help(captureStateHelp)
 
-            // Optional-backed, where nil means "use the measured value", so
-            // double-clicking to reset must CLEAR rather than write the stand-in —
-            // writing it pins an override and only flips the badge from Auto to Manual.
-            // The range is the engine's 0…150 rather than stopping at the default.
+            // Optional-backed, where nil means "use the default", so double-clicking to
+            // reset must CLEAR rather than write the stand-in — writing it pins an
+            // override and only flips the badge from Default to Manual. The range is the
+            // engine's 0…150 rather than stopping at the default.
             LumenSlider(title: "Amount",
                         value: binder.value(\.develop.detail.capture.amount,
                                             "detail.capture.amount",
@@ -218,6 +215,24 @@ struct DetailPanel: View {
                         defaultValue: captureAmountStandIn,
                         step: 1, decimals: 0, bipolar: false,
                         help: captureAmountHelp,
+                        onReset: { clearCaptureOverrides() })
+            // The PSF σ in NATIVE sensor pixels, the engine's clamp range
+            // (`SpatialOps.min/maxPSFSigma`). Native rather than frame-denominated
+            // because it describes the optics: a fit preview decoded at a third of the
+            // sensor sees a third of the blur, and the stage scales it itself.
+            LumenSlider(title: "Radius",
+                        value: binder.value(\.develop.detail.capture.radius,
+                                            "detail.capture.radius",
+                                            orAuto: CaptureStage.defaultRadius),
+                        range: SpatialOps.minPSFSigma...SpatialOps.maxPSFSigma,
+                        hardRange: nil,
+                        defaultValue: CaptureStage.defaultRadius,
+                        step: 0.05, decimals: 2, bipolar: false,
+                        help: "How wide a blur the deconvolution undoes, in sensor "
+                            + "pixels. 0.8 suits most modern bodies; raise it for an "
+                            + "older or anti-aliased sensor or a soft lens. Set wider "
+                            + "than the real blur it over-corrects: crisp edges turn "
+                            + "stepped and thin gaps close up — lower it if they do.",
                         onReset: { clearCaptureOverrides() })
         }
         // No `.disabled(isRenderedFile)` here any more. It moved up to the section's
@@ -234,18 +249,17 @@ struct DetailPanel: View {
     /// arguments (docs/31 postscript), so branching help stays out of call sites.
     private var captureStateHelp: String {
         if isRenderedFile {
-            return "Capture sharpening is part of the raw decode, which a JPEG, HEIC or "
-                + "TIFF does not go through — so no capture stage runs on this "
-                + "photograph and the switch above is off and disabled. Manual "
-                + "sharpening below does run."
+            return "Capture sharpening runs only on raw files, so no capture stage "
+                + "runs on this JPEG, HEIC or TIFF and the switch above is off and "
+                + "disabled. Manual sharpening below does run."
         }
         if hasCaptureOverride {
-            return "Manual — a hand-set Amount is overriding the strength the decode "
-                + "measured. \u{201C}Use measured values\u{201D} clears it."
+            return "Manual — a hand-set Amount or Radius is in use. "
+                + "\u{201C}Use defaults\u{201D} clears them."
         }
-        return "Auto — measured from the file: the raw decode sets this frame's "
-            + "capture sharpening itself, and Amount is applying it at full measured "
-            + "strength. The first move pins a manual value."
+        return "Default — Amount 100 and a 0.8 px radius, Lumen's starting point for "
+            + "a modern sensor. Nothing is measured from the file; the first move "
+            + "pins a manual value."
     }
 
     /// Amount's tooltip, branching on file type the way the AI-denoise row already
@@ -258,13 +272,12 @@ struct DetailPanel: View {
     /// if the gate above it is ever loosened.
     private var captureAmountHelp: String {
         if isRenderedFile {
-            return "Capture sharpening is part of the raw decode, which this file "
-                + "does not go through — so this changes nothing here. Manual "
-                + "sharpening below does run."
+            return "Capture sharpening runs only on raw files, so this changes nothing "
+                + "here. Manual sharpening below does run."
         }
-        return "Scales the sharpening the raw decode measured for this frame: 100 "
-            + "applies it exactly as measured, lower backs it off, higher pushes "
-            + "past it. Reset clears a hand-set value back to measured."
+        return "How much of the deconvolution to apply: 100 restores the default "
+            + "radius's blur, lower backs it off, higher pushes past it. Edges stay "
+            + "inside their own range at any setting. Reset clears a hand-set value."
     }
 
     private var hasCaptureOverride: Bool {
@@ -276,8 +289,7 @@ struct DetailPanel: View {
         recipe.develop.detail.capture != CaptureSharpen()
     }
 
-    /// Clears `radius` as well, though no control writes it now: a recipe from another
-    /// build can carry one, and "Use measured values" must mean all of them.
+    /// Both overrides at once: "Use defaults" must mean all of them.
     private func clearCaptureOverrides() {
         binder.edit("detail.capture.auto.restore") { recipe in
             recipe.develop.detail.capture.radius = nil
@@ -303,15 +315,13 @@ struct DetailPanel: View {
                                 + "late so masked clarity is never double-sharpened. "
                                 + "It starts at 0 because capture sharpening owns the "
                                 + "baseline.")
-                // Radius USED TO BE in raw pixels while every other spatial stage in
-                // the graph sized itself off the long edge, so the same setting meant
-                // less sharpening the larger the render — and no view in this
-                // application, 1:1 included, showed a 45 MP export's sharpening. The
-                // person that cost was the one judging an export by a preview, and this
-                // is the row they were looking at when it cost them. That is E2-04, and
-                // it is closed: the sigma is frame-denominated now, so Radius means the
-                // same fraction of the picture on the preview you judge and on the file
-                // you deliver. Measured 0.11 of its strength before, 0.92 after.
+                // Radius is in NATIVE SENSOR PIXELS, as in Lightroom (WS-18). E2-04 had
+                // made it a fraction of the frame so a fit preview would show the
+                // export's sharpening — which made Radius 1 a 2.74 px blur on a 7008 px
+                // export and put fine sharpening out of reach on any file above
+                // 2560 px. Sharpening is judged at 1:1, where Radius now means exactly
+                // what it says; the fit preview shows what the exported file looks
+                // like at fit, which is barely any sharpening at all.
                 //
                 // The warning moved from a `.help` MODIFIER onto the `help:` parameter,
                 // with every other row here: an outer `.help` is shadowed by the
@@ -322,35 +332,40 @@ struct DetailPanel: View {
                                                 "detail.sharpen.radius"),
                             range: 0.5...3.0, hardRange: nil, defaultValue: 1.0,
                             step: 0.1, decimals: 1, bipolar: false,
-                            help: "How wide an edge the sharpening acts on, as a "
-                                + "fraction of the frame — so the same setting means "
-                                + "the same sharpening on the preview you judge it on "
-                                + "and on the file you deliver.")
+                            help: "How wide an edge the sharpening acts on, in sensor "
+                                + "pixels. Judge it at 1:1: a fit view is downsampled "
+                                + "and hides one-pixel sharpening, as the exported "
+                                + "file seen at fit would.")
                 LumenSlider(title: "Detail",
                             value: binder.value(\.develop.detail.sharpen.detail,
                                                 "detail.sharpen.detail"),
                             range: 0...100, hardRange: nil, defaultValue: 25,
-                            step: 1, decimals: 0, bipolar: true,
-                            help: "Balances clean edge sharpening against the finest "
-                                + "texture: low keeps to edges, high emphasises the "
-                                + "finest detail — and the noise that lives at the "
-                                + "same scale.")
+                            step: 1, decimals: 0, bipolar: false,
+                            help: "Halo suppression, as in Lightroom: at 0 edges "
+                                + "sharpen without any halo and fine texture barely "
+                                + "moves; raising it lets the overshoot back in and "
+                                + "emphasises the finest texture — and the noise that "
+                                + "lives at the same scale.")
                 LumenSlider(title: "Masking",
                             value: binder.value(\.develop.detail.sharpen.masking,
                                                 "detail.sharpen.masking"),
                             range: 0...100, hardRange: nil, defaultValue: 0,
                             step: 1, decimals: 0, bipolar: false,
                             help: "Confines sharpening to edges: at 0 everything is "
-                                + "sharpened evenly, and raising it protects smooth "
-                                + "areas — skin, sky — from being gritted up.")
-                // The honest tense: the damp is measured landing mid-edge rather than
-                // on the rim it exists for (the pinned defect record in
-                // FieldBaselineProbeTests), so the tooltip must not promise a halo
-                // cure the engine does not yet deliver. Reword when that test flips.
+                                + "sharpened evenly, by 50 smooth areas — skin, sky, "
+                                + "high-ISO noise — are left alone, and at 100 only "
+                                + "strong edges are. Hold ⌥ while dragging to see the "
+                                + "mask: white is sharpened, black is not.",
+                            onEditingChanged: { state.sharpenMaskDragging = $0 })
+                // The damp acts on the bright OVERSHOOT past the halo bound itself
+                // (`SharpenStage.sharpened`), so it now lands on the rim — measured on a
+                // 2 EV edge at Detail 100, bright rim 1.4 % → 0.6 % → 0.0 % at 0/50/100,
+                // and the pinned defect record in FieldBaselineProbeTests is promoted to
+                // the contract claim. It used to gate on the local USM value and damped
+                // mid-edge instead.
                 //
-                // WHICH IS ALSO WHY THE NAME MOVED. "Halo Suppression" made in one word
-                // the promise the tooltip below spends three sentences refusing: the
-                // stage damps, and on this build it damps in the wrong place. "Damping"
+                // WHY THE NAME MOVED. "Halo Suppression" made in one word a promise the
+                // stage could not keep when it damped in the wrong place. "Damping"
                 // is the word the engine, the tooltip and the defect record all already
                 // use, so the label now says what the row does rather than what the
                 // control is for.
@@ -380,11 +395,10 @@ struct DetailPanel: View {
                                                 "detail.sharpen.haloSuppression"),
                             range: 0...100, hardRange: nil, defaultValue: 0,
                             step: 1, decimals: 0, bipolar: false,
-                            help: "Damps the bright side of a sharpened edge — where "
-                                + "halos live — and never the dark side. In this build "
-                                + "the damping lands mid-edge rather than on the rim "
-                                + "itself, so it reads as a gentler sharpen more than "
-                                + "a halo cure.")
+                            help: "Damps the bright rim beside a sharpened edge — the "
+                                + "halo Detail lets in — and never the dark side, which "
+                                + "reads as edge definition. It only has work to do "
+                                + "when Detail is above 0.")
                 // Nothing when capture sharpening is on: it owns the baseline, which
                 // is why Amount above starts at 0. The hint is for the refugee who has
                 // no capture stage and no starting point.

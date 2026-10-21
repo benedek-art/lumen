@@ -268,33 +268,49 @@ final class ScaleHonestyTests: XCTestCase {
 
     // MARK: - S12 sharpening
 
-    /// A texture whose feature size is a fixed FRACTION of the picture — a sinusoid of
-    /// period `longEdge / 200`, so the same photograph is in front of the stage at every
-    /// render size and the only thing that changes is how densely it is sampled.
+    /// S12's Radius is in NATIVE SENSOR PIXELS (WS-18), which is what scale honesty means
+    /// for a sharpener — Lightroom, Capture One and RawTherapee all denominate it so.
     ///
-    /// **Why not `ProofFrames.stepEdge`, which is what three of the five sharpen proof
-    /// records are taken on: a hard step cannot express a scale-dependent sharpener,
-    /// because a step has no scale.** `lum − G_σ(lum)` at an ideal edge peaks at a
-    /// fraction of the step height that does not depend on σ at all: widening the blur
-    /// widens the rim without raising it, so the amplitude a rim metric reads is the
-    /// same number at any radius and at any resolution. Measured, at Amount 30 (below
-    /// the clip, see the next paragraph), the bright rim is 27.1733 code values at 128,
-    /// 1600, 4096 and 7008 px — identical to four decimals.
-    ///
-    /// On that frame at the settings the records actually sweep it is worse than
-    /// scale-free, it is saturated. The step's bright side is `0.18 · 2² = 0.72`, which
-    /// is sRGB code 220.586; any Amount at or above **38** pushes the rim past 1.0, so
-    /// the reading pins at `255 − 220.586 = 34.414` — the same 34.414 at 128, 1600, 4096
-    /// and 7008 px, and the same 34.414 at Amount 40 and at Amount 150. It is a property
-    /// of the white point, not of the photograph. A frame answers the question it can
-    /// express; this one was answering "where is white" while the harness read it as
-    /// "how much did the stage do", which is how a 14x defect sat under five green
-    /// records for the life of the file.
-    func fractionalTexture(longEdge: Int) -> ImageBuffer {
-        let period = Double(longEdge) / 200.0
-        return ImageBuffer(width: longEdge, height: 32) { u, _ in
-            RGB(gray: 0.18 * (1 + 0.20 * sin(2 * .pi * u * Double(longEdge) / period)))
+    /// This test used to assert the opposite: that sharpening set on a 1600 px fit
+    /// preview added the same contrast to a feature 1/200 of the frame wide (32 px at
+    /// 6400) as it did in the export, which forced σ = radius × longEdge / 2560. The
+    /// price was that Radius 1 became a 2.74 px blur on a 7008 px export — a halo three
+    /// pixels wide on every leaf of the A7 IV test frame — and the 0.5 minimum was
+    /// 1.37 px, so fine sharpening was unreachable above 2560 px. A 32 px feature is
+    /// Clarity's business, not a sharpener's. The promise that survives is the one a
+    /// photographer actually relies on: what Radius does to the SENSOR'S pixels is the
+    /// same on every render of the photograph, and a downsampled preview is shown that
+    /// sharpening downsampled (σ × decode scale) rather than a stronger, coarser one.
+    func testSharpeningRadiusIsDenominatedInSensorPixels() {
+        let p = ManualSharpen(amount: 100, radius: 1.0)
+        XCTAssertEqual(SharpenStage(p, decodeScale: 1).sigma, 1.0, accuracy: 1e-12,
+                       "at 1:1 and on export Radius 1 is a one-pixel blur")
+        XCTAssertEqual(SharpenStage(p, decodeScale: 0.25).sigma, 0.25, accuracy: 1e-12,
+                       "a quarter-scale preview sees the same sensor pixel's blur")
+        XCTAssertEqual(SharpenStage(p, decodeScale: 7).sigma, 1.0, accuracy: 1e-12,
+                       "a decode scale above 1 is not a thing; it clamps")
+
+        // And the buffer's SIZE plays no part: the same native pixels sharpen the same
+        // whether the buffer is a 160 px crop or a 640 px frame. Frame-denominated, the
+        // crop got a quarter of the radius — measured by the WS-18 audit on the A7 IV
+        // frame, a 1024 px crop at Amount 150 sharpened less than the full frame at 70.
+        func texture(_ n: Int) -> ImageBuffer {
+            ImageBuffer(width: n, height: 16) { u, _ in
+                RGB(gray: 0.18 * (1 + 0.2 * sin(2 * .pi * u * Double(n) / 4)))
+            }
         }
+        func added(_ n: Int) -> Double {
+            let frame = texture(n)
+            let out = DetailEngine.applySharpen(frame, params: p, decodeScale: 1)
+            return rowContrast(out) - rowContrast(frame)
+        }
+        let small = added(160)
+        let large = added(640)
+        XCTAssertGreaterThan(small, 2.9, "S12 added \(small) code values — under the "
+                             + "floor docs/20 calls invisible, so this measures nothing")
+        XCTAssertEqual(large / small, 1, accuracy: 0.02,
+                       "a 4 px texture took \(small) codes in a 160 px buffer and "
+                           + "\(large) in a 640 px one: Radius is reading the buffer size")
     }
 
     /// Peak-to-peak sRGB contrast across the middle row, away from the border.
@@ -307,67 +323,6 @@ final class ScaleHonestyTests: XCTestCase {
             hi = Swift.max(hi, c)
         }
         return (hi - lo) * 255
-    }
-
-    /// The contrast S12 ADDS to a feature that is 1/200 of the picture wide, in sRGB
-    /// code values, at one render size. The stage alone — no display transform — so the
-    /// number is the sharpener and nothing else.
-    func sharpeningAdded(longEdge: Int, radius: Double) -> Double {
-        let frame = fractionalTexture(longEdge: longEdge)
-        let node = DetailEngine.Decomposition(
-            image: frame,
-            workingRadius: Swift.max(Int(Double(longEdge) * 0.02), 3))
-        let sharpened = DetailEngine.applySharpen(
-            frame, params: ManualSharpen(amount: 100, radius: radius), decomposition: node)
-        return rowContrast(sharpened) - rowContrast(frame)
-    }
-
-    /// Sharpening set on a fit preview has to arrive in the delivered file.
-    ///
-    /// This is the measurement E2-04 was found by and the one the roster entry above
-    /// cannot make: the roster compares a 300 px render against a 1200 px one, and BOTH
-    /// of those sit below the 2560 px reference the frame-denominated stages are quoted
-    /// at, so a stage could pin at the reference floor at both sizes and pass. Here the
-    /// two sizes straddle it — 1600 px is a fit preview and 6400 px is a delivered file
-    /// — and the assertion is on the RATIO, pinned to the number it measures rather than
-    /// to its direction, because "the export got more than the preview" was true of the
-    /// broken stage too.
-    ///
-    /// Measured, Amount 100 / Radius 2.0 / Detail 25:
-    ///
-    ///     added contrast      1600 px    6400 px    ratio
-    ///     render pixels       13.583      1.537     0.113
-    ///     the picture          8.592      7.880     0.917
-    ///
-    /// The denomination itself lives in `SpatialOps.frameDenominatedSigma` and
-    /// `SpatialOps.fineDetailBand`, and `DetailEngine.applySharpen` reads them at two
-    /// call sites — the `gaussianBlur` sigma and the `d.details[0] + 0.5 * d.details[1]`
-    /// band. Both paths have to read them or this reads 0.113; `RenderGraph.applySharpen`
-    /// is the GPU twin and takes the same two changes, which it now has.
-    ///
-    /// The bound is on the RATIO and it is two-sided, which is the whole point: "the
-    /// export got more than the preview" was true of the broken stage too, so a
-    /// one-sided assertion would have passed on the defect. A frame-denominated stage
-    /// lands near 1 from whichever side the resampling puts it on.
-    func testSharpeningMeansTheSameFractionOfThePictureAtEitherRenderSize() {
-        let preview = sharpeningAdded(longEdge: 1600, radius: 2.0)
-        let delivered = sharpeningAdded(longEdge: 6400, radius: 2.0)
-        print(String(format: "  SHARPEN  1600 px %.4f  6400 px %.4f  ratio %.4f",
-                     preview, delivered, delivered / preview))
-        // The stage has to have DONE something at the preview size, or the ratio below
-        // is one small number over another and means nothing.
-        XCTAssertGreaterThan(preview, 2.9,
-                             "S12 added \(preview) code values at 1600 px, which is "
-                                 + "under the floor docs/20 calls invisible — this "
-                                 + "measures nothing")
-        XCTAssertEqual(delivered / preview, 0.92, accuracy: 0.10,
-                       "sharpening set on a 1600 px fit preview arrives in a 6400 px "
-                           + "delivered file at \(delivered / preview) of its strength "
-                           + "(\(preview) code values against \(delivered)). Denominated "
-                           + "in render pixels this reads 0.113 — the radius and the "
-                           + "fine band are sized off the buffer instead of off the "
-                           + "picture, so the photographer set sharpening on a "
-                           + "photograph and got it on a grid")
     }
 
     /// Masks are normalized to the frame, so a gradient placed on a fit preview has to

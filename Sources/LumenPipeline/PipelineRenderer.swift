@@ -3048,6 +3048,12 @@ public final class PipelineRenderer {
         if !plan.denoiseIsIdentity {
             staged = plan.classicalDenoise.scaled(noiseScale: scale * scale).apply(buffer)
         }
+        // S4 — capture sharpening, right after S3 on this path as on the GPU one
+        // (`RenderGraph.applyCaptureSharpen`), at the same decode scale.
+        let capture = plan.capture.scaled(decodeScale: scale)
+        if !capture.isIdentity {
+            staged = capture.apply(staged)
+        }
         // Stroke sets go in, exactly as they do on the GPU path — a fallback that
         // silently drops every brush mask is not the same picture, and this is the
         // path that runs when the graph could not be built at all. The proof goes in for
@@ -3063,7 +3069,8 @@ public final class PipelineRenderer {
             // Noise at full strength on a preview where the graph skips it (WS-53).
             inputs: ReferenceRenderer.Inputs(strokeSets: strokeSets,
                                              aiMattes: mattes[source.url]?.planes ?? [:],
-                                             noiseScale: scale * scale))
+                                             noiseScale: scale * scale,
+                                             decodeScale: scale))
         // S16 (WS-25): the CPU twin of `applyGeometry`, same map, same Lanczos-3 chain.
         // `showingUncropped` is the crop tool's whole-frame view, exactly as the GPU
         // path's `applyGeometry(skipCrop:)` takes it.

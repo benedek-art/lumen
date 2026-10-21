@@ -307,6 +307,10 @@ enum Ranges {
         ("look.filmLab.halationRedness", 0, 100, "ProofRegistry", nil),
         ("look.filmLab.grain.amount", 0, 100, "RecipeLook.swift FilmGrain", nil),
         ("look.filmLab.grain.size", 0.5, 2, "ProofRegistry", nil),
+        ("develop.detail.capture.amount", 0, 150, "Recipe.swift CaptureSharpen",
+         "S4, RAW only: needs --iso"),
+        ("develop.detail.capture.radius", 0.4, 2, "Recipe.swift CaptureSharpen",
+         "native-pixel PSF sigma; S4, RAW only: needs --iso"),
         ("look.grain.amount", 0, 100, "Recipe.swift CreativeGrain", nil),
         ("look.grain.size", 0, 100, "Recipe.swift CreativeGrain", nil),
         ("look.grain.roughness", 0, 100, "Recipe.swift CreativeGrain", nil),
@@ -325,9 +329,6 @@ enum Ranges {
             return "geometry is not rendered by the reference path (GEO-17)"
         }
         if path.hasPrefix("develop.heal.") { return "needs heal spots/strokes" }
-        if path.hasPrefix("develop.detail.capture.") {
-            return "capture sharpening (S4) runs upstream of ReferenceRenderer, not here"
-        }
         if path.hasPrefix("develop.denoise.raw.") { return "RAW-domain denoise, not here" }
         return nil
     }

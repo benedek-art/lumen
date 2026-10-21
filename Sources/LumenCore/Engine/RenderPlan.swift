@@ -182,6 +182,10 @@ public struct RenderPlan: Sendable {
     public let classicalDenoise: ClassicalDenoise
     /// True when S3 cannot move a pixel, so the graph skips forty nodes.
     public let denoiseIsIdentity: Bool
+    /// S4 — capture sharpening (`CaptureStage`), at NATIVE scale. Each renderer scales
+    /// it to its decode (`scaled(decodeScale:)`) exactly as it scales S3. Identity
+    /// without a capture ISO: that is a rendered file, which has no sensor stage to undo.
+    public let capture: CaptureStage
 
     /// `captureISO` is what the file says it was shot at; it selects the noise profile
     /// every threshold in S3 is denominated in. A file with no ISO recorded falls back
@@ -526,6 +530,8 @@ public struct RenderPlan: Sendable {
                                       profile: noiseProfile)
         self.classicalDenoise = engine
         self.denoiseIsIdentity = engine.isIdentity
+        // ---- S4 ---------------------------------------------------------------
+        self.capture = CaptureStage(capture: develop.detail.capture, captureISO: captureISO)
 
         // ---- carried through --------------------------------------------------
         self.detail = develop.detail

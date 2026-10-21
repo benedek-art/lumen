@@ -56,7 +56,6 @@ public final class AppleRawSource: ImageSource {
 
     private let defaultLuminanceNR: Float
     private let defaultColorNR: Float
-    private let defaultSharpness: Float
 
     /// This decoder runs Apple's picture-forming stages OFF (see `decode`), so what
     /// comes out is scene-referred and carries the headroom above display white. It is
@@ -99,7 +98,6 @@ public final class AppleRawSource: ImageSource {
         self.asShotTint = Double(filter.neutralTint)
         self.defaultLuminanceNR = filter.luminanceNoiseReductionAmount
         self.defaultColorNR = filter.colorNoiseReductionAmount
-        self.defaultSharpness = filter.sharpnessAmount
         self.captureISO = CaptureMetadataReader.read(url: url)?.iso.map { Double($0) }
     }
 
@@ -140,7 +138,6 @@ public final class AppleRawSource: ImageSource {
     private struct DecodeKey: Equatable {
         let draft: Bool
         let scaleFactor: Double
-        let captureStrength: Double
         let luminanceNR: Double
         let colorNR: Double
         let lensProfile: Bool
@@ -252,7 +249,6 @@ public final class AppleRawSource: ImageSource {
         let clampedScale = Num.clamp(scaleFactor, 0.01, 1.0)
         let key = DecodeKey(draft: draft,
                             scaleFactor: clampedScale,
-                            captureStrength: dev.detail.capture.strengthFraction,
                             luminanceNR: standIn.luma,
                             colorNR: standIn.chroma,
                             lensProfile: dev.geometry.lens.profile,
@@ -333,25 +329,24 @@ public final class AppleRawSource: ImageSource {
         // preserves it all the way to the display transform.
         filter.extendedDynamicRangeAmount = 1.0
 
-        // Capture sharpening rides Apple's at-demosaic sharpener until Lumen's own RL
-        // deconvolution moves into the graph.
+        // Apple's at-demosaic sharpener is OFF, always. Capture sharpening is Lumen's
+        // own S4 now (`CaptureStage`, run by `RenderGraph.applyCaptureSharpen` right
+        // after S3), and that move is the reason this line exists:
         //
-        // `auto` is the ON switch, not a choice between two strengths. The panel says
-        // so — with it off it prints "Capture sharpening is off for this photo", and
-        // with it on it offers an Overrides disclosure — and the two branches here were
-        // the other way round.
+        //   · here it ran upstream of S3, so the profiled denoise was handed noise that
+        //     had already been sharpened — the noise model S3 is denominated in was
+        //     false before S3 saw a pixel;
+        //   · `detail.capture.radius` had no reader (this filter takes one scalar);
+        //   · it could not be rendered or measured anywhere but a Mac with a RAW, so
+        //     no proof reached it, and its response was whatever this macOS release's
+        //     decoder does.
         //
-        // What that cost: `amount` defaults to nil, so the "manual" branch computed
-        // `clamp(100/100) = 1.0` and multiplied the default strength by exactly one.
-        // Turning capture sharpening OFF rendered pixel-for-pixel the same picture as
-        // leaving it on, while the panel said it was off. And the Amount slider lives
-        // inside `captureOverrides`, which the panel shows only when `auto` is TRUE —
-        // the branch that never read it. The one control was invisible in the state
-        // that used it and useless in the state that showed it.
-        // The mapping itself lives on `CaptureSharpen` so it can be tested; this stage
-        // needs a camera RAW to reach at all.
-        filter.sharpnessAmount = defaultSharpness
-            * Float(dev.detail.capture.strengthFraction)
+        // Leaving it on underneath would sharpen twice, once with a measured-noise
+        // gate and once without. The decode is therefore independent of
+        // `detail.capture`, which is why `DecodeKey` no longer carries a strength:
+        // dragging capture Amount re-runs S4 on the cached demosaic instead of
+        // demosaicing again.
+        filter.sharpnessAmount = 0
 
         // Noise reduction: Tier 1 runs in the graph now (S3,
         // `RenderGraph.applyDenoise`), so Off and Classic both hand this stage zero —

@@ -41,7 +41,14 @@
 //   Shared options (render, sweep):
 //     --as-shot-kelvin K   the file's as-shot neutral temperature (default 5500)
 //     --as-shot-tint T     the file's as-shot tint (default 0)
-//     --iso N              capture ISO, selects the classical-NR noise profile
+//     --iso N              capture ISO: selects the classical-NR noise profile, and
+//                          marks the input as a RAW decode, which is what turns on
+//                          S4 capture sharpening (without it S4 is the identity, as
+//                          for a JPEG in the app)
+//     --native-long-edge N the sensor's long edge when the input is itself a
+//                          downsampled decode (corpus/lfi is 2400 px; its sidecar's
+//                          decoded_full_size says the native size). S3 and S4 are
+//                          told the true decode scale. Default: the input is native
 //     --space srgb|p3      output encoding (default srgb, what the export ships)
 //     --no-dither          skip the 8-bit ordered dither the preview/export apply
 //     --lut-size N         finish/grade table size (default 33 = the app's interactive
@@ -103,6 +110,8 @@
 //      Uniformity's measured band hues taken from the input when the mixer needs them;
 //   3. S3 classical denoise when the plan has one (`classicalDenoise.scaled(noiseScale:
 //      scale²)`), exactly as renderReference does;
+//   3b. S4 capture sharpening (`plan.capture.scaled(decodeScale: scale)`), identity
+//      unless --iso is given, exactly as renderReference does;
 //   4. `ReferenceRenderer.render` → display-linear, still in Rec.2020 primaries, with
 //      the same scale² as `Inputs.noiseScale` so a mask's Noise rows obey S3's rule;
 //   5. the encode: ordered 8×8 Bayer dither of one sRGB code (`Dither`, added in the

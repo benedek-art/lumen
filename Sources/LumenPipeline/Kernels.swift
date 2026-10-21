@@ -174,45 +174,6 @@ public enum KernelLibrary {
     }
     """
 
-    /// Sharpening as a log-luminance delta in EV, with the two sliders the stock
-    /// unsharp mask had no expression for.
-    ///
-    /// `CIUnsharpMask` on RGB was the whole sharpen path, so Masking and Halo
-    /// Suppression — one of which docs/06 calls "the fifth slider Adobe never shipped"
-    /// — were live controls that no preview and no export ever read, and Detail was
-    /// folded into a radius because a stock USM has nowhere else to put it.
-    ///
-    /// The unit matters and has bitten this codebase before. `logLuminance` is
-    /// LumenLog-ENCODED, which squeezes 24 stops into [0,1], so a difference taken on
-    /// that plane is EV/24 and every threshold the reference states in EV must be
-    /// multiplied back by `range` before it means anything. Texture spent its whole
-    /// life doing one twenty-fourth of what it said for exactly this reason.
-    ///
-    /// Halo damping is one-sided by design: only the BRIGHT overshoot is a rim, and
-    /// only once it is large enough to read as one rather than as edge definition.
-    /// `step(0.0, v)` selects that side branchlessly.
-    static let sharpenDeltaSource = """
-    kernel vec4 lumenSharpenDelta(__sample lum, __sample blurred, __sample fine,
-                                  __sample gradient, float amount, float detail,
-                                  float masking, float halo, float range) {
-        float usm = (lum.r - blurred.r) * range;
-        float fineEV = fine.r * range;
-        float v = amount * mix(usm, fineEV, detail);
-
-        float bright = step(0.0, v) * halo;
-        v = v * (1.0 - bright * smoothstep(0.15, 0.60, usm));
-
-        // `gradient` arrives in EV/px already — `structureTensor` scales at the source
-        // so one quantity is not denominated two different ways in two kernels. `range`
-        // still converts `lum` and `fine`, which are encoded.
-        float edge = smoothstep(0.02 + 0.10 * masking,
-                                0.10 + 0.25 * masking,
-                                gradient.r);
-        v = v * mix(1.0, edge, masking);
-        return vec4(v, v, v, 1.0);
-    }
-    """
-
     /// Apply a per-pixel EV delta as a LUMINANCE ratio, so sharpening cannot shift hue
     /// or saturation the way a per-channel unsharp mask does. Limited, because an
     /// unbounded gain on a specular highlight is how a sharpener makes white holes.
@@ -1344,7 +1305,6 @@ public enum KernelLibrary {
     public static let grainField = makeGeneral(grainFieldSource)
     public static let vignette = make(vignetteSource)
     public static let detailGain = make(detailGainSource)
-    public static let sharpenDelta = make(sharpenDeltaSource)
     public static let subtract = make(subtractSource)
     public static let thresholdMask = make(thresholdMaskSource)
     public static let detailRemap = make(detailRemapSource)
@@ -1429,7 +1389,7 @@ public enum KernelLibrary {
             ("blendMask", blendMask), ("blendMaskMode", blendMaskMode),
             ("grain", grain), ("grainField", grainField), ("vignette", vignette),
             ("detailGain", detailGain), ("dehaze", dehaze), ("addGlow", addGlow),
-            ("sharpenDelta", sharpenDelta), ("lumaRatio", lumaRatio),
+            ("lumaRatio", lumaRatio),
             ("subtract", subtract), ("thresholdMask", thresholdMask), ("detailRemap", detailRemap),
             ("structureTensor", structureTensor),
             ("coherence", coherence), ("detailGainGated", detailGainGated),

@@ -1472,6 +1472,9 @@ final class AppState: ObservableObject {
     @Published var activeMaskID: String?
     @Published var activeComponentIndex: Int = 0
     @Published var clippingOverlay: ClippingOverlay.Mode?
+    /// True while the Sharpening Masking slider is being dragged. With ⌥ held the
+    /// viewer swaps the photograph for the edge mask (`SharpenMaskView`).
+    @Published var sharpenMaskDragging = false
     /// Focus peaking — the edge-detection overlay that makes a wide-aperture or
     /// manual-focus roll cullable at all. At grid size a sharp frame and a near miss are
     /// the same picture; this is the only instrument in the app that tells them apart

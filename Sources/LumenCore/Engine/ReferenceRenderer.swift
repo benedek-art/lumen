@@ -30,17 +30,22 @@ public enum ReferenceRenderer {
         /// `Options.noiseScale`. A mask's Noise rows (`LocalNoise`) obey the preview rule
         /// S3 obeys, so they need it too; 1 for an export or a full-size render.
         public var noiseScale: Double
+        /// The input's scale against the sensor (≤ 1; 1 at 1:1 and on export). S12's
+        /// Radius is in native pixels, so it needs to know.
+        public var decodeScale: Double
 
         public init(strokeSets: [String: BrushStrokeSet] = [:],
                     aiMattes: [String: Plane] = [:],
                     grainSeed: UInt64 = FilmGrainProfile.defaultPlateSeed,
                     luts: CreativeLUTLibrary = .shared,
-                    noiseScale: Double = 1) {
+                    noiseScale: Double = 1,
+                    decodeScale: Double = 1) {
             self.strokeSets = strokeSets
             self.aiMattes = aiMattes
             self.grainSeed = grainSeed
             self.luts = luts
             self.noiseScale = noiseScale
+            self.decodeScale = decodeScale
         }
     }
 
@@ -88,13 +93,11 @@ public enum ReferenceRenderer {
         // S8 — presence, off one decomposition built once.
         let detail = plan.detail
         let needsDecomposition = detail.texture != 0 || detail.clarity != 0
-            || detail.dehaze != 0 || detail.sharpen.amount > 0
-        var decomposition: DetailEngine.Decomposition?
+            || detail.dehaze != 0
         if needsDecomposition {
             let radius = Swift.max(Int(Double(longEdge) * 0.02), 3)
             let node = DetailEngine.Decomposition(image: image, workingRadius: radius,
                                                   space: space)
-            decomposition = node
             image = DetailEngine.apply(image, detail: detail, decomposition: node)
         }
 
@@ -132,9 +135,11 @@ public enum ReferenceRenderer {
 
         // S12 — creative sharpening, after local so masked clarity is never
         // double-sharpened.
-        if detail.sharpen.amount > 0, let node = decomposition {
+        // Its own input, not the S8 decomposition (the GPU path never had that one).
+        if detail.sharpen.amount > 0 {
             image = DetailEngine.applySharpen(image, params: detail.sharpen,
-                                              decomposition: node)
+                                              decodeScale: inputs.decodeScale,
+                                              space: space)
         }
 
         // S13 — vignette in scene-linear, then halation: the lens vignettes the light
@@ -588,8 +593,9 @@ public enum ReferenceRenderer {
                 // Negative Sharpness is a blur, which `applySharpen` refuses by
                 // contract (it clamps amount at 0). A small Gaussian is what the
                 // control means.
-                // Preserve the 2.5 px maximum at the same 2560 px reference as
-                // positive sharpening. A fixed render-pixel blur fades on export.
+                // Preserve the 2.5 px maximum at the 2560 px reference (positive
+                // sharpening is native pixels since WS-18; see its NEEDS.md).
+                // A fixed render-pixel blur fades on export.
                 let sigma = SpatialOps.frameDenominatedSigma(
                     radius: localSofteningRadius(sharpness),
                     longEdge: Swift.max(out.width, out.height))

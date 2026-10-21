@@ -458,6 +458,9 @@ public enum SpatialOps {
     /// is the creative half and only the creative half. Until this fix the two halves
     /// were both pixel-denominated, so a photographer exporting with Sharpen For: Screen
     /// was getting two output sharpeners and no creative one.
+    /// SINCE WS-18 the global S12 stage does not use this: its Radius is native sensor
+    /// pixels, × the decode scale (`SharpenStage`; ScaleHonestyTests says why). Negative
+    /// local Sharpness still does.
     public static func frameDenominatedSigma(radius: Double, longEdge: Int) -> Double {
         guard radius.isFinite else { return 0 }
         return Swift.max(radius, 0) * frameScale(longEdge: longEdge)

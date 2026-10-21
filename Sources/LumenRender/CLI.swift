@@ -12,6 +12,9 @@ struct RenderSettings {
     var lutSize = LUT3D.interactiveSize
     /// S16's filter. Lanczos-3 is the stage; the other two exist for comparison sheets.
     var resampler = GeometryResample.Filter.lanczos3
+    /// The sensor's native long edge when the input file is itself a downsampled decode
+    /// (a `corpus/lfi` sidecar's `decoded_full_size`). nil = the input IS native.
+    var nativeLongEdge: Int? = nil
 }
 
 /// The input, downsampled once, with what every render of it shares.
@@ -24,6 +27,14 @@ struct PreparedInput {
     let sourceHeight: Int
     /// Uniformity's measured band hues, from the neutral input, computed on first need.
     let bandHues: [Double]?
+
+    /// The decode scale S3 and S4 are told about: this tool's own downsample, times the
+    /// file's own one when `--native-long-edge` says the file is not native.
+    func decodeScale(nativeLongEdge: Int?) -> Double {
+        guard let native = nativeLongEdge, native > 0 else { return scale }
+        let file = Double(Swift.max(sourceWidth, sourceHeight))
+        return Swift.min(1, scale * file / Double(native))
+    }
 }
 
 enum Renderer {
@@ -48,15 +59,23 @@ enum Renderer {
                               captureISO: settings.iso,
                               bandMeanHues: ColorEngine.needsMeasuredBandHues(
                                   recipe.develop.mixer) ? input.bandHues : nil)
+        let scale = input.decodeScale(nativeLongEdge: settings.nativeLongEdge)
         var staged = input.image
-        let noiseScale = input.scale * input.scale
+        let noiseScale = scale * scale
         if !plan.denoiseIsIdentity {
             staged = plan.classicalDenoise.scaled(noiseScale: noiseScale)
                 .apply(staged)
         }
+        // S4 — capture sharpening, right after S3, as `renderReference` runs it.
+        // Identity without --iso: a plan with no capture ISO is a rendered file.
+        let capture = plan.capture.scaled(decodeScale: scale)
+        if !capture.isIdentity {
+            staged = capture.apply(staged)
+        }
         // The same scale to S11, where a mask's Noise rows obey S3's preview rule.
         let rendered = ReferenceRenderer.render(
-            staged, plan: plan, inputs: ReferenceRenderer.Inputs(noiseScale: noiseScale))
+            staged, plan: plan, inputs: ReferenceRenderer.Inputs(noiseScale: noiseScale,
+                                                         decodeScale: scale))
         // S16, as `PipelineRenderer.renderReference` runs it: after the render, before
         // the encode, in display-linear light. An automatic Upright with no stored lines
         // is solved from lines detected on this input, which is what the app does once
@@ -139,6 +158,10 @@ struct Args {
             s.space = o
         }
         s.dither = !flag("no-dither")
+        if let n = try int("native-long-edge") {
+            guard n > 0 else { throw InputError.message("--native-long-edge must be > 0") }
+            s.nativeLongEdge = n
+        }
         if let n = try int("lut-size") {
             guard (2...129).contains(n) else { throw InputError.message("--lut-size 2…129") }
             s.lutSize = n
@@ -180,6 +203,7 @@ enum LumenRenderCLI {
                           [--metrics m.json] [--repeat N]   (header of Strokes.swift)
     shared: --as-shot-kelvin 5500 --as-shot-tint 0 --iso N --space srgb|p3
             --no-dither --lut-size 33 --resampler lanczos3|bicubic|bilinear
+            --native-long-edge N
     (full manual: the header of Sources/LumenRender/main.swift)
     """
 

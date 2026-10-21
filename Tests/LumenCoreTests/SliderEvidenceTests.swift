@@ -162,10 +162,13 @@ final class SliderEvidenceTests: XCTestCase {
         "denoise.classic.colorDetail": .record(["denoise.colorDetail"]),
         "denoise.classic.colorSmoothness": .record(["denoise.colorSmoothness"]),
         "denoise.classic.hotPixels": .record(["denoise.hotPixels"]),
-        "detail.capture.amount": .disposition(
-            "docs/27 §3: LIVE but macOS-only measurable — it scales Apple's at-demosaic "
-                + "sharpener inside AppleRawSource, upstream of the Linux reference path. "
-                + "Owed to the gpu-parity lane."),
+        // Capture sharpening is Lumen's own S4 now (`CaptureStage`, WS-17), on the
+        // Linux reference path — no longer Apple's sharpener inside the decoder, which
+        // is why this was a macOS-only disposition. Both rows are pinned by contract.
+        "detail.capture.amount": .contract(
+            "CaptureStageTests.testAmountAndRadiusAreLiveAndMonotone"),
+        "detail.capture.radius": .contract(
+            "CaptureStageTests.testAmountAndRadiusAreLiveAndMonotone"),
         "denoise.amount": .disposition(
             "docs/27 §3: AI mode drives the decoder's denoise blend, macOS-only. Mode and "
                 + "amount plumbing is contract-tested in LumenCore (appleStandIn)."),

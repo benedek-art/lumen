@@ -191,6 +191,10 @@ public struct RenderGraph {
         // `noiseScale` has already shrunk the work to match.
         if !options.maskSource {
             image = applyDenoise(image, plan: plan, options: options)
+            // S4 — capture sharpening, on the cleanest estimate of the optical image.
+            // Skipped for the mask source with S3: a band's levels do not move with
+            // one-pixel acutance.
+            image = applyCaptureSharpen(image, plan: plan, options: options)
         }
 
         // S5 — retouch: heal and clone spots, on the scene-linear picture S3 left, so
@@ -234,7 +238,7 @@ public struct RenderGraph {
         // S12 — creative sharpening, after local so masked clarity is not
         // double-sharpened.
         if plan.detail.sharpen.amount > 0 {
-            image = Self.applySharpen(image, plan.detail.sharpen, longEdge: options.longEdge)
+            image = Self.applySharpen(image, plan.detail.sharpen, options: options)
         }
 
         // S13 — vignette, then halation: the lens vignettes the light before it
@@ -1537,85 +1541,24 @@ public struct RenderGraph {
 
     // MARK: - S12 sharpen
 
-    /// Sharpening as a log-luminance delta, which is what the reference does and what
-    /// `CIUnsharpMask` could not express.
-    ///
-    /// The stock filter was the whole path, so Masking and Halo Suppression — one of
-    /// which docs/06 calls "the fifth slider Adobe never shipped" — were live controls
-    /// no preview and no export ever read, and Detail had to be folded into a radius
-    /// because a USM has nowhere else to put it. A per-channel USM also shifts hue on
-    /// any saturated edge; a luminance ratio cannot.
-    ///
-    /// Falls back to the stock filter if any kernel is unavailable, rather than
-    /// dropping the stage: a soft picture is a better failure than a stage that
-    /// silently does nothing.
+    /// S12 at the decode scale this frame was rendered at — the twin of
+    /// `SharpenStage.apply`, built in SharpenGPU.swift. Radius is in native pixels, so
+    /// the stage needs the scale; `noiseScale` is s² for a decode at linear scale s.
     static func applySharpen(_ image: CIImage, _ sharpen: ManualSharpen,
-                             longEdge: Int) -> CIImage {
-        let amount = Num.clamp(sharpen.amount, 0, 150) / 100
-        guard amount > 0 else { return image }
-        let radius = Num.clamp(sharpen.radius, 0.5, 3.0)
-        let detail = Num.clamp(sharpen.detail, 0, 100) / 100
-        let masking = Num.clamp(sharpen.masking, 0, 100) / 100
-        let halo = Num.clamp(sharpen.haloSuppression, 0, 100) / 100
+                             options: Options) -> CIImage {
+        let ns = options.noiseScale
+        let scale = (ns.isFinite && ns > 0) ? Swift.min(ns, 1).squareRoot() : 1
+        return applySharpen(image, stage: SharpenStage(sharpen, decodeScale: scale))
+    }
 
-        // The fine band is the reference's, exactly — now including WHICH two a-trous
-        // bands it is. Both halves are frame-denominated (E2-04): the unsharp sigma
-        // through `SpatialOps.frameDenominatedSigma` and the band through
-        // `Self.fineDetailBand`, which is the twin of `SpatialOps.fineDetailBand` and
-        // reads the same `fineBandLevel`. Fixed at `details[0] + 0.5 * details[1]` and
-        // at a pixel radius, one Sharpening setting meant a different fraction of the
-        // photograph at every render size, and a 7008 px export received 7% of what the
-        // fit preview showed. A 2560 px render is unchanged.
-        //
-        // The algebra of one band, kept here because the kernel chain below is written
-        // out of it:
-        //
-        // It used to be `lum - gaussianBlur(lum, sigma: radius * 0.4)`, and that made
-        // the Detail slider run BACKWARDS. A narrower blur is closer to the identity, so
-        // `lum - G(0.4r)` is smaller in amplitude than `usm = lum - G(r)` at every
-        // spatial frequency — which makes `mix(usm, fine, detail)` a monotone
-        // ATTENUATOR in `detail`. Measured at Amount 100, gain against the unsharpened
-        // frame by period:
-        //
-        //     period    2px    3     4     6     8    16
-        //     Detail 0  1.99  1.89  1.71  1.42  1.27  1.07
-        //     Detail 100 1.16  1.12  1.08  1.04  1.02  1.01   <- turning it UP
-        //     reference  2.00  1.97  1.88  1.70  1.54  1.20
-        //
-        // At 100 the control was effectively off. The one golden covering it asserted
-        // that Detail 0 and Detail 100 differ by more than 1e-4, which a sign inversion
-        // satisfies perfectly.
-        //
-        // Algebra, with s_i the a-trous smooths (`s0 = lum`, `s_{i+1}` a b-spline pass
-        // at step 2^i, which is the chain `SpatialOps.atrousWavelet` builds):
-        //     d_i = s_i - s_{i+1}
-        //     d_i + 0.5*d_{i+1} = s_i - 0.5*(s_{i+1} + s_{i+2})
-        // `bSplinePass` is the same operator as `SpatialOps.atrousSmooth` — pinned by
-        // `testAtrousStepMatchesTheReference` — and `blendMask(a, b, 0.5)` is the mean,
-        // so the reference's band is reproducible here without a new kernel.
-        guard let lum = Self.logLuminance(image),
-              let blurred = Self.gaussianBlur(
-                lum, sigma: SpatialOps.frameDenominatedSigma(radius: radius,
-                                                             longEdge: longEdge)),
-              let fine = Self.fineDetailBand(lum, extent: image.extent,
-                                             longEdge: longEdge),
-              let structure = Self.localStructure(
-                lum, radius: Self.structureRadius(longEdge: longEdge)),
-              let delta = KernelLibrary.apply(
-                KernelLibrary.sharpenDelta, extent: image.extent,
-                [lum, blurred, fine, structure.magnitude, Float(amount), Float(detail),
-                 Float(masking), Float(halo), Float(LumenLog.range)]),
-              let out = KernelLibrary.apply(KernelLibrary.lumaRatio,
-                                            extent: image.extent,
-                                            [image, delta, Float(2.0)])
-        else {
-            let filter = CIFilter.unsharpMask()
-            filter.inputImage = image.clampedToExtent()
-            filter.radius = Float(sharpen.unsharpRadius)
-            filter.intensity = Float(Num.clamp(sharpen.amount / 100.0, 0, 1.5))
-            return filter.outputImage?.cropped(to: image.extent) ?? image
-        }
-        return out
+    /// The overload the mask stage's local Sharpness and the kernel goldens call. It
+    /// has no decode scale to hand, so the buffer is taken as native (scale 1). The
+    /// `longEdge` it used to read sized a frame-denominated radius, which S12 no
+    /// longer has (docs/quality/lanes/WS-18/NEEDS.md asks the mask lane to pass the
+    /// scale through).
+    static func applySharpen(_ image: CIImage, _ sharpen: ManualSharpen,
+                             longEdge _: Int) -> CIImage {
+        applySharpen(image, stage: SharpenStage(sharpen, decodeScale: 1))
     }
 
     /// The GPU twin of `SpatialOps.fineDetailBand`: the two-scale band a
