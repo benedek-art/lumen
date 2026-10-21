@@ -592,7 +592,9 @@ final class LayoutMetricTests: XCTestCase {
         let commands: [(title: String, symbol: String, across: Int)] = [
             ("Auto", "wand.and.stars", 4), ("Reset", "arrow.uturn.backward", 4),
             ("Undo", "arrow.uturn.left", 4), ("Redo", "arrow.uturn.right", 4),
-            ("Copy", "doc.on.doc", 2), ("Paste", "doc.on.clipboard", 2),
+            // Copy… / Paste / Sync… — three across once more than one photo is selected.
+            ("Copy…", "doc.on.doc", 3), ("Paste", "doc.on.clipboard", 3),
+            ("Sync…", "arrow.triangle.2.circlepath", 3),
             ("Copy Look", "photo.stack", 2), ("Paste Look", "photo.stack.fill", 2),
         ]
         var failures: [String] = []
@@ -612,8 +614,8 @@ final class LayoutMetricTests: XCTestCase {
                             + "— OVER by \(f(need - budget)), truncates")
         }
         report(failures, of: commands.count,
-               "DevelopPanel.swift: eight footer commands — four across, then two and "
-               + "two — at the minimum column width (G1-06).")
+               "DevelopPanel.swift: nine footer commands — four across, then up to three "
+               + "and two — at the minimum column width (G1-06).")
     }
 
     /// FINDING G1-01, verified rather than assumed.

@@ -214,6 +214,45 @@ final class LoupeViewport: ObservableObject {
     @MainActor
     func toggleZoom() { toggleZoom(at: lastCursor) }
 
+    // MARK: Space as the hand
+
+    /// True between a Space press made while ZOOMED and its release. Not published:
+    /// nothing draws it, and only the keymap and `panTo` read it.
+    private(set) var spaceHeld = false
+    /// Set by any pan while `spaceHeld`, so the release knows the press was a hand
+    /// rather than a tap.
+    private var spacePanned = false
+
+    /// Space pressed in the loupe. At fit it zooms to 1:1 under the cursor at once,
+    /// so press-and-drag is Lightroom's space-drag: in at the point, then the drag
+    /// pans. ZOOMED it does nothing yet, because Space held while zoomed is the hand
+    /// every Adobe user reaches for to pan — it used to toggle on the press, so the
+    /// picture snapped to Fit the instant a photographer went to move it, and the drag
+    /// that followed had nothing to pan. The release decides (`spaceUp`).
+    @MainActor
+    func spaceDown() {
+        guard !spaceHeld else { return }
+        if ZoomLadder.isFit(zoom) {
+            toggleZoom()
+            return
+        }
+        spaceHeld = true
+        spacePanned = false
+    }
+
+    /// Space released. A tap while zoomed goes back to Fit, as before; a hold that
+    /// panned leaves the zoom where it is. Returns whether a zoomed hold was open, so
+    /// the keymap claims exactly the releases it started.
+    @MainActor
+    @discardableResult
+    func spaceUp() -> Bool {
+        guard spaceHeld else { return false }
+        spaceHeld = false
+        if !spacePanned { toggleZoom() }
+        spacePanned = false
+        return true
+    }
+
     /// Walks fit → 1:1 → 2:1 → fit.
     @MainActor
     func cycleZoom() {
@@ -267,6 +306,7 @@ final class LoupeViewport: ObservableObject {
     func panTo(x: CGFloat, y: CGFloat, container: CGSize, drawn: CGSize) {
         let clamped = LoupeGeometry.clampPan(CGSize(width: x, height: y),
                                              container: container, drawn: drawn)
+        if spaceHeld { spacePanned = true }
         guard clamped != pan else { return }
         LatencyHUD.shared.noteInput()
         pan = clamped
@@ -318,6 +358,25 @@ final class LoupeViewport: ObservableObject {
 /// container or a zero-pixel image must produce a harmless number, never a NaN that
 /// propagates into a frame.
 enum LoupeGeometry {
+
+    /// The matte around a fitted picture, in points per side. It was zero: at Fit the
+    /// photograph ran flush into the sources sidebar and the develop column, so its
+    /// edges read as the panels' edges, and arming the crop tool (which always kept
+    /// 24 pt) shrank the frame and made it jump. Lightroom and Capture One both keep a
+    /// neutral margin round a fitted picture; this is that margin, and the crop canvas
+    /// reads the same number.
+    static let fitMatte: CGFloat = 24
+
+    /// The area a FITTED picture is fitted into: the viewer less `fitMatte` a side,
+    /// never below 64 pt (or the container itself, if that is smaller), so a tiny pane
+    /// still shows a picture rather than a matte. Zoomed layouts use the whole
+    /// container: a 1:1 view pans edge to edge.
+    static func fitArea(_ container: CGSize) -> CGSize {
+        func inset(_ v: CGFloat) -> CGFloat {
+            Swift.max(v - fitMatte * 2, Swift.min(v, 64))
+        }
+        return CGSize(width: inset(container.width), height: inset(container.height))
+    }
 
     /// Ratio that fits `image` inside `container`, in image-pixels per device-pixel.
     static func fitRatio(imageWidth: Int, imageHeight: Int,
@@ -2159,7 +2218,9 @@ struct LoupeView: View {
     /// container inset by this much per side, so the picture is never flush against the
     /// panel or the window edge and the corner brackets — which overhang the rectangle
     /// by construction — always have somewhere to be drawn.
-    private static let cropInset: CGFloat = 24
+    /// The same matte the fitted loupe keeps (`LoupeGeometry.fitMatte`), so arming the
+    /// tool does not shrink the picture by 24 pt a side and make it jump.
+    private static let cropInset: CGFloat = LoupeGeometry.fitMatte
 
     /// The canvas while the crop tool is armed: the FULL frame — rendered with its flip
     /// but with the straighten angle and the crop left off (`renderRecipe`) — turned by
@@ -2514,7 +2575,8 @@ struct LoupeView: View {
                 renderedLongEdge: Swift.max(image.width, image.height))
         }
         return LoupeGeometry.fitRatio(imageWidth: image.width, imageHeight: image.height,
-                                      container: container, displayScale: displayScale)
+                                      container: LoupeGeometry.fitArea(container),
+                                      displayScale: displayScale)
     }
 
     private func effectiveRatio(image: CGImage, container: CGSize) -> Double {
@@ -2659,7 +2721,7 @@ struct LoupeView: View {
         return ContinuousZoom.fitZoom(
             proxyFitRatio: LoupeGeometry.fitRatio(imageWidth: w,
                                                   imageHeight: h,
-                                                  container: container,
+                                                  container: LoupeGeometry.fitArea(container),
                                                   displayScale: displayScale),
             proxyLongEdge: Swift.max(w, h),
             zoomedFullLongEdge: zoomedFullBasis)
@@ -2917,7 +2979,8 @@ struct LoupeView: View {
                                             ?? Swift.max(w, h),
                                         renderedLongEdge: Swift.max(w, h))
             : LoupeGeometry.fitRatio(imageWidth: w, imageHeight: h,
-                                     container: container, displayScale: displayScale)
+                                     container: LoupeGeometry.fitArea(container),
+                                     displayScale: displayScale)
         return LoupeGeometry.drawnSize(imageWidth: w, imageHeight: h,
                                        ratio: ratio, displayScale: displayScale)
     }

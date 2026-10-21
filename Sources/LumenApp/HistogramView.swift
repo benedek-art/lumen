@@ -99,20 +99,6 @@ struct HistogramView: View {
         VStack(alignment: .leading, spacing: 6) {
             graph
             readoutLine
-            // WHAT IT IS A HISTOGRAM OF, and only when that is not the plain answer.
-            //
-            // The instrument has two feeds that measure two different pictures — the
-            // frame on screen with its soft proof in it, or a render commissioned
-            // without one — and it printed neither. A permanent caption for the ordinary
-            // case would be chrome; `Provenance.note` is nil there, so this row does not
-            // exist unless something a photographer would be surprised by is true.
-            if let note = state.scopes?.provenance?.note {
-                Text(note)
-                    .font(.lumenCaption)
-                    .foregroundStyle(Lumen.secondaryText)
-                    .lineLimit(1)
-                    .help(measurementStatement)
-            }
         }
         .padding(.horizontal, 8)
         .padding(.top, 8)
@@ -150,6 +136,36 @@ struct HistogramView: View {
                 clippingTriangle(end: .high)
                     .padding(3)
                     .frame(maxWidth: .infinity, alignment: .trailing)
+                // WHAT IT IS A HISTOGRAM OF, and only when that is not the plain answer.
+                //
+                // The instrument has two feeds that measure two different pictures —
+                // the frame on screen with its soft proof in it, or a render
+                // commissioned without one — and it printed neither. A permanent
+                // caption for the ordinary case would be chrome; `Provenance.note` is
+                // nil there.
+                //
+                // INSIDE THE WELL, NOT A ROW UNDER IT. As a row it came and went with
+                // the feed — the commissioned render is what the scope holds for a
+                // moment after a photo change — so every section header in the column
+                // jumped by a line and back while paging a roll (the baseline develop
+                // and grade window snapshots sit 25 pt apart for exactly this reason).
+                // Here it costs no height: along the floor of the well, clear of the two
+                // clipping triangles at the top, over the bins whose counts are lowest.
+                if let note = state.scopes?.provenance?.note {
+                    Text(note)
+                        .font(.lumenCaption)
+                        .foregroundStyle(Lumen.secondaryText)
+                        .lineLimit(1)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Lumen.panel.opacity(0.85),
+                                    in: RoundedRectangle(cornerRadius: Lumen.radiusChip,
+                                                           style: .continuous))
+                        .padding(.bottom, 2)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity,
+                               alignment: .bottom)
+                        .help(measurementStatement)
+                }
             }
             .contentShape(Rectangle())
             .gesture(zoneDrag(width: size.width))

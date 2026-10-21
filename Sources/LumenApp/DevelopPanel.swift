@@ -616,13 +616,31 @@ struct DevelopPanel: View {
             // line — and 2×2 gives each button `(320 − 16 − 4) / 2` = 150.0 pt, twice what
             // the widest of them needs. The cost is one footer row of height in a column
             // that scrolls.
+            //
+            // COPY… IS LIGHTROOM'S FOOTER COPY: it opens the checkbox sheet, because the
+            // footer is where a photographer goes when they want to choose. The instant
+            // copy-everything is still ⌘C. And with more than one photo selected the row
+            // gains Sync…, Lightroom's "Previous becomes Sync" — the selective dialog was
+            // only reachable as ⇧⌘S from the menu bar, so syncing a burst meant knowing
+            // a chord. Three across at the 320 minimum is 98.7 pt each, measured in
+            // `LayoutMetricTests`.
             HStack(spacing: 4) {
-                DevelopFooterButton(title: "Copy", systemImage: "doc.on.doc",
-                                    help: "Copy all develop settings",
-                                    action: { state.copySettings() })
+                DevelopFooterButton(title: "Copy…", systemImage: "doc.on.doc",
+                                    help: "Choose which settings to copy (⇧⌘C). "
+                                        + "⌘C copies all of them at once.",
+                                    action: { state.presentSettingsSubsetSheet(.copySettings) })
                 DevelopFooterButton(title: "Paste", systemImage: "doc.on.clipboard",
-                                    help: "Paste develop settings onto the selection",
+                                    help: "Paste develop settings onto the selection (⌘V)",
                                     action: { state.pasteSettings() })
+                if state.selectedPhotos.count > 1 {
+                    DevelopFooterButton(title: "Sync…", systemImage: "arrow.triangle.2.circlepath",
+                                        help: "Choose settings to copy from the active "
+                                            + "photo to the other \(state.selectedPhotos.count - 1) "
+                                            + "selected (⇧⌘S)",
+                                        action: {
+                                            state.presentSettingsSubsetSheet(.syncSettings)
+                                        })
+                }
             }
             HStack(spacing: 4) {
                 DevelopFooterButton(title: "Copy Look", systemImage: "photo.stack",

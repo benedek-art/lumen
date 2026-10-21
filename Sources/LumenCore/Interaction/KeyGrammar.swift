@@ -114,7 +114,7 @@ public enum KeyGrammar {
             KeyRow(keys: "C", action: "Compare two"),
             KeyRow(keys: "N", action: "Survey selection"),
             KeyRow(keys: "Space", action: "Hold for loupe from the grid; fit ↔ 1:1 under "
-                  + "the cursor in the loupe"),
+                  + "the cursor in the loupe and Compare; held while zoomed, drag pans"),
             KeyRow(keys: "Esc",
                    action: "Leave what you are inside — a focused slider, then a pending "
                        + "eyedropper pick, then masking, then the Heal tool, then the "

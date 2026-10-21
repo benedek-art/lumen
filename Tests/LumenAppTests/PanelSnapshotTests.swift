@@ -342,6 +342,65 @@ final class PanelSnapshotTests: XCTestCase {
         }
         PanelLayout.shared.setMasking(false)
         state.enter(.develop)
+
+        // ---- The viewer's own states (lane U3): zoom, before/after, Compare ----------
+        // Appended after every earlier state so none of them moves. Each one puts the
+        // shared viewport back before the next, since `LoupeViewport` and `CompareSync`
+        // outlive any one render.
+        PanelLayout.shared.reveal(.tone)
+        state.select(first)
+        state.showLoupe()
+        LoupeViewport.shared.setZoom(LoupeZoom.oneToOne, at: nil)
+        await recorder.render("window-\(label(small))-develop-zoom-1to1",
+                              "Full window, Develop, loupe at 1:1 (Z)",
+                              width: small.width, height: small.height, settle: 3,
+                              ready: { state.primaryFrameSize != nil },
+                              readyNote: "the loupe frame had not arrived") {
+            ContentView()
+        }
+        LoupeViewport.shared.fit()
+
+        LoupeViewport.shared.beforeMode = .sideBySide
+        await recorder.render("window-\(label(small))-develop-before-after-side",
+                              "Full window, Develop, before/after side by side (Y)",
+                              width: small.width, height: small.height, settle: 3,
+                              ready: { state.primaryFrameSize != nil },
+                              readyNote: "the loupe frame had not arrived") {
+            ContentView()
+        }
+        LoupeViewport.shared.beforeMode = .split
+        await recorder.render("window-\(label(small))-develop-before-after-split",
+                              "Full window, Develop, before/after split (⇧Y)",
+                              width: small.width, height: small.height, settle: 3,
+                              ready: { state.primaryFrameSize != nil },
+                              readyNote: "the loupe frame had not arrived") {
+            ContentView()
+        }
+        LoupeViewport.shared.beforeMode = .off
+
+        if state.photos.count >= 2 {
+            state.select(state.photos[0])
+            state.select(state.photos[1], extending: true)
+            state.moveCursor(to: state.photos[0])
+            state.viewMode = .compare
+            await recorder.render("window-\(label(small))-compare",
+                                  "Full window, Compare (C), two photos selected, fit",
+                                  width: small.width, height: small.height, settle: 3) {
+                ContentView()
+            }
+            CompareSync.shared.setZoom(LoupeZoom.oneToOne, at: nil)
+            await recorder.render("window-\(label(small))-compare-zoom-1to1",
+                                  "Full window, Compare at 1:1 (Z), synced",
+                                  width: small.width, height: small.height, settle: 3) {
+                ContentView()
+            }
+            CompareSync.shared.fit()
+        } else {
+            recorder.record("window-*-compare", "Full window, Compare",
+                            failure: "the sample roll has fewer than two photos")
+        }
+        state.select(first)
+        state.showLoupe()
     }
 }
 
