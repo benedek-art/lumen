@@ -134,3 +134,9 @@ Made in the UI fix round (after 49cf99b), with the reason for each.
 - Verify round 1 fixes, as listed below.
   - `PanelSnapshotTests`: the `panel-grade-colour-mixer-band-range` state now opens the fold by setting `AppState.mixerRangeExpanded = true` (and closes it after). Previously it used `press: ["Band range"]`, which the accessibility walk never found ("could not find" in index.md), so that PNG was identical to the collapsed state.
   - `LayoutMetricSupport.swift`: the ColorPanel and `LumenControls.swift:2231` (colour-wheel bar) citations moved with the lines this round added.
+- Verify round 2 fix (Band range ring legibility). `MixerHueRing` now draws and hit-tests `displayArc`:
+  - a core shorter than 18 pt between the two handle centres is spread symmetrically about its true core centre, to 18 pt;
+  - each feather handle is kept at least 14 pt outside its core handle;
+  - every other handle stays at its true angle;
+  - a drag writes TRUE degrees: the handle's true angle at the press plus the pointer's turn since, so there is no jump from the display offset.
+  Two tests were added to `MixerRingWireTests`. One pins that route in source. The other checks, on a restated `displayArc`, that across the default, shrunk, lopsided and wide arcs no two drawn handles are closer than their minimums, the core centre does not move, and an arc that is already legible is drawn unchanged. `MixerRingPressTests` and `ColorPanelReachTests` are unchanged and still pass: the gate, the press-not-a-move check and the `onHandleMoved(handle, angle)` path are as before.

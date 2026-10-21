@@ -1467,6 +1467,12 @@ struct MixerHueRing: View {
     /// The press turned out to be a double-click reset; swallow the rest of the
     /// gesture so the reset is not immediately re-edited by the same press.
     @State private var pressWasReset = false
+    /// Where the pointer was, and where the grabbed handle TRULY sat, when the press took
+    /// hold — so the drag moves the handle by the pointer's travel rather than to the
+    /// pointer. The ring may draw a handle away from its true degrees (see `displayArc`);
+    /// writing the pointer's own angle would make the first move jump by that offset.
+    @State private var grabPointer: Double = 0
+    @State private var grabDegrees: Double = 0
     /// The gesture-in-flight signal every slider fires (docs/23 audit queue item 5).
     @Environment(\.sliderGestureChanged) private var sliderGestureChanged
 
@@ -1511,7 +1517,12 @@ struct MixerHueRing: View {
                 }
 
                 guard showHandles, arcList.indices.contains(index) else { return }
-                let arc = arcList[index]
+                // DRAWN at a legible spread, not at the true degrees, whenever the true
+                // arc is too short to see (`displayArc`): the uneven bands' default
+                // cores are 3.5–7° a side, which put the two core handles on top of
+                // each other and hid the bright arc the caption tells you to drag.
+                let truth = arcList[index]
+                let arc = MixerHueRing.displayArc(truth, radius: Double(arcRadius))
 
                 // Core and feather at ONE radius, so they read as a single arc with a
                 // bright middle and two dim tails: the core is what the band fully
@@ -1533,8 +1544,8 @@ struct MixerHueRing: View {
                 // Where Uniformity converges: the midpoint of the core arc, which sits
                 // off the band's tick as soon as the two inner handles stop matching.
                 var target = Path()
-                target.move(to: MixerHueRing.point(centre, arcRadius - 4, arc.coreCentre))
-                target.addLine(to: MixerHueRing.point(centre, arcRadius + 4, arc.coreCentre))
+                target.move(to: MixerHueRing.point(centre, arcRadius - 4, truth.coreCentre))
+                target.addLine(to: MixerHueRing.point(centre, arcRadius + 4, truth.coreCentre))
                 context.stroke(target, with: .color(Lumen.accent), lineWidth: 1.5)
 
                 for handle in MixerHueRing.allHandles {
@@ -1580,16 +1591,26 @@ struct MixerHueRing: View {
                         //
                         // Deliberately AFTER the double-click branch above, so a reset
                         // still lands from anywhere in the box exactly as it does now.
+                        //
+                        // Against the arc AS DRAWN (`displayArc`), so a press lands on
+                        // the handle the eye is aiming at.
                         let handle: MixerArcHandle
                         if let held = grabbed {
                             handle = held
                         } else {
+                            let shown = MixerHueRing.displayArc(
+                                arcList[index],
+                                radius: Double(MixerHueRing.arcRadius(box: box)))
                             guard let taken = MixerHueRing.grab(at: drag.startLocation,
                                                                 box: box,
-                                                                arc: arcList[index])
+                                                                arc: shown)
                             else { return }
                             grabbed = taken
                             handle = taken
+                            grabPointer = Num.wrapHue(
+                                atan2(Double(drag.startLocation.y - box / 2),
+                                      Double(drag.startLocation.x - box / 2)) * 180 / .pi)
+                            grabDegrees = MixerHueRing.degrees(of: taken, in: arcList[index])
                         }
                         // A PRESS IS NOT A MOVE (B3-05). `minimumDistance: 0` delivers
                         // the press itself as a change, and the first click of a
@@ -1605,7 +1626,14 @@ struct MixerHueRing: View {
                         // Still needed for the REST of the drag: the press is out in
                         // the annulus, but the pointer is free to cross the centre.
                         guard dx != 0 || dy != 0 else { return }
-                        let angle = Num.wrapHue(atan2(dy, dx) * 180 / .pi)
+                        // TRUE degrees: the handle's true position at the press plus
+                        // how far the pointer has turned since. Where the ring draws
+                        // the handle at its true angle this is exactly the pointer's
+                        // angle, as before; where `displayArc` spread it, the drag
+                        // starts from where the handle really is instead of jumping.
+                        let pointer = Num.wrapHue(atan2(dy, dx) * 180 / .pi)
+                        let angle = Num.wrapHue(grabDegrees
+                                                + Num.hueDelta(grabPointer, pointer))
                         onHandleMoved(handle, angle)
                     }
                     .onEnded { _ in
@@ -1622,6 +1650,41 @@ struct MixerHueRing: View {
         .help("Drag the ends of the bright arc to set which hues this band takes in, "
               + "and the dim tails to set how softly it lets go. Double-click to put "
               + "the range back.")
+    }
+
+    /// The least separation, in points along the arc, between the two core handles'
+    /// centres as DRAWN — enough for two 8 pt dots with a visible bright segment between
+    /// them (verify R2: at the uneven bands' default cores, 3.5–7° a side, they touched).
+    static let minCoreSeparation: Double = 18
+    /// The least separation, in points, between a core handle and its feather handle.
+    static let minFeatherSeparation: Double = 14
+
+    /// The arc as the ring DRAWS it and hit-tests it: the true arc, except that a core
+    /// shorter than `minCoreSeparation` is spread symmetrically about its true core
+    /// centre to that length, and each feather handle is kept at its true outer angle
+    /// unless that would put it within `minFeatherSeparation` of its core handle. A
+    /// display transform only — the recipe, the render and the drag's writes all use the
+    /// true arc; the drag moves a handle by the pointer's travel from its true position.
+    /// Static and pure, so the separation is arithmetic a test can read.
+    static func displayArc(_ arc: ColorEngine.BandArc,
+                           radius: Double) -> ColorEngine.BandArc {
+        guard radius > 0 else { return arc }
+        let degreesPerPoint = 180 / (Double.pi * radius)
+        let minCore = minCoreSeparation * degreesPerPoint
+        let minTail = minFeatherSeparation * degreesPerPoint
+        var below = arc.coreBelow
+        var above = arc.coreAbove
+        if below + above < minCore {
+            // The core centre's offset from the band centre stays where it truly is.
+            let mid = (above - below) / 2
+            below = minCore / 2 - mid
+            above = minCore / 2 + mid
+        }
+        let featherBelow = Swift.max(arc.coreBelow + arc.featherBelow - below, minTail)
+        let featherAbove = Swift.max(arc.coreAbove + arc.featherAbove - above, minTail)
+        return ColorEngine.BandArc(centre: arc.centre,
+                                   coreBelow: below, coreAbove: above,
+                                   featherBelow: featherBelow, featherAbove: featherAbove)
     }
 
     static let allHandles: [MixerArcHandle] =

@@ -622,6 +622,82 @@ final class MixerRingWireTests: XCTestCase {
         XCTAssertGreaterThan(checked, 1000)
     }
 
+    /// THE RING DRAWS A LEGIBLE ARC (verify R2). The uneven bands' default cores are
+    /// 3.5–7° a side, which at the ring's 60 pt radius put the two core handles 7–10 px
+    /// apart at 2x: touching, with no bright arc between them. The ring now draws, and
+    /// hit-tests, `MixerHueRing.displayArc` — the true arc with a short core spread
+    /// symmetrically to 18 pt and feathers kept 14 pt outside their core handles — while
+    /// the drag writes TRUE degrees: the handle's true angle at the press plus the
+    /// pointer's travel since.
+    func testTheRingDrawsAndGrabsTheDisplayedArcAndWritesTrueDegrees() throws {
+        let source = Scan.squeezed(Scan.stripped(try Scan.appSource("ColorPanel.swift")))
+        XCTAssertTrue(source.contains("static let minCoreSeparation: Double = 18"))
+        XCTAssertTrue(source.contains("static let minFeatherSeparation: Double = 14"))
+        let canvas = try Scan.between("Canvas { context, size in", ".frame(width: MixerHueRing.diameter",
+                                      in: source)
+        XCTAssertTrue(canvas.contains("MixerHueRing.displayArc(truth, radius: Double(arcRadius))"),
+                      "the ring draws the true arc again, handles on top of each other")
+        let gesture = try Scan.between("DragGesture(minimumDistance: 0)", ".onEnded", in: source)
+        XCTAssertTrue(gesture.contains("MixerHueRing.grab(at: drag.startLocation, box: box, arc: shown)"),
+                      "the press is tested against an arc that is not the one drawn")
+        XCTAssertTrue(gesture.contains("grabDegrees = MixerHueRing.degrees(of: taken, in: arcList[index])"),
+                      "the drag no longer starts from the handle's TRUE angle")
+        XCTAssertTrue(gesture.contains(
+                          "let angle = Num.wrapHue(grabDegrees + Num.hueDelta(grabPointer, pointer))"),
+                      "the drag writes the pointer's angle, which jumps by the display offset")
+    }
+
+    /// `displayArc`, restated (ColorPanel compiles on macOS only; the scan above pins the
+    /// constants), and checked over every band at the default geometry, at shrunk cores
+    /// and at a lopsided core: no two handles closer than their minimum, the core centre
+    /// where it truly is, and an arc that is already legible drawn unchanged.
+    private static func display(_ arc: ColorEngine.BandArc, radius: Double)
+        -> ColorEngine.BandArc {
+        let perPoint = 180 / (Double.pi * radius)
+        let minCore = 18 * perPoint, minTail = 14 * perPoint
+        var below = arc.coreBelow, above = arc.coreAbove
+        if below + above < minCore {
+            let mid = (above - below) / 2
+            below = minCore / 2 - mid
+            above = minCore / 2 + mid
+        }
+        return ColorEngine.BandArc(
+            centre: arc.centre, coreBelow: below, coreAbove: above,
+            featherBelow: max(arc.coreBelow + arc.featherBelow - below, minTail),
+            featherAbove: max(arc.coreAbove + arc.featherAbove - above, minTail))
+    }
+
+    func testNoTwoDrawnHandlesTouchAndTheCoreCentreStays() {
+        let radius = 60.0      // `arcRadius(box: 130)`, pinned by ColorPanelReachTests
+        let points = { (degrees: Double) in degrees * .pi / 180 * radius }
+        var arcs = ColorEngine.canonicalArcs
+        for a in ColorEngine.canonicalArcs {
+            arcs.append(ColorEngine.BandArc(centre: a.centre, coreBelow: 3.4, coreAbove: 3.4,
+                                            featherBelow: 12, featherAbove: 12))
+            arcs.append(ColorEngine.BandArc(centre: a.centre, coreBelow: 3.4, coreAbove: 12,
+                                            featherBelow: 30, featherAbove: 12))
+            arcs.append(ColorEngine.BandArc(centre: a.centre, coreBelow: 30, coreAbove: 25,
+                                            featherBelow: 20, featherAbove: 40))
+        }
+        for arc in arcs {
+            let shown = Self.display(arc, radius: radius)
+            XCTAssertGreaterThanOrEqual(points(shown.coreBelow + shown.coreAbove), 18 - 1e-9)
+            XCTAssertGreaterThanOrEqual(points(shown.featherBelow), 14 - 1e-9)
+            XCTAssertGreaterThanOrEqual(points(shown.featherAbove), 14 - 1e-9)
+            XCTAssertEqual(shown.coreCentre, arc.coreCentre, accuracy: 1e-9,
+                           "the spread moved the core centre Uniformity converges on")
+            if points(arc.coreBelow + arc.coreAbove) >= 18,
+               points(arc.featherBelow) >= 14, points(arc.featherAbove) >= 14 {
+                XCTAssertEqual(shown, arc, "a legible arc is drawn somewhere it is not")
+            }
+            // The feather handles stay at their true angle unless that collides.
+            XCTAssertGreaterThanOrEqual(shown.coreBelow + shown.featherBelow,
+                                        arc.coreBelow + arc.featherBelow - 1e-9)
+            XCTAssertGreaterThanOrEqual(shown.coreAbove + shown.featherAbove,
+                                        arc.coreAbove + arc.featherAbove - 1e-9)
+        }
+    }
+
     /// An untouched band written back unchanged stays EXACTLY canonical, so the Band
     /// range dot (`arcs != ColorEngine.canonicalArcs`) does not light from a press, and
     /// the wire defaults `resetArc` writes resolve to the canonical arc.
