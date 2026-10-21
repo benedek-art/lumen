@@ -148,7 +148,8 @@ struct HistogramView: View {
                 // the feed — the commissioned render is what the scope holds for a
                 // moment after a photo change — so every section header in the column
                 // jumped by a line and back while paging a roll (the baseline develop
-                // and grade window snapshots sit 25 pt apart for exactly this reason).
+                // and grade window snapshots put the first section header 19 pt apart for
+                // exactly this reason).
                 // Here it costs no height: along the floor of the well, clear of the two
                 // clipping triangles at the top, over the bins whose counts are lowest.
                 if let note = state.scopes?.provenance?.note {
