@@ -1,0 +1,928 @@
+// LensStage.swift
+// Lens corrections that Apple's RAW decode does not make (WS-28): lateral chromatic
+// aberration, Defringe, and the vignetting a Sony body writes into its own raw file.
+//
+// The stage runs on the scene-linear decode, after S3 and before S5, because all three
+// are statements about the optics: lateral CA is a per-channel magnification of the
+// image the lens formed, vignetting is a fall-off of the light that reached the sensor,
+// and the fringes Defringe targets are the lens's axial CA blurred into the pixels
+// beside a hard edge. A heal or a mask should see the corrected picture.
+//
+// What Apple already does (measured, not assumed: `corpus-lens:` lines of the RAW
+// corpus lane, run 39478505162, and `LensProfileRawCorpusTests`): with
+// `isLensCorrectionEnabled` the A7 IV and GX85 decodes are re-warped (distortion), and
+// the corner/centre luminance ratio moves by 0.1 % (A7 IV) and 0.9 % (GX85) — so the
+// vignetting the A7 IV records (0.65 EV at the corner on the FE 50 F2.5) is NOT
+// corrected. This stage reads it from the file and applies it.
+//
+// Every pixel operation here has a Core Image twin in `LensKernelSource`, generated
+// from the same constants so the two cannot drift.
+
+import Foundation
+
+// MARK: - Lateral chromatic aberration
+
+/// Per-channel radial magnification relative to green: channel c is resampled at
+/// `centre + (p − centre) · s_c(r)`, `s_c(r) = 1 + k0 + k2·r²`, with r the distance from
+/// the frame centre over the half-diagonal. Normalised, so the same model applies to a
+/// decode at any scale.
+public struct LateralCAModel: Equatable, Sendable, Codable {
+    public var red: Coefficients
+    public var blue: Coefficients
+
+    public struct Coefficients: Equatable, Sendable, Codable {
+        public var k0: Double
+        public var k2: Double
+        public init(k0: Double = 0, k2: Double = 0) {
+            self.k0 = k0
+            self.k2 = k2
+        }
+        @inlinable public func scale(r2: Double) -> Double { 1 + k0 + k2 * r2 }
+        /// Radial shift, in half-diagonals, at radius r.
+        public func shift(at r: Double) -> Double { r * (k0 + k2 * r * r) }
+    }
+
+    public init(red: Coefficients = .init(), blue: Coefficients = .init()) {
+        self.red = red
+        self.blue = blue
+    }
+
+    public var isIdentity: Bool {
+        red.k0 == 0 && red.k2 == 0 && blue.k0 == 0 && blue.k2 == 0
+    }
+
+    /// The largest misregistration the model corrects anywhere in a frame whose
+    /// half-diagonal is `halfDiagonal` px, in px.
+    public func maxShiftPixels(halfDiagonal: Double) -> Double {
+        var worst = 0.0
+        for i in 0...20 {
+            let r = Double(i) / 20
+            worst = Swift.max(worst, abs(red.shift(at: r)), abs(blue.shift(at: r)))
+        }
+        return worst * halfDiagonal
+    }
+}
+
+public enum LateralCAEstimator {
+
+    /// Below this misregistration (px at the measured scale, anywhere in the frame) the
+    /// estimate is indistinguishable from noise and the stage stays an exact identity.
+    public static let significancePixels = 0.08
+
+    public struct Sample: Sendable {
+        public var r: Double
+        public var redShift: Double     // half-diagonals
+        public var blueShift: Double
+        public var weight: Double
+    }
+
+    /// Estimate the model from the photograph itself — Lightroom's Remove CA is the same
+    /// kind of thing: automatic, profile-free. Nil when the frame has too little
+    /// radial structure to say anything, or when what it says is below
+    /// `significancePixels`.
+    public static func estimate(_ image: ImageBuffer) -> LateralCAModel? {
+        guard let samples = measure(image) else { return nil }
+        guard let red = fit(samples, \.redShift), let blue = fit(samples, \.blueShift)
+        else { return nil }
+        let model = LateralCAModel(red: red, blue: blue)
+        let halfDiagonal = 0.5 * (Double(image.width * image.width
+                                         + image.height * image.height)).squareRoot()
+        guard model.maxShiftPixels(halfDiagonal: halfDiagonal) >= significancePixels
+        else { return nil }
+        return model
+    }
+
+    /// Per-tile radial misregistration of R and of B against G. Exposed for the
+    /// diagnostics and for the macOS probe that asks whether Apple's decode already
+    /// removed it.
+    public static func measure(_ image: ImageBuffer, maxTiles: Int = 600) -> [Sample]? {
+        let w = image.width, h = image.height
+        guard w >= 64, h >= 64 else { return nil }
+        let planes = LogPlanes(image)
+        let cx = Double(w) / 2, cy = Double(h) / 2
+        let norm = 0.5 * (Double(w * w + h * h)).squareRoot()
+        let tile = Swift.min(48, Swift.max(16, Swift.max(w, h) / 60))
+        let border = 6
+
+        // Pass 1: the radial-gradient energy of each tile, to keep only the tiles with
+        // something to measure. Every second pixel: this is a ranking, not a number.
+        struct Candidate { var x0: Int; var y0: Int; var energy: Double }
+        var candidates: [Candidate] = []
+        var y0 = border
+        while y0 + tile <= h - border {
+            var x0 = border
+            while x0 + tile <= w - border {
+                let tcx = Double(x0) + Double(tile) / 2 - cx
+                let tcy = Double(y0) + Double(tile) / 2 - cy
+                let rt = (tcx * tcx + tcy * tcy).squareRoot() / norm
+                if rt >= 0.2 {
+                    let ux = tcx / (rt * norm), uy = tcy / (rt * norm)
+                    var e = 0.0
+                    var clipped = false
+                    var y = y0
+                    while y < y0 + tile {
+                        var x = x0
+                        while x < x0 + tile {
+                            if planes.clipped[y * w + x] { clipped = true }
+                            let g = planes.radialGradient(planes.g, x, y, ux, uy)
+                            e += g * g
+                            x += 2
+                        }
+                        y += 2
+                    }
+                    if !clipped, e > 0 { candidates.append(Candidate(x0: x0, y0: y0, energy: e)) }
+                }
+                x0 += tile
+            }
+            y0 += tile
+        }
+        guard candidates.count >= 12 else { return nil }
+        candidates.sort { $0.energy > $1.energy }
+        let kept = candidates.prefix(maxTiles)
+
+        var samples: [Sample] = []
+        for c in kept {
+            let tcx = Double(c.x0) + Double(tile) / 2 - cx
+            let tcy = Double(c.y0) + Double(tile) / 2 - cy
+            let rpx = (tcx * tcx + tcy * tcy).squareRoot()
+            let ux = tcx / rpx, uy = tcy / rpx
+            guard let red = planes.registration(planes.r, x0: c.x0, y0: c.y0, size: tile,
+                                                ux: ux, uy: uy),
+                  let blue = planes.registration(planes.b, x0: c.x0, y0: c.y0, size: tile,
+                                                 ux: ux, uy: uy)
+            else { continue }
+            let weight = Swift.min(red.weight, blue.weight)
+            samples.append(Sample(r: rpx / norm, redShift: red.shift / norm,
+                                  blueShift: blue.shift / norm, weight: weight))
+        }
+        return samples.count >= 12 ? samples : nil
+    }
+
+    /// Weighted least squares of shift = k0·r + k2·r³, iteratively reweighted (Tukey's
+    /// biweight on the residual) so that colour edges — a red flower on a green leaf,
+    /// which register as a "shift" no lens made — fall out.
+    public static func fit(_ samples: [Sample],
+                    _ value: KeyPath<Sample, Double>) -> LateralCAModel.Coefficients? {
+        var robust = [Double](repeating: 1, count: samples.count)
+        var k0 = 0.0, k2 = 0.0
+        for _ in 0..<8 {
+            var a11 = 0.0, a12 = 0.0, a22 = 0.0, b1 = 0.0, b2 = 0.0
+            for (i, s) in samples.enumerated() {
+                let wgt = s.weight * robust[i]
+                let f1 = s.r, f2 = s.r * s.r * s.r
+                a11 += wgt * f1 * f1
+                a12 += wgt * f1 * f2
+                a22 += wgt * f2 * f2
+                b1 += wgt * f1 * s[keyPath: value]
+                b2 += wgt * f2 * s[keyPath: value]
+            }
+            let det = a11 * a22 - a12 * a12
+            guard det > 1e-18 * Swift.max(a11 * a22, 1e-30) else { return nil }
+            k0 = (b1 * a22 - b2 * a12) / det
+            k2 = (a11 * b2 - a12 * b1) / det
+            // Residual scale: weighted median absolute deviation.
+            let residuals = samples.map { $0[keyPath: value] - ($0.r * (k0 + k2 * $0.r * $0.r)) }
+            let mad = weightedMedian(residuals.map(abs), samples.map(\.weight))
+            let c = Swift.max(4.685 * 1.4826 * mad, 1e-7)
+            for i in samples.indices {
+                let u = residuals[i] / c
+                robust[i] = abs(u) < 1 ? (1 - u * u) * (1 - u * u) : 0
+            }
+        }
+        guard k0.isFinite, k2.isFinite else { return nil }
+        return .init(k0: k0, k2: k2)
+    }
+
+    static func weightedMedian(_ values: [Double], _ weights: [Double]) -> Double {
+        let order = values.indices.sorted { values[$0] < values[$1] }
+        let total = weights.reduce(0, +)
+        var acc = 0.0
+        for i in order {
+            acc += weights[i]
+            if acc >= total / 2 { return values[i] }
+        }
+        return values.last ?? 0
+    }
+
+    /// log2 planes of the three channels with a floor, plus the clip map. Log, because
+    /// a shift measured between log channels does not care about the colour of the
+    /// surface either side of the edge — only about where the edge is.
+    struct LogPlanes {
+        let w: Int, h: Int
+        var r: [Float], g: [Float], b: [Float]
+        var clipped: [Bool]
+
+        init(_ image: ImageBuffer) {
+            w = image.width
+            h = image.height
+            let n = w * h
+            r = [Float](repeating: 0, count: n)
+            g = r
+            b = r
+            clipped = [Bool](repeating: false, count: n)
+            var peak: (Float, Float, Float) = (0, 0, 0)
+            let px = image.pixels
+            for i in 0..<n {
+                peak.0 = Swift.max(peak.0, px[i * 4])
+                peak.1 = Swift.max(peak.1, px[i * 4 + 1])
+                peak.2 = Swift.max(peak.2, px[i * 4 + 2])
+            }
+            // Mean green sets the floor: noise in the deep shadows would otherwise
+            // dominate a log difference.
+            var mean = 0.0
+            for i in 0..<n { mean += Double(px[i * 4 + 1]) }
+            let floor = Float(Swift.max(mean / Double(n) * 0.02, 1e-6))
+            for i in 0..<n {
+                let rv = px[i * 4], gv = px[i * 4 + 1], bv = px[i * 4 + 2]
+                clipped[i] = rv >= peak.0 * 0.98 || gv >= peak.1 * 0.98 || bv >= peak.2 * 0.98
+                r[i] = log2(Swift.max(rv, floor))
+                g[i] = log2(Swift.max(gv, floor))
+                b[i] = log2(Swift.max(bv, floor))
+            }
+        }
+
+        @inline(__always) func at(_ p: [Float], _ x: Int, _ y: Int) -> Double {
+            Double(p[Swift.min(Swift.max(y, 0), h - 1) * w + Swift.min(Swift.max(x, 0), w - 1)])
+        }
+
+        /// Bilinear, pixel centres at +0.5 — `ImageBuffer.bilinear`'s convention.
+        @inline(__always) func sample(_ p: [Float], _ x: Double, _ y: Double) -> Double {
+            let fx = x - 0.5, fy = y - 0.5
+            let x0 = Int(fx.rounded(.down)), y0 = Int(fy.rounded(.down))
+            let tx = fx - Double(x0), ty = fy - Double(y0)
+            let a = at(p, x0, y0) * (1 - tx) + at(p, x0 + 1, y0) * tx
+            let c = at(p, x0, y0 + 1) * (1 - tx) + at(p, x0 + 1, y0 + 1) * tx
+            return a * (1 - ty) + c * ty
+        }
+
+        func radialGradient(_ p: [Float], _ x: Int, _ y: Int, _ ux: Double, _ uy: Double) -> Double {
+            let gx = (at(p, x + 1, y) - at(p, x - 1, y)) * 0.5
+            let gy = (at(p, x, y + 1) - at(p, x, y - 1)) * 0.5
+            return gx * ux + gy * uy
+        }
+
+        /// The radial shift d (px) that best registers `channel` to green over one tile:
+        /// argmin Σ (C(x + d·u) − G(x) − β)², a coarse search then Gauss–Newton. Nil
+        /// when the tile's edges are not shared by both channels (a colour edge, or
+        /// texture in one channel only).
+        func registration(_ channel: [Float], x0: Int, y0: Int, size: Int,
+                          ux: Double, uy: Double) -> (shift: Double, weight: Double)? {
+            var gs: [Double] = []
+            var gradG: [Double] = []
+            var pts: [(Double, Double)] = []
+            gs.reserveCapacity(size * size)
+            for y in y0..<(y0 + size) {
+                for x in x0..<(x0 + size) {
+                    gs.append(at(g, x, y))
+                    gradG.append(radialGradient(g, x, y, ux, uy))
+                    pts.append((Double(x) + 0.5, Double(y) + 0.5))
+                }
+            }
+            func cost(_ d: Double) -> Double {
+                var diffs = [Double](repeating: 0, count: pts.count)
+                var mean = 0.0
+                for i in pts.indices {
+                    diffs[i] = sample(channel, pts[i].0 + d * ux, pts[i].1 + d * uy) - gs[i]
+                    mean += diffs[i]
+                }
+                mean /= Double(pts.count)
+                var s = 0.0
+                for v in diffs { s += (v - mean) * (v - mean) }
+                return s
+            }
+            var best = 0.0
+            var bestCost = cost(0)
+            var d = -3.0
+            while d <= 3.0 {
+                let c = cost(d)
+                if c < bestCost { bestCost = c; best = d }
+                d += 0.5
+            }
+            // Gauss–Newton on the continuous shift.
+            var shift = best
+            for _ in 0..<6 {
+                var num = 0.0, den = 0.0, mean = 0.0
+                var vals = [Double](repeating: 0, count: pts.count)
+                var grads = [Double](repeating: 0, count: pts.count)
+                for i in pts.indices {
+                    let sx = pts[i].0 + shift * ux, sy = pts[i].1 + shift * uy
+                    vals[i] = sample(channel, sx, sy) - gs[i]
+                    grads[i] = (sample(channel, sx + 0.5 * ux, sy + 0.5 * uy)
+                                - sample(channel, sx - 0.5 * ux, sy - 0.5 * uy))
+                    mean += vals[i]
+                }
+                mean /= Double(pts.count)
+                for i in pts.indices {
+                    num += grads[i] * (vals[i] - mean)
+                    den += grads[i] * grads[i]
+                }
+                guard den > 1e-12 else { return nil }
+                let step = Swift.max(-0.5, Swift.min(0.5, num / den))
+                shift -= step
+                if abs(step) < 1e-4 { break }
+            }
+            guard abs(shift) <= 3.5 else { return nil }
+
+            // Agreement of the two channels' radial structure at the solution: a tile
+            // whose edges are not the same edges in both channels says nothing about
+            // the lens.
+            var sab = 0.0, saa = 0.0, sbb = 0.0
+            var energy = 0.0
+            var idx = 0
+            for y in y0..<(y0 + size) {
+                for x in x0..<(x0 + size) {
+                    let sx = Double(x) + 0.5 + shift * ux, sy = Double(y) + 0.5 + shift * uy
+                    let gc = (sample(channel, sx + 0.5 * ux, sy + 0.5 * uy)
+                              - sample(channel, sx - 0.5 * ux, sy - 0.5 * uy))
+                    let gg = gradG[idx]
+                    sab += gc * gg
+                    saa += gc * gc
+                    sbb += gg * gg
+                    energy += gg * gg
+                    idx += 1
+                }
+            }
+            let corr = sab / Swift.max((saa * sbb).squareRoot(), 1e-12)
+            guard corr > 0.85 else { return nil }
+            return (shift, energy * corr * corr)
+        }
+    }
+}
+
+// MARK: - Embedded lens profile (Sony)
+
+/// The lens corrections a camera writes into its own raw file. Today: Sony's
+/// 0x7031–0x7038 block in the raw SubIFD (every ARW from the A7 III/A7 IV generation
+/// on). The knot encodings are darktable's reading of them (src/common/exif.cc,
+/// src/iop/lens.cc): knot i sits at r = i/(n−1) of the half-diagonal, vignetting
+/// knot v gives a fall-off of 2^(0.5 − 2^(v·2⁻¹³ − 1)), lateral CA knot v a scale of
+/// 1 + v·2⁻²¹, distortion knot v a scale of 1 + v·2⁻¹⁴.
+///
+/// Panasonic writes DistortionInfo (0x0119) only, and Apple's decode already applies
+/// distortion on the GX85 — there is no vignetting record in an RW2 to read.
+public struct EmbeddedLensProfile: Equatable, Sendable {
+    public var make: String
+    public var vignetting: [Double]      // fall-off factor per knot, ≤ 1
+    public var caRed: [Double]           // scale per knot
+    public var caBlue: [Double]
+    public var distortion: [Double]
+
+    public init(make: String, vignetting: [Double], caRed: [Double] = [],
+                caBlue: [Double] = [], distortion: [Double] = []) {
+        self.make = make
+        self.vignetting = vignetting
+        self.caRed = caRed
+        self.caBlue = caBlue
+        self.distortion = distortion
+    }
+
+    /// Fall-off at radius r (half-diagonals), linear between knots.
+    public func falloff(at r: Double) -> Double {
+        Self.interpolate(vignetting, r) ?? 1
+    }
+
+    static func interpolate(_ knots: [Double], _ r: Double) -> Double? {
+        guard knots.count >= 2 else { return nil }
+        let t = Swift.max(0, Swift.min(1, r)) * Double(knots.count - 1)
+        let i = Swift.min(Int(t), knots.count - 2)
+        let f = t - Double(i)
+        return knots[i] * (1 - f) + knots[i + 1] * f
+    }
+
+    /// The correction gain 1/falloff as the even polynomial the kernel evaluates,
+    /// 1 + a·r² + b·r⁴ + c·r⁶, least-squares through 64 points of the knot curve.
+    public var gainPolynomial: VignetteGain? {
+        guard vignetting.count >= 2, vignetting.contains(where: { $0 != 1 }) else { return nil }
+        var ata = [[Double]](repeating: [0, 0, 0], count: 3)
+        var atb = [Double](repeating: 0, count: 3)
+        for i in 0...64 {
+            let r = Double(i) / 64
+            let r2 = r * r
+            let f = [r2, r2 * r2, r2 * r2 * r2]
+            let y = 1 / Swift.max(falloff(at: r), 0.05) - 1
+            for a in 0..<3 {
+                for b in 0..<3 { ata[a][b] += f[a] * f[b] }
+                atb[a] += f[a] * y
+            }
+        }
+        guard let x = solve3(ata, atb) else { return nil }
+        return VignetteGain(a: x[0], b: x[1], c: x[2])
+    }
+
+    // MARK: Reading
+
+    public static func read(url: URL) -> EmbeddedLensProfile? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        // The tag block sits in the first IFDs; 4 MB covers every ARW layout seen, and
+        // a lossless A7 IV file is 60–80 MB, so reading it whole would be waste.
+        guard let data = try? handle.read(upToCount: 4 << 20) else { return nil }
+        return read(data: data)
+    }
+
+    public static func read(data: Data) -> EmbeddedLensProfile? {
+        let bytes = [UInt8](data)
+        guard bytes.count > 16 else { return nil }
+        let little: Bool
+        if bytes[0] == 0x49, bytes[1] == 0x49 { little = true }
+        else if bytes[0] == 0x4D, bytes[1] == 0x4D { little = false }
+        else { return nil }
+        var reader = TIFFWalker(bytes: bytes, little: little)
+        guard let first = reader.u32(4) else { return nil }
+        reader.walk(Int(first), depth: 0)
+        guard reader.make.lowercased().hasPrefix("sony"),
+              let vig = reader.int16s[0x7032], vig.count >= 3 else { return nil }
+        func knots(_ values: ArraySlice<Int>, _ f: (Int) -> Double) -> [Double] {
+            values.map(f)
+        }
+        let nv = Swift.min(vig[0], vig.count - 1)
+        let vignetting = knots(vig[1...nv]) { v in
+            pow(2, 0.5 - pow(2, Double(v) * pow(2, -13) - 1))
+        }
+        var caRed: [Double] = [], caBlue: [Double] = []
+        if let ca = reader.int16s[0x7035], ca.count >= 3 {
+            let half = Swift.min(ca[0], ca.count - 1) / 2
+            caRed = knots(ca[1...half]) { 1 + Double($0) * pow(2, -21) }
+            caBlue = knots(ca[(half + 1)...(2 * half)]) { 1 + Double($0) * pow(2, -21) }
+        }
+        var distortion: [Double] = []
+        if let dist = reader.int16s[0x7037], dist.count >= 3 {
+            let nd = Swift.min(dist[0], dist.count - 1)
+            distortion = knots(dist[1...nd]) { 1 + Double($0) * pow(2, -14) }
+        }
+        return EmbeddedLensProfile(make: reader.make, vignetting: vignetting,
+                                   caRed: caRed, caBlue: caBlue, distortion: distortion)
+    }
+
+    /// Just enough TIFF to find Make and the int16s tags, through IFD chains, SubIFDs
+    /// and the Exif IFD. Bounded on every offset; a malformed file reads as nothing.
+    struct TIFFWalker {
+        let bytes: [UInt8]
+        let little: Bool
+        var make = ""
+        var int16s: [Int: [Int]] = [:]
+        var visited = Set<Int>()
+
+        func u16(_ o: Int) -> Int? {
+            guard o >= 0, o + 2 <= bytes.count else { return nil }
+            return little ? Int(bytes[o]) | Int(bytes[o + 1]) << 8
+                          : Int(bytes[o]) << 8 | Int(bytes[o + 1])
+        }
+        func u32(_ o: Int) -> UInt32? {
+            guard o >= 0, o + 4 <= bytes.count else { return nil }
+            let b = (UInt32(bytes[o]), UInt32(bytes[o + 1]), UInt32(bytes[o + 2]),
+                     UInt32(bytes[o + 3]))
+            return little ? b.0 | b.1 << 8 | b.2 << 16 | b.3 << 24
+                          : b.0 << 24 | b.1 << 16 | b.2 << 8 | b.3
+        }
+
+        mutating func walk(_ offset: Int, depth: Int) {
+            guard depth < 8, offset > 0, !visited.contains(offset),
+                  let count = u16(offset), count < 1000 else { return }
+            visited.insert(offset)
+            for i in 0..<count {
+                let e = offset + 2 + 12 * i
+                guard let tag = u16(e), let type = u16(e + 2),
+                      let n32 = u32(e + 4) else { return }
+                let n = Int(n32)
+                let unit = [1: 1, 2: 1, 3: 2, 4: 4, 6: 1, 7: 1, 8: 2, 9: 4, 13: 4][type] ?? 0
+                guard unit > 0, n < 1 << 20 else { continue }
+                let size = unit * n
+                let valueOffset = size <= 4 ? e + 8 : Int(u32(e + 8) ?? 0)
+                guard valueOffset + size <= bytes.count else { continue }
+                if tag == 0x010F, type == 2 {
+                    let raw = bytes[valueOffset..<(valueOffset + size)]
+                    make = String(decoding: raw.prefix { $0 != 0 }, as: UTF8.self)
+                } else if (type == 8 || type == 3), tag >= 0x7000, tag <= 0x70FF {
+                    int16s[tag] = (0..<n).compactMap { k in
+                        u16(valueOffset + 2 * k).map { type == 8 ? Int(Int16(truncatingIfNeeded: $0)) : $0 }
+                    }
+                } else if tag == 0x014A || tag == 0x8769, type == 4 || type == 13 {
+                    for k in 0..<n {
+                        if let sub = u32(valueOffset + 4 * k) { walk(Int(sub), depth: depth + 1) }
+                    }
+                }
+            }
+            if let next = u32(offset + 2 + 12 * count), next > 0 {
+                walk(Int(next), depth: depth + 1)
+            }
+        }
+    }
+}
+
+/// Radial gain 1 + a·r² + b·r⁴ + c·r⁶, r over the half-diagonal.
+public struct VignetteGain: Equatable, Sendable, Codable {
+    public var a: Double, b: Double, c: Double
+    public init(a: Double, b: Double, c: Double) {
+        self.a = a
+        self.b = b
+        self.c = c
+    }
+    @inlinable public func gain(r2: Double) -> Double { 1 + r2 * (a + r2 * (b + r2 * c)) }
+}
+
+func solve3(_ m: [[Double]], _ v: [Double]) -> [Double]? {
+    var a = m
+    var b = v
+    for col in 0..<3 {
+        var pivot = col
+        for row in (col + 1)..<3 where abs(a[row][col]) > abs(a[pivot][col]) { pivot = row }
+        guard abs(a[pivot][col]) > 1e-15 else { return nil }
+        a.swapAt(col, pivot)
+        b.swapAt(col, pivot)
+        for row in 0..<3 where row != col {
+            let f = a[row][col] / a[col][col]
+            for k in 0..<3 { a[row][k] -= f * a[col][k] }
+            b[row] -= f * b[col]
+        }
+    }
+    return (0..<3).map { b[$0] / a[$0][$0] }
+}
+
+// MARK: - Defringe
+
+/// Lightroom's Defringe, on its scales: Amount 0…20 per family, Hue a 0…100 range.
+/// A pixel is pulled toward its own luminance (exactly — Y is preserved) by
+/// `strength(amount) · hueWeight · chromaGate · edgeWeight`, where the edge weight says
+/// "there is a hard edge within a few pixels" and the hue weight says "this pixel's
+/// OKLab hue is inside the family's range". A purple object away from any edge is
+/// never touched; a purple fringe beside a branch against the sky is.
+public struct DefringeParams: Equatable, Sendable {
+    /// OKLab hue (degrees, may exceed 360) of each family's slider ends.
+    public static let purpleHueSpan = (lo: 245.0, hi: 385.0)
+    public static let greenHueSpan = (lo: 85.0, hi: 205.0)
+    /// Feather outside each range, degrees.
+    public static let hueFeather = 10.0
+
+    public var purpleStrength: Double
+    public var purpleLo: Double, purpleHi: Double   // degrees
+    public var greenStrength: Double
+    public var greenLo: Double, greenHi: Double
+    /// Edge search radius in px at this render's scale.
+    public var radius: Int
+
+    public init(_ d: Defringe, longEdge: Int) {
+        purpleStrength = Self.strength(d.purpleAmount)
+        greenStrength = Self.strength(d.greenAmount)
+        let pLo = Swift.min(d.purpleHueLo, d.purpleHueHi), pHi = Swift.max(d.purpleHueLo, d.purpleHueHi)
+        let gLo = Swift.min(d.greenHueLo, d.greenHueHi), gHi = Swift.max(d.greenHueLo, d.greenHueHi)
+        let ps = Self.purpleHueSpan, gs = Self.greenHueSpan
+        purpleLo = ps.lo + (ps.hi - ps.lo) * Swift.max(0, Swift.min(100, pLo)) / 100
+        purpleHi = ps.lo + (ps.hi - ps.lo) * Swift.max(0, Swift.min(100, pHi)) / 100
+        greenLo = gs.lo + (gs.hi - gs.lo) * Swift.max(0, Swift.min(100, gLo)) / 100
+        greenHi = gs.lo + (gs.hi - gs.lo) * Swift.max(0, Swift.min(100, gHi)) / 100
+        radius = Self.radius(longEdge: longEdge)
+    }
+
+    /// Amount → fraction of the fringe's chroma removed. 1 − e^(−a/4): 2 → 39 %, 5 →
+    /// 71 %, 10 → 92 %, 20 → 99 %. Monotonic, smooth, exactly 0 at 0.
+    public static func strength(_ amount: Double) -> Double {
+        let a = Swift.max(0, Swift.min(20, amount.isFinite ? amount : 0))
+        return 1 - exp(-a / 4)
+    }
+
+    /// 3 px at a 6000 px long edge — the width axial-CA fringes have on a 24–45 MP
+    /// sensor — scaled with the render, never below 1 nor above 4.
+    public static func radius(longEdge: Int) -> Int {
+        Swift.max(1, Swift.min(4, Int((Double(longEdge) * 0.0005).rounded())))
+    }
+
+    public var isIdentity: Bool { purpleStrength == 0 && greenStrength == 0 }
+}
+
+public enum DefringeStage {
+
+    /// Linear Rec.2020 → OKLab LMS (M1 · Rec.2020→XYZ), the matrix both twins use.
+    public static let toLMS: [[Double]] = {
+        let rec2020ToXYZ: [[Double]] = [
+            [0.636958048301291, 0.144616903586208, 0.168880975164172],
+            [0.262700212011267, 0.677998071518871, 0.059301716469862],
+            [0.000000000000000, 0.028072693049087, 1.060985057710791],
+        ]
+        let m1: [[Double]] = [
+            [0.8189330101, 0.3618667424, -0.1288597137],
+            [0.0329845436, 0.9293118715, 0.0361456387],
+            [0.0482003018, 0.2643662691, 0.6338517070],
+        ]
+        return (0..<3).map { i in
+            (0..<3).map { j in (0..<3).reduce(0) { $0 + m1[i][$1] * rec2020ToXYZ[$1][j] } }
+        }
+    }()
+    public static let m2: [[Double]] = [
+        [0.2104542553, 0.7936177850, -0.0040720468],
+        [1.9779984951, -2.4285922050, 0.4505937099],
+        [0.0259040371, 0.7827717662, -0.8086757660],
+    ]
+    /// Rec.2020 luminance weights — the Y every pull preserves.
+    public static let lumaWeights = (0.262700212011267, 0.677998071518871, 0.059301716469862)
+
+    /// Edge weight: the log2 luminance range over the window, in stops.
+    public static let edgeStops = (lo: 0.7, hi: 2.0)
+    /// Relative-chroma gate C/(L + 0.02): neutral pixels are never touched.
+    public static let chromaGate = (lo: 0.03, hi: 0.08)
+
+    @inline(__always) static func smoothstep(_ e0: Double, _ e1: Double, _ x: Double) -> Double {
+        let t = Swift.max(0, Swift.min(1, (x - e0) / (e1 - e0)))
+        return t * t * (3 - 2 * t)
+    }
+
+    /// 1 inside [lo, hi] (degrees, hue taken mod 360 into the band), feathered linearly
+    /// over `hueFeather` either side.
+    @inline(__always) static func hueWeight(_ h: Double, _ lo: Double, _ hi: Double) -> Double {
+        let centre = (lo + hi) / 2
+        var d = h - centre
+        d -= 360 * (d / 360).rounded()
+        let half = (hi - lo) / 2
+        let outside = abs(d) - half
+        return Swift.max(0, Swift.min(1, 1 - outside / DefringeParams.hueFeather))
+    }
+
+    /// The per-pixel pull, given the pixel and its window's luminance range in stops.
+    public static func pull(_ c: RGB, rangeStops: Double, params p: DefringeParams) -> RGB {
+        let edge = smoothstep(edgeStops.lo, edgeStops.hi, rangeStops)
+        guard edge > 0 else { return c }
+        let m = toLMS
+        func cbrt(_ v: Double) -> Double { v < 0 ? -pow(-v, 1.0 / 3) : pow(v, 1.0 / 3) }
+        let l = cbrt(m[0][0] * c.r + m[0][1] * c.g + m[0][2] * c.b)
+        let mm = cbrt(m[1][0] * c.r + m[1][1] * c.g + m[1][2] * c.b)
+        let s = cbrt(m[2][0] * c.r + m[2][1] * c.g + m[2][2] * c.b)
+        let L = m2[0][0] * l + m2[0][1] * mm + m2[0][2] * s
+        let a = m2[1][0] * l + m2[1][1] * mm + m2[1][2] * s
+        let b = m2[2][0] * l + m2[2][1] * mm + m2[2][2] * s
+        let chroma = (a * a + b * b).squareRoot()
+        let gate = smoothstep(chromaGate.lo, chromaGate.hi, chroma / (Swift.max(L, 0) + 0.02))
+        guard gate > 0 else { return c }
+        var h = atan2(b, a) * 180 / .pi
+        if h < 0 { h += 360 }
+        let w = Swift.max(p.purpleStrength * hueWeight(h, p.purpleLo, p.purpleHi),
+                          p.greenStrength * hueWeight(h, p.greenLo, p.greenHi))
+        let k = w * gate * edge
+        guard k > 0 else { return c }
+        let y = lumaWeights.0 * c.r + lumaWeights.1 * c.g + lumaWeights.2 * c.b
+        return RGB(c.r + (y - c.r) * k, c.g + (y - c.g) * k, c.b + (y - c.b) * k)
+    }
+
+    public static func apply(_ image: ImageBuffer, params p: DefringeParams) -> ImageBuffer {
+        guard !p.isIdentity else { return image }
+        let w = image.width, h = image.height
+        let lw = lumaWeights
+        var logY = [Double](repeating: 0, count: w * h)
+        for y in 0..<h {
+            for x in 0..<w {
+                let c = image[x, y]
+                let lum = lw.0 * c.r + lw.1 * c.g + lw.2 * c.b
+                logY[y * w + x] = log2(Swift.max(lum, LensKernelSource.defringeFloor))
+            }
+        }
+        // Separable window max and min (square window), the GPU's two passes.
+        let rad = p.radius
+        func pass(_ src: [Double], horizontal: Bool, _ pick: (Double, Double) -> Double) -> [Double] {
+            var out = src
+            for y in 0..<h {
+                for x in 0..<w {
+                    var v = src[y * w + x]
+                    for k in -rad...rad where k != 0 {
+                        let sx = horizontal ? Swift.min(Swift.max(x + k, 0), w - 1) : x
+                        let sy = horizontal ? y : Swift.min(Swift.max(y + k, 0), h - 1)
+                        v = pick(v, src[sy * w + sx])
+                    }
+                    out[y * w + x] = v
+                }
+            }
+            return out
+        }
+        let hi = pass(pass(logY, horizontal: true, Swift.max), horizontal: false, Swift.max)
+        let lo = pass(pass(logY, horizontal: true, Swift.min), horizontal: false, Swift.min)
+        var out = image
+        for y in 0..<h {
+            for x in 0..<w {
+                let i = y * w + x
+                out[x, y] = pull(image[x, y], rangeStops: hi[i] - lo[i], params: p)
+            }
+        }
+        return out
+    }
+}
+
+// MARK: - The stage
+
+/// What the lens stage needs that the recipe cannot hold: measured or read from the
+/// file, once per photograph.
+public struct LensInputs: Equatable, Sendable {
+    public var lateralCA: LateralCAModel?
+    public var vignette: VignetteGain?
+    public init(lateralCA: LateralCAModel? = nil, vignette: VignetteGain? = nil) {
+        self.lateralCA = lateralCA
+        self.vignette = vignette
+    }
+    public static let none = LensInputs()
+}
+
+public enum LensStage {
+
+    /// True when nothing the stage could do changes a pixel, so the caller skips it.
+    public static func isIdentity(_ lens: LensCorrections, inputs: LensInputs) -> Bool {
+        let ca = lens.removeCA && !(inputs.lateralCA?.isIdentity ?? true)
+        let vig = lens.profile && inputs.vignette != nil
+        let fringe = lens.defringe.map { !DefringeParams($0, longEdge: 1).isIdentity } ?? false
+        return !ca && !vig && !fringe
+    }
+
+    public static func apply(_ image: ImageBuffer, lens: LensCorrections,
+                             inputs: LensInputs) -> ImageBuffer {
+        guard !isIdentity(lens, inputs: inputs) else { return image }
+        var out = image
+        let ca = lens.removeCA ? inputs.lateralCA.flatMap { $0.isIdentity ? nil : $0 } : nil
+        let vig = lens.profile ? inputs.vignette : nil
+        if ca != nil || vig != nil {
+            out = warp(image, ca: ca ?? LateralCAModel(), vignette: vig)
+        }
+        if let d = lens.defringe {
+            let p = DefringeParams(d, longEdge: Swift.max(image.width, image.height))
+            if !p.isIdentity { out = DefringeStage.apply(out, params: p) }
+        }
+        return out
+    }
+
+    /// Catmull–Rom weights for fractional offset t, taps at −1, 0, 1, 2.
+    @inline(__always) static func catmullRomWeights(_ t: Double) -> (Double, Double, Double, Double) {
+        let t2 = t * t, t3 = t2 * t
+        return (0.5 * (-t3 + 2 * t2 - t), 0.5 * (3 * t3 - 5 * t2 + 2),
+                0.5 * (-3 * t3 + 4 * t2 + t), 0.5 * (t3 - t2))
+    }
+
+    /// One channel at (x, y), pixel centres at +0.5, edges clamped. Bicubic rather than
+    /// bilinear because a lateral-CA shift is sub-pixel and bilinear softens the shifted
+    /// channel by up to half a pixel at half-pixel phase — a red edge visibly blurrier
+    /// than its green one is the defect the stage exists to remove.
+    static func catmullRom(_ image: ImageBuffer, _ x: Double, _ y: Double, channel: Int) -> Double {
+        let fx = x - 0.5, fy = y - 0.5
+        let x0 = Int(fx.rounded(.down)), y0 = Int(fy.rounded(.down))
+        let wx = catmullRomWeights(fx - Double(x0)), wy = catmullRomWeights(fy - Double(y0))
+        let wxs = [wx.0, wx.1, wx.2, wx.3], wys = [wy.0, wy.1, wy.2, wy.3]
+        let w = image.width, h = image.height
+        var acc = 0.0
+        for j in 0..<4 {
+            let sy = Swift.min(Swift.max(y0 - 1 + j, 0), h - 1)
+            var row = 0.0
+            for i in 0..<4 {
+                let sx = Swift.min(Swift.max(x0 - 1 + i, 0), w - 1)
+                row += wxs[i] * Double(image.pixels[(sy * w + sx) * 4 + channel])
+            }
+            acc += wys[j] * row
+        }
+        return acc
+    }
+
+    /// R and B resampled (Catmull–Rom) at their corrected radii, G untouched, then the
+    /// vignetting gain. The twin of `LensKernelSource.lens`.
+    public static func warp(_ image: ImageBuffer, ca: LateralCAModel,
+                            vignette: VignetteGain?) -> ImageBuffer {
+        let w = image.width, h = image.height
+        let cx = Double(w) / 2, cy = Double(h) / 2
+        let invNorm = 1 / (0.5 * (Double(w * w + h * h)).squareRoot())
+        var out = image
+        for y in 0..<h {
+            for x in 0..<w {
+                let px = Double(x) + 0.5, py = Double(y) + 0.5
+                let dx = px - cx, dy = py - cy
+                let r2 = (dx * dx + dy * dy) * invNorm * invNorm
+                let sr = ca.red.scale(r2: r2), sb = ca.blue.scale(r2: r2)
+                var c = image[x, y]
+                if sr != 1 { c.r = catmullRom(image, cx + dx * sr, cy + dy * sr, channel: 0) }
+                if sb != 1 { c.b = catmullRom(image, cx + dx * sb, cy + dy * sb, channel: 2) }
+                if let v = vignette {
+                    let g = v.gain(r2: r2)
+                    c = RGB(c.r * g, c.g * g, c.b * g)
+                }
+                out[x, y] = c
+            }
+        }
+        return out
+    }
+}
+
+// MARK: - Kernel sources (Core Image Kernel Language), beside their twins
+
+public enum LensKernelSource {
+
+    /// The log floor of the Defringe luminance window, both twins.
+    public static let defringeFloor = 1e-5
+
+    /// `LensStage.warp`. GENERAL: it samples away from the pixel it writes. Arguments:
+    /// src (clamped to extent), centre, 1/half-diagonal, red (k0, k2), blue (k0, k2),
+    /// vignette (a, b, c, enabled).
+    public static let lens: String = {
+        let comps = ["x", "y", "z", "w"]
+        var taps: [String] = []
+        for j in 0..<4 {
+            for i in 0..<4 {
+                taps.append("    acc += wx.\(comps[i]) * wy.\(comps[j]) * sample(src, "
+                            + "samplerTransform(src, base + vec2(\(Double(i - 1)), \(Double(j - 1)))));")
+            }
+        }
+        return """
+    vec4 lumenLensWeights(float t) {
+        float t2 = t * t;
+        float t3 = t2 * t;
+        return 0.5 * vec4(-t3 + 2.0 * t2 - t, 3.0 * t3 - 5.0 * t2 + 2.0,
+                          -3.0 * t3 + 4.0 * t2 + t, t3 - t2);
+    }
+    vec4 lumenLensCatmullRom(sampler src, vec2 q) {
+        vec2 f = q - 0.5;
+        vec2 i0 = floor(f);
+        vec2 t = f - i0;
+        vec4 wx = lumenLensWeights(t.x);
+        vec4 wy = lumenLensWeights(t.y);
+        vec2 base = i0 + 0.5;
+        vec4 acc = vec4(0.0);
+    \(taps.joined(separator: "\n"))
+        return acc;
+    }
+    kernel vec4 lumenLens(sampler src, vec2 centre, float invNorm, vec2 kr, vec2 kb, vec4 vig) {
+        vec2 p = destCoord();
+        vec2 d = p - centre;
+        float r2 = dot(d, d) * invNorm * invNorm;
+        float sr = 1.0 + kr.x + kr.y * r2;
+        float sb = 1.0 + kb.x + kb.y * r2;
+        vec4 c = sample(src, samplerTransform(src, p));
+        float r = lumenLensCatmullRom(src, centre + d * sr).r;
+        float b = lumenLensCatmullRom(src, centre + d * sb).b;
+        vec3 rgb = vec3(r, c.g, b);
+        float g = 1.0 + r2 * (vig.x + r2 * (vig.y + r2 * vig.z));
+        rgb *= mix(1.0, g, vig.w);
+        return vec4(rgb, c.a);
+    }
+    """
+    }()
+
+    /// log2 luminance with the floor, into all three channels — the window passes' input.
+    public static let defringeLogLuma: String = {
+        let w = DefringeStage.lumaWeights
+        return """
+        kernel vec4 lumenDefringeLogLuma(__sample s) {
+            float y = dot(s.rgb, vec3(\(w.0), \(w.1), \(w.2)));
+            float l = log2(max(y, \(defringeFloor)));
+            return vec4(l, l, 1.0, 1.0);
+        }
+        """
+    }()
+
+    /// One separable pass of the window max (in r) and min (in g). `dir` is (1,0) or
+    /// (0,1); `radius` ≤ 4, the loop bound fixed so every compiler accepts it.
+    public static let defringeWindow = """
+    kernel vec4 lumenDefringeWindow(sampler src, vec2 dir, float radius) {
+        vec2 p = destCoord();
+        vec4 c = sample(src, samplerTransform(src, p));
+        float hi = c.r;
+        float lo = c.g;
+        for (int k = 1; k <= 4; k++) {
+            float on = step(float(k), radius);
+            vec4 a = sample(src, samplerTransform(src, p + dir * float(k)));
+            vec4 b = sample(src, samplerTransform(src, p - dir * float(k)));
+            hi = mix(hi, max(hi, max(a.r, b.r)), on);
+            lo = mix(lo, min(lo, min(a.g, b.g)), on);
+        }
+        return vec4(hi, lo, 1.0, 1.0);
+    }
+    """
+
+    /// `DefringeStage.pull`. `window` carries (max, min) log2 luminance.
+    /// purple = (strength, lo°, hi°, _), green likewise.
+    public static let defringeApply: String = {
+        let m = DefringeStage.toLMS, m2 = DefringeStage.m2
+        let w = DefringeStage.lumaWeights
+        let e = DefringeStage.edgeStops, g = DefringeStage.chromaGate
+        func row(_ r: [Double]) -> String { "vec3(\(r[0]), \(r[1]), \(r[2]))" }
+        return """
+        float lumenDefringeCbrt(float v) { return sign(v) * pow(abs(v), 1.0 / 3.0); }
+        float lumenDefringeHueWeight(float h, float lo, float hi) {
+            float centre = (lo + hi) * 0.5;
+            float d = h - centre;
+            d -= 360.0 * floor(d / 360.0 + 0.5);
+            float outside = abs(d) - (hi - lo) * 0.5;
+            return clamp(1.0 - outside / \(DefringeParams.hueFeather), 0.0, 1.0);
+        }
+        kernel vec4 lumenDefringeApply(__sample c, __sample window, vec4 purple, vec4 green) {
+            float edge = smoothstep(\(e.lo), \(e.hi), window.r - window.g);
+            vec3 rgb = c.rgb;
+            float l = lumenDefringeCbrt(dot(\(row(m[0])), rgb));
+            float m = lumenDefringeCbrt(dot(\(row(m[1])), rgb));
+            float s = lumenDefringeCbrt(dot(\(row(m[2])), rgb));
+            vec3 lms = vec3(l, m, s);
+            float L = dot(\(row(m2[0])), lms);
+            float a = dot(\(row(m2[1])), lms);
+            float b = dot(\(row(m2[2])), lms);
+            float chroma = sqrt(a * a + b * b);
+            float gate = smoothstep(\(g.lo), \(g.hi), chroma / (max(L, 0.0) + 0.02));
+            float h = degrees(atan(b, a));
+            h += 360.0 * step(h, 0.0) * (1.0 - step(0.0, h));
+            float wp = purple.x * lumenDefringeHueWeight(h, purple.y, purple.z);
+            float wg = green.x * lumenDefringeHueWeight(h, green.y, green.z);
+            float k = max(wp, wg) * gate * edge;
+            float y = dot(rgb, vec3(\(w.0), \(w.1), \(w.2)));
+            return vec4(rgb + (vec3(y) - rgb) * k, c.a);
+        }
+        """
+    }()
+}

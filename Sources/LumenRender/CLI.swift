@@ -22,18 +22,53 @@ struct PreparedInput {
     let sourceHeight: Int
     /// Uniformity's measured band hues, from the neutral input, computed on first need.
     let bandHues: [Double]?
+    /// WS-28: the lateral-CA model measured on the input (at most 4000 px, the app's
+    /// `LensInputsCache` cap) and the embedded vignetting record of its RAW, if found.
+    var lens: LensInputs = .none
 }
 
 enum Renderer {
 
-    static func prepare(path: String, longEdge: Int, needBandHues: Bool) throws -> PreparedInput {
+    static func prepare(path: String, longEdge: Int, needBandHues: Bool,
+                        lensRaw: String? = nil) throws -> PreparedInput {
         let full = try InputImage.load(path: path)
         let small = InputImage.downsample(full, longEdge: longEdge)
         let scale = Double(Swift.max(small.width, small.height))
             / Double(Swift.max(full.width, full.height))
-        return PreparedInput(image: small, scale: scale, sourceWidth: full.width,
-                             sourceHeight: full.height,
-                             bandHues: needBandHues ? ColorEngine.measureBandMeanHues(small) : nil)
+        var prepared = PreparedInput(image: small, scale: scale, sourceWidth: full.width,
+                                     sourceHeight: full.height,
+                                     bandHues: needBandHues
+                                        ? ColorEngine.measureBandMeanHues(small) : nil)
+        prepared.lens = lensInputs(full: full, inputPath: path, lensRaw: lensRaw)
+        return prepared
+    }
+
+    /// The RAW an .lfi was decoded from: `--lens-raw`, else the sidecar's `source` in
+    /// the corpus layout (`lfi/<name>.json` beside `raw/<source>`).
+    static func lensInputs(full: ImageBuffer, inputPath: String, lensRaw: String?) -> LensInputs {
+        let measure = InputImage.downsample(full, longEdge: 4000)
+        let ca = LateralCAEstimator.estimate(measure)
+        var raw = lensRaw
+        if raw == nil {
+            let input = URL(fileURLWithPath: inputPath)
+            let sidecar = input.deletingPathExtension().appendingPathExtension("json")
+            if let data = try? Data(contentsOf: sidecar),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let source = json["source"] as? String {
+                let candidate = input.deletingLastPathComponent()
+                    .deletingLastPathComponent().appendingPathComponent("raw")
+                    .appendingPathComponent(source)
+                if FileManager.default.fileExists(atPath: candidate.path) { raw = candidate.path }
+            }
+        }
+        let vignette = raw.flatMap { EmbeddedLensProfile.read(url: URL(fileURLWithPath: $0)) }?
+            .gainPolynomial
+        FileHandle.standardError.write(Data(("lens: CA model "
+            + (ca.map { "R k0=\($0.red.k0) k2=\($0.red.k2) B k0=\($0.blue.k0) k2=\($0.blue.k2)" }
+               ?? "none")
+            + ", embedded vignetting " + (vignette == nil ? "none" : "from \(raw ?? "")")
+            + "\n").utf8))
+        return LensInputs(lateralCA: ca, vignette: vignette)
     }
 
     /// `PipelineRenderer.renderReference`, minus the decode, plus the export's dither.
@@ -51,6 +86,7 @@ enum Renderer {
             staged = plan.classicalDenoise.scaled(noiseScale: input.scale * input.scale)
                 .apply(staged)
         }
+        staged = LensStage.apply(staged, lens: recipe.develop.geometry.lens, inputs: input.lens)
         let rendered = ReferenceRenderer.render(staged, plan: plan)
         let encoded = OutputEncode.encode(rendered, space: settings.space,
                                           dither: settings.dither)
@@ -216,7 +252,8 @@ enum LumenRenderCLI {
         let (recipe, applied) = try self.recipe(args, baseKey: "recipe")
         let prepared = try Renderer.prepare(
             path: input, longEdge: longEdge,
-            needBandHues: ColorEngine.needsMeasuredBandHues(recipe.develop.mixer))
+            needBandHues: ColorEngine.needsMeasuredBandHues(recipe.develop.mixer),
+            lensRaw: args.string("lens-raw"))
         let (encoded, seconds) = Renderer.render(prepared, recipe: recipe, settings: settings)
         try write(PNG.encode(width: encoded.width, height: encoded.height, rgb: encoded.bytes,
                              space: settings.space), to: out)
@@ -348,7 +385,8 @@ enum LumenRenderCLI {
 
         let needHues = recipes.contains { ColorEngine.needsMeasuredBandHues($0.develop.mixer) }
         let prepared = try Renderer.prepare(path: input, longEdge: longEdge,
-                                            needBandHues: needHues)
+                                            needBandHues: needHues,
+                                            lensRaw: args.string("lens-raw"))
         let start = Date()
         let results = Slots<(EncodedImage, ImageMetrics, PixelPlanes)>(values.count)
         // Tiles in parallel: a plan is a value, the table caches are lock-guarded, and

@@ -1648,6 +1648,8 @@ public final class PipelineRenderer {
                            maskRasterCeiling: CGFloat? = nil,
                            reusingMaskImages: [String: CIImage]? = nil) -> RenderGraph {
         var graph = RenderGraph(healStrokesOf: plan.recipe, strokeSets: strokeSets)
+        graph.lensInputs = LensInputsCache.shared.inputs(url: sourceURL, decoded: decoded,
+                                                         context: context)
         let extent = decoded.extent
 
         // This used to `guard !draft else { return graph }` — so during every drag,
@@ -2969,6 +2971,10 @@ public final class PipelineRenderer {
         if !plan.denoiseIsIdentity {
             staged = plan.classicalDenoise.scaled(noiseScale: scale * scale).apply(buffer)
         }
+        // WS-28 lens stage, the graph's position (after S3, before S5).
+        staged = LensStage.apply(staged, lens: recipe.develop.geometry.lens,
+                                 inputs: LensInputsCache.shared.inputs(
+                                    url: source.url, decoded: decoded, context: context))
         // Stroke sets go in, exactly as they do on the GPU path — a fallback that
         // silently drops every brush mask is not the same picture, and this is the
         // path that runs when the graph could not be built at all. The proof goes in for
