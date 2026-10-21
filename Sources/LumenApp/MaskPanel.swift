@@ -4011,7 +4011,7 @@ struct LumaBandStrip: View {
                 let w = size.width, h = size.height
                 let ramp = Gradient(colors: [Color(white: 0.02), Color(white: 0.92)])
                 let rect = Path(roundedRect: CGRect(x: 0, y: 0, width: w, height: h),
-                                cornerRadius: 3)
+                                cornerRadius: Lumen.radiusChip)
                 context.fill(rect, with: .linearGradient(ramp, startPoint: .zero,
                                                          endPoint: CGPoint(x: w, y: 0)))
                 var curve = Path()
