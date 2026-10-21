@@ -671,13 +671,16 @@ public struct RenderGraph {
                                                 height: Int(extent.height),
                                                 noiseScale: options.noiseScale)
         var work = image
-        if gpu.hotPixelK.isFinite, KernelLibrary.hotPixel != nil {
+        if gpu.hotPixelK.isFinite, KernelLibrary.hotPixel != nil,
+           KernelLibrary.hotPixelFill != nil {
             work = Self.applyHotPixels(work, gpu: gpu) ?? work
         }
 
-        let bands = Swift.min(gpu.lumaThresholds.count, gpu.chromaThresholds.count)
+        let bands = Swift.min(gpu.lumaThresholds.count, gpu.chromaThresholds.count,
+                              gpu.chromaVThresholds.count)
         let shrinks = gpu.lumaThresholds.contains { $0 > 0 }
             || gpu.chromaThresholds.contains { $0 > 0 }
+            || gpu.chromaVThresholds.contains { $0 > 0 }
         guard bands > 0, shrinks else { return work }
 
         let shot = gpu.profile.a
@@ -694,20 +697,21 @@ public struct RenderGraph {
         let rotated = Self.applyMatrix(forward, ClassicalDenoise.toY0U0V0)
 
         // Edge maps, each built only if the slider that reads it is live. Luma edges
-        // come off the luma plane; chroma edges off the chroma magnitude, so a
-        // saturated edge on flat luminance still protects itself.
+        // come off the luma plane; chroma edges off the joint gradient of both chroma
+        // channels, so a colour edge on flat luminance protects itself whichever way
+        // the colour turns.
         let flat = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 1))
             .cropped(to: extent)
         var lumaEdge = flat
         if gpu.lumaProtection > 0 {
             let plane = Self.applyMatrix(rotated, Self.broadcastRed)
-            lumaEdge = Self.edgePlane(plane, gpu: gpu) ?? flat
+            lumaEdge = Self.edgePlane(plane, gpu: gpu, low: gpu.lumaEdgeKneeLow,
+                                      high: gpu.lumaEdgeKneeHigh) ?? flat
         }
         var chromaEdge = flat
-        if gpu.chromaProtection > 0,
-           let magnitude = KernelLibrary.apply(KernelLibrary.chromaMagnitude,
-                                               extent: extent, [rotated]) {
-            chromaEdge = Self.edgePlane(magnitude, gpu: gpu) ?? flat
+        if gpu.chromaProtection > 0 {
+            chromaEdge = Self.edgePlane(rotated, gpu: gpu,
+                                        kernel: KernelLibrary.chromaEdgeMap) ?? flat
         }
 
         let protection = CIVector(x: CGFloat(gpu.lumaProtection),
@@ -727,7 +731,7 @@ public struct RenderGraph {
             else { break }
             let threshold = CIVector(x: CGFloat(gpu.lumaThresholds[j]),
                                      y: CGFloat(gpu.chromaThresholds[j]),
-                                     z: CGFloat(gpu.chromaThresholds[j]))
+                                     z: CGFloat(gpu.chromaVThresholds[j]))
             guard let removed = KernelLibrary.apply(
                     KernelLibrary.denoiseRemoved, extent: extent,
                     [detail, lumaEdge, chromaEdge, threshold, protection]),
@@ -779,13 +783,25 @@ public struct RenderGraph {
     static let broadcastGreen = Mat3(0, 1, 0, 0, 1, 0, 0, 1, 0)
     static let broadcastBlue = Mat3(0, 0, 1, 0, 0, 1, 0, 0, 1)
 
-    /// The hot-pixel pass: one general kernel reading its own 3×3 neighbourhood.
+    /// The hot-pixel pass, `ClassicalDenoise.hotPixelPass`'s two stages: detection
+    /// reads the ring `hotPixelRing` out and writes a fill map, and the fill reads that
+    /// map one pixel out. The map is clamped like the image, which is the edge rule the
+    /// reference's `flagged` uses.
     static func applyHotPixels(_ image: CIImage,
                                gpu: ClassicalDenoise.GPUPlan) -> CIImage? {
-        KernelLibrary.applyNeighbourhood(
-            KernelLibrary.hotPixel, extent: image.extent, reach: 1,
-            [clamped(image), Float(Swift.min(gpu.hotPixelK, 1e30)),
-             Float(gpu.profile.a), Float(gpu.profile.b)])
+        let extent = image.extent
+        let ring = ClassicalDenoise.hotPixelRing
+        guard let fill = KernelLibrary.applyNeighbourhood(
+                KernelLibrary.hotPixel, extent: extent, reach: CGFloat(ring),
+                [clamped(image), Float(Swift.min(gpu.hotPixelK, 1e30)),
+                 Float(gpu.profile.a), Float(gpu.profile.b), Float(ring),
+                 Float(ClassicalDenoise.hotPixelChromaRatio),
+                 Float(ClassicalDenoise.hotPixelSharpness),
+                 Float(ClassicalDenoise.hotPixelUnflagged)])
+        else { return nil }
+        return KernelLibrary.applyNeighbourhood(
+            KernelLibrary.hotPixelFill, extent: extent, reach: 1,
+            [clamped(image), clamped(fill), Float(ClassicalDenoise.hotPixelFlagLimit)])
     }
 
     /// One à-trous smoothing step: the B3-spline row `[1,4,6,4,1]/16` applied
@@ -811,8 +827,13 @@ public struct RenderGraph {
     /// The blur-stabilized gradient edge map: three radius-1 box passes on each axis —
     /// which is exactly `SpatialOps.gaussianBlur(_:sigma: 1.5)` — then a central
     /// difference through the smoothstep knees the plan carries.
+    /// `kernel` is `edgeMap` (gradient of `.r`, the luma map) or `chromaEdgeMap`
+    /// (joint gradient of `.g` and `.b`); the blur is per channel either way. The knees
+    /// default to the plan's chroma pair; the luma map passes its own.
     static func edgePlane(_ plane: CIImage,
-                          gpu: ClassicalDenoise.GPUPlan) -> CIImage? {
+                          gpu: ClassicalDenoise.GPUPlan,
+                          kernel: CIKernel? = KernelLibrary.edgeMap,
+                          low: Double? = nil, high: Double? = nil) -> CIImage? {
         let extent = plane.extent
         var blurred = plane
         for _ in 0..<3 {
@@ -826,8 +847,9 @@ public struct RenderGraph {
             blurred = vertical
         }
         return KernelLibrary.applyNeighbourhood(
-            KernelLibrary.edgeMap, extent: extent, reach: 1,
-            [clamped(blurred), Float(gpu.edgeKneeLow), Float(gpu.edgeKneeHigh)])
+            kernel, extent: extent, reach: 1,
+            [clamped(blurred), Float(low ?? gpu.edgeKneeLow),
+             Float(high ?? gpu.edgeKneeHigh)])
     }
 
     /// The image with its border repeated outwards — the edge convention

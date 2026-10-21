@@ -133,7 +133,7 @@ final class DenoiseTests: XCTestCase {
 
     // MARK: - The four sub-sliders that had no wire format
 
-    /// Luminance Detail IS the threshold: `1.5 − detail/100`. Higher preserves texture,
+    /// Luminance Detail IS the threshold: `2^((50 − detail)/50)`. Higher preserves texture,
     /// and the noise beside it, so more noise must survive at 100 than at 0.
     func testLuminanceDetailRaisesTheThresholdAndKeepsMoreNoise() {
         let profile = NoiseProfile.forISO(3200)
@@ -157,7 +157,7 @@ final class DenoiseTests: XCTestCase {
             .apply(noisy)).luma
         XCTAssertGreaterThan(loose, strict * 3,
                              "Detail 100 kept \(loose / strict)× the noise Detail 0 did; "
-                                 + "the threshold multiplier spans 1.5 to 0.5")
+                                 + "the threshold multiplier spans 2 to 0.5")
     }
 
     /// Luminance Contrast pulls the COARSE bands' thresholds down, so coarse luminance
@@ -275,21 +275,27 @@ final class DenoiseTests: XCTestCase {
         XCTAssertLessThan(previous, input * 0.75,
                           "Colour Smoothness 100 left \(previous / input) of the blotch")
 
-        // The slider has TWO halves — a coarse-band threshold scale and a guided-filter
-        // blotch pass — and the measurement above is satisfied by either one alone.
-        // Deleting the band scale left every assertion so far green. So: the coarsest
-        // chroma threshold must climb, and the finest must not move at all, because its
-        // `coarse` factor is exactly zero.
+        // The measurement above is satisfied by any change that reaches the blob, so pin
+        // the mechanism too: Smoothness TILTS the chroma thresholds toward the coarse
+        // bands by `2^(((smooth−50)/50)·(tilt·coarse − pivot))`. Between Smoothness 0
+        // and 100 the coarsest band's threshold therefore climbs by 2^(2·(tilt − pivot))
+        // = 4×, the finest falls by 2^(−2·pivot), and the two sides of the pivot move in
+        // opposite directions. (It used to be a coarse-only scale plus a guided-filter
+        // blotch pass; the pass is gone with `blotchMaxMix`, see its note.)
         let flat = engine(ClassicNR(luma: 0, chroma: 50, colorSmoothness: 0))
             .chromaThresholds(levels: 5)
         let reaching = engine(ClassicNR(luma: 0, chroma: 50, colorSmoothness: 100))
             .chromaThresholds(levels: 5)
-        XCTAssertEqual(flat[0], reaching[0], accuracy: 1e-12,
-                       "Colour Smoothness moved the finest chroma band, which it must not")
-        XCTAssertEqual(reaching[4], flat[4] * (1 + ClassicalDenoise.colorSmoothnessReach),
-                       accuracy: 1e-9,
-                       "Colour Smoothness 100 did not push the coarsest chroma band by "
-                           + "its declared reach: \(reaching[4]) against \(flat[4])")
+        let tilt = ClassicalDenoise.colorSmoothnessTilt
+        let pivot = ClassicalDenoise.colorSmoothnessPivot
+        XCTAssertEqual(reaching[4], flat[4] * exp2(2 * (tilt - pivot)), accuracy: 1e-9,
+                       "Colour Smoothness 100 did not lift the coarsest chroma band by "
+                           + "its declared tilt: \(reaching[4]) against \(flat[4])")
+        XCTAssertEqual(reaching[0], flat[0] * exp2(-2 * pivot), accuracy: 1e-9,
+                       "Colour Smoothness 100 did not lower the finest chroma band by "
+                           + "its declared tilt: \(reaching[0]) against \(flat[0])")
+        XCTAssertLessThan(reaching[1], flat[1], "band 1 sits below the pivot")
+        XCTAssertGreaterThan(reaching[2], flat[2], "band 2 sits above the pivot")
     }
 
     // MARK: - Hot pixels
@@ -323,8 +329,10 @@ final class DenoiseTests: XCTestCase {
     func testHotPixelGateLoosensAcrossTheSlider() {
         XCTAssertFalse(ClassicalDenoise.hotPixelK(0).isFinite,
                        "Hot Pixels 0 must be a no-op, not a very large k")
-        XCTAssertEqual(ClassicalDenoise.hotPixelK(50), 4.5, accuracy: 1e-9)
-        XCTAssertEqual(ClassicalDenoise.hotPixelK(100), 2.0, accuracy: 1e-9)
+        // 8 + 16·(1 − h/100)²: a defect gate, high enough that noise does not reach it
+        // (see `hotPixelK` for the false-positive measurement that moved it from 2…12).
+        XCTAssertEqual(ClassicalDenoise.hotPixelK(50), 12.0, accuracy: 1e-9)
+        XCTAssertEqual(ClassicalDenoise.hotPixelK(100), 8.0, accuracy: 1e-9)
         XCTAssertGreaterThan(ClassicalDenoise.hotPixelK(25),
                              ClassicalDenoise.hotPixelK(75))
     }
@@ -413,26 +421,43 @@ final class DenoiseTests: XCTestCase {
                                lumaDetail: 70, lumaContrast: 30,
                                colorDetail: 60, colorSmoothness: 80)
         // Two profiles on purpose. ISO 6400 needs no rescaling, so it cannot tell a
-        // plan that forgot `encodedScale` from one that applied it; base ISO carries a
-        // `2/a` four times larger and does need one. A test that only used the first
-        // passed with the scale deleted.
+        // plan that forgot `encodedScale` from one that applied it; a read-noise-
+        // dominated profile carries a huge `2/a` and does need one. A test that only
+        // used the first passed with the scale deleted. (Base ISO used to be that
+        // second profile; since `NoiseProfile.corpusVarianceScale` it no longer needs a
+        // rescale, so the case is written out — it is what `estimate(from:)` returns
+        // for a clean plane, the one the `GPUPlan` note describes.)
         var sawARescale = false
-        for iso in [100.0, 6400.0] {
-            let denoise = ClassicalDenoise(params, profile: NoiseProfile.forISO(iso))
+        let profiles: [(String, NoiseProfile)] = [
+            ("ISO 6400", NoiseProfile.forISO(6400)),
+            ("read-noise only", NoiseProfile(a: 1e-9, b: 1e-6)),
+        ]
+        for (iso, profile) in profiles {
+            let denoise = ClassicalDenoise(params, profile: profile)
             let plan = denoise.gpuPlan(width: 512, height: 512)
             XCTAssertEqual(plan.levels, denoise.effectiveLevels(width: 512, height: 512))
             let luma = denoise.lumaThresholds(levels: plan.levels)
             let chroma = denoise.chromaThresholds(levels: plan.levels)
+            let chromaV = denoise.chromaVThresholds(levels: plan.levels)
             XCTAssertEqual(plan.lumaThresholds.count, luma.count)
+            XCTAssertEqual(plan.chromaVThresholds.count, chromaV.count)
             for j in 0..<luma.count {
                 XCTAssertEqual(plan.lumaThresholds[j], luma[j] * plan.encodedScale,
-                               accuracy: 1e-12, "ISO \(iso) luma band \(j)")
+                               accuracy: 1e-12, "\(iso) luma band \(j)")
                 XCTAssertEqual(plan.chromaThresholds[j], chroma[j] * plan.encodedScale,
-                               accuracy: 1e-12, "ISO \(iso) chroma band \(j)")
+                               accuracy: 1e-12, "\(iso) chroma band \(j)")
+                XCTAssertEqual(plan.chromaVThresholds[j], chromaV[j] * plan.encodedScale,
+                               accuracy: 1e-12, "\(iso) second chroma band \(j)")
             }
             XCTAssertGreaterThan(luma[0], 0)
             XCTAssertGreaterThan(chroma[0], 0)
-            XCTAssertEqual(plan.chromaProtection, 0.6, accuracy: 1e-12)
+            XCTAssertEqual(plan.chromaProtection,
+                           ClassicalDenoise.chromaEdgeProtection(colorDetail: 60),
+                           accuracy: 1e-12)
+            XCTAssertEqual(ClassicalDenoise.chromaEdgeProtection(colorDetail: 60), 1.0,
+                           accuracy: 1e-12)
+            XCTAssertEqual(ClassicalDenoise.chromaEdgeProtection(colorDetail: 0), 0.5,
+                           accuracy: 1e-12)
             XCTAssertEqual(plan.lumaProtection, ClassicalDenoise.lumaEdgeProtection,
                            accuracy: 1e-12)
             XCTAssertEqual(plan.hotPixelK, ClassicalDenoise.hotPixelK(20),
@@ -511,15 +536,16 @@ final class DenoiseTests: XCTestCase {
         return worst
     }
 
-    /// The reach is counted, not guessed: hot pixels 1, five à-trous bands 2+4+8+16+32,
-    /// the blotch guided filter 2·8. Pinned, so a change to any of the three has to
-    /// come through here and be seen.
+    /// The reach is counted, not guessed: hot pixels 3 (detection reads the ring two
+    /// out, the fill reads the detection map one out), five à-trous bands
+    /// 2+4+8+16+32, the blotch guided filter 2·8. Pinned, so a change to any of the
+    /// three has to come through here and be seen.
     func testTheReceptiveFieldCountsEveryPass() {
-        XCTAssertEqual(ClassicalDenoise.receptiveField(levels: 5), 1 + 62 + 16)
-        XCTAssertEqual(ClassicalDenoise.receptiveField(levels: 6), 1 + 126 + 16)
+        XCTAssertEqual(ClassicalDenoise.receptiveField(levels: 5), 3 + 62 + 16)
+        XCTAssertEqual(ClassicalDenoise.receptiveField(levels: 6), 3 + 126 + 16)
         // One band reaches 2; the edge map's three box passes and central difference
         // reach 4, so there the edge map is the longer chain.
-        XCTAssertEqual(ClassicalDenoise.receptiveField(levels: 1), 1 + 4 + 16)
+        XCTAssertEqual(ClassicalDenoise.receptiveField(levels: 1), 3 + 4 + 16)
         XCTAssertGreaterThanOrEqual(
             TilePlan.classicOverlap,
             ClassicalDenoise.receptiveField(levels: ClassicalDenoise.defaultLevels),
@@ -574,18 +600,31 @@ final class DenoiseTests: XCTestCase {
     func testISODefaultsResolveEverySubSlider() {
         let low = ISODefaults.classic(forISO: 200)
         let high = ISODefaults.classic(forISO: 25600)
-        XCTAssertGreaterThan(high.luma, low.luma)
-        XCTAssertGreaterThan(high.chroma, low.chroma)
-        // The two departures docs/07 §2.1 names: less texture preservation and more
-        // blotch suppression where there is more gain. Strictly, so a flat table fails.
-        XCTAssertLessThan(high.lumaDetail, low.lumaDetail)
-        XCTAssertGreaterThan(high.colorSmoothness, low.colorSmoothness)
-        // And the two that stay at Lightroom's defaults, because nothing measured says
-        // otherwise.
-        XCTAssertEqual(low.lumaContrast, 0, accuracy: 1e-12)
-        XCTAssertEqual(high.lumaContrast, 0, accuracy: 1e-12)
-        XCTAssertEqual(low.colorDetail, 50, accuracy: 1e-12)
-        XCTAssertEqual(high.colorDetail, 50, accuracy: 1e-12)
+        // Luminance is the one adaptive master: off where grain is invisible, rising
+        // with gain (0 ≤ 400, 11 at 1600, 16 at 6400, 25 from 25600).
+        XCTAssertEqual(low.luma, 0, accuracy: 1e-12)
+        XCTAssertEqual(ISODefaults.luminance(forISO: 400), 0, accuracy: 1e-12)
+        XCTAssertEqual(ISODefaults.luminance(forISO: 1600), 11, accuracy: 1e-9)
+        XCTAssertEqual(ISODefaults.luminance(forISO: 6400), 16, accuracy: 1e-9)
+        XCTAssertGreaterThan(ISODefaults.luminance(forISO: 3200),
+                             ISODefaults.luminance(forISO: 1600))
+        XCTAssertEqual(high.luma, 25, accuracy: 1e-9)
+        XCTAssertEqual(ISODefaults.luminance(forISO: 102400), 25, accuracy: 1e-9)
+        // Colour is Lightroom's 25 at every gain: the thresholds are already in units of
+        // each band's measured noise, so a climb would count the gain twice.
+        for iso in [50.0, 100, 400, 1600, 3200, 6400, 25600, 102400] {
+            XCTAssertEqual(ISODefaults.color(forISO: iso), 25, accuracy: 1e-12,
+                           "Colour default at ISO \(iso)")
+        }
+        // The four sub-sliders are Lightroom's at every ISO. They used to adapt
+        // (Detail down, Smoothness up with gain) to make up for white-noise thresholds;
+        // the measured band-noise tables carry that now, and a flat table is the point.
+        for block in [low, ISODefaults.classic(forISO: 3200), high] {
+            XCTAssertEqual(block.lumaDetail, 50, accuracy: 1e-12)
+            XCTAssertEqual(block.lumaContrast, 0, accuracy: 1e-12)
+            XCTAssertEqual(block.colorDetail, 50, accuracy: 1e-12)
+            XCTAssertEqual(block.colorSmoothness, 50, accuracy: 1e-12)
+        }
         // Hot Pixels is a defect control, and defects do not scale with gain.
         XCTAssertEqual(high.hotPixels, 0, accuracy: 1e-12)
         // Everything lands inside its slider's range.

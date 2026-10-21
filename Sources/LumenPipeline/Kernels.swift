@@ -781,6 +781,25 @@ public enum KernelLibrary {
     }
     """
 
+    /// The chroma edge map: the joint gradient of the decorrelated image's two chroma
+    /// channels, `√(|∇g|² + |∇b|²)`, through the same smoothstep knees as `edgeMap`.
+    /// It reads a plane that `box3` has already blurred on every channel. The twin is
+    /// `ClassicalDenoise.chromaEdgeMap`, which says why a gradient of the chroma
+    /// MAGNITUDE (what this replaced) cannot see a change of hue.
+    static let chromaEdgeMapSource = """
+    kernel vec4 lumenChromaEdgeMap(sampler src, float lo, float hi) {
+        vec2 p = destCoord();
+        vec2 xp = sample(src, samplerTransform(src, p + vec2(1.0, 0.0))).gb;
+        vec2 xm = sample(src, samplerTransform(src, p - vec2(1.0, 0.0))).gb;
+        vec2 yp = sample(src, samplerTransform(src, p + vec2(0.0, 1.0))).gb;
+        vec2 ym = sample(src, samplerTransform(src, p - vec2(0.0, 1.0))).gb;
+        vec2 gx = (xp - xm) * 0.5;
+        vec2 gy = (yp - ym) * 0.5;
+        float e = smoothstep(lo, hi, sqrt(dot(gx, gx) + dot(gy, gy)));
+        return vec4(e, e, e, 1.0);
+    }
+    """
+
     /// What soft thresholding REMOVES from one à-trous band: `clamp(d, −t, t)`.
     ///
     /// Soft thresholding is `d − clamp(d, −t, t)`, so returning the clamp and
@@ -811,20 +830,21 @@ public enum KernelLibrary {
     }
     """
 
-    /// Hot Pixels: replace a single-pixel outlier with the median of its eight
-    /// neighbours (docs/07 §2.5).
+    /// Hot Pixels, stage 1 of 2: DETECT (docs/07 §2.5; the definition and the
+    /// measurements are `ClassicalDenoise.hotPixelPass`).
     ///
-    /// Two conditions, both required, exactly as the reference states them: the pixel
-    /// must deviate from that median by more than `k·σ` with σ read from the noise
-    /// profile AT THE MEDIAN — the pixel's own value is the thing under suspicion — and
-    /// it must be a strict extremum of the 3×3 neighbourhood. The second is what makes
-    /// this single-pixel: an edge or a fine line always has a neighbour on the same
-    /// side of the median, so it is never an extremum and never touched.
+    /// Per channel, a pixel is a defect when it is a strict extremum of its 3×3, differs
+    /// from the background — the median of the eight pixels `ring` away, outside the
+    /// smear a demosaic makes of a defect — by more than `k·σ(background)`, and has a
+    /// shape no lens makes: single-channel (its excess beats `ratio` × the same-sign
+    /// excess of both other channels) or too sharp (its third-largest neighbour excess
+    /// is under `sharpness` × its own). Output: the background where flagged,
+    /// `unflagged` elsewhere — the fill map stage 2 reads.
     ///
-    /// The median comes from a Batcher odd-even mergesort, 19 comparators of `min`/`max`
-    /// on vec3 — branchless, like every kernel here, and the whole reason the network is
-    /// spelled out rather than looped. The comparator list is the data; the shader text
-    /// is generated from it so a transcription slip is not possible.
+    /// Both medians and the third-largest neighbour come from the same Batcher odd-even
+    /// mergesort, 19 comparators of `min`/`max` on vec3, branchless; the comparator list
+    /// is the data and the shader text is generated from it, once per network, so a
+    /// transcription slip is not possible.
     static let hotPixelSource: String = {
         let network: [(Int, Int)] = [
             (0, 1), (2, 3), (4, 5), (6, 7),
@@ -834,34 +854,77 @@ public enum KernelLibrary {
             (2, 4), (3, 5),
             (1, 2), (3, 4), (5, 6),
         ]
-        let sort = network.map { pair in
-            "    t = min(a\(pair.0), a\(pair.1));"
-                + " a\(pair.1) = max(a\(pair.0), a\(pair.1)); a\(pair.0) = t;"
+        func sort(_ name: String) -> String {
+            network.map { pair in
+                "    t = min(\(name)\(pair.0), \(name)\(pair.1));"
+                    + " \(name)\(pair.1) = max(\(name)\(pair.0), \(name)\(pair.1));"
+                    + " \(name)\(pair.0) = t;"
+            }.joined(separator: "\n    ")
+        }
+        let offsets = ["-1.0, -1.0", " 0.0, -1.0", " 1.0, -1.0", "-1.0,  0.0",
+                       " 1.0,  0.0", "-1.0,  1.0", " 0.0,  1.0", " 1.0,  1.0"]
+        let near = offsets.enumerated().map { i, o in
+            "    vec3 a\(i) = sample(src, samplerTransform(src, p + vec2(\(o)))).rgb;"
+        }.joined(separator: "\n    ")
+        let far = offsets.enumerated().map { i, o in
+            "    vec3 b\(i) = sample(src, samplerTransform(src, p + ring * vec2(\(o)))).rgb;"
         }.joined(separator: "\n    ")
         return """
-        kernel vec4 lumenHotPixel(sampler src, float k, float shot, float variance) {
+        kernel vec4 lumenHotPixel(sampler src, float k, float shot, float variance,
+                                  float ring, float ratio, float sharpness,
+                                  float unflagged) {
             vec2 p = destCoord();
-            vec3 a0 = sample(src, samplerTransform(src, p + vec2(-1.0, -1.0))).rgb;
-            vec3 a1 = sample(src, samplerTransform(src, p + vec2( 0.0, -1.0))).rgb;
-            vec3 a2 = sample(src, samplerTransform(src, p + vec2( 1.0, -1.0))).rgb;
-            vec3 a3 = sample(src, samplerTransform(src, p + vec2(-1.0,  0.0))).rgb;
-            vec3 a4 = sample(src, samplerTransform(src, p + vec2( 1.0,  0.0))).rgb;
-            vec3 a5 = sample(src, samplerTransform(src, p + vec2(-1.0,  1.0))).rgb;
-            vec3 a6 = sample(src, samplerTransform(src, p + vec2( 0.0,  1.0))).rgb;
-            vec3 a7 = sample(src, samplerTransform(src, p + vec2( 1.0,  1.0))).rgb;
             vec4 c = sample(src, samplerTransform(src, p));
             vec3 t;
-        \(sort)
-            vec3 median = (a3 + a4) * 0.5;
+        \(near)
+        \(far)
+        \(sort("a"))
+        \(sort("b"))
+            vec3 bg = (b3 + b4) * 0.5;
             vec3 v = c.rgb;
-            vec3 sigma = sqrt(max(shot * max(median, vec3(0.0)) + vec3(variance),
+            vec3 e = v - bg;
+            vec3 sigma = sqrt(max(shot * max(bg, vec3(0.0)) + vec3(variance),
                                   vec3(1e-12)));
-            vec3 outside = max(vec3(1.0) - step(v, a7), vec3(1.0) - step(a0, v));
-            vec3 far = vec3(1.0) - step(abs(v - median), k * sigma);
-            return vec4(mix(v, median, outside * far), c.a);
+            vec3 extremum = max(vec3(1.0) - step(v, a7), vec3(1.0) - step(a0, v));
+            vec3 deviates = vec3(1.0) - step(abs(e), k * sigma);
+            vec3 s = sign(e);
+            vec3 other = max(max(s * e.gbr, s * e.brg), vec3(0.0));
+            vec3 oneChannel = vec3(1.0) - step(abs(e), ratio * other);
+            vec3 sharpHigh = (vec3(1.0) - step(e, vec3(0.0)))
+                * (vec3(1.0) - step(sharpness * e, a5 - bg));
+            vec3 sharpLow = (vec3(1.0) - step(vec3(0.0), e))
+                * (vec3(1.0) - step(a2 - bg, sharpness * e));
+            vec3 flag = extremum * deviates * max(oneChannel, max(sharpHigh, sharpLow));
+            return vec4(mix(vec3(unflagged), bg, flag), 1.0);
         }
         """
     }()
+
+    /// Hot Pixels, stage 2 of 2: FILL. Each pixel takes, per channel, the background of
+    /// a flagged centre covering it — its own, else the smallest among flagged edge
+    /// neighbours, else the smallest among flagged corners — so the demosaic's whole
+    /// 3×3 smear goes, not only its peak. Minimum within a ring rather than an order,
+    /// so Core Image's bottom-left origin cannot change which neighbour wins.
+    static let hotPixelFillSource = """
+    kernel vec4 lumenHotPixelFill(sampler src, sampler fill, float limit) {
+        vec2 p = destCoord();
+        vec4 c = sample(src, samplerTransform(src, p));
+        vec3 own = sample(fill, samplerTransform(fill, p)).rgb;
+        vec3 edges = min(min(sample(fill, samplerTransform(fill, p + vec2(1.0, 0.0))).rgb,
+                             sample(fill, samplerTransform(fill, p - vec2(1.0, 0.0))).rgb),
+                         min(sample(fill, samplerTransform(fill, p + vec2(0.0, 1.0))).rgb,
+                             sample(fill, samplerTransform(fill, p - vec2(0.0, 1.0))).rgb));
+        vec3 corners = min(min(sample(fill, samplerTransform(fill, p + vec2(1.0, 1.0))).rgb,
+                               sample(fill, samplerTransform(fill, p + vec2(-1.0, 1.0))).rgb),
+                           min(sample(fill, samplerTransform(fill, p + vec2(1.0, -1.0))).rgb,
+                               sample(fill, samplerTransform(fill, p + vec2(-1.0, -1.0))).rgb));
+        vec3 v = c.rgb;
+        v = mix(v, corners, vec3(1.0) - step(vec3(limit), corners));
+        v = mix(v, edges, vec3(1.0) - step(vec3(limit), edges));
+        v = mix(v, own, vec3(1.0) - step(vec3(limit), own));
+        return vec4(v, c.a);
+    }
+    """
 
     /// Vignette as an EV multiply in scene-linear (docs/14 §2.1.11: the lens vignettes
     /// the light before it reaches the film, so this belongs upstream of the curve and
@@ -1201,7 +1264,9 @@ public enum KernelLibrary {
     public static let bSpline5 = makeGeneral(bSpline5Source)
     public static let box3 = makeGeneral(box3Source)
     public static let edgeMap = makeGeneral(edgeMapSource)
+    public static let chromaEdgeMap = makeGeneral(chromaEdgeMapSource)
     public static let hotPixel = makeGeneral(hotPixelSource)
+    public static let hotPixelFill = makeGeneral(hotPixelFillSource)
     // S5's two, general for the same reason: both sample away from the pixel they write.
     public static let spotBoundary = makeGeneral(spotBoundarySource)
     public static let spotApply = makeGeneral(spotApplySource)
@@ -1246,6 +1311,8 @@ public enum KernelLibrary {
             ("chromaMagnitude", chromaMagnitude), ("edgeMap", edgeMap),
             ("denoiseRemoved", denoiseRemoved), ("mixChroma", mixChroma),
             ("hotPixel", hotPixel),
+            ("hotPixelFill", hotPixelFill),
+            ("chromaEdgeMap", chromaEdgeMap),
             // S5 degrades like every other non-core stage: a missing spot kernel leaves
             // the spots unrendered AND names itself in the preview's "Reduced" note,
             // rather than taking the whole GPU path down for photographs with no spots.
@@ -1272,7 +1339,7 @@ public enum KernelLibrary {
     /// wavelet shrinkage is not a gentler denoise, it is a wrong picture.
     public static var denoiseAvailable: Bool {
         denoiseForward != nil && denoiseInverse != nil && bSpline5 != nil
-            && box3 != nil && chromaMagnitude != nil && edgeMap != nil
+            && box3 != nil && chromaEdgeMap != nil && edgeMap != nil
             && denoiseRemoved != nil && subtract != nil
     }
 

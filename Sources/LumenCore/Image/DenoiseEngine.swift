@@ -95,15 +95,32 @@ public struct NoiseProfile: Sendable, Equatable {
         (x: log2(102400.0), y: log2(2.0e-4)),
     ]
 
+    /// What the anchors above under-read real sensors by, in variance.
+    ///
+    /// The seed was physically shaped but never measured, and every threshold in the
+    /// engine is denominated in its σ. Measured on the proof corpus (LibRaw decodes in
+    /// Lumen's input convention, native resolution, 8×8 plane-fit block variance, the
+    /// mean of the three channels at signal 0.18), real σ over seed σ was: G9 ISO 3200
+    /// 1.72, Kiss X9 6400 1.89, GX850 2000 2.00, X-T10 4000 1.77, A7C 2000 1.13, 77D
+    /// 3200 1.98, D7200 1600 1.36, A7 IV 640 1.81. Median 1.76, so the whole curve moves
+    /// up by 1.75² ≈ 3 in variance. The full-frame A7C is the low outlier: it is read
+    /// about 1.5× too noisy, which costs it a little extra smoothing at default.
+    /// Apple's decode is +0.2…0.4 EV brighter than LibRaw's, which raises the shot term
+    /// in its units by about 10 % more; that is inside the spread above.
+    ///
+    /// One generic curve is still a stand-in for per-camera profiles; RenderPlan only
+    /// knows the ISO (docs/quality/lanes/WS-19/NEEDS.md).
+    public static let corpusVarianceScale: Double = 3.0
+
     /// The profile for an ISO, interpolated between the documented anchors in log2(ISO)
     /// and clamped beyond the ends (the same clamped-lerp rule §4 fixes for every anchor
-    /// table in the engine).
+    /// table in the engine), scaled to the measured corpus by `corpusVarianceScale`.
     public static func forISO(_ iso: Double) -> NoiseProfile {
         let clean = (iso.isFinite && iso > 0) ? iso : 100.0
         let l = log2(Swift.max(clean, 1.0))
         let a = exp2(Num.interpolateAnchors(shotAnchors, at: l))
         let b = exp2(Num.interpolateAnchors(readAnchors, at: l))
-        return NoiseProfile(a: a, b: b)
+        return NoiseProfile(a: a * corpusVarianceScale, b: b * corpusVarianceScale)
     }
 
     // MARK: Self-calibration from the image itself
@@ -415,15 +432,20 @@ public enum VST {
 /// **Slider → threshold mapping**, in one place (docs/07 §2.3; calibration is §12.6's open
 /// item, so every constant below is named and tunable):
 ///
+/// Every threshold is `slider scale × band weight × band noise × atrousDetailSigma[j]`:
+/// the last two together are the MEASURED noise σ of band j of a demosaiced frame
+/// (`lumaBandNoise`, `chromaUBandNoise`, `chromaVBandNoise`), so a threshold of k means
+/// k times the noise that band actually carries, at every scale and every ISO.
+///
 /// | Slider | Symbol | Effect on the soft threshold `T(level, x)` |
 /// |---|---|---|
-/// | Luminance | `k_L = 2.5·(luma/100)^0.755` | Master luma shrink scale, in units of the per-scale noise σ. Bounded at the measured knee — see `lumaK`. |
-/// | Luminance Detail | `1.5 − detail/100` | Multiplies the luma threshold. 50 ⇒ ×1.0; higher ⇒ lower threshold ⇒ texture (and noise) survives. This slider *is* the threshold. |
-/// | Luminance Contrast | `1 − 0.9·(contrast/100)·coarse(level)` | Biases shrinkage away from the coarse luma bands — preserves luminance contrast at the cost of mottling, LR's own tradeoff. |
-/// | Color | `k_C = 2.5·(chroma/100)^0.322` | Master chroma shrink scale, bounded at the measured knee — see `chromaK`. |
-/// | Color Detail | `1 − (detail/100)·edge(x)` | Spatially reduces the chroma threshold on chroma edges, so thin colour edges survive. |
-/// | Color Smoothness | `1 + 3·(smooth/100)·coarse(level)`, plus a guided-filter blotch pass mixed at `0.10·(smooth/100)·(chroma/100)` | Extends shrinkage into the coarsest chroma bands, which is where blotches live. |
-/// | Hot Pixels | `k = 2 + 10·(1 − h/100)²` | Median-deviation gate, separate pass. See `hotPixelK`. |
+/// | Luminance | `k_L = 3·(luma/100)` | Master luma scale, in band-noise σ, times `lumaBandWeight` (falls with scale: image energy lives in the coarse bands). See `lumaK`. |
+/// | Luminance Detail | `2^((50 − detail)/50)` | Multiplies the luma threshold. 50 ⇒ ×1.0, 0 ⇒ ×2, 100 ⇒ ×0.5; higher ⇒ lower threshold ⇒ texture (and noise) survives. This slider *is* the threshold. |
+/// | Luminance Contrast | `1 − 0.9·(contrast/100)·√coarse(level)` | Pulls the coarser luma bands' thresholds down — keeps mid-frequency contrast at the cost of mottling, LR's own tradeoff. |
+/// | Color | `k_C = (chroma/25)^0.75` | Master chroma scale: 1 at Lightroom's default 25, times `chromaBandWeight`. See `chromaK`. |
+/// | Color Detail | `2^(−((detail−50)/50)·(1 − coarse))`, plus `1 − min(1, 0.5 + detail/100)·edge(x)` | Raises or lowers the FINE chroma bands, where thin colour edges and colour texture live, and protects strong chroma edges spatially. |
+/// | Color Smoothness | `2^(((smooth−50)/50)·(1.6·coarse − 0.6))` | Tilts the chroma thresholds toward the coarse bands, which is where blotches live. |
+/// | Hot Pixels | `k = 8 + 16·(1 − h/100)²` | Gate of the separate defect pass. See `hotPixelK`. |
 ///
 /// `coarse(level)` is 0 at the finest band and 1 at the coarsest; `edge(x)` is the
 /// smoothstepped, blur-stabilized gradient magnitude in [0,1]. Luma additionally carries a
@@ -466,7 +488,8 @@ public struct ClassicalDenoise: Sendable {
     /// Counted along the longest dependency chain, which both paths share (the GPU
     /// stage's `roiCallback`s add up to the same number):
     ///
-    ///  - the hot-pixel pass, a 3×3 neighbourhood: 1;
+    ///  - the hot-pixel pass: detection reads the ring two pixels out and the fill reads
+    ///    the detection map one pixel out: 3;
     ///  - the à-trous stack: level `j` smooths with a five-tap B3 row whose taps sit
     ///    `2^j` apart, so it reaches `2·2^j`, and level `j` smooths level `j−1`'s output.
     ///    Summed over `levels` bands: `2^(levels+1) − 2` — 62 at five levels. The edge
@@ -485,7 +508,7 @@ public struct ClassicalDenoise: Sendable {
     /// `levels` is clamped the way `SpatialOps.atrousWavelet` clamps it.
     public static func receptiveField(levels: Int) -> Int {
         let l = Swift.min(Swift.max(levels, 1), 10)
-        let hotPixel = 1
+        let hotPixel = 3
         let atrous = (1 << (l + 1)) - 2
         let edge = SpatialOps.boxRadiiForGaussian(sigma: edgeBlurSigma).reduce(0, +) + 1
         let blotch = 2 * blotchRadius
@@ -504,12 +527,11 @@ public struct ClassicalDenoise: Sendable {
     /// the frame on noise nobody can see.
     public static let contributingNoiseScale: Double = 0.5
 
-    /// Luma master scale at Luminance 100, in σ — the ceiling the RESIDUAL-ERROR
-    /// measurement supports, not the one soft thresholding arithmetically allows.
-    /// See `lumaK` for the numbers.
-    public static let lumaMaxK: Double = 2.5
-    /// Chroma master scale at Color 100, in σ. Same ceiling, same reason (`chromaK`).
-    public static let chromaMaxK: Double = 2.5
+    /// Luma master scale at Luminance 100, in units of each band's measured noise σ
+    /// (after `lumaBandWeight`). See `lumaK` for the numbers.
+    public static let lumaMaxK: Double = 3.0
+    /// Chroma master scale at Color 100: `(100/25)^0.75`, the curve `chromaK` defines.
+    public static let chromaMaxK: Double = 2.8284271247461903
 
     /// The two curves are anchored rather than freely shaped: each master slider must
     /// still reach a stated shrink strength at a stated setting, because that is the
@@ -517,33 +539,87 @@ public struct ClassicalDenoise: Sendable {
     /// exponent is then whatever carries the anchor to the ceiling — written as the
     /// division rather than as its result, so a reader can check it.
     ///
-    /// Luminance 60 must leave under a fifth of the luma noise on a flat field
-    /// (`testLuminanceRemovesLumaNoiseAndLeavesChromaAlone`), which needs k ≈ 1.55;
-    /// 1.7 keeps a margin. Colour 25 — Lightroom's default, and the setting the
-    /// aggressive-by-doctrine assertion is calibrated at — needs k ≈ 1.6.
-    public static let lumaAnchorK: Double = 1.7
-    public static let lumaAnchorSlider: Double = 60
-    public static let chromaAnchorK: Double = 1.6
+    /// Luminance 50 is 1.5σ, which makes the luma curve linear in k (exponent 1): every
+    /// ten points of travel buys the same step of threshold, measured below. Colour 25 —
+    /// Lightroom's default — is the unit of `chromaBandWeight`, so the band weights are
+    /// literally the default thresholds in band-noise σ.
+    public static let lumaAnchorK: Double = 1.5
+    public static let lumaAnchorSlider: Double = 50
+    public static let chromaAnchorK: Double = 1.0
     public static let chromaAnchorSlider: Double = 25
 
     /// How far the guided-filter blotch pass may be mixed in, at Colour 100 with Colour
-    /// Smoothness 100. See `GPUPlan.blotchMix` for what moved this from 0.5 and why.
-    public static let blotchMaxMix: Double = 0.10
+    /// Smoothness 100. See `GPUPlan.blotchMix` for what moved this from 0.5 to 0.10.
+    ///
+    /// Now 0, and the pass no longer runs. It existed because coarse chroma blotches
+    /// survived band shrinkage, and they survived because the coarse thresholds were
+    /// denominated in white-noise σ while demosaiced chroma noise in bands 2–4 is 3–4×
+    /// that. With `chromaUBandNoise`/`chromaVBandNoise` the bands remove the blotches
+    /// themselves: on the ISO-3200 ground-truth sims flat chroma noise was 2.22 ΔE with
+    /// the pass at 0.10 and 2.22 without it. What the pass still did was the thing its
+    /// own measurement warns about — blur colour across equal-luminance edges — so it
+    /// is switched off rather than kept for nothing.
+    public static let blotchMaxMix: Double = 0.0
     /// How much a strong luma edge backs the luma threshold off.
     public static let lumaEdgeProtection: Double = 0.80
-    /// How far Luminance Contrast can pull the coarsest luma band's threshold down.
+    /// How far Luminance Contrast can pull the coarsest luma band's threshold down. The
+    /// reach follows √coarse rather than coarse, so bands 1–2 (2–4 px, where the
+    /// mid-frequency contrast a photographer means lives) move too: linear, Contrast
+    /// 0→100 at Luminance 50 moved mid-band retention 0.894 → 0.905 on the A7 IV sim,
+    /// a control nobody could see; √ moves the R5 sim 0.819 → 0.882.
     public static let lumaContrastReach: Double = 0.90
-    /// How far Color Smoothness can push the coarsest chroma band's threshold up.
-    public static let colorSmoothnessReach: Double = 3.0
+    /// Colour Smoothness, in octaves of threshold at Smoothness 100 (or 0): the tilt
+    /// `(smooth−50)/50 · (1.6·coarse − 0.6)` doubles the coarsest band and lowers the
+    /// finest by 2^−0.6 at 100, and mirrors that at 0. Measured on the R5 background
+    /// sim at Colour 25, flat chroma noise 1.98 / 1.79 / 1.72 ΔE at 0 / 50 / 100.
+    public static let colorSmoothnessTilt: Double = 1.6
+    public static let colorSmoothnessPivot: Double = 0.6
+    /// Colour Detail, in octaves of FINE-band threshold at Detail 0 (or 100): the fine
+    /// chroma bands are where thin colour edges and real colour texture live, and the
+    /// edge map alone — the only thing this slider drove before — never fired on real
+    /// noise, so Detail 0→100 moved edge error by 0.02 ΔE. Measured with this reach at
+    /// Colour 25: grass (GX85 sim) colour-edge error 8.19 / 7.63 / 6.90 at 0 / 50 / 100,
+    /// flat speckle on the A7 IV sim 1.46 / 1.50 / 1.67.
+    public static let colorDetailReach: Double = 1.0
+
+    /// How far a strong chroma edge backs the chroma thresholds off, for a Colour
+    /// Detail setting: `min(1, 0.5 + detail/100)`, so full protection from the default
+    /// up and half at Detail 0. It was `detail/100`, half at the default, and half was
+    /// not enough once the fine chroma bands are thresholded at their real noise: on a
+    /// demosaiced equal-luminance red/blue step (ClassicNRDemosaicedTests) Colour 25
+    /// widened the 10–90 % transition from 2.0 to 4.0 px and kept 74 % of a 2 px colour
+    /// line. With full protection at the edge (and `chromaEdgeMap` seeing hue edges):
+    /// 2.0 px and 93 %, and flat-area chroma noise on the four sims unchanged to 0.02
+    /// ΔE — the edge map fires on edges, not on noise. One definition read by the
+    /// reference and by `gpuPlan`.
+    public static func chromaEdgeProtection(colorDetail: Double) -> Double {
+        Num.saturate(0.5 + clampSlider(colorDetail) / 100)
+    }
     /// Guided-filter radius for the coarse chroma blotch pass.
     public static let blotchRadius: Int = 8
     /// Guided-filter regularization for the blotch pass, in squared luminance units.
     public static let blotchEpsilon: Double = 1e-4
     /// Blur σ stabilizing the edge maps before the gradient is taken.
     public static let edgeBlurSigma: Double = 1.5
-    /// Edge smoothstep knees, in units of the blurred plane's own noise σ.
+    /// Edge smoothstep knees, in units of the blurred plane's own noise σ — the chroma
+    /// map's (`chromaEdgeMap`).
     public static let edgeKneeLow: Double = 3.0
     public static let edgeKneeHigh: Double = 12.0
+    /// The luma map's knees, a quarter of the chroma map's.
+    ///
+    /// The luma edge map is a texture detector as much as an edge detector: where it
+    /// reads high the luma thresholds back off by `lumaEdgeProtection`, so it decides how
+    /// much fine detail Luminance spends. At 3/12 σ it fired on noise over half the
+    /// frame in the shipped engine (whose σ was 1.75× too small) and, after the profile
+    /// was corrected, hardly at all — so the corrected engine kept LESS fine texture
+    /// than the broken one at the same noise reduction. Measured on the ground-truth
+    /// sims at the Luminance setting that removes 35 % of flat-area luma noise, fine
+    /// texture retention: 3/12 → 0.859 (A7 IV) / 0.710 (R5); 1.5/6 → 0.904 / 0.721;
+    /// 1/4 → 0.920 / 0.738; 0.75/3 → 0.925 / 0.754 (the shipped engine: 0.902 / 0.733).
+    /// The flat R5 background reached the same 81 % reduction at every knee, so the map
+    /// still reads flat as flat.
+    public static let lumaEdgeKneeLow: Double = 0.75
+    public static let lumaEdgeKneeHigh: Double = 3.0
 
     /// Per-scale σ of the B3-spline à-trous detail coefficients for unit-variance white
     /// noise (Starck & Murtagh). Because shrinkage runs in VST space the input σ *is* 1, so
@@ -554,16 +630,113 @@ public struct ClassicalDenoise: Sendable {
     /// A different normalization would rescale this table, nothing else.
     public static let atrousDetailSigma: [Double] = [0.8907, 0.2007, 0.0856, 0.0413, 0.0205, 0.0103]
 
-    /// darktable's decorrelating Y0U0V0 basis (docs/07 §2.3) in its orthonormal form, so
-    /// unit-variance VST noise stays unit-variance in the rotated planes and the inverse is
-    /// the transpose — no matrix inversion, no conditioning question.
-    public static let toY0U0V0: Mat3 = Mat3(
-        0.5773502691896258, 0.5773502691896258, 0.5773502691896258,
-        0.7071067811865475, 0.0, -0.7071067811865475,
-        0.4082482904638631, -0.8164965809277261, 0.4082482904638631)
+    /// The noise a DEMOSAICED frame actually carries in each band, in units of
+    /// `atrousDetailSigma` (so 1 would be white noise), for the luma plane and the two
+    /// chroma planes of `toY0U0V0`, under `NoiseProfile.forISO`.
+    ///
+    /// White noise is what the table above assumes and what a sensor delivers per
+    /// photosite, but demosaicing interpolates two thirds of every channel, which
+    /// correlates neighbours: power leaves the finest band and piles up at 2–8 px, and
+    /// chroma — interpolated hardest — goes furthest. Measured on three ground-truth
+    /// sims (clean low-ISO RAWs from the A7 IV, R5 and GX85, decoded through LibRaw AHD
+    /// once clean and once with Poisson–Gaussian noise injected on the mosaic; median
+    /// absolute deviation of each band of noisy − clean), and consistent to ±10 % across
+    /// the three bodies. Real high-ISO frames agree on the bands texture does not
+    /// contaminate (G9, Kiss X9, 77D, D7200, GX850: chroma bands 1–2 at 3.6–4.0 and
+    /// 4.8–5.9 against the old seed, i.e. 2.1–2.3 and 2.8–3.4 against this profile).
+    ///
+    /// Before this table the thresholds treated every band as white: Colour's 2–8 px
+    /// thresholds sat at a third of the noise there, so colour blotches survived any
+    /// setting, and Luminance removed the finest grain and left the mottle underneath.
+    /// X-Trans decodes run about 30 % lower in bands 0–1, so they are denoised slightly
+    /// harder than they need; per-demosaic tables are a calibration step for later.
+    /// Entries past the end repeat the last.
+    public static let lumaBandNoise: [Double] = [0.77, 1.26, 1.47, 1.55, 1.59]
+    public static let chromaUBandNoise: [Double] = [0.75, 2.36, 3.39, 3.80, 3.94]
+    public static let chromaVBandNoise: [Double] = [0.60, 2.28, 3.33, 3.70, 3.86]
 
-    /// Inverse of `toY0U0V0` — the transpose, because the basis is orthonormal.
-    public static let fromY0U0V0: Mat3 = ClassicalDenoise.toY0U0V0.transposed
+    /// The luma threshold of band j at k = 1, in that band's noise σ.
+    ///
+    /// Falling with scale because a photograph's energy does: on the ground-truth sims
+    /// the per-band MSE-optimal luma threshold ran 1.5 / 0.75 / 0.25 / 0.25 / 0.25 σ
+    /// (A7 IV street) and 6 / 2 / 0.75 / 0.5 / 0.25 σ (R5 still life). Against flat
+    /// weights (the measured band noise used as-is) and against the old white-noise
+    /// shape, this profile kept the most fine texture AND the most 2–6 px texture at
+    /// every matched noise reduction on both scenes, and reached the lowest noise floor:
+    /// at 50 % less flat-area luma noise, texture retention 0.811 vs 0.791 (flat) and
+    /// 0.809 (white) on the A7 IV, 0.621 vs 0.572 and 0.604 on the R5.
+    public static let lumaBandWeight: [Double] = [1.0, 0.6, 0.35, 0.25, 0.2]
+
+    /// The chroma threshold of band j at Colour 25, in that band's noise σ. Chroma has
+    /// almost no real signal in the finest band and sparse signal above it, so the
+    /// weights fall from "zero the band" to half a σ in the coarsest. Chosen against
+    /// ground truth over four sims: flat chroma noise and colour-edge error both within
+    /// 3 % of the best of the vectors tried ([8, 3, 1.75, 1, 0.6], [8, 2.5, 1.25, 0.75,
+    /// 0.4] bracket it), and every entry inside the per-band MSE optimum's range.
+    public static let chromaBandWeight: [Double] = [8.0, 2.75, 1.4, 0.85, 0.5]
+
+    /// Entry j of a per-band table, repeating the last entry past the end.
+    static func band(_ table: [Double], _ j: Int) -> Double {
+        guard let last = table.last else { return 1 }
+        return j < table.count ? table[Swift.max(j, 0)] : last
+    }
+
+    /// The decorrelating basis: luma along the NEUTRAL axis, measured with luminance
+    /// weights, and two chroma coordinates confined to the plane of zero luminance.
+    ///
+    /// ```
+    /// y = w·v                      (w = Rec.2020 luminance weights, Σw = 1)
+    /// c = v − y·(1,1,1)            (w·c = 0 by construction)
+    /// u = e₂·c,  v' = e₃·c         (e₂, e₃ orthonormal in the plane w·c = 0)
+    /// inverse: v = y·(1,1,1) + u·e₂ + v'·e₃
+    /// ```
+    ///
+    /// It replaced darktable's orthonormal Y0U0V0, whose luma axis (1,1,1)/√3 weights
+    /// the three channels equally. In that basis the chroma planes are orthogonal to
+    /// equal-weight brightness, not to luminance, so zeroing chroma detail moved red
+    /// against blue and Lab L* with it: Colour 25 alone cost the A7 IV sim 4 % of its
+    /// fine texture (retention 0.976 → 0.936) and raised flat-area L* error 7 % on the
+    /// R5 sim. A pure luminance axis is wrong the other way — noise along w is green,
+    /// and flat chroma error tripled. The oblique pair keeps both properties at once:
+    /// chroma shrinkage leaves y untouched (retention 0.974, flat L* error +2 %) and luma
+    /// noise is neutral. The price is that the planes no longer carry unit noise, which
+    /// the measured `*BandNoise` tables absorb, and that the inverse is a real inverse.
+    public static let toY0U0V0: Mat3 = ClassicalDenoise.decorrelatingBasis().forward
+
+    /// Inverse of `toY0U0V0`, in closed form: its columns are (1,1,1), e₂ and e₃.
+    public static let fromY0U0V0: Mat3 = ClassicalDenoise.decorrelatingBasis().inverse
+
+    static func decorrelatingBasis() -> (forward: Mat3, inverse: Mat3) {
+        let l = RGBColorSpace.rec2020.luminanceWeights
+        let sum = l.r + l.g + l.b
+        let w = [l.r / sum, l.g / sum, l.b / sum]
+        func dot(_ a: [Double], _ b: [Double]) -> Double { a[0] * b[0] + a[1] * b[1] + a[2] * b[2] }
+        func normalized(_ a: [Double]) -> [Double] {
+            let n = dot(a, a).squareRoot()
+            return [a[0] / n, a[1] / n, a[2] / n]
+        }
+        // e₂: red minus blue, with its luminance component removed; e₃ = w × e₂.
+        var e2 = [1.0, 0.0, -1.0]
+        let p = dot(e2, w) / dot(w, w)
+        e2 = normalized([e2[0] - p * w[0], e2[1] - p * w[1], e2[2] - p * w[2]])
+        let e3 = normalized([w[1] * e2[2] - w[2] * e2[1],
+                             w[2] * e2[0] - w[0] * e2[2],
+                             w[0] * e2[1] - w[1] * e2[0]])
+        // Row k of the forward matrix is eₖᵀ(I − 1·wᵀ): the coordinate of v − y·1.
+        func row(_ e: [Double]) -> [Double] {
+            let s = e[0] + e[1] + e[2]
+            return [e[0] - s * w[0], e[1] - s * w[1], e[2] - s * w[2]]
+        }
+        let r2 = row(e2)
+        let r3 = row(e3)
+        let forward = Mat3(w[0], w[1], w[2],
+                           r2[0], r2[1], r2[2],
+                           r3[0], r3[1], r3[2])
+        let inverse = Mat3(1, e2[0], e3[0],
+                           1, e2[1], e3[1],
+                           1, e2[2], e3[2])
+        return (forward, inverse)
+    }
 
     // MARK: Initialization
 
@@ -670,6 +843,21 @@ public struct ClassicalDenoise: Sendable {
     /// texture from the noise beside it. Bounding the travel is what is available
     /// without changing an operator the GPU implements too; discriminating properly is
     /// what DETAIL-17's per-camera profiles and the neural tier are for.
+    ///
+    /// **All of the above was measured in the wrong unit.** The k it reasons about was
+    /// a multiple of WHITE-noise σ under a seed profile that read real sensors 1.75×
+    /// too quiet, on synthetic frames whose noise was white. On a demosaiced frame the
+    /// same k sat at 0.3–0.6 of the real noise in bands 1–4, so the slider removed the
+    /// finest grain and left the 2–8 px mottle: measured on the ISO-3200 ground-truth
+    /// sims, the shipped ISO default (18.75) cut flat-area luma noise 20 % while fine
+    /// texture retention fell 0.976 → 0.928 (A7 IV) and 0.79 → 0.58 (R5 background).
+    ///
+    /// Thresholds are now in each band's measured noise (`lumaBandNoise`) times
+    /// `lumaBandWeight`, and k runs linearly to 3σ. Flat-area luma noise left, A7 IV
+    /// sim, sliders 0…100 in tens: 2.42 1.92 1.51 1.23 1.05 0.98 0.96 0.98 1.00 1.03
+    /// 1.06 L* (past 50 the "flat" quartile's own texture is what is being removed),
+    /// fine texture retention 0.94 → 0.59 in steps of 0.02–0.05 with no dead stretch.
+    /// The shipped curve's best was 1.20 at 100.
     public static func lumaK(_ slider: Double) -> Double {
         let s = Num.saturate(clampSlider(slider) / 100)
         guard s > 0 else { return 0 }
@@ -719,6 +907,14 @@ public struct ClassicalDenoise: Sendable {
     ///
     /// — every setting on the travel now better than leaving the noise in, which is the
     /// least a control can owe.
+    ///
+    /// **Re-denominated.** Like `lumaK`, those k were multiples of white-noise σ, and
+    /// demosaiced chroma noise in bands 1–3 is 2.3–3.8× that against the recalibrated
+    /// profile (`chromaUBandNoise`). The shipped Colour 25 therefore left visible colour
+    /// noise on every high-ISO frame in the corpus: G9 ISO 3200 flat chroma noise 9.0 →
+    /// 4.5 ΔE*ab, Kiss X9 ISO 6400 9.0 → 4.7. The curve is now a pure scale on
+    /// `chromaBandWeight`, 1 at Lightroom's default: `(chroma/25)^0.75`, so Colour 10
+    /// is half strength and Colour 100 is 2.83×. Same frames at Colour 25: 2.1 and 1.9.
     public static func chromaK(_ slider: Double) -> Double {
         let s = Num.saturate(clampSlider(slider) / 100)
         guard s > 0 else { return 0 }
@@ -730,22 +926,51 @@ public struct ClassicalDenoise: Sendable {
         Foundation.log(chromaAnchorK / chromaMaxK)
             / Foundation.log(chromaAnchorSlider / 100)
 
-    /// Hot Pixels → the median-deviation gate `k` (docs/07 §12.5, defined here).
+    /// Hot Pixels → the deviation gate `k`, in noise σ (docs/07 §12.5, defined here).
     ///
     /// ```
     /// k(0)   = +∞      (no-op — the caller skips the pass entirely)
-    /// k(h)   = 2 + 10·(1 − h/100)²      for h > 0
-    /// k(50)  = 4.5,  k(100) = 2.0
+    /// k(h)   = 8 + 16·(1 − h/100)²      for h > 0
+    /// k(50)  = 12,  k(100) = 8
     /// ```
-    /// Quadratic rather than linear so the top half of the slider's travel is the useful
-    /// half: below k ≈ 4.5 the gate starts reaching ordinary specular detail, and the
-    /// squared falloff keeps that region spread across 50 points of slider instead of 15.
+    /// It was `2 + 10·(1 − h/100)²`, which reached 2σ, and a 2σ gate on a 3×3 extremum
+    /// fires on noise: with the shape tests of `hotPixelPass` it changed 34 % of the
+    /// pixels of a plain ISO-3200 frame at 100. A defect is not a noise event — the
+    /// injected hot pixels the pass is measured on sit 4–70σ above their surround — so
+    /// the gate lives where noise does not reach: measured on the same frame, pixels
+    /// touched 0.003 % / 0.05 % / 0.3 % / 0.5 % at 25 / 50 / 75 / 100, while the share
+    /// of hot pixels removed goes 93 % → 96 %. Quadratic so the low end of the travel
+    /// (the strictest gates) spreads out.
     public static func hotPixelK(_ slider: Double) -> Double {
         let h = clampSlider(slider)
         guard h > 0 else { return .infinity }
         let t = 1 - h / 100
-        return 2.0 + 10.0 * t * t
+        return 8.0 + 16.0 * t * t
     }
+
+    /// Hot-pixel shape tests; see `hotPixelPass`.
+    ///
+    /// The ring the background is read from: pixels two away, outside the 3×3 a demosaic
+    /// smears a defect into.
+    public static let hotPixelRing: Int = 2
+    /// A channel's excess must exceed this many times the same-sign excess of either
+    /// other channel to count as single-channel. A red-site hot pixel leaves green and
+    /// blue at or below zero (ratio unbounded); a white star leaves them equal (ratio 1);
+    /// a strongly coloured star still reaches a few. 4 and 8 let 13 % and 6 % of
+    /// σ ≥ 0.7 px stars lose over a tenth of their peak; 16 lets 2.5 % through, at no
+    /// cost in hot pixels removed.
+    public static let hotPixelChromaRatio: Double = 16
+    /// "Too sharp for any lens": the third-largest neighbour's excess, as a fraction of
+    /// the centre's. A green-site hot pixel after demosaic is one pixel or a 1×3 streak
+    /// (two opposite neighbours at about half); a star of PSF σ ≥ 0.7 px lifts at least
+    /// four neighbours to over a third of its peak.
+    public static let hotPixelSharpness: Double = 0.2
+    /// The fill map's "not flagged" marker. A finite value rather than NaN so the GPU
+    /// twin can carry it through a half-float intermediate exactly (65 504 is the
+    /// largest finite half); nothing scene-linear reaches 10⁴.
+    public static let hotPixelUnflagged: Double = 30_000
+    /// Fill-map values at or above this read as "not flagged".
+    public static let hotPixelFlagLimit: Double = 10_000
 
     /// Per-scale detail σ, extended past the table by the observed halving per octave.
     public static func detailSigma(level: Int) -> Double {
@@ -842,31 +1067,23 @@ public struct ClassicalDenoise: Sendable {
             }
         }
 
-        // 2. Edge maps. Luma edges come from the luma plane; chroma edges from the chroma
-        //    magnitude, so a saturated edge on flat luma still protects itself.
+        // 2. Edge maps. Luma edges come from the luma plane; chroma edges from the joint
+        //    gradient of both chroma planes, so a colour edge on flat luma protects
+        //    itself whichever way the colour turns (see `chromaEdgeMap`).
         let zeroEdge = Plane(width: w, height: h)
         var lumaEdge = zeroEdge
         if kL > 0 {
             lumaEdge = ClassicalDenoise.edgeMap(p0,
                                                 blurSigma: ClassicalDenoise.edgeBlurSigma,
-                                                lo: ClassicalDenoise.edgeKneeLow,
-                                                hi: ClassicalDenoise.edgeKneeHigh)
+                                                lo: ClassicalDenoise.lumaEdgeKneeLow,
+                                                hi: ClassicalDenoise.lumaEdgeKneeHigh)
         }
         var chromaEdge = zeroEdge
         if kC > 0 {
-            var magnitude = Plane(width: w, height: h)
-            let n = magnitude.values.count
-            if p1.values.count == n && p2.values.count == n {
-                for i in 0..<n {
-                    let u = Double(p1.values[i])
-                    let v = Double(p2.values[i])
-                    magnitude.values[i] = Float((u * u + v * v).squareRoot())
-                }
-            }
-            chromaEdge = ClassicalDenoise.edgeMap(magnitude,
-                                                  blurSigma: ClassicalDenoise.edgeBlurSigma,
-                                                  lo: ClassicalDenoise.edgeKneeLow,
-                                                  hi: ClassicalDenoise.edgeKneeHigh)
+            chromaEdge = ClassicalDenoise.chromaEdgeMap(p1, p2,
+                                                        blurSigma: ClassicalDenoise.edgeBlurSigma,
+                                                        lo: ClassicalDenoise.edgeKneeLow,
+                                                        hi: ClassicalDenoise.edgeKneeHigh)
         }
 
         // 3. Shrinkage, per plane, in VST space.
@@ -876,11 +1093,10 @@ public struct ClassicalDenoise: Sendable {
         }
         if kC > 0 {
             let smooth = colorSmoothness / 100
-            let protection = colorDetail / 100
-            let thresholds = chromaThresholds(levels: levelCount)
-            p1 = shrink(p1, thresholds: thresholds,
+            let protection = ClassicalDenoise.chromaEdgeProtection(colorDetail: colorDetail)
+            p1 = shrink(p1, thresholds: chromaThresholds(levels: levelCount),
                         edge: chromaEdge, edgeProtection: protection)
-            p2 = shrink(p2, thresholds: thresholds,
+            p2 = shrink(p2, thresholds: chromaVThresholds(levels: levelCount),
                         edge: chromaEdge, edgeProtection: protection)
 
             // Large-scale chroma blotches survive band shrinkage because they *are* the
@@ -889,10 +1105,11 @@ public struct ClassicalDenoise: Sendable {
             // boundary that is pure chroma at flat luminance is invisible to it and the
             // filter bleeds straight across. That is where a third of `chromaEdge` went.
             // `blotchMaxMix` is the bound; see `GPUPlan.blotchMix` for the measurement.
-            let blotch = Num.saturate(smooth) * Num.saturate(chroma / 100)
-            if blotch > 0 {
+            // It is 0 now that the bands are calibrated, which skips the pass outright.
+            let mixAmount = ClassicalDenoise.blotchMaxMix
+                * Num.saturate(smooth) * Num.saturate(chroma / 100)
+            if mixAmount > 0 {
                 let guide = work.luminancePlane(space: space)
-                let mixAmount = ClassicalDenoise.blotchMaxMix * blotch
                 let f1 = SpatialOps.guidedFilter(input: p1, guide: guide,
                                                  radius: ClassicalDenoise.blotchRadius,
                                                  epsilon: ClassicalDenoise.blotchEpsilon)
@@ -904,7 +1121,8 @@ public struct ClassicalDenoise: Sendable {
             }
         }
 
-        // 4. Rotate back and invert the VST. Alpha rides along in `out`'s untouched slot.
+        // 4. Back out of the basis and invert the VST. Alpha rides along in `out`'s
+        //    untouched slot.
         var out = work
         let unrotate = ClassicalDenoise.fromY0U0V0
         for y in 0..<h {
@@ -928,12 +1146,18 @@ public struct ClassicalDenoise: Sendable {
     /// cannot drift into disagreeing about what a slider means.
     ///
     /// `Luminance` sets the master scale, `Luminance Detail` multiplies the threshold
-    /// (`1.5 − detail/100`, so 50 ⇒ ×1.0), and `Luminance Contrast` pulls the coarse
+    /// (`2^((50 − detail)/50)`, so 50 ⇒ ×1.0), and `Luminance Contrast` pulls the coarse
     /// bands' thresholds down so coarse luminance structure survives — at the cost of
     /// mottling, which is LR's own tradeoff.
+    ///
+    /// Detail was `1.5 − detail/100` (×1.5 … ×0.5). Once the luma edge map started
+    /// protecting texture (`lumaEdgeKneeLow`), that linear span covered too little: at
+    /// Luminance 50, Detail 0 → 100 moved fine-texture retention on the A7 IV sim
+    /// 0.834 → 0.924. In octaves (×2 … ×0.5, same default) it moves 0.795 → 0.924,
+    /// and every quarter of the travel does a comparable step.
     public func lumaThresholds(levels levelCount: Int) -> [Double] {
         let k = ClassicalDenoise.lumaK(luma)
-        let detailScale = 1.5 - lumaDetail / 100
+        let detailScale = exp2((50 - lumaDetail) / 50)
         let contrast = lumaContrast / 100
         let coarseDivisor = Double(Swift.max(levelCount - 1, 1))
         guard k > 0 && detailScale > 0 else {
@@ -941,24 +1165,45 @@ public struct ClassicalDenoise: Sendable {
         }
         return (0..<Swift.max(levelCount, 0)).map { j in
             let coarse = Double(j) / coarseDivisor
-            let band = Swift.max(1 - ClassicalDenoise.lumaContrastReach * contrast * coarse, 0)
-            return k * detailScale * ClassicalDenoise.detailSigma(level: j) * band
+            let band = Swift.max(1 - ClassicalDenoise.lumaContrastReach * contrast
+                                    * coarse.squareRoot(), 0)
+            return k * detailScale * band
+                * ClassicalDenoise.band(ClassicalDenoise.lumaBandWeight, j)
+                * ClassicalDenoise.band(ClassicalDenoise.lumaBandNoise, j)
+                * ClassicalDenoise.detailSigma(level: j)
         }
     }
 
-    /// The per-band soft-threshold base for both chroma planes. `Colour Smoothness`
-    /// pushes the coarse bands' thresholds up, which is where blotches live.
+    /// The per-band soft-threshold base for the first chroma plane (`u`). `Colour
+    /// Smoothness` tilts the thresholds toward the coarse bands, where blotches live;
+    /// `Colour Detail` raises or lowers the fine ones, where colour edges live.
     public func chromaThresholds(levels levelCount: Int) -> [Double] {
+        chromaThresholds(levels: levelCount, noise: ClassicalDenoise.chromaUBandNoise)
+    }
+
+    /// The same for the second chroma plane (`v'`), which carries a little less noise
+    /// in the fine bands than `u` (`chromaVBandNoise`).
+    public func chromaVThresholds(levels levelCount: Int) -> [Double] {
+        chromaThresholds(levels: levelCount, noise: ClassicalDenoise.chromaVBandNoise)
+    }
+
+    private func chromaThresholds(levels levelCount: Int, noise: [Double]) -> [Double] {
         let k = ClassicalDenoise.chromaK(chroma)
-        let smooth = colorSmoothness / 100
+        let smooth = (colorSmoothness - 50) / 50
+        let detail = (colorDetail - 50) / 50
         let coarseDivisor = Double(Swift.max(levelCount - 1, 1))
         guard k > 0 else {
             return [Double](repeating: 0, count: Swift.max(levelCount, 0))
         }
         return (0..<Swift.max(levelCount, 0)).map { j in
             let coarse = Double(j) / coarseDivisor
-            let band = 1 + ClassicalDenoise.colorSmoothnessReach * smooth * coarse
-            return k * ClassicalDenoise.detailSigma(level: j) * band
+            let tilt = smooth * (ClassicalDenoise.colorSmoothnessTilt * coarse
+                                 - ClassicalDenoise.colorSmoothnessPivot)
+                - detail * ClassicalDenoise.colorDetailReach * (1 - coarse)
+            return k * exp2(tilt)
+                * ClassicalDenoise.band(ClassicalDenoise.chromaBandWeight, j)
+                * ClassicalDenoise.band(noise, j)
+                * ClassicalDenoise.detailSigma(level: j)
         }
     }
 
@@ -1037,6 +1282,42 @@ public struct ClassicalDenoise: Sendable {
         return out
     }
 
+    /// The chroma edge map: `edgeMap`'s operator on the JOINT gradient of the two chroma
+    /// planes, `√(|∇u|² + |∇v'|²)`, after the same box-approximated blur of each.
+    ///
+    /// It was `edgeMap` of the chroma MAGNITUDE `√(u² + v'²)`, which sees saturation
+    /// change and not hue change: a warm-to-cool boundary at similar saturation barely
+    /// moves the magnitude, so the boundary between a red and a blue of equal luminance
+    /// — the edge chroma shrinkage is most able to bleed — was nearly unprotected. On
+    /// the demosaiced red/blue step of ClassicNRDemosaicedTests, Colour 25: transition
+    /// 2.9–3.1 px with the magnitude map, 1.9–2.0 px with this one, against 2.05 px for
+    /// the noise-free twin; a 2 px colour line keeps 93 % of its contrast instead of
+    /// 80 %; flat-area chroma noise on the four ground-truth sims within 0.02 ΔE.
+    public static func chromaEdgeMap(_ u: Plane, _ v: Plane, blurSigma: Double,
+                                     lo: Double, hi: Double) -> Plane {
+        guard u.width == v.width && u.height == v.height else {
+            return Plane(width: u.width, height: u.height)
+        }
+        let usable = blurSigma.isFinite && blurSigma > 0
+        let su = usable ? SpatialOps.boxApproximatedGaussian(u, sigma: blurSigma) : u
+        let sv = usable ? SpatialOps.boxApproximatedGaussian(v, sigma: blurSigma) : v
+        let scale = usable ? 1.0 / (2.0 * Double.pi.squareRoot() * blurSigma) : 1.0
+        let e0 = lo * scale
+        let e1 = hi * scale
+        var out = Plane(width: u.width, height: u.height)
+        for y in 0..<u.height {
+            for x in 0..<u.width {
+                let ux = (su.clampedSample(x + 1, y) - su.clampedSample(x - 1, y)) * 0.5
+                let uy = (su.clampedSample(x, y + 1) - su.clampedSample(x, y - 1)) * 0.5
+                let vx = (sv.clampedSample(x + 1, y) - sv.clampedSample(x - 1, y)) * 0.5
+                let vy = (sv.clampedSample(x, y + 1) - sv.clampedSample(x, y - 1)) * 0.5
+                let g = (ux * ux + uy * uy + vx * vx + vy * vy).squareRoot()
+                out[x, y] = Num.smoothstep(e0, e1, g)
+            }
+        }
+        return out
+    }
+
     private static func mixPlanes(_ a: Plane, _ b: Plane, _ t: Double) -> Plane {
         guard a.width == b.width && a.height == b.height else { return a }
         let amount = Num.saturate(t)
@@ -1054,57 +1335,134 @@ public struct ClassicalDenoise: Sendable {
     // MARK: Hot pixels
 
     /// The Hot Pixels control (docs/07 §2.5), a separate pass rather than a wavelet band:
-    /// a single-pixel outlier is not a scale, it is a defect, and the wavelet stack would
-    /// smear it across three levels before shrinking any of them.
+    /// a defect is not a scale, and the wavelet stack would smear it across three levels
+    /// before shrinking any of them.
     ///
-    /// Per channel, a pixel is replaced by the median of its 8 neighbours when both:
-    ///  1. it deviates from that median by more than `k · σ`, with σ from the noise profile
-    ///     evaluated at the *median* (the pixel's own value is the thing under suspicion), and
-    ///  2. it is an extremum of the 3×3 neighbourhood — strictly above every neighbour or
-    ///     strictly below every one. Condition 2 is what makes this single-pixel: an edge or
-    ///     a fine line always has at least one neighbour on the same side of the median.
+    /// **What a hot pixel looks like by the time it gets here.** This pass runs after
+    /// demosaic (docs/07 §2.5 moves it to the CFA domain in v2), and demosaic does not
+    /// leave a defect at one pixel. Measured by injecting single-photosite defects into a
+    /// real mosaic and decoding it: on a red or blue site it becomes a SINGLE-CHANNEL
+    /// 3×3 blob (centre 1, edge neighbours ½, corners ¼, the other two channels at or
+    /// below zero); on a green site it becomes a near-white pixel, sometimes a 1×3
+    /// streak, with nothing around it. The pass this replaced compared one pixel with the
+    /// median of its eight neighbours and replaced that pixel alone: the median of a
+    /// blob's own skirt is ⅜ of its peak, so half of every red or blue defect survived
+    /// at any setting (median residual peak 51 %), while a star — the brightest pixel of
+    /// its own 3×3 too — lost 18–33 % of its peak.
     ///
-    /// v1 runs post-RAW-stage; docs/07 §2.5 moves it to the CFA domain in v2, where hot
-    /// pixels actually live and before demosaic can smear one into a cross.
+    /// Two stages, both per channel:
+    ///
+    /// 1. **Detect.** A pixel is a defect in channel c when ALL of
+    ///    - it is a strict extremum of its 3×3 in c;
+    ///    - it differs from the background `bg` — the median of the eight pixels
+    ///      `hotPixelRing` away, outside the smear — by more than `k·σ(bg)`;
+    ///    - and its shape is not one optics can make: either SINGLE-CHANNEL (its excess
+    ///      `e = v − bg` beats `hotPixelChromaRatio` × the same-sign excess of both other
+    ///      channels), or TOO SHARP (its third-largest neighbour excess is under
+    ///      `hotPixelSharpness · e`). Stars and speculars are broadband and spread, so
+    ///      they fail both.
+    ///    The detection map holds `bg` where a channel is flagged and
+    ///    `hotPixelUnflagged` elsewhere.
+    /// 2. **Fill.** Each pixel takes, per channel, the background of a flagged centre
+    ///    covering it: its own if flagged, else the smallest among flagged edge
+    ///    neighbours, else the smallest among flagged corners. So the whole smear is
+    ///    replaced, not just its peak. Within a ring the minimum (not an order) decides,
+    ///    so the result cannot depend on which way y points.
+    ///
+    /// Measured on the hot-pixel sim (R5 mosaic, ISO-3200 noise, 3000 each of hot pixels,
+    /// Gaussian stars and 1–2.5 px specular discs injected; see the WS-19 lane folder):
+    /// at Hot Pixels 50, 95 % of hot pixels left at ≤ 30 % of their peak (median 2 %),
+    /// 97.5 % of stars with PSF σ ≥ 0.7 px keep ≥ 90 % of theirs, every specular is
+    /// untouched, and 0.05 % of plain noise pixels change. Stars of σ 0.5 px that land
+    /// on one red or blue photosite ARE hot pixels as far as a single frame can tell —
+    /// same colour, same shape — and are removed; only a dark frame separates them.
     public func hotPixelPass(_ image: ImageBuffer) -> ImageBuffer {
         let k = ClassicalDenoise.hotPixelK(hotPixels)
         guard k.isFinite && k > 0 else { return image }
-        var out = image
         let w = image.width
         let h = image.height
-        var neighbours = [Double](repeating: 0, count: 8)
+        guard w > 0 && h > 0 else { return image }
+        let ring = ClassicalDenoise.hotPixelRing
+        let ratio = ClassicalDenoise.hotPixelChromaRatio
+        let sharpness = ClassicalDenoise.hotPixelSharpness
+        let unflagged = ClassicalDenoise.hotPixelUnflagged
+
+        // 1. Detect.
+        var fill = [RGB](repeating: RGB(unflagged, unflagged, unflagged), count: w * h)
+        var near = [Double](repeating: 0, count: 8)
+        var far = [Double](repeating: 0, count: 8)
         for y in 0..<h {
             for x in 0..<w {
                 let centre = image[x, y]
-                var replaced = centre
+                var nearRGB = [RGB](repeating: .zero, count: 8)
+                var farRGB = [RGB](repeating: .zero, count: 8)
+                var i = 0
+                for dy in -1...1 {
+                    for dx in -1...1 {
+                        if dx == 0 && dy == 0 { continue }
+                        nearRGB[i] = image.clampedSample(x + dx, y + dy)
+                        farRGB[i] = image.clampedSample(x + dx * ring, y + dy * ring)
+                        i += 1
+                    }
+                }
+                var background = RGB.zero
+                for ch in 0..<3 {
+                    for j in 0..<8 { far[j] = farRGB[j][ch] }
+                    far.sort()
+                    background[ch] = (far[3] + far[4]) * 0.5
+                }
+                let excess = centre - background
+                var out = RGB(unflagged, unflagged, unflagged)
+                for ch in 0..<3 {
+                    let v = centre[ch]
+                    let bg = background[ch]
+                    let e = excess[ch]
+                    guard v.isFinite && bg.isFinite else { continue }
+                    for j in 0..<8 { near[j] = nearRGB[j][ch] }
+                    near.sort()
+                    guard v > near[7] || v < near[0] else { continue }
+                    let sigma = profile.sigma(at: bg)
+                    guard abs(e) > k * sigma else { continue }
+                    let sign: Double = e > 0 ? 1 : (e < 0 ? -1 : 0)
+                    let other = Swift.max(sign * excess[(ch + 1) % 3],
+                                          sign * excess[(ch + 2) % 3], 0)
+                    let singleChannel = abs(e) > ratio * other
+                    let tooSharp = (e > 0 && near[5] - bg < sharpness * e)
+                        || (e < 0 && near[2] - bg > sharpness * e)
+                    if singleChannel || tooSharp { out[ch] = bg }
+                }
+                fill[y * w + x] = out
+            }
+        }
+
+        // 2. Fill.
+        func flagged(_ x: Int, _ y: Int) -> RGB {
+            fill[Swift.min(Swift.max(y, 0), h - 1) * w + Swift.min(Swift.max(x, 0), w - 1)]
+        }
+        func minimum(_ a: RGB, _ b: RGB) -> RGB {
+            RGB(Swift.min(a.r, b.r), Swift.min(a.g, b.g), Swift.min(a.b, b.b))
+        }
+        let limit = ClassicalDenoise.hotPixelFlagLimit
+        var result = image
+        for y in 0..<h {
+            for x in 0..<w {
+                let own = flagged(x, y)
+                let edges = minimum(minimum(flagged(x + 1, y), flagged(x - 1, y)),
+                                    minimum(flagged(x, y + 1), flagged(x, y - 1)))
+                let corners = minimum(minimum(flagged(x + 1, y + 1), flagged(x - 1, y + 1)),
+                                      minimum(flagged(x + 1, y - 1), flagged(x - 1, y - 1)))
+                var v = image[x, y]
                 var changed = false
                 for ch in 0..<3 {
-                    var i = 0
-                    for dy in -1...1 {
-                        for dx in -1...1 {
-                            if dx == 0 && dy == 0 { continue }
-                            neighbours[i] = image.clampedSample(x + dx, y + dy)[ch]
-                            i += 1
-                        }
-                    }
-                    neighbours.sort()
-                    let median = (neighbours[3] + neighbours[4]) * 0.5
-                    let lo = neighbours[0]
-                    let hi = neighbours[7]
-                    let value = centre[ch]
-                    guard value.isFinite && median.isFinite else { continue }
-                    if !(value > hi || value < lo) { continue }
-                    let sigma = profile.sigma(at: median)
-                    guard sigma > 0 else { continue }
-                    if abs(value - median) > k * sigma {
-                        replaced[ch] = median
+                    for candidate in [corners[ch], edges[ch], own[ch]] where candidate < limit {
+                        v[ch] = candidate
                         changed = true
                     }
                 }
-                if changed { out[x, y] = replaced }
+                if changed { result[x, y] = v }
             }
         }
-        return out
+        return result
     }
 
     // MARK: - The GPU stage's parameters
@@ -1169,14 +1527,21 @@ public struct ClassicalDenoise: Sendable {
         public let shrinkage: Double
         /// Per-band luma thresholds, already multiplied by `encodedScale`.
         public let lumaThresholds: [Double]
-        /// Per-band chroma thresholds, already multiplied by `encodedScale`.
+        /// Per-band thresholds of the first chroma plane, already multiplied by
+        /// `encodedScale`.
         public let chromaThresholds: [Double]
+        /// Per-band thresholds of the second chroma plane, already multiplied by
+        /// `encodedScale`.
+        public let chromaVThresholds: [Double]
         /// Edge-map protection: how far a strong edge backs the threshold off.
         public let lumaProtection: Double
         public let chromaProtection: Double
-        /// Edge-map smoothstep knees, already multiplied by `encodedScale`.
+        /// Chroma edge-map smoothstep knees, already multiplied by `encodedScale`.
         public let edgeKneeLow: Double
         public let edgeKneeHigh: Double
+        /// Luma edge-map knees, likewise (`ClassicalDenoise.lumaEdgeKneeLow`).
+        public let lumaEdgeKneeLow: Double
+        public let lumaEdgeKneeHigh: Double
         /// Weight of the luminance-guided chroma blotch pass, 0 when it is off.
         ///
         /// Bounded by `ClassicalDenoise.blotchMaxMix`, and that bound is the single
@@ -1360,10 +1725,14 @@ public struct ClassicalDenoise: Sendable {
             shrinkage: engine.shrinkageFraction,
             lumaThresholds: engine.lumaThresholds(levels: levelCount).map { $0 * scale },
             chromaThresholds: engine.chromaThresholds(levels: levelCount).map { $0 * scale },
+            chromaVThresholds: engine.chromaVThresholds(levels: levelCount).map { $0 * scale },
             lumaProtection: kL > 0 ? ClassicalDenoise.lumaEdgeProtection : 0,
-            chromaProtection: kC > 0 ? Num.saturate(colorDetail / 100) : 0,
+            chromaProtection: kC > 0
+                ? ClassicalDenoise.chromaEdgeProtection(colorDetail: colorDetail) : 0,
             edgeKneeLow: ClassicalDenoise.edgeKneeLow * knee * scale,
             edgeKneeHigh: ClassicalDenoise.edgeKneeHigh * knee * scale,
+            lumaEdgeKneeLow: ClassicalDenoise.lumaEdgeKneeLow * knee * scale,
+            lumaEdgeKneeHigh: ClassicalDenoise.lumaEdgeKneeHigh * knee * scale,
             blotchMix: kC > 0 ? ClassicalDenoise.blotchMaxMix * blotch : 0,
             hotPixelK: ClassicalDenoise.hotPixelK(hotPixels))
     }
@@ -1750,13 +2119,25 @@ public struct TilePlan: Sendable {
 /// intent is served by the explicit "re-apply current defaults" batch command.
 public enum ISODefaults {
 
-    /// Luminance: 0 at ISO ≤ 400 → 25 at 6400 → 40 at ISO ≥ 25600. Worked example from
-    /// docs/07 §4: ISO 3200 is at log2 = 11.6439, three quarters of the way from log2 400
-    /// to log2 6400, so Luminance = 18.75.
+    /// Luminance: 0 at ISO ≤ 400 → 11 at 1600 → 16 at 6400 → 25 at ISO ≥ 25600.
+    ///
+    /// It was 0 at 400 → 25 at 6400 → 40 at 25600 (18.75 at 3200), and in the units the
+    /// engine used then that bought little: on the ISO-3200 ground-truth sims it cut
+    /// flat-area luma noise 20 % for a 5-point loss of fine texture. Now that thresholds
+    /// are in measured band noise the same numbers would be strong, so the curve comes
+    /// down to a default that visibly helps without a look. The ISO alone cannot say
+    /// how noisy a frame is — at ISO 2000 the same Luminance removes 11 % of the GX850's
+    /// flat-area luma noise and 32 % of the A7C's, a Four Thirds and a full-frame
+    /// sensor — so the curve is set where the noisiest small sensor still gets a
+    /// visible cut and the cleanest full frame does not go smooth: on the five
+    /// high-ISO corpus frames (G9 3200, Kiss X9 6400, X-T10 4000, GX850 2000, A7C 2000)
+    /// it removes 11–41 %. Lightroom's default is 0 at every ISO; this stays a
+    /// departure in the user's favour, and a gentle one (k ≤ 0.5σ up to ISO 6400).
     public static let luminanceAnchors: [(x: Double, y: Double)] = [
         (x: log2(400.0), y: 0.0),
-        (x: log2(6400.0), y: 25.0),
-        (x: log2(25600.0), y: 40.0),
+        (x: log2(1600.0), y: 11.0),
+        (x: log2(6400.0), y: 16.0),
+        (x: log2(25600.0), y: 25.0),
     ]
 
     /// Color "follows profile" in docs/07 §4 without a stated curve, so this is the shipped
@@ -1787,11 +2168,19 @@ public enum ISODefaults {
     /// region the measurement supports. `DenoiseQualityTests` pins each resolved default
     /// to within 5% of the best point on its own travel, so a future anchor edit has to
     /// come past a number.
+    ///
+    /// **Now flat at 25, Lightroom's number, and for the reason given above taken to its
+    /// end.** The thresholds are denominated in each band's measured noise
+    /// (`ClassicalDenoise.chromaUBandNoise`) under a profile that rises with ISO, so the
+    /// slider already means "this many σ" at every gain; any climb on top of it is the
+    /// double count. The remaining reason for the climb — coarse blotching growing with
+    /// gain — is what the coarse band entries now remove at their own measured noise.
+    /// At Colour 25 every high-ISO corpus frame lands at ≤ 2.1 ΔE*ab of flat-area chroma
+    /// noise (from 2.7–9.0), and at ISO 100 the thresholds are a few thousandths of a
+    /// stop, which cannot touch a photograph.
     public static let colorAnchors: [(x: Double, y: Double)] = [
-        (x: log2(100.0), y: 10.0),
-        (x: log2(1600.0), y: 20.0),
-        (x: log2(6400.0), y: 25.0),
-        (x: log2(25600.0), y: 30.0),
+        (x: log2(100.0), y: 25.0),
+        (x: log2(25600.0), y: 25.0),
     ]
 
     /// Amount is pinned at 50 for every ISO by docs/07 §3.1 — the AI slider means one thing
@@ -1824,26 +2213,26 @@ public enum ISODefaults {
     /// The full Tier-1 default block for an ISO. Hot Pixels stays at 0: it is a defect
     /// control, not a noise control, and defects do not scale with gain.
     ///
-    /// The four sub-sliders resolve here too, which is docs/07 §2.1's first departure
-    /// from Lightroom: with `n = ClassicalDenoise.noisiness(of:)` in [0,1] measured from
-    /// the profile's σ at mid-grey, Luminance Detail falls to `50 − 10n` (less texture
-    /// to preserve where there is more noise than texture) and Colour Smoothness rises
-    /// to `50 + 40n` (blotches grow with gain). Contrast and Colour Detail stay at LR's
-    /// defaults, where nothing measured says otherwise.
+    /// The four sub-sliders are Lightroom's 50 / 0 / 50 / 50 at every ISO. They used to
+    /// adapt (Luminance Detail `50 − 10n`, Colour Smoothness `50 + 40n` with n the
+    /// profile's noisiness), compensating for thresholds that ignored how demosaiced
+    /// noise moves into the coarse bands as gain rises. The bands now carry that
+    /// (`ClassicalDenoise.lumaBandNoise` and the chroma twins), so the adaptation was a
+    /// second correction for one effect; the sub-sliders go back to meaning what a
+    /// Lightroom user expects, and the panel shows the numbers they know.
     ///
     /// Resolved to concrete numbers ONCE, at import, and written into the recipe — so
     /// the panel shows what will render, a later edit to these anchors cannot silently
     /// restyle photographs already in the catalog, and a hand-set value is never
     /// recomputed out from under the user.
     public static func classic(forISO iso: Double) -> ClassicNR {
-        let n = ClassicalDenoise.noisiness(of: NoiseProfile.forISO(iso))
-        return ClassicNR(luma: luminance(forISO: iso),
-                         chroma: color(forISO: iso),
-                         hotPixels: 0,
-                         lumaDetail: Num.clamp(50 - 10 * n, 0, 100),
-                         lumaContrast: 0,
-                         colorDetail: 50,
-                         colorSmoothness: Num.clamp(50 + 40 * n, 0, 100))
+        ClassicNR(luma: luminance(forISO: iso),
+                  chroma: color(forISO: iso),
+                  hotPixels: 0,
+                  lumaDetail: 50,
+                  lumaContrast: 0,
+                  colorDetail: 50,
+                  colorSmoothness: 50)
     }
 
     /// The Tier-1 block an unedited photo starts with, given what its EXIF says. A file
