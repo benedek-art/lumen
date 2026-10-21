@@ -180,3 +180,15 @@ The tools need only python3, numpy and Pillow, and each one prints a `PASS`/`FAI
   - It is in scope only if it can be built without changing `AppState.resolvePick` or the pick routing, which WS-02 owns. `ColorPanel.pickBandButton` and the `bind` helper are owned by WS-32.
   - Otherwise NEEDS.md carries that contract for WS-02 and WS-32, and the lane ships only E1.
   - Verifier: either the feature exists and is reviewed from code, with REPORT.md listing what to try by hand, or the NEEDS.md entry exists.
+
+## Amendment after verify round 1 (lane lead rulings)
+
+Recorded after the round-1 verifier (VERIFY-R1) confirmed the builder's measurements independently. The original lines stay above, unedited, so the change is visible.
+
+- **R1 (H2, H3).** The display-level hue lines measure the display transform as much as the Mixer: with no Mixer edit, the base renderer stretches displayed hue by 0.54–1.51× across the C 0.06 rows. H2 and H3 are judged at stage level by H6 (slope 0.25–1.75 ≤ 3.0; centre move 25–35°). `hue_ramp.py` H2/H3 stay as informational numbers in the report. The display non-uniformity goes to WS-13 (NEEDS E-3).
+- **R2 (K2).** Hue drift is judged in the stage (Mixer output vs input hue on the MST patches, ≤ 3°). Display-level drift is reported, not gated: on the base binary, Presence Saturation −60 alone drifts MST 8 by 14° and Exposure ±1 by 10–23°.
+- **R3 (K4).** Greys win. N4 (grey-wall chroma noise stays put) and K4 (MST 10 at C 0.011 must respond) cannot both hold for a chroma-gated kernel. K4 is restricted to MST 3–8 and the CC skins; MST 1, 2, 9, 10 not responding is reported as a known limitation for the owner.
+- **R4 (K5).** K5 applies to MST 5–8, the patches G2 requires to be majority Orange. MST 3–4 sit on Lightroom's own Orange/Yellow boundary (G2b, ≥ 0.40); their partial response is by design and is reported.
+- **R5 (ControlProofTests).** Added gate: `swift test -c release --filter ControlProofTests` passes; proof records that change are re-recorded only through the repo's recording path, with each moved control named in the report.
+- **R6 (hue follows the ring).** Added gate: a band's Hue move is scoped by its Band range ring exactly as Saturation and Luminance are (narrow ring ⇒ fewer hues move), tested in LumenCoreTests.
+- **R7 (Uniformity + Hue).** Added gate: H6's monotone-slope claim (≥ 0.10) holds with Uniformity 0/50/100 combined with any band Hue ±100, including alternating signs, tested in LumenCoreTests.
