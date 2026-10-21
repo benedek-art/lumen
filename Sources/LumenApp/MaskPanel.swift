@@ -297,11 +297,13 @@ struct MaskPanel: View {
                     .font(.lumenBody)
                     .foregroundStyle(Lumen.primaryText)
                     .lineLimit(1)
-                if masks.count > 1 {
-                    Text("\(masks.count) masks")
-                        .font(.lumenCaption)
-                        .foregroundStyle(Lumen.tertiaryText)
-                }
+                // WHAT IT IS, not how many there are. "Sun · 2 masks" read as "Sun
+                // contains two masks"; the count is already in the panel's title bar.
+                Text(MaskPanel.editingSubtitle(mask))
+                    .font(.lumenCaption)
+                    .foregroundStyle(mask.invert ? Lumen.accent : Lumen.tertiaryText)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
             Spacer(minLength: 0)
             Button {
@@ -872,8 +874,9 @@ struct MaskPanel: View {
             else if dropTargetMaskID == mask.id { dropTargetMaskID = nil }
         }
         .onTapGesture {
-            selectedMaskID = mask.id
-            selectedComponent = 0
+            // Through the state, so a click shows the mask's overlay the way
+            // Lightroom's does, even after an adjustment took it down.
+            state.selectMask(mask.id)
             selectedSwatch = 0
         }
         // Hovering a row shows what it selects. `hoverMaskOverlay` holds the 120 ms
@@ -1020,7 +1023,7 @@ struct MaskPanel: View {
                             selectedMaskID = mask.id
                             renamingMaskID = mask.id
                         }
-                        .onTapGesture { selectedMaskID = mask.id; selectedComponent = 0 }
+                        .onTapGesture { state.selectMask(mask.id) }
                 }
                 // What the stack actually is, under the name — the kinds and how they
                 // fold, which is the sentence the count badge was standing in for.
@@ -1047,8 +1050,17 @@ struct MaskPanel: View {
                 // `LayoutMetricTests` measures every default mask name against, is
                 // untouched. What the chip costs is width on the SUMMARY, which already
                 // tail-truncates and is the row's secondary reading.
+                //
+                // AND ONLY ON THE ROW IT IS FOR. Drawn on every row, an un-inverted mask
+                // carried an empty circle and a grey "Invert" under its name, which in a
+                // list reads as a column of unchecked radio buttons and says nothing
+                // about the mask. Now the chip is on the SELECTED row (where it is a
+                // control) and on any inverted row (where it is a fact); every other row
+                // keeps its second line for what the mask is made of.
                 HStack(spacing: 4) {
-                    invertChip(mask)
+                    if MaskPanel.showsInvertChip(mask, isSelected: isSelected) {
+                        invertChip(mask)
+                    }
                     if MaskPanel.summaryAddsSomething(mask) {
                         Text(MaskPanel.stackSummary(mask))
                             .font(.lumenCaption)
@@ -1245,7 +1257,7 @@ struct MaskPanel: View {
     /// It is drawn under the mask list now, which is where Lightroom puts the same three
     /// controls, and the `⋯` menu's twelve overlay items are gone: one home each.
     private func overlayControls(_ mask: Mask) -> some View {
-        let showing = state.soloMaskOverlay == mask.id
+        let showing = state.soloMaskOverlay != nil
         // ONE BUTTON AND ONE MENU, because three controls did not fit and did not
         // admit it.
         //
@@ -1273,10 +1285,10 @@ struct MaskPanel: View {
         // the toggle beside it needs about 65, so the 20 points cost nothing.
         return HStack(spacing: 6) {
             Button {
-                // Through the pin in both directions. The raw `soloMaskOverlay`
-                // write this used to carry is the same one that made "Keep it
-                // hidden" a trap: a solo cleared without its pin leaves every
-                // ambient path guarded off.
+                // `O`'s rule, so the button and the key can never disagree: if any
+                // overlay is up, this takes everything down; otherwise it turns on
+                // Show Overlay for this mask, which survives drags and returns on
+                // their release.
                 if showing { state.unpinMaskOverlay() } else { state.pinMaskOverlay(mask.id) }
             } label: {
                 HStack(spacing: 4) {
@@ -1293,7 +1305,10 @@ struct MaskPanel: View {
             .buttonStyle(.plain)
             .foregroundStyle(showing ? Lumen.primaryText : Lumen.secondaryText)
             .lumenClickCursor()
-            .help("Keep this mask's overlay up. O does the same from the keyboard.")
+            .help(showing
+                  ? "Hide the overlay. O does the same from the keyboard."
+                  : "Show this mask's overlay and keep it up between adjustments. "
+                      + "It hides while a slider is held. O does the same.")
 
             // NO GLYPHS ON THE TINTS, and they are why the rule exists. The four
             // colours are the one list in this panel whose meaning IS a colour, and
@@ -1303,7 +1318,7 @@ struct MaskPanel: View {
             // no honest shape either: "Image on Black" is a compositing rule, not an
             // object.
             LumenMenu(title: state.maskOverlayMode.label,
-                      help: "How the overlay draws, and in what colour. "
+                      help: "How the overlay draws, its colour and its opacity. "
                           + "⌥O cycles the six modes, ⇧O the four colours.") {
                 LumenMenuHeader(title: "How it draws")
                 ForEach(MaskOverlay.Mode.allCases, id: \.self) { m in
@@ -1317,6 +1332,16 @@ struct MaskPanel: View {
                     LumenMenuItem(title: t.label,
                                   isSelected: state.maskOverlayTint == t) {
                         state.maskOverlayTint = t
+                    }
+                }
+                // OPACITY, which was a constant 45 % with no control anywhere. Steps
+                // rather than a slider: a wash is judged at a glance, and four is as
+                // many as anybody tells apart.
+                LumenMenuHeader(title: "Opacity")
+                ForEach(AppState.maskOverlayOpacitySteps, id: \.self) { o in
+                    LumenMenuItem(title: "\(Int((o * 100).rounded())) %",
+                                  isSelected: abs(state.maskOverlayOpacity - o) < 0.01) {
+                        state.maskOverlayOpacity = o
                     }
                 }
             }
@@ -2609,16 +2634,15 @@ struct MaskPanel: View {
             }
             recipe.masks.insert(copy, at: recipe.masks.index(after: i))
         }
-        selectedMaskID = newID
+        state.selectMask(newID)
     }
 
     private func deleteMask(_ id: String) {
         state.updateRecipe(coalescingKey: nil) { recipe in
             recipe.masks.removeAll { $0.id == id }
         }
-        // Through the pin, so deleting the mask whose overlay was pinned does not leave
-        // the pin standing over nothing — which would silently disable flash and hover.
-        if state.soloMaskOverlay == id { state.unpinMaskOverlay() }
+        // No overlay bookkeeping here: `updateRecipe` tells the overlay which masks
+        // still exist, and a pin or hover on this one goes with it.
         selectedMaskID = masks.first?.id
         selectedComponent = 0
     }
@@ -3596,6 +3620,12 @@ struct MaskPanel: View {
     ///
     /// Case-insensitive containment rather than equality: "Sky brush" over "Brush" is
     /// the same redundancy as "Brush 1" over "Brush".
+    /// Whether a row draws its Invert chip: on the selected row it is the control,
+    /// on an inverted row it is the fact, and anywhere else it is noise.
+    static func showsInvertChip(_ mask: Mask, isSelected: Bool) -> Bool {
+        isSelected || mask.invert
+    }
+
     static func summaryAddsSomething(_ mask: Mask) -> Bool {
         // Nought components summarises as "nothing selected yet", which is the one thing
         // a mask most needs to say. Two or more, the fold is only written here.
@@ -3624,6 +3654,14 @@ struct MaskPanel: View {
     /// are spelled Add / Subtract / Intersect in a segmented control two rows below.
     /// Words, and the leading Add is dropped — a stack starts by selecting something,
     /// so "∪ Sky" only ever meant "Sky".
+    /// The line under the editing header's name: the stack in words, and whether the
+    /// whole mask is inverted, since that is the one fact that flips what every slider
+    /// below it is about to touch.
+    static func editingSubtitle(_ mask: Mask) -> String {
+        let stack = stackSummary(mask)
+        return mask.invert ? "Inverted · " + stack : stack
+    }
+
     static func stackSummary(_ mask: Mask) -> String {
         guard !mask.components.isEmpty else { return "nothing selected yet" }
         return mask.components.enumerated()

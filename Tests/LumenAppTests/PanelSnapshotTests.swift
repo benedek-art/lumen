@@ -340,6 +340,30 @@ final class PanelSnapshotTests: XCTestCase {
                                   + "rasterized — the wash may be missing") {
             ContentView()
         }
+
+        // WS-42: the owner's scenario through the REAL latch and edit path. The mask
+        // was just created (overlay up, above); drag its Exposure; the red must be gone
+        // and must stay gone after release.
+        state.sliderGesture(active: true)
+        for step in 1...3 {
+            state.updateRecipe(coalescingKey: "snapshot.exposure") { recipe in
+                guard let i = recipe.masks.firstIndex(where: { $0.id == ids.radial })
+                else { return }
+                recipe.masks[i].adjust.exposure = 0.3 + 0.1 * Double(step)
+            }
+        }
+        state.sliderGesture(active: false)
+        XCTAssertNil(state.soloMaskOverlay,
+                     "WS-42: an Exposure drag must take a new mask's overlay down")
+        await recorder.render("window-\(label(small))-masking-after-exposure-drag",
+                              "Full window, masking, same radial mask after an Exposure "
+                                  + "drag: the overlay has hidden and stayed hidden",
+                              width: small.width, height: small.height, settle: 2.5,
+                              ready: { state.soloMaskOverlay == nil },
+                              readyNote: "THE OVERLAY IS STILL UP after an Exposure drag "
+                                  + "(WS-42 regression)") {
+            ContentView()
+        }
         PanelLayout.shared.setMasking(false)
         state.enter(.develop)
     }
