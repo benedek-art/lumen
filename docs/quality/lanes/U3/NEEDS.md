@@ -1,0 +1,8 @@
+# U3 needs from other owners
+
+1. **AppState (`copiedRecipe` is private): `var hasCopiedSettings: Bool { copiedRecipe != nil }`.** The develop footer's Paste is lit with an empty clipboard and does nothing when pressed. Paste Look is already gated on `hasCopiedLook`; Paste should be gated the same way (`.disabled(!state.hasCopiedSettings)` in `DevelopPanel.footer`, which U3 will add once the getter exists).
+2. **AppState.toggleCompare(): call `CompareSync.shared.fit()` before the mode flips.** U3 resets Compare's zoom in `ContentView.onChange(of: viewMode)`, which runs one body pass late: re-entering Compare after a zoomed session can draw one frame at the old zoom.
+3. **Mask lanes (M1-M3): leaving masking by Esc leaves `soloMaskOverlay` / `maskOverlayPinned` set.** U3 now hides the overlay outside masking in the loupe (`LoupeView.shownMaskOverlay`), so nothing is drawn wrongly, but the state should probably be cleared on exit. Their call.
+4. **Snapshot harness: `PanelLayout.shared.reveal(.tone)` before the `window-*-develop` renders does not open Tone** (the baseline captions say "Tone open"; the PNGs show every section closed). Not a U3 file; whoever owns the harness.
+5. **`BeforeAfterPair` paints `Lumen.viewerBackground`, a constant**, so ⌘B / L surround changes do not reach the two-pane before/after. It needs `state.surroundColor` passed in; `SurroundPaintTests.viewerGrounds` should then count ViewerOverlays.swift too.
+6. **AppState `refreshMaskOverlay` keeps rasterizing a pinned/persistent overlay after masking is left**, for an overlay the loupe no longer draws there (verifier round 3). Skip the raster while not masking and refresh on entry, or clear a non-pinned persistent overlay on exit.
