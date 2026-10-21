@@ -1085,8 +1085,14 @@ enum ProofRegistry {
             id: "film.halation", panel: "Film Lab", displayName: "Halation",
             low: 0, high: 100,
             frameName: "wideStepEdge", frame: { ProofFrames.wideStepEdge() },
-            // Measured 24.71 on the wide edge, against 4.31 on the narrow one.
-            authorityFloor: 17,
+            // Measured 24.71 on the wide edge, against 4.31 on the narrow one — and
+            // 12.82 after WS-39, which is a fix and not a loss: most of the 24.71 was a
+            // red cast over the whole bright side (mean separation 0.942 across the
+            // frame), which a stock's curve already accounts for. The glow now lives
+            // only beside the edge (mean 0.021), and this bright side is a diffuse white
+            // half a stop under the clip, not a light source; a clipped one throws
+            // +80 codes at Amount 100 (docs/quality/lanes/WS-39/REPORT.md).
+            authorityFloor: 9,
             apply: { r, v in
                 var film = portra()
                 film.halation = v
@@ -1443,8 +1449,10 @@ enum ProofRegistry {
                 id: "film.halationSize", panel: "Film Lab", displayName: "Halo size",
                 low: 0.5, high: 2.0, neutral: 1.0,
                 frameName: "wideStepEdge", frame: { ProofFrames.wideStepEdge() },
-                // Measured 16.20 with halation at full.
-                authorityFloor: 11,
+                // Measured 16.20 with halation at full; 6.77 after WS-39 removed the
+                // flat-field cast that the radius used to smear across the frame (see
+                // `film.halation`).
+                authorityFloor: 4.5,
                 apply: { r, v in r.look.filmLab = glowing(v) { $0.halationSize = v } }),
             ControlSpec(
                 // The bounce's colour. Same frame and the same reason.

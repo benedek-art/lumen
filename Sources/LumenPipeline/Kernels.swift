@@ -440,21 +440,24 @@ public enum KernelLibrary {
     """
 
     /// Halation's highlight-energy gate — `HalationProfile.highlightEnergy`, the same
-    /// expression, not an approximation of it: a smoothstep that opens across the last
-    /// `protectEV` stops below `clip` (in log2 space), times the reconstruction headroom
-    /// of up to `boostRange` stops. Per channel: `t = smoothstep(−protect, 0,
-    /// log2(e/clip)); out = t·e·2^(boost·t)`, and zero for `e ≤ 0`.
+    /// expression, not an approximation of it (M09). One gate per pixel on its brightest
+    /// record `b`: `t = smoothstep(−protect, 0, log2(b/clip))`, the clipped-sample band
+    /// `s = smoothstep(−band, 0, log2(b/clip))`, `k = t·max(1, s·2^boost·clip/b)`; then
+    /// the gated colour goes into the halo's primaries through the rows `m0…m2` of
+    /// `HalationProfile.workingToLayers` and is clamped at zero.
     ///
-    /// It replaced a hard pedestal `max(E − clip/4, 0)·2^0.3` that rendered 0.61 of the
-    /// reference's glow at E = 0.5 and none at E ≤ 0.25 (M09). `highlightEnergy` above
-    /// stays as it is: it is the general `max(E − t, 0)·b` clamp the gamut flag and
-    /// `logLuminance` use with t = 0, b = 1.
+    /// `highlightEnergy` above stays as it is: it is the general `max(E − t, 0)·b` clamp
+    /// the gamut flag and `logLuminance` use with t = 0, b = 1, and halation uses it the
+    /// same way for `max(F − H, 0)`.
     static let halationEnergySource = """
-    kernel vec4 lumenHalationEnergy(__sample image, float clip, float protectEV, float boostRange) {
-        vec3 e = max(image.rgb, vec3(0.0));
-        vec3 ev = log2(max(e, vec3(1.0e-12)) / clip);
-        vec3 t = smoothstep(vec3(-protectEV), vec3(0.0), ev);
-        return vec4(t * e * exp2(boostRange * t), 1.0);
+    kernel vec4 lumenHalationEnergy(__sample image, float clip, float protectEV, float boostRange, float clipBandEV, vec3 m0, vec3 m1, vec3 m2) {
+        vec3 c = max(image.rgb, vec3(0.0));
+        float b = max(max(c.r, c.g), max(c.b, 1.0e-12));
+        float ev = log2(b / clip);
+        float t = smoothstep(-protectEV, 0.0, ev);
+        float s = smoothstep(-clipBandEV, 0.0, ev);
+        vec3 e = c * (t * max(1.0, s * exp2(boostRange) * clip / b));
+        return vec4(max(vec3(dot(m0, e), dot(m1, e), dot(m2, e)), vec3(0.0)), 1.0);
     }
     """
 

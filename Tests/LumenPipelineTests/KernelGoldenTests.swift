@@ -1331,48 +1331,38 @@ final class KernelGoldenTests: XCTestCase {
 
     // MARK: - Halation
 
-    /// One clipped highlight, both paths, and the width of the glow it throws.
+    /// One clipped highlight, both paths, and the width and mass of the glow it throws.
     ///
     /// The halation stage kept a private `CIFilter.gaussianBlur()` with
     /// `radius = sigma * 3` in it long after the shared helper had been corrected, so
     /// every preview and every export rendered the glow three times wider than the
-    /// 65 µm first bounce the profile derives, while `ReferenceRenderer.applyHalation`
-    /// rendered it at one. Nothing could see it: the only halation tests were on the
-    /// reference path, and a grep of this whole directory for "halation" returned
-    /// nothing at all.
+    /// profile derives, while `ReferenceRenderer.applyHalation` rendered it at one.
     ///
-    /// What is measured is the second moment of the glow field about the highlight,
-    /// which for a sum of Gaussians against a small uniform source is `2·Σwσ²/Σw` plus
-    /// the source's own variance — the first derived here from the profile the two
-    /// stages share rather than written down, so the bar moves with the model instead
-    /// of pinning today's numbers. A support-radius conversion multiplies it by NINE.
+    /// What is measured is the second moment of the red glow about the highlight and its
+    /// total, graph against reference. WS-39 made the halo `strength · max(F − H, 0)`
+    /// with green and blue on narrower radii, so the old closed-form prediction (a plain
+    /// weighted sum of Gaussian variances) no longer describes the field; the reference
+    /// is the definition, and `HalationControlTests` pins its shape on Linux. A
+    /// support-radius conversion would still read about nine times the reference.
     ///
-    /// The frame is 128 px and the render's long edge is declared as 2215, which is
-    /// what puts the first bounce at 4 px: halation is denominated at the gate, so on a
-    /// literal 128 px frame the whole glow would be a third of a pixel wide and this
-    /// would be measuring quantization. Nothing else in `applyHalation` reads the long
-    /// edge.
+    /// The frame is 384 px and the render's long edge is declared as 2215, which puts
+    /// the bounces at 4, 12 and 32 px: the widest bounce's 4σ fits inside the frame.
     func testHalationGlowIsAsWideAsTheProfileSays() throws {
         try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
-        let side = 128
+        let side = 384
         let longEdge = 2215
         let block = 4
         // The block straddles the frame's centre EVENLY, so it is its own mirror image
-        // about `centre` under a vertical flip. `ciImage(from:)` and `readBack` are the
-        // two halves of a bitmap bridge whose row order this file pins only
-        // transitively, and a second moment taken about a centre that is one pixel off
-        // is inflated by exactly one. Making the frame symmetric costs nothing and
-        // takes the question off the table.
+        // about `centre` under a vertical flip (the bitmap bridge's row order is pinned
+        // only transitively).
         let centre = Double(side) / 2 - 0.5
         let low = side / 2 - block / 2
         let film = FilmChain(FilmLab(stock: FilmStock.portra400.id, amount: 100,
                                      halation: 100),
                              filmExposure: 0, displayWhite: 1.0)
-        let profile = film.halation(longEdgePixels: longEdge)
 
-        // Two stops over the clip, on a background 1.6 stops below the gate's onset
-        // (log2 0.02 = −5.6 against −4) — so both paths' smoothstep reads exactly zero
-        // everywhere but the block.
+        // Two stops over the clip, on a background far below the gate's onset (two
+        // stops under the clip), so both paths' energy is zero everywhere but the block.
         var source = ImageBuffer(width: side, height: side) { _, _ in RGB(gray: 0.02) }
         for y in low..<(low + block) {
             for x in low..<(low + block) { source[x, y] = RGB(gray: 4.0) }
@@ -1401,51 +1391,26 @@ final class KernelGoldenTests: XCTestCase {
             return (mass, mass > 0 ? second / mass : 0)
         }
 
-        // The model's own prediction, from the profile the two stages share: variances
-        // add, so the glow's is the weighted mean of the bounces' plus the block's.
-        var weightSum = 0.0, varianceSum = 0.0
-        for (sigma, weight) in zip(profile.sigmasInPixels, profile.weights) {
-            weightSum += weight
-            varianceSum += weight * sigma * sigma
-        }
-        XCTAssertGreaterThan(weightSum, 0, "the halation profile carries no bounces")
-        // A uniform w x w source has variance (w² − 1)/12 per axis, and variances add.
-        let blockVariance = 2 * (Double(block) * Double(block) - 1) / 12.0
-        let predicted = 2 * varianceSum / Swift.max(weightSum, 1e-12) + blockVariance
-
         let gpuGlow = glow(gpu, before, channel: 0)
         let referenceGlow = glow(reference, source, channel: 0)
-        print(String(format: "HALATION predicted spread %.2f  gpu %.2f  reference %.2f  "
+        print(String(format: "HALATION spread gpu %.2f reference %.2f "
                              + "(mass gpu %.4f reference %.4f)",
-                     predicted, gpuGlow.spread, referenceGlow.spread,
+                     gpuGlow.spread, referenceGlow.spread,
                      gpuGlow.mass, referenceGlow.mass))
 
         XCTAssertGreaterThan(gpuGlow.mass, 1e-4,
                              "the graph's halation stage added no light at all")
         XCTAssertGreaterThan(referenceGlow.mass, 1e-4,
                              "the reference's halation stage added no light at all")
-        // 12%: the measurement is a discrete second moment of an f32 read-back, and the
-        // two paths' reconstruction ramps differ in amplitude. A support-radius
-        // conversion is 900%.
-        XCTAssertEqual(gpuGlow.spread, predicted, accuracy: predicted * 0.12,
-                       "the graph blurred halation at a spread of \(gpuGlow.spread) "
-                           + "where the profile says \(predicted). A ratio near 9 is "
-                           + "`sigma * 3` back in the stage")
-        XCTAssertEqual(referenceGlow.spread, predicted, accuracy: predicted * 0.12,
-                       "the reference blurred halation at a spread of "
-                           + "\(referenceGlow.spread) where the profile says "
-                           + "\(predicted)")
+        // 10%: a discrete second moment of an f32 read-back, and the reference's
+        // three-box approximation above sigma 8 against Core Image's Gaussian. A
+        // support-radius conversion is 900%.
         XCTAssertEqual(gpuGlow.spread, referenceGlow.spread,
                        accuracy: referenceGlow.spread * 0.10,
                        "the two paths disagree about how wide the glow is: "
-                           + "\(gpuGlow.spread) against \(referenceGlow.spread)")
-
-        // ONE GATE ON BOTH PATHS (M09). This bound was 30%, wide enough to hold the
-        // hard pedestal the shader used to stand in for the reference's smoothstep —
-        // 0.936 of the reference's mass at this block's E = 4, and the bound could
-        // not see the 0.61 at E = 0.5 or the zero at E = 0.25 that
-        // `testHalationGateMatchesTheReferenceAcrossTheOnset` now pins. 3% is f32
-        // read-back and blur discretisation; a pedestal at this E is 6.4% out.
+                           + "\(gpuGlow.spread) against \(referenceGlow.spread). A ratio "
+                           + "near 9 is `sigma * 3` back in the stage")
+        // ONE GATE ON BOTH PATHS (M09): 3% is f32 read-back and blur discretisation.
         XCTAssertEqual(gpuGlow.mass, referenceGlow.mass,
                        accuracy: referenceGlow.mass * 0.03,
                        "the graph and the reference disagree about total glow energy "
@@ -1453,40 +1418,44 @@ final class KernelGoldenTests: XCTestCase {
                            + "\(referenceGlow.mass) — the shader's highlight gate is "
                            + "not the reference's")
 
-        // Halation is red because the stock's measured strengths are, and Portra's blue
-        // strength is exactly zero. A glow that is not red is a glow through the wrong
-        // gain.
+        // Red-orange, never green- or blue-dominant: the halo's colour is Portra's
+        // strengths in sRGB primaries, carried into the working space.
+        let green = glow(gpu, before, channel: 1)
         let blue = glow(gpu, before, channel: 2)
-        XCTAssertLessThan(blue.mass, gpuGlow.mass * 0.02,
+        XCTAssertLessThan(green.mass, gpuGlow.mass * 0.6,
+                          "the glow carried \(green.mass) of green against "
+                              + "\(gpuGlow.mass) of red")
+        XCTAssertLessThan(blue.mass, gpuGlow.mass * 0.1,
                           "the glow carried \(blue.mass) of blue against "
                               + "\(gpuGlow.mass) of red, and this stock's blue halation "
                               + "strength is zero")
     }
 
-    /// The halation gate, GPU against reference, on flat fields either side of the
-    /// clip (M09 / C1-01).
+    /// The halation gate, GPU against reference, on a small source at levels either side
+    /// of the clip (M09 / C1-01, re-shaped by WS-39).
     ///
-    /// The shader used a hard pedestal `max(E − clip/4, 0)·2^0.3` where the reference
-    /// opens a smoothstep across the last four stops below the clip, and called the two
-    /// "matched at the half-power point". Measured, the GPU rendered 0.000 of the
-    /// reference's glow at E = 0.125 and 0.25, 0.612 at 0.5, 0.750 at the clip and
-    /// 0.9375 at E = 4 — and the only golden sat at E = 4 behind a 30% bound. A sky a
-    /// stop or two under the clip glowed in the f64 reference and not in the app.
-    ///
-    /// A FLAT field, so the blurs are the identity away from the border and the glow at
-    /// the centre is `strength · H(E)` on both paths with nothing spatial in between —
-    /// the gate is the only thing measured. E = 0.125 and 0.25 are where the pedestal
-    /// rendered nothing at all; 0.5 and 1 are its 39% and 25% deficits; 4 is the old
-    /// golden's corner. With the pedestal substituted back the first four go red.
+    /// The shader once used a hard pedestal where the reference opened a smoothstep, and
+    /// the GPU rendered none of the reference's glow two stops under the clip. This
+    /// measured the gate on FLAT fields, where the glow used to equal `strength · H(E)`;
+    /// WS-39 made a flat field an exact identity (the stock's curve already holds the
+    /// base's reflection onto the spot it came from), so the gate is now read as the
+    /// total red glow thrown OUTSIDE an 8 px block on a black field. Mass is what both
+    /// blurs preserve, so the two paths agree to read-back precision. 0.25 is exactly
+    /// the gate's closed end: nothing on either path.
     func testHalationGateMatchesTheReferenceAcrossTheOnset() throws {
         try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
-        let side = 96
+        let side = 384
         let longEdge = 2215
+        let block = 8
+        let low = side / 2 - block / 2
         let film = FilmChain(FilmLab(stock: FilmStock.portra400.id, amount: 100,
                                      halation: 100),
                              filmExposure: 0, displayWhite: 1.0)
-        for level in [0.125, 0.25, 0.5, 1.0, 4.0] {
-            let source = ImageBuffer(width: side, height: side) { _, _ in RGB(gray: level) }
+        for level in [0.25, 0.3, 0.5, 0.9, 1.0, 4.0] {
+            var source = ImageBuffer(width: side, height: side) { _, _ in RGB(gray: 0) }
+            for y in low..<(low + block) {
+                for x in low..<(low + block) { source[x, y] = RGB(gray: level) }
+            }
             let glowed = RenderGraph().applyHalation(ciImage(from: source), film: film,
                                                      longEdge: longEdge)
             guard let gpu = readBack(glowed, width: side, height: side) else {
@@ -1494,17 +1463,22 @@ final class KernelGoldenTests: XCTestCase {
             }
             let reference = ReferenceRenderer.applyHalation(source, film: film,
                                                             longEdge: longEdge)
-            // The central 16 × 16, far from the border at every bounce's sigma.
             var gpuGlow = 0.0, referenceGlow = 0.0
-            for y in (side / 2 - 8)..<(side / 2 + 8) {
-                for x in (side / 2 - 8)..<(side / 2 + 8) {
-                    gpuGlow += gpu[x, y].r - level
-                    referenceGlow += reference[x, y].r - level
+            for y in 0..<side {
+                for x in 0..<side
+                where !(x >= low && x < low + block && y >= low && y < low + block) {
+                    gpuGlow += gpu[x, y].r
+                    referenceGlow += reference[x, y].r
                 }
             }
             print(String(format: "HALATION gate E=%.3f gpu %.6f reference %.6f ratio %.4f",
                          level, gpuGlow, referenceGlow,
                          referenceGlow > 0 ? gpuGlow / referenceGlow : 0))
+            if level <= 0.25 {
+                XCTAssertEqual(referenceGlow, 0, "the reference glows at the gate's end")
+                XCTAssertLessThan(gpuGlow, 1e-3, "the graph glows at the gate's end")
+                continue
+            }
             XCTAssertGreaterThan(referenceGlow, 0,
                                  "the reference glows nothing at E = \(level)")
             XCTAssertEqual(gpuGlow, referenceGlow, accuracy: referenceGlow * 0.03,

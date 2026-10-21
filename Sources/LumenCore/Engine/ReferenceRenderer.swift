@@ -592,17 +592,21 @@ public enum ReferenceRenderer {
         guard profile.strengths.maxComponent > 0 else { return image }
 
         let energy = image.map { profile.highlightEnergy($0) }
-        var glow = ImageBuffer(width: image.width, height: image.height)
+        // F = Σ normalizedWeights[k] · G_k ∗ H, red at `sigmas`, green and blue at the
+        // narrower `narrowSigmas` (one blur set when the stock is neutral).
+        var field = ImageBuffer(width: image.width, height: image.height)
         var contributed = false
-        // The raw dyadic SHAPE, with the normalization in `combine`'s `fieldGain`
-        // (N-006): the glow is `strength` times a unit-sum field, and the f32 field
-        // accumulates exactly as it always has.
-        for (sigma, weight) in zip(profile.sigmasInPixels, profile.weights)
-        where sigma > 0 {
-            let blurred = SpatialOps.gaussianBlur(energy, sigma: sigma)
-            for y in 0..<glow.height {
-                for x in 0..<glow.width {
-                    glow[x, y] = glow[x, y] + blurred[x, y] * weight
+        let weights = profile.normalizedWeights
+        for k in 0..<weights.count {
+            let sigma = profile.sigmas[k], narrow = profile.narrowSigmas[k]
+            guard sigma > 0 else { continue }
+            let wide = SpatialOps.gaussianBlur(energy, sigma: sigma)
+            let tight = narrow == sigma ? wide : SpatialOps.gaussianBlur(energy, sigma: narrow)
+            let w = weights[k]
+            for y in 0..<field.height {
+                for x in 0..<field.width {
+                    let a = wide[x, y], b = tight[x, y]
+                    field[x, y] = field[x, y] + RGB(a.r * w, b.g * w, b.b * w)
                 }
             }
             contributed = true
@@ -612,7 +616,8 @@ public enum ReferenceRenderer {
         var out = image
         for y in 0..<out.height {
             for x in 0..<out.width {
-                out[x, y] = profile.combine(image[x, y], blurred: glow[x, y])
+                out[x, y] = profile.combine(image[x, y], field: field[x, y],
+                                            energy: energy[x, y])
             }
         }
         return out
