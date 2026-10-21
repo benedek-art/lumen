@@ -381,11 +381,12 @@ struct MaskCanvas: View {
         guard let component = component else { return "" }
         switch component.kind {
         case .linear, .similarityLine:
-            return "Drag the band to move it, a line to change the falloff, an end dot "
-                 + "to swing that end, just outside the band to turn the whole thing. "
+            return "Drag down from where the effect should be full. Then: the pin or the "
+                 + "band to move it, the centre line to turn it, an outer line to "
+                 + "feather it (⌥ for that line alone), an end dot to swing that end. "
                  + "⇧ snaps to 15°; ⌘-drag draws a new gradient, ⌥ from its centre."
         case .radial:
-            return "Drag out an ellipse on the picture — ⌥ from its centre. Then: "
+            return "Drag out an ellipse from its centre — ⌥ corner to corner. Then: "
                  + "inside to move, the edge to resize, the inner ring to feather, just "
                  + "outside it to turn it. ⇧ keeps it round or snaps the angle to 15°; "
                  + "⌘-drag draws another."
@@ -933,41 +934,27 @@ struct MaskCanvas: View {
             updated[moving] = Double(n.x)
             updated[moving + 1] = Double(n.y)
         case .startBand, .endBand:
-            // A band line is drawn straight across the picture, so dragging it moves it
-            // — it does not swing the gradient round the far end. The endpoint slides
-            // ALONG the axis by the pointer's travel projected onto that axis, which is
-            // exactly the falloff: `linearPlane` ramps between the two lines and is flat
-            // outside them, so the distance between them IS the feather (docs/08 §8.2,
-            // "the span between the two lines IS the feather — there is no separate
-            // control"). Turning the gradient stays on the end dots, where an affordance
-            // that looks like a pivot is actually drawn.
+            // An OUTER line feathers: it slides along the axis by the pointer's travel
+            // projected onto it, and the other outer line moves the same amount the
+            // other way, so the CENTRE line — where the gradient is aimed — stays put
+            // (Lightroom's behaviour; ⌥ moves the grabbed line alone). `linearPlane`
+            // ramps between the outer lines and is flat outside them, so their distance
+            // IS the feather. The arithmetic is `MaskHandles.featheredLine`.
             let p0 = viewPoint(updated[0], updated[1])
             let p1 = viewPoint(updated[2], updated[3])
             let wx = p1.x - p0.x
             let wy = p1.y - p0.y
             let length = (wx * wx + wy * wy).squareRoot()
             guard length > 1e-6 else { return }
-            let ux = wx / length
-            let uy = wy / length
-            var slide = (current.x - value.startLocation.x) * ux
-                      + (current.y - value.startLocation.y) * uy
-            // The two ends may not pass each other, or meet: a gradient shorter than one
-            // grab radius has no separable targets left, and one of zero length
-            // rasterizes to nothing at all. Clamping here rather than letting the
-            // degenerate guard below reject the commit keeps the line under the hand
-            // instead of freezing it mid-drag.
-            let minimumSpan = CGFloat(MaskHandles.grabRadius)
-            if grab == .endBand {
-                slide = Swift.max(slide, minimumSpan - length)
-            } else {
-                slide = Swift.min(slide, length - minimumSpan)
-            }
-            let moving = grab == .startBand ? 0 : 2
-            let origin = viewPoint(updated[moving], updated[moving + 1])
-            let slid = CGPoint(x: origin.x + ux * slide, y: origin.y + uy * slide)
-            let n = normalized(slid)
-            updated[moving] = Double(n.x)
-            updated[moving + 1] = Double(n.y)
+            let slide = ((current.x - value.startLocation.x) * wx
+                       + (current.y - value.startLocation.y) * wy) / length
+            let fed = MaskHandles.featheredLine(start: p0, end: p1,
+                                                grabbedStart: grab == .startBand,
+                                                slide: Double(slide),
+                                                oneSided: isOptionDown)
+            let a = normalized(fed.start)
+            let b = normalized(fed.end)
+            updated = [Double(a.x), Double(a.y), Double(b.x), Double(b.y)]
         case .move:
             // THE DELTA HAS TO BE MEASURED IN SOURCE COORDINATES, and it was measured in
             // displayed ones. Every other branch in this file routes through
@@ -1024,9 +1011,14 @@ struct MaskCanvas: View {
             // in `MaskHandles.drawnLine` where they compose and can be tested. ⌥ is the
             // modifier the radial has always had here and the gradient never did — one
             // key meaning "centre it on the press" on one tool and nothing on the other.
-            let drawn = MaskHandles.drawnLine(from: value.startLocation, to: current,
-                                              fromCentre: isOptionDown,
-                                              snap: isShiftDown)
+            // And the FULL end is where the press landed — `drawnGradient` stores the
+            // line far-end first, Lightroom's convention. Only for the gradient: a
+            // Colour Pick line shares this gesture and keeps its drawn order.
+            let drawn = component.kind == .linear
+                ? MaskHandles.drawnGradient(from: value.startLocation, to: current,
+                                            fromCentre: isOptionDown, snap: isShiftDown)
+                : MaskHandles.drawnLine(from: value.startLocation, to: current,
+                                        fromCentre: isOptionDown, snap: isShiftDown)
             let start = normalized(drawn.start)
             let end = normalized(drawn.end)
             updated = [Double(start.x), Double(start.y), Double(end.x), Double(end.y)]
@@ -1157,18 +1149,15 @@ struct MaskCanvas: View {
             // when the press was genuinely out in the open and the hand never moved.
             guard MaskHandles.drawsShape(from: value.startLocation,
                                          to: value.location) else { return }
+            // FROM THE CENTRE by default, as Lightroom draws it; ⌥ draws the bounding
+            // box. See `MaskHandles.drawnEllipse`.
             let start = normalized(value.startLocation)
             let end = normalized(value.location)
-            if isOptionDown {
-                nextCentre = [Double(start.x), Double(start.y)]
-                nextRadii = [MaskCanvas.radius(abs(Double(end.x) - Double(start.x))),
-                             MaskCanvas.radius(abs(Double(end.y) - Double(start.y)))]
-            } else {
-                nextCentre = [(Double(start.x) + Double(end.x)) / 2,
-                              (Double(start.y) + Double(end.y)) / 2]
-                nextRadii = [MaskCanvas.radius(abs(Double(end.x) - Double(start.x)) / 2),
-                             MaskCanvas.radius(abs(Double(end.y) - Double(start.y)) / 2)]
-            }
+            let drawn = MaskHandles.drawnEllipse(from: (Double(start.x), Double(start.y)),
+                                                 to: (Double(end.x), Double(end.y)),
+                                                 cornerToCorner: isOptionDown)
+            nextCentre = drawn.centre
+            nextRadii = drawn.radii.map(MaskCanvas.radius)
             if isShiftDown { nextRadii = roundedRadii(nextRadii, drivenByX: true) }
 
         case .feather:
@@ -1434,31 +1423,40 @@ struct MaskCanvas: View {
         guard length > 0.5 else { return }
         let ux = dx / length
         let uy = dy / length
-        let reach = Swift.max(imageRect.width, imageRect.height) * 1.5
-
-        // The two band lines are drawn SEPARATELY now, rather than as one path, so the
-        // one under the pointer can answer. They are the falloff, and which of the two
-        // a press is about is the thing the picture could not say.
         let grab = liveLinearGrab
-        for (anchor, which) in [(p0, MaskHandles.LinearGrab.startBand),
-                                (p1, MaskHandles.LinearGrab.endBand)] {
-            var band = Path()
-            band.move(to: CGPoint(x: anchor.x - uy * reach, y: anchor.y + ux * reach))
-            band.addLine(to: CGPoint(x: anchor.x + uy * reach, y: anchor.y - ux * reach))
-            let hot = grab == which
-            stroke(&context, band, width: hot ? 2 : 1, alpha: hot ? 1 : 0.85)
+        let mid = CGPoint(x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2)
+
+        // THREE LINES ACROSS THE PHOTOGRAPH, Lightroom's handle: the two outer lines are
+        // the falloff (drag to feather), the centre line is the aim (drag to turn), the
+        // pin on it moves. It used to be the two outer lines and an axis stub between
+        // the end dots, with turning on a band outside the strip that nothing drew.
+        // Clipped to the photograph, so the lines stop at its edge rather than running
+        // on over the letterbox.
+        var lines = context
+        lines.clip(to: Path(imageRect))
+        let centreHot = grab == .rotate
+        for (anchor, hot, weight) in [(p0, grab == .startBand, 0.85),
+                                      (p1, grab == .endBand, 0.85),
+                                      (mid, centreHot, 0.7)] {
+            stroke(&lines, crossLine(through: anchor, ux: ux, uy: uy),
+                   width: hot ? 2 : 1, alpha: hot ? 1 : weight)
         }
-        var axis = Path()
-        axis.move(to: p0)
-        axis.addLine(to: p1)
-        stroke(&context, axis, width: 1, alpha: 0.55)
         handle(&context, p0, hot: grab == .startHandle)
         handle(&context, p1, hot: grab == .endHandle)
-        // The midpoint IS the move affordance — the gradient's pin — so it lights for a
-        // move like any other handle rather than sitting there as decoration.
-        handle(&context, CGPoint(x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2),
-               small: true, hot: grab == .move)
+        // The pin IS the move affordance, so it lights for a move like any other handle.
+        handle(&context, mid, hot: grab == .move)
         if grab == .rotate, let hover { rotateGlyph(&context, at: hover) }
+    }
+
+    /// A line through `anchor` perpendicular to the unit axis `(ux, uy)`, long enough to
+    /// cross the whole photograph from anywhere on it. The caller clips it.
+    private func crossLine(through anchor: CGPoint, ux: CGFloat, uy: CGFloat) -> Path {
+        let reach = (imageRect.width + imageRect.height) * 2
+            + abs(anchor.x - imageRect.midX) + abs(anchor.y - imageRect.midY)
+        var line = Path()
+        line.move(to: CGPoint(x: anchor.x - uy * reach, y: anchor.y + ux * reach))
+        line.addLine(to: CGPoint(x: anchor.x + uy * reach, y: anchor.y - ux * reach))
+        return line
     }
 
     /// THE TURN MARK: a curved double-headed arrow drawn at the pointer while it is
@@ -1725,11 +1723,21 @@ struct MaskCanvas: View {
             for c in mask.components {
                 switch c.kind {
                 case .linear, .similarityLine:
+                    // Its CENTRE LINE, faint, across the photograph — where that gradient
+                    // is aimed. It drew the axis segment between the two ends, which on
+                    // screen is a short stray line at right angles to everything the
+                    // gradient does (the baseline overlay snapshot's vertical hairline).
                     guard let line = MaskCanvas.optionalLine(c) else { continue }
-                    var path = Path()
-                    path.move(to: viewPoint(line[0], line[1]))
-                    path.addLine(to: viewPoint(line[2], line[3]))
-                    stroke(&context, path, width: 1, alpha: 0.22)
+                    let a = viewPoint(line[0], line[1]), b = viewPoint(line[2], line[3])
+                    let length = hypot(b.x - a.x, b.y - a.y)
+                    guard length > 0.5 else { continue }
+                    var faint = context
+                    faint.clip(to: Path(imageRect))
+                    stroke(&faint, crossLine(through: CGPoint(x: (a.x + b.x) / 2,
+                                                             y: (a.y + b.y) / 2),
+                                             ux: (b.x - a.x) / length,
+                                             uy: (b.y - a.y) / length),
+                           width: 1, alpha: 0.22)
                 case .radial:
                     guard let centre = c.center, centre.count == 2,
                           let radii = c.radii, radii.count == 2 else { continue }
@@ -1919,7 +1927,15 @@ struct MaskCanvas: View {
     private func ellipsePath(_ centre: [Double], _ radii: [Double], _ rotation: Double,
                              scale: Double) -> Path {
         var path = Path()
-        let steps = 72
+        // Enough segments that the outline is the rendered rim to a quarter point at
+        // whatever zoom — see `MaskHandles.ellipseSteps`.
+        let c = viewPoint(centre[0], centre[1])
+        let longest = Swift.max(
+            MaskCanvas.axisLength(c, viewPoint(from: centre, offset: (radii[0] * scale, 0),
+                                               rotation: rotation)),
+            MaskCanvas.axisLength(c, viewPoint(from: centre, offset: (0, radii[1] * scale),
+                                               rotation: rotation)))
+        let steps = MaskHandles.ellipseSteps(longestRadius: longest)
         for step in 0...steps {
             let u = Double(step) / Double(steps) * 2 * Double.pi
             let p = viewPoint(from: centre,

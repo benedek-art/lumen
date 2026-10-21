@@ -525,6 +525,13 @@ public enum KernelLibrary {
         vec2 ab = b - a;
         float dd = dot(ab, ab);
         if (dd < 1e-12) { return vec4(0.0, 0.0, 0.0, 1.0); }
+        float span = 1.5 / edge;
+        if (dd < span * span) {
+            vec2 centre = 0.5 * (a + b);
+            ab = ab * (span / sqrt(dd));
+            a = centre - 0.5 * ab;
+            dd = span * span;
+        }
         float t = clamp(dot(p - a, ab) / dd, 0.0, 1.0);
         float v = t * t * (3.0 - 2.0 * t);
         return vec4(v, v, v, 1.0);

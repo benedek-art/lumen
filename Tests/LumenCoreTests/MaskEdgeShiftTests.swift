@@ -333,9 +333,13 @@ final class MaskEdgeShiftTests: XCTestCase {
             return Swift.max(squares / Double(count) - mean * mean, 0).squareRoot() / mean
         }
 
-        XCTAssertEqual(bandDispersion(soft), bandDispersion(mixed), accuracy: 0.005,
-                       "the band statistic can now tell the two apart — if that is real, "
-                       + "the cheaper statistic is available and this file should say so")
+        // IT CAN NOW, and this file says so, as the assertion that used to stand here
+        // asked: a Feather 0 radial is a one-pixel anti-aliased rim since lane M3
+        // (SPEC S6), so the hard edge DOES put pixels in the band — 0.27 for the soft
+        // radial alone against 2.80 beside the hard one at 320². The boundary statistic
+        // below is still what the fix uses, and still separates them.
+        XCTAssertGreaterThan(bandDispersion(mixed), 2 * bandDispersion(soft),
+                             "the anti-aliased hard rim no longer shows in the band")
         // The boundary statistic, which is what the fix uses, separates them by more
         // than the whole width of its own ramp.
         XCTAssertLessThan(MaskRaster.rampWidthSpread(soft).spread, MaskRaster.rampSpreadKnee)

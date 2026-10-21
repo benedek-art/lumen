@@ -622,9 +622,13 @@ final class MaskingTests: XCTestCase {
         // the expectation is recomputed in f64 from an already-rounded pixel.
         let tap = LocalCurve(curve: recipe.masks[0].adjust.curve, amount: 100,
                              white: curvedPlan.displayWhite)
+        // Only where the alpha is FULL. Feather 0 is a one-pixel anti-aliased rim now
+        // rather than a 0/1 staircase (lane M3, SPEC S6), so the rim pixels carry a
+        // partial curve by design; the claim here is about what the curve IS.
+        let alpha = MaskRaster.radialPlane(hardRadial(), image.width, image.height)
         var checked = 0
         for y in 0..<image.height {
-            for x in 0..<image.width where plain[x, y] != curved[x, y] {
+            for x in 0..<image.width where plain[x, y] != curved[x, y] && alpha[x, y] >= 1 {
                 let expected = tap.apply(plain[x, y])
                 XCTAssertLessThan(expected.maxAbsDifference(curved[x, y]), 2e-6,
                                   "the masked curve is not the curve at (\(x), \(y))")

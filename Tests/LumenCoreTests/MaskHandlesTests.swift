@@ -437,9 +437,15 @@ final class MaskHandlesTests: XCTestCase {
     /// The strip between the two band lines is the gradient, and pressing it moves it —
     /// including far off the axis, where the band line is still drawn and the old rule
     /// (a 9 pt disc on the midpoint) had nothing at all.
+    ///
+    /// EXCEPT ON THE CENTRE LINE, which turns the gradient (Lightroom's three-line
+    /// handle, lane M3 SPEC S2): rows within one grab radius of it are excluded here
+    /// and pinned by `GradientLaneTests.testThreeLineGrammar` instead. The pin on it,
+    /// at x = 800, still moves.
     func testAnywhereInTheBandMoves() {
         for y in stride(from: 320.0, through: 780.0, by: 20) {
-            for x in [10.0, 400.0, 800.0, 1200.0, 1590.0] {
+            for x in [10.0, 400.0, 800.0, 1200.0, 1590.0]
+            where x == 800 || abs(y - 550) > MaskHandles.grabRadius {
                 XCTAssertEqual(lineGrab(x, y), .move, "inside the band at (\(x), \(y))")
             }
         }

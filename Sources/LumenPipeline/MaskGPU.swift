@@ -126,11 +126,8 @@ enum MaskGPU {
             // `MaskRaster.radialPlane`'s numbers, computed here rather than in shader
             // text so there is one copy of the policy and the shader carries none.
             let theta = -(c.rotation ?? 0) * Double.pi / 180
-            let f = Num.clamp(c.feather ?? 50, 0, 100) / 100
-            let rxPx = Swift.max(rx * Double(w), 1e-6)
-            let ryPx = Swift.max(ry * Double(h), 1e-6)
-            let pixelGuard = Num.saturate(1.0 / Swift.max(Swift.min(rxPx, ryPx), 1))
-            let rin = Num.clamp(Swift.max(1 - f, pixelGuard), 0, 1 - 1e-6)
+            let rin = MaskRaster.radialCore(radii: (rx, ry), feather: c.feather,
+                                            width: Int(w), height: Int(h))
             return KernelLibrary.applyGenerator(
                 KernelLibrary.maskRadial, extent: extent,
                 [Float(centre[0]), Float(centre[1]), Float(rx), Float(ry),

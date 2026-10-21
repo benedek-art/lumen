@@ -315,8 +315,9 @@ final class PanelSnapshotTests: XCTestCase {
         await recorder.render("window-\(label(small))-crop",
                               "Full window, Crop workspace with the crop tool armed",
                               width: small.width, height: small.height, settle: 2.5,
-                              ready: { state.primaryFrameSize != nil },
-                              readyNote: "the loupe frame had not arrived") {
+                              ready: { state.maskOverlayAlpha != nil },
+                              readyNote: "the mask overlay's alpha had not been "
+                                  + "rasterized — the wash may be missing") {
             ContentView()
         }
 
@@ -334,6 +335,20 @@ final class PanelSnapshotTests: XCTestCase {
         state.beginPersistentMaskOverlay(ids.radial)
         await recorder.render("window-\(label(small))-masking-overlay",
                               "Full window, masking, radial mask selected with its overlay",
+                              width: small.width, height: small.height, settle: 2.5,
+                              ready: { state.maskOverlayAlpha != nil },
+                              readyNote: "the mask overlay's alpha had not been "
+                                  + "rasterized — the wash may be missing") {
+            ContentView()
+        }
+        // Lane M3: the linear gradient selected, so its three-line handle (outer lines,
+        // centre line, pin) can be judged against its own red wash; the radial is the
+        // unselected one here.
+        state.activeMaskID = ids.linear
+        state.activeComponentIndex = 0
+        state.beginPersistentMaskOverlay(ids.linear)
+        await recorder.render("window-\(label(small))-masking-linear",
+                              "Full window, masking, linear gradient selected (three-line handle)",
                               width: small.width, height: small.height, settle: 2.5,
                               ready: { state.maskOverlayAlpha != nil },
                               readyNote: "the mask overlay's alpha had not been "
