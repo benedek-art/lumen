@@ -78,6 +78,7 @@ final class PanelSnapshotTests: XCTestCase {
         let recorder = SnapshotRecorder(directory: directory)
         await renderPanels(recorder, root: root)
         await renderWindow(recorder, root: root)
+        await renderRangeMasks(recorder, root: root)
         recorder.writeIndex()
         print("UI snapshots: \(recorder.entries.count) entries, "
               + "\(recorder.entries.filter { $0.file != nil }.count) files, in \(directory.path)")
@@ -266,6 +267,35 @@ final class PanelSnapshotTests: XCTestCase {
             SnapshotSectionCard(.frame, isModified: recorder.isModified(.frame)) {
                 CropTransformSection(initiallyExpanded: true)
             }
+        }
+    }
+
+    // MARK: - Range masks (WS-47/48): the Brightness Range luminance-map strip
+
+    /// The strip on its own, at three Smooth values. The component editor that holds it
+    /// opens from a mask row's chevron, which this harness cannot press (every `press`
+    /// in the published index reports "could not find"), so the strip is drawn directly
+    /// at the editor's inset width.
+    @MainActor
+    private func renderRangeMasks(_ recorder: SnapshotRecorder, root: URL) async {
+        let width = Lumen.defaultPanelWidth
+        let lo = MaskPanel.normalizedEV(-3.5)
+        await recorder.render("panel-masks-luma-band-strip",
+                              "Brightness Range luminance map: From −3.5 EV, To +4, at "
+                                  + "Smooth 0, 50 and 100; then a −6…−2 EV band at 50",
+                              width: width) {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach([0.0, 50, 100], id: \.self) { smooth in
+                    LumaBandStrip(lo: lo, hi: 1, smooth: smooth)
+                }
+                LumaBandStrip(lo: MaskPanel.normalizedEV(-6), hi: MaskPanel.normalizedEV(-2),
+                              smooth: 50)
+            }
+            .padding(.leading, 18)
+            .padding(.trailing, 8)
+            .padding(.vertical, 8)
+            .background(Lumen.windowBase)
+            .foregroundStyle(Lumen.primaryText)
         }
     }
 

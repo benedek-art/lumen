@@ -1566,14 +1566,15 @@ struct MaskPanel: View {
                 // changes under it — which is why every channel is on one axis.
                 bandSlider(id, i, "From", isLow: true, depth: false,
                            help: "The dark end of the band, in EV on the fixed −10…+4 "
-                               + "axis. Anything darker than this is left unselected. "
+                               + "axis. A pixel exactly here is half selected; Smooth "
+                               + "fades the edge either side of it without moving it. "
                                + "The axis never auto-ranges, so a band means the same "
                                + "thing on every frame.")
                 bandSlider(id, i, "To", isLow: false, depth: false,
                            help: "The bright end of the band, in EV on the same fixed "
-                               + "axis. Anything brighter is left unselected. It cannot "
-                               + "be dragged below From — inverting the band is the "
-                               + "Invert toggle's job.")
+                               + "axis, half selected exactly here. At +4 it is open: "
+                               + "everything brighter is in. It cannot be dragged below "
+                               + "From — inverting the band is the Invert toggle's job.")
                 // "Smooth", NOT "Smoothness", and the second one did not fit. With a
                 // behaviour glyph beside it the name gets 56 points; "Smoothness"
                 // measures 64.8 at `lumenBody`, which `minimumScaleFactor(0.86)`
@@ -1589,10 +1590,15 @@ struct MaskPanel: View {
                 // chain, a different control on the same mask.
                 optionalSlider(id, i, "Smooth", \.smooth, 0...100, 50,
                                behaviour: .smoothness,
-                               help: "Smoothness of the band's edges — how gradually "
-                                   + "the selection falls off outside From and To. At 0 "
-                                   + "the band ends abruptly at each EV; at 100 it "
-                                   + "fades across the neighbouring stops.")
+                               help: "Smoothness of the band's edges. Each edge fades "
+                                   + "centred on its handle, so Smooth softens the band "
+                                   + "without moving it: at 0 it ends abruptly at From "
+                                   + "and To; at 100 each edge fades across two stops, "
+                                   + "one either side.")
+                // The luminance map: the band as it renders, on the axis the handles
+                // live on. Drawn by `MaskRaster.lumaRangeValue`, the rasterizer's own
+                // arithmetic, so the strip cannot disagree with the mask.
+                LumaBandStrip(lo: c.lo ?? 0, hi: c.hi ?? 1, smooth: c.smooth ?? 50)
             }
         case .polygon:
             VStack(alignment: .leading, spacing: Lumen.rowGap) {
@@ -1657,14 +1663,17 @@ struct MaskPanel: View {
         case .colorRange:
             VStack(alignment: .leading, spacing: Lumen.rowGap) {
                 sampleChips(id, i, c)
-                // One Refine, not three: it drives the hue, chroma and lightness
+                // One Refine, not three: it drives the hue, saturation and brightness
                 // tolerances together because the per-axis split has no field in the
-                // format, so the other two are absent rather than faked.
+                // format, so the other two are absent rather than faked. "Tolerance",
+                // not Lightroom's "Refine": this panel's Refine is the mask's edge
+                // chain, and one word must not name two controls in one editor.
                 optionalSlider(id, i, "Tolerance", \.rangeAmount, 0...100, 50,
-                               help: "How far a pixel may sit from the sampled colours "
-                                   + "and still be selected. It moves the hue, chroma "
-                                   + "and lightness tolerances together — the format "
-                                   + "has no field to split them.")
+                               help: "How different a colour may be from the samples "
+                                   + "and still be selected (Lightroom calls this "
+                                   + "Refine). Hue is held tightest, saturation gets "
+                                   + "more room, and brightness the most, so the "
+                                   + "same colour in shade stays selected.")
             }
         case .similarity:
             similarityParameters(id, i, c)
@@ -3984,6 +3993,83 @@ struct MaskThumbnail: View {
         )
         .opacity(enabled ? 1 : 0.4)
     }
+}
+
+/// The luminance map under a Brightness Range: the fixed −10…+4 EV axis as a grey ramp,
+/// with the band's selection drawn over it as the rasterizer computes it. It is the
+/// strip a photographer reads to see what From, To and Smooth are doing together, and
+/// because the curve is `MaskRaster.lumaRangeValue` it is the mask's own arithmetic,
+/// not a picture of it.
+/// Internal rather than private so `PanelSnapshotTests` can draw it on its own: the
+/// component editor it sits in is behind a disclosure the snapshot harness cannot open.
+struct LumaBandStrip: View {
+    let lo: Double
+    let hi: Double
+    let smooth: Double
+
+    /// Where the 0 EV tick sits, and the stops labelled under the strip.
+    private static let labels: [Double] = [-8, -4, 0, 4]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Canvas { context, size in
+                let w = size.width, h = size.height
+                let ramp = Gradient(colors: [Color(white: 0.02), Color(white: 0.92)])
+                let rect = Path(roundedRect: CGRect(x: 0, y: 0, width: w, height: h),
+                                cornerRadius: Lumen.radiusChip)
+                context.fill(rect, with: .linearGradient(ramp, startPoint: .zero,
+                                                         endPoint: CGPoint(x: w, y: 0)))
+                var curve = Path()
+                let steps = Swift.max(Int(w), 2)
+                for step in 0...steps {
+                    let t = Double(step) / Double(steps)
+                    let a = MaskRaster.lumaRangeValue(t, lo: lo, hi: hi, smooth: smooth)
+                    let point = CGPoint(x: CGFloat(t) * w, y: h - CGFloat(a) * (h - 2) - 1)
+                    if step == 0 { curve.move(to: point) } else { curve.addLine(to: point) }
+                }
+                var area = curve
+                area.addLine(to: CGPoint(x: w, y: h))
+                area.addLine(to: CGPoint(x: 0, y: h))
+                area.closeSubpath()
+                context.drawLayer { layer in
+                    layer.clip(to: rect)
+                    layer.fill(area, with: .color(LumaBandStrip.selection.opacity(0.45)))
+                    layer.stroke(curve, with: .color(LumaBandStrip.selection), lineWidth: 1.2)
+                }
+                for n in [lo, hi] where n > 0 && n < 1 {
+                    let x = CGFloat(Num.saturate(n)) * w
+                    var tick = Path()
+                    tick.move(to: CGPoint(x: x, y: 0))
+                    tick.addLine(to: CGPoint(x: x, y: h))
+                    context.stroke(tick, with: .color(.white.opacity(0.85)), lineWidth: 1)
+                }
+                context.stroke(rect, with: .color(Lumen.separator), lineWidth: 0.5)
+            }
+            .frame(height: 18)
+            GeometryReader { geo in
+                ForEach(LumaBandStrip.labels, id: \.self) { ev in
+                    let t = (ev - MaskPanel.evMin) / (MaskPanel.evMax - MaskPanel.evMin)
+                    Text(ev > 0 ? "+\(Int(ev))" : "\(Int(ev))")
+                        .font(.lumenCaption)
+                        .foregroundStyle(Lumen.tertiaryText)
+                        .fixedSize()
+                        .position(x: Swift.min(Swift.max(CGFloat(t) * geo.size.width, 8),
+                                               geo.size.width - 8),
+                                  y: 6)
+                }
+            }
+            .frame(height: 12)
+        }
+        .accessibilityElement()
+        .accessibilityLabel("Luminance map")
+        .accessibilityValue(String(format: "Band %.1f to %.1f EV, Smooth %.0f",
+                                   MaskPanel.ev(lo), MaskPanel.ev(hi), smooth))
+        .help("The band on the −10…+4 EV axis, as it renders: full height is fully "
+              + "selected. The white ticks are From and To.")
+    }
+
+    /// The overlay's red, so the strip reads as the same selection the viewer washes.
+    static let selection = Color(red: 0.92, green: 0.30, blue: 0.26)
 }
 
 #endif
