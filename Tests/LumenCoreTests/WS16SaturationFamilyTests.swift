@@ -217,6 +217,31 @@ final class WS16SaturationFamilyTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(worst, 0.3, "output chroma slope \(worst) at \(at)")
     }
 
+    /// No dead upper range (LANE-BRIEF §4; verifier round 1). On every in-gamut grid
+    /// sample with C > 0.02, the +50…+100 half of Saturation delivers at least 25% of
+    /// the +100 push, and so does Vibrance wherever its +100 push is non-zero. The first
+    /// compression eased into a fixed share of the room and stopped responding: CC orange
+    /// gained ×1.152 by +25 and ×1.153 at +100.
+    func testWS16_NoDeadUpperRangeForSaturationOrVibrance() {
+        for protect in [0.0, Self.defaultProtect] {
+            for key in ["sat", "vib"] {
+                let p50 = key == "sat" ? probe(sat: 50, protect: protect) : probe(vib: 50, protect: protect)
+                let p100 = key == "sat" ? probe(sat: 100, protect: protect) : probe(vib: 100, protect: protect)
+                var worst = 1.0, at = ""
+                for x in Self.grid where x.C > 0.02 {
+                    let c50 = Self.lch(p50.stage.apply(x.rgb)).C
+                    let c100 = Self.lch(p100.stage.apply(x.rgb)).C
+                    let whole = c100 - x.C
+                    guard whole > 1e-5 * x.C + 1e-7 else { continue }
+                    let share = (c100 - c50) / whole
+                    if share < worst { worst = share; at = "L \(x.L) C \(x.C) h \(x.h)" }
+                }
+                XCTAssertGreaterThanOrEqual(worst, 0.25,
+                                            "\(key) P\(protect): top half delivers \(worst) of the push at \(at)")
+            }
+        }
+    }
+
     // MARK: - Vibrance
 
     func testWS16_VIB1_VibranceGivesLowChromaPriority() {

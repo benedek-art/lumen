@@ -401,11 +401,10 @@ public struct Develop: Codable, Equatable, Sendable {
 /// own is a plain, brightness-neutral chroma move (see `init(from:)` for what that means
 /// for recipes written while the default was 50).
 ///
-/// `protectSkin` attenuates Vibrance at both signs and Saturation's PUSH. It does not
-/// attenuate a negative Saturation: "−100 reaches true B&W" is a contract, and a guard
-/// that stops a pull short of its own endpoint is not a preference, it is a defect. It
-/// used to, and at the default of 70 that left skin at 30% chroma in a frame the
-/// photographer had taken all the way to black and white.
+/// `protectSkin` attenuates the PUSHES of Vibrance and Saturation. It does not
+/// attenuate a pull: "−100 reaches true B&W" is Saturation's contract, and at the
+/// default of 70 a protected pull left skin at 30% chroma in a black-and-white frame; a
+/// protected Vibrance pull left the skin hues coloured in a muted one (WS-16).
 public struct ColorAdjust: Codable, Equatable, Sendable {
     public var vibrance: Double     // −100…+100, low-chroma weighted
     public var saturation: Double   // −100…+100, −100 reaches true B&W

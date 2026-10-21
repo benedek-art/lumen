@@ -457,13 +457,12 @@ enum ExactColorTwin {
         return lo
     }
 
-    /// `ColorEngine.gamutCompressedFill` (`satRoomFloor` 0.5, `satRoomKnee` 0.2).
+    /// `ColorEngine.gamutCompressedFill` (`satRoomKnee` 0.5).
     @inline(__always) static func compressedFill(_ x0: Float, _ target: Float) -> Float {
-        guard target > x0, x0 < 1 else { return x0 }
-        let room = 1 - x0
-        let y = ((1 - target) / room - 0.5) / (1 - 0.5)
-        let eased = y >= 0.2 ? y : 0.2 * exp((y - 0.2) / 0.2)
-        return 1 - room * (0.5 + (1 - 0.5) * eased)
+        guard target > x0, x0 > 0, x0 < 1 else { return x0 }
+        let t0 = x0 <= 0.5 ? x0 : (1 - 0.5) * (1 - 0.5) / (1 - x0) - 1 + 2 * 0.5
+        let t = t0 * (target / x0)
+        return t <= 0.5 ? t : 1 - (1 - 0.5) * (1 - 0.5) / (t + 1 - 2 * 0.5)
     }
 
     /// `ColorEngine.shapedChromaScale`: an exact scale for a pull, a gamut-compressed one
@@ -528,21 +527,22 @@ enum ExactColorTwin {
         let rolloff = smoothstep(0.02, 0.20, J) * (0.35 + 0.65 / (1 + u2 * u2))
         let reachH = reach(l.z, u)
         let low = 1 - smoothstep(0.02, 0.20, l.y)
-        let vib: Float
-        if p.x >= 0 {
-            // `vibranceReachSpreadDegrees`: the least boundary within ±3°.
-            let vibReach = min(reachH, min(reach(wrapHue(l.z - 3), u), reach(wrapHue(l.z + 3), u)))
+        var vib: Float = 0
+        if p.x > 0 {
+            // `vibranceReachSpreadDegrees` / `vibranceReachCap`: the least boundary within
+            // ±3°, and never past C/L 0.6.
+            let vibReach = min(0.6, min(reachH, min(reach(wrapHue(l.z - 3), u), reach(wrapHue(l.z + 3), u))))
             let fill: Float = l.x > 0 && vibReach > 0 ? max(0, l.y) / (l.x * vibReach) : 1
-            let room = max(0, 1 - fill)
-            vib = p.x * rolloff * 0.85 * low * room * room * smoothstep(0, 0.02, l.y)
-        } else {
+            let room = max(0, 1 - fill / 0.65)
+            vib = p.x * rolloff * low * (0.15 + (1 - 0.15) * room * room) * smoothstep(0, 0.02, l.y)
+        } else if p.x < 0 {
             vib = p.x * (0.45 + (0.6 - 0.45) * (1 - gate(l.y)))
         }
         let sat = p.y >= 0 ? p.y * rolloff : p.y
         var mid = c
         if vib != 0 { mid = chromaScale(c, 1 + vib, reachH, protection, 0, u, kBr) }
         guard sat != 0 else { return mid }
-        let darken: Float = sat > 0 ? p.w * 0.5 : 0
+        let darken: Float = sat > 0 ? p.w * 0.65 : 0
         return chromaScale(mid, 1 + sat, reachH, protection, darken, u, kBr)
     }
 
@@ -658,11 +658,10 @@ public enum ExactColorKernelSource {
         return 1.0 + (-0.1340 * q + 0.0872 * kBr) * (max(0.0, C) * 4.0) * 0.1;
     }
     float lumenFill(float x0, float target) {
-        if (!(target > x0 && x0 < 1.0)) { return x0; }
-        float room = 1.0 - x0;
-        float y = ((1.0 - target) / room - 0.5) / (1.0 - 0.5);
-        float eased = y >= 0.2 ? y : 0.2 * exp((y - 0.2) / 0.2);
-        return 1.0 - room * (0.5 + (1.0 - 0.5) * eased);
+        if (!(target > x0 && x0 > 0.0 && x0 < 1.0)) { return x0; }
+        float t0 = x0 <= 0.5 ? x0 : (1.0 - 0.5) * (1.0 - 0.5) / (1.0 - x0) - 1.0 + 2.0 * 0.5;
+        float t = t0 * (target / x0);
+        return t <= 0.5 ? t : 1.0 - (1.0 - 0.5) * (1.0 - 0.5) / (t + 1.0 - 2.0 * 0.5);
     }
     """
 
@@ -934,13 +933,13 @@ public enum ExactColorKernelSource {
                     float reach = lumenReach(l.z, m4, m5, m6, m7, m8);
                     float low = 1.0 - lumenSmooth(0.02, 0.20, l.y);
                     float vib = 0.0;
-                    if (p.x >= 0.0) {
-                        float vibReach = min(reach, min(lumenReach(lumenWrap(l.z - 3.0), m4, m5, m6, m7, m8),
-                                                        lumenReach(lumenWrap(l.z + 3.0), m4, m5, m6, m7, m8)));
+                    if (p.x > 0.0) {
+                        float vibReach = min(0.6, min(reach, min(lumenReach(lumenWrap(l.z - 3.0), m4, m5, m6, m7, m8),
+                                                                 lumenReach(lumenWrap(l.z + 3.0), m4, m5, m6, m7, m8))));
                         float fill = l.x > 0.0 && vibReach > 0.0 ? max(0.0, l.y) / (l.x * vibReach) : 1.0;
-                        float room = max(0.0, 1.0 - fill);
-                        vib = p.x * rolloff * 0.85 * low * room * room * lumenSmooth(0.0, 0.02, l.y);
-                    } else {
+                        float room = max(0.0, 1.0 - fill / 0.65);
+                        vib = p.x * rolloff * low * (0.15 + (1.0 - 0.15) * room * room) * lumenSmooth(0.0, 0.02, l.y);
+                    } else if (p.x < 0.0) {
                         vib = p.x * (0.45 + (0.6 - 0.45) * (1.0 - lumenGate(l.y)));
                     }
                     float sat = p.y >= 0.0 ? p.y * rolloff : p.y;
@@ -951,7 +950,7 @@ public enum ExactColorKernelSource {
                     }
                     res = mid;
                     if (sat != 0.0) {
-                        float darken = sat > 0.0 ? p.w * 0.5 : 0.0;
+                        float darken = sat > 0.0 ? p.w * 0.65 : 0.0;
                         \(chromaScale("mid", "1.0 + sat", "darken", into: "pushed"))
                         res = pushed;
                     }

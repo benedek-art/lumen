@@ -106,3 +106,24 @@ A stored preview keyed on that fingerprint would be served stale.
 **Ask.** Bump `PreviewCache.renderingRevision` (8 → 9, or once for every lane landing together)
 when WS-16 merges. Comment text: "9: S9 Saturation/Vibrance/Density/Protect Skin and the B&W mix were
 redefined (WS-16), and Density's default moved from 50 to 0."
+
+## N6. Proof-registry rows WS-16 made stale (owner: WS-58, `Tests/LumenCoreTests/Proof/ProofRegistry.swift`)
+
+The registry is append-only for other lanes, so WS-16 changed only what its tests require:
+
+- **Edited (required): the `bw.*` authority floor, 107 → 44.** `testEveryRegisteredControlHasVisibleAuthority`
+  fails without it. The old floor (0.7 of aqua's 153.13) measured a band at −100 sending its colours to
+  black. The response is now ±2 EV at full chroma by design (SPEC BW-1..BW-3), and the weakest band on the
+  colour chart measures 63.16 (blue; the chart's blue and purple patches are dark). 44 is 0.7 of that, the
+  same rule as before. WS-58 must accept or re-derive it.
+- **Not edited, now stale:**
+  - The `color.protectSkin` row's comment (~line 282) says it "attenuates Vibrance (both signs)". Since
+    WS-16 it attenuates pushes only. Its companion (Vibrance +80) is a push, so the measurement is still
+    valid.
+  - The `color.density` row declares `neutral: 50` and its comment calls the control "gated". The default
+    is now 0; the companion (Saturation 60) still makes it live.
+  - The `blackAndWhite` docstring still says a full-negative band takes its hue to BLACK
+    (`1 + w·gate·band/100·bwKappa`). It is now `2^(w·gate·band/100·bwKappa)` with `bwKappa` = 2 EV.
+- The proof records for `color.saturation`, `color.vibrance`, `color.density`, `color.protectSkin` and
+  `bw.*` were re-recorded by WS-16 (`LUMEN_RECORD_PROOFS=1`). The moves are fixes. The main ones are
+  hueRotation dropping on Saturation and Vibrance, and B&W authority following the new EV response.

@@ -3349,13 +3349,16 @@ def gen_tone_checks():
 
 LOW_CHROMA_LO, LOW_CHROMA_HI = 0.02, 0.20
 VIBRANCE_FLOOR_CHROMA = 0.02
-VIBRANCE_PUSH_STRENGTH = 0.85
+VIBRANCE_PUSH_STRENGTH = 1.0
 VIBRANCE_PULL_STRENGTH, VIBRANCE_PULL_STRENGTH_SATURATED = 0.6, 0.45
 GATE_LO_CHROMA, GATE_HI_CHROMA = 0.02, 0.06
-SAT_ROOM_FLOOR, SAT_ROOM_KNEE = 0.5, 0.2
-DENSITY_DARKENING = 0.5
+SAT_ROOM_KNEE = 0.5
+DENSITY_DARKENING = 0.65
 GAMUT_REACH_CEILING, GAMUT_REACH_STEPS = 1.2, 16
 VIBRANCE_REACH_SPREAD = 3.0
+VIBRANCE_FILL_CEILING = 0.65
+VIBRANCE_FILL_FLOOR = 0.15
+VIBRANCE_REACH_CAP = 0.6
 
 
 def low_chroma(chroma):
@@ -3375,12 +3378,12 @@ def gamut_reach(h):
 
 
 def gamut_compressed_fill(x0, target):
-    if not (target > x0 and x0 < 1):
+    if not (target > x0 and 0 < x0 < 1):
         return x0
-    room = 1 - x0
-    y = ((1 - target) / room - SAT_ROOM_FLOOR) / (1 - SAT_ROOM_FLOOR)
-    eased = y if y >= SAT_ROOM_KNEE else SAT_ROOM_KNEE * math.exp((y - SAT_ROOM_KNEE) / SAT_ROOM_KNEE)
-    return 1 - room * (SAT_ROOM_FLOOR + (1 - SAT_ROOM_FLOOR) * eased)
+    k = SAT_ROOM_KNEE
+    t0 = x0 if x0 <= k else (1 - k) * (1 - k) / (1 - x0) - 1 + 2 * k
+    t = t0 * (target / x0)
+    return t if t <= k else 1 - (1 - k) * (1 - k) / (t + 1 - 2 * k)
 
 
 def shaped_chroma_scale(c, gain, reach=None, darken=0.0):
@@ -3417,12 +3420,13 @@ def vibrance_saturation(c, vibrance=0.0, saturation=0.0, density=0.0):
     J = L * hk_factor(C, h)
     rolloff = lum_sat_rolloff(J)
     reach = gamut_reach(h)
-    if vib >= 0:
-        vib_reach = min(reach, gamut_reach((h - VIBRANCE_REACH_SPREAD) % 360),
+    if vib > 0:
+        vib_reach = min(VIBRANCE_REACH_CAP, reach, gamut_reach((h - VIBRANCE_REACH_SPREAD) % 360),
                         gamut_reach((h + VIBRANCE_REACH_SPREAD) % 360))
         fill = max(0.0, C) / (L * vib_reach) if L > 0 and vib_reach > 0 else 1.0
-        room = max(0.0, 1 - fill)
-        vib_amount = (vib * rolloff * VIBRANCE_PUSH_STRENGTH * low_chroma(C) * room * room
+        room = max(0.0, 1 - fill / VIBRANCE_FILL_CEILING)
+        vib_amount = (vib * rolloff * VIBRANCE_PUSH_STRENGTH * low_chroma(C)
+                      * (VIBRANCE_FILL_FLOOR + (1 - VIBRANCE_FILL_FLOOR) * room * room)
                       * smoothstep(0.0, VIBRANCE_FLOOR_CHROMA, C))
     else:
         vib_amount = vib * (VIBRANCE_PULL_STRENGTH_SATURATED

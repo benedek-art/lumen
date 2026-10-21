@@ -954,9 +954,9 @@ enum ProofRegistry {
     /// find out.** The argument for it was good: one floor covers eight bands, docs/20
     /// sets it by the weakest member, and on the chart the weakest is whichever hue the
     /// ColorChecker happens to represent worst — a fact about a test chart rather than
-    /// about the control. But a full-negative band took its hue to BLACK (the gain was
-    /// `1 + w·gate·band/100·bwKappa`, zero at −100, before WS-16 made it ±2 EV), and the
-    /// wedge carries rows up to +5 EV that render at the code-value ceiling. So the peak the authority metric
+    /// about the control. But a full-negative band takes its hue to BLACK (`gain =
+    /// 1 + w·gate·band/100·bwKappa` reaches zero at −100), and the wedge carries rows up
+    /// to +5 EV that render at the code-value ceiling. So the peak the authority metric
     /// reports is one clipped pixel going from 255 to 0, for every band: red measured
     /// 254.92 and orange 254.50, four hundredths of a level apart, on a metric whose job
     /// is to tell them apart. A floor set from those would catch a band that had died

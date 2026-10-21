@@ -373,8 +373,14 @@ final class MaskingTests: XCTestCase {
         let side = 32
         // Four flat patches of clearly different hue at similar luminance, so a colour
         // range has something to include and something to exclude.
+        //
+        // The red was RGB(0.34, 0.07, 0.05), 61% of the way to the Rec.2020 edge. Since
+        // WS-16 Saturation compresses against that edge, so +90 moves it ×1.31 rather
+        // than toward ×1.9, and the two taps no longer separated by the factor of three
+        // asserted below (0.21 against 0.47). A red at 48% of the edge (×1.52) keeps the
+        // test about the tap, which is what it measures, not about the push.
         let image = ImageBuffer(width: side, height: side) { u, v in
-            if v < 0.5 { return u < 0.5 ? RGB(0.34, 0.07, 0.05) : RGB(0.08, 0.30, 0.07) }
+            if v < 0.5 { return u < 0.5 ? RGB(0.30, 0.10, 0.07) : RGB(0.08, 0.30, 0.07) }
             return u < 0.5 ? RGB(0.06, 0.09, 0.34) : RGB(0.18, 0.18, 0.18)
         }
         let clicked = (x: side / 4, y: side / 4)          // in the red patch

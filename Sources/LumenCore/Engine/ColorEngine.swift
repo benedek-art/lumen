@@ -355,24 +355,40 @@ public struct ColorEngine: Sendable {
     /// shadow's chroma noise is low-chroma, so without it Vibrance amplified noise more
     /// than Saturation did (×1.89 on an ISO 3200 frame).
     public static let vibranceFloorChroma: Double = 0.02
-    /// Vibrance +100's largest gain is 1 + this, on the least colourful colours. It was
-    /// 1 (the same ×2 as Saturation), which together with skin going unprotected made
-    /// Vibrance the stronger of the two controls on real photographs.
-    public static let vibrancePushStrength: Double = 0.85
+    /// Vibrance +100's largest gain is 1 + this, reached only by a colour with chroma
+    /// between 0.02 and `lowChromaLo` and next to no gamut fill. Everything else gets
+    /// less (`lowChroma`, `vibranceFillCeiling`), which is what makes Vibrance gentler
+    /// than Saturation on a real photograph (median ×1.35 against ×1.9 at +100 on 8559).
+    public static let vibrancePushStrength: Double = 1.0
+    /// Vibrance's push fades out as gamut fill rises, as (1 − fill/ceiling)², and is gone
+    /// by this fill. A colour that is already this close to the gamut edge is what
+    /// Vibrance exists to leave alone, and fading it out before Saturation's own
+    /// compression bends keeps Vibrance and Saturation together monotone with a slope of
+    /// at least 0.3 (SPEC SAT-5) instead of compounding two compressions.
+    public static let vibranceFillCeiling: Double = 0.65
+    /// …down to this share of the push, not to nothing. In a dark frame almost every
+    /// colour sits at high fill (C/L is high in shadows), so a weight that reached zero
+    /// left Vibrance +100 at a median ×1.045 on 4694 and 2062. Near the edge this share
+    /// is a gain of at most ×1.15, which Saturation's compression can stack on while the
+    /// pair stays above SAT-5's 0.3 slope.
+    public static let vibranceFillFloor: Double = 0.15
     /// Vibrance −100 is a uniform-in-hue pull to (1 − this) of the chroma — muted, never
     /// monochrome: `vibrancePullStrength` on near-neutrals, easing across the chroma
     /// gate (0.02…0.06) to `…Saturated` for everything with a real colour.
     public static let vibrancePullStrength: Double = 0.6
     public static let vibrancePullStrengthSaturated: Double = 0.45
-    /// Gamut-relative push compression (`gamutCompressedChroma`). A push may consume at
-    /// most `1 − satRoomFloor` of the room left between a colour and the working-gamut
-    /// boundary at its lightness and hue, so it approaches the boundary softly and never
-    /// crosses it; `satRoomKnee` is where the uniform scale starts easing into that floor.
-    public static let satRoomFloor: Double = 0.5
-    public static let satRoomKnee: Double = 0.2
+    /// Gamut-relative push compression (`gamutCompressedFill`): gamut fill (chroma over
+    /// the boundary chroma) is exactly linear up to this knee, and above it approaches
+    /// the boundary as 1 − (1 − knee)²/(t + 1 − 2·knee) — a 1/t tail, never reaching it.
+    public static let satRoomKnee: Double = 0.5
     /// Density: a Saturation push at Density 100 lowers OKLab L by this fraction of the
-    /// gamut fill it added (chroma and hue held), so colour deepens like dye.
-    public static let densityDarkening: Double = 0.5
+    /// gamut fill it added (chroma and hue held), so colour deepens like dye. Because
+    /// the darkening follows the per-pixel fill, a noisy saturated patch at Density 100
+    /// also gains some luminance texture (high-pass L ×1.2 on a red in 2062 at Sat +100);
+    /// 0.3 halved that but left the control under its proof authority floor, so the
+    /// value is what keeps Density visibly a control (~0.6 EV at 100 on the median
+    /// colour). Gamut-safe for any value below 1 (see `shapedChromaScale`).
+    public static let densityDarkening: Double = 0.65
     /// The working-gamut boundary search: C/L is bisected on [0, ceiling] this many times.
     /// Rec.2020's boundary sits at C/L 0.24–0.89 in this working space.
     public static let gamutReachCeiling: Double = 1.2
@@ -384,6 +400,11 @@ public struct ColorEngine: Sendable {
     /// minimum of three is never past the true boundary, so it only ever weighs a colour
     /// as fuller than it is: Vibrance stays gentle there, it does not get bolder.
     public static let vibranceReachSpreadDegrees: Double = 3.0
+    /// …and never against a boundary further out than this C/L. Only the blue corner's
+    /// cusp (h ≈ 241°–250°, up to 0.89) and the violets reach past it; capping it there
+    /// removes the cusp from Vibrance's weight altogether (the ±3° minimum alone left
+    /// 0.041 per degree once the weight was scaled to `vibranceFillCeiling`).
+    public static let vibranceReachCap: Double = 0.6
     /// Lum-vs-Sat rolloff: the tonal window inside which a *push* has full effect.
     ///
     /// The low end is a true floor — below `satRolloffLo0` there is no colour to push,
@@ -1504,7 +1525,7 @@ public struct ColorEngine: Sendable {
 
     /// Where a push leaves a colour, in gamut fill (chroma over boundary chroma, so 1 is
     /// the working-gamut edge). `x0` is the colour's fill, `target` the fill a plain
-    /// chroma scale would give it.
+    /// chroma scale would give it, so the push's gain is `target / x0`.
     ///
     /// This replaces `satCompress`, an ABSOLUTE knee (0.18) and ceiling (0.34) in
     /// chroma. That knee bit colours deep inside the gamut — a C 0.16 blue at L 0.75 got
@@ -1512,22 +1533,25 @@ public struct ColorEngine: Sendable {
     /// Rec.2020 (8187 in-gamut grid samples left it at Saturation/Vibrance +100), and in
     /// RATIO form a colour past the knee could still plateau. Relative to the boundary at
     /// the pixel's own lightness and hue it is uniform where there is room and soft where
-    /// there is not:
+    /// there is not. The fill is mapped through a soft knee S — the identity up to
+    /// `satRoomKnee`, then 1 − (1 − k)²/(t + 1 − 2k), C¹ at the knee and asymptotic to
+    /// the boundary — and the push scales the UNCOMPRESSED coordinate: z = S(g·S⁻¹(x0)).
     ///
-    /// - the push is a pure scale while the room it leaves (`(1 − target)/(1 − x0)`) is
-    ///   comfortably above `satRoomFloor`;
-    /// - it then eases (C¹, exponentially) toward keeping exactly `satRoomFloor` of the
-    ///   room, so the result is always inside the boundary and never reaches it;
-    /// - the output's slope in `x0` is at least `satRoomFloor`, so there is no plateau
-    ///   for a gradient to collapse onto (a gamut blotch);
-    /// - it never returns less than `x0`, so a push never takes chroma away.
+    /// - Where g·x0 ≤ the knee it is an exact scale (Saturation +100 at fill 0.25).
+    /// - z < 1 always, so a push never leaves the gamut.
+    /// - z rises strictly with g at every finite gain: the slider's top half is never
+    ///   dead. The first version eased exponentially into a fixed share of the room,
+    ///   and an already-saturated orange gained ×1.152 by +25 and nothing after.
+    /// - Near the edge the 1/t tail makes the room left shrink by a factor 1/g, so the
+    ///   +50…+100 half of the slider still does a third of the work, and the output's
+    ///   slope in x0 is at least 1/g (0.5 at +100): no plateau, no gamut blotch.
+    /// - It never returns less than x0, so a push never takes chroma away.
     static func gamutCompressedFill(_ x0: Double, target: Double) -> Double {
-        guard target > x0, x0 < 1 else { return x0 }
-        let room = 1 - x0
-        let left = (1 - target) / room
-        let y = (left - satRoomFloor) / (1 - satRoomFloor)
-        let eased = y >= satRoomKnee ? y : satRoomKnee * exp((y - satRoomKnee) / satRoomKnee)
-        return 1 - room * (satRoomFloor + (1 - satRoomFloor) * eased)
+        guard target > x0, x0 > 0, x0 < 1 else { return x0 }
+        let k = satRoomKnee
+        let t0 = x0 <= k ? x0 : (1 - k) * (1 - k) / (1 - x0) - 1 + 2 * k
+        let t = t0 * (target / x0)
+        return t <= k ? t : 1 - (1 - k) * (1 - k) / (t + 1 - 2 * k)
     }
 
     /// Lum-vs-Sat rolloff: no chroma-noise shadows, no neon highlights. Together with
@@ -1562,12 +1586,12 @@ public struct ColorEngine: Sendable {
         let reach = Self.gamutReach(hue: input.h, context: context)
 
         // VIBRANCE PUSH: gentler than Saturation by construction, not by coincidence.
-        // Its gain falls with chroma (`lowChroma`) AND with gamut fill (the squared room
-        // left), so a colour near the gamut edge barely moves while Saturation still
-        // pushes it; it starts from zero at chroma 0 (`vibranceFloorChroma`), so shadow
-        // chroma noise is not amplified; it tops out at ×1.85, not ×2; and Protect Skin
-        // spares skin. Before, it was ×2 on everything under C 0.05 — skin included — and
-        // measured stronger than Saturation +100 on every real photograph.
+        // Its gain falls with chroma (`lowChroma`) AND with gamut fill (gone by
+        // `vibranceFillCeiling`), so a colour near the gamut edge stays put while
+        // Saturation still pushes it; it starts from zero at chroma 0
+        // (`vibranceFloorChroma`), so shadow chroma noise is not amplified; and Protect
+        // Skin spares skin. Before, it was ×2 on everything under C 0.05 — skin included —
+        // and measured stronger than Saturation +100 on every real photograph.
         //
         // VIBRANCE PULL: a uniform-in-hue mute, never monochrome, and NOT skin-protected.
         // It was the push's weighting run backwards — everything under C 0.05 went to
@@ -1582,16 +1606,19 @@ public struct ColorEngine: Sendable {
         // push is compressed less — so skin near its (narrow, at orange hues) boundary
         // kept half its push, not 30%.
         let vibAmount: Double
-        if vibrance >= 0 {
+        if vibrance == 0 {
+            vibAmount = 0
+        } else if vibrance > 0 {
             let spread = Self.vibranceReachSpreadDegrees
-            let vibReach = Swift.min(reach, Swift.min(
+            let vibReach = Swift.min(Self.vibranceReachCap, Swift.min(reach, Swift.min(
                 Self.gamutReach(hue: Num.wrapHue(input.h - spread), context: context),
-                Self.gamutReach(hue: Num.wrapHue(input.h + spread), context: context)))
+                Self.gamutReach(hue: Num.wrapHue(input.h + spread), context: context))))
             let fill = input.L > 0 && vibReach > 0
                 ? Swift.max(0, input.C) / (input.L * vibReach) : 1
-            let room = Swift.max(0, 1 - fill)
+            let room = Swift.max(0, 1 - fill / Self.vibranceFillCeiling)
             vibAmount = vibrance * rolloff * Self.vibrancePushStrength
-                * Self.lowChroma(input.C) * room * room
+                * Self.lowChroma(input.C)
+                * (Self.vibranceFillFloor + (1 - Self.vibranceFillFloor) * room * room)
                 * Num.smoothstep(0, Self.vibranceFloorChroma, input.C)
         } else {
             vibAmount = vibrance * (Self.vibrancePullStrengthSaturated
@@ -1640,8 +1667,9 @@ public struct ColorEngine: Sendable {
     /// `subtractivePush`) that turned hue, needed a hue restore after it, could LOWER
     /// chroma at Density 100 (×0.944 on a magenta), and at its default of 50 made plain
     /// Saturation +100 darken the picture by ~0.19 EV. Darkening at held chroma raises
-    /// the fill, but by less than the room the compression left: with `satRoomFloor`
-    /// 0.5 the room is at least the fill added, and `darken` ≤ 0.5 uses at most half.
+    /// the fill, but by less than the room the compression left: a push of gain g ≤ 2
+    /// leaves at least 1/g of the room, which is at least the fill it added, and
+    /// `darken` < 1 spends less than all of it.
     private func shapedChromaScale(_ c: RGB, gain: Double, reach: Double, keep: Double,
                                    darken: Double) -> RGB {
         let lch = context.toLCh(c)
