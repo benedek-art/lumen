@@ -53,6 +53,13 @@ This is not built: it needs pick routing and a loupe gesture, which WS-02 owns. 
 - Checked with a Python port of `ColorPanel.paint(h:)` on both the current centres and [24, 57, 100, 142, 195, 258, 295, 332], after 8-bit quantisation:
   - worst swatch hue offset: 0.23° (current) and 0.32° (LR-like)
   - Saturation-track midpoint: 0.54° and 0.61°
+- Verify round 1 changed the paint to read as the canonical colours: lightness 85% of the way to each hue's sRGB cusp from 0.45, chroma 95% of the display's, capped at 0.22. Yellow reads clean rather than mustard, and Red deep rather than coral. On the engine's centres the port gives a worst swatch offset of 0.18° and a worst Saturation-track midpoint of 0.76°.
+
+### 8. Shared kit: an opt-in label parameter on `LumenSlider`
+
+- `LumenSlider.labelAtFullStrength` (default `false`) keeps the name at `primaryText` at the default value. The mixer's Hue, Saturation and Luminance rows pass `true`; without it seven of eight band names read as disabled.
+- It is purely additive: the last declared property, so no existing call site changes. Any lane that owns `LumenControls.swift` is welcome to rename it.
+- New view state on `AppState`: `mixerRangeExpanded` (the Band range fold), so the snapshot suite can open it.
 
 ## Engine
 

@@ -427,8 +427,8 @@ enum SliderInventory {
     /// `CurveEditorView.parametricSlider`, `ZonesPanel`'s register — and reduced to the
     /// distinct (title, host, range, step) rows those builders produce.
     ///
-    /// Three entries carry a note rather than a literal title: `ColorPanel:273` and
-    /// `ColorPanel:993` take `ColorEngine.bandNames` and `ZonesPanel:135` takes the zone
+    /// Three entries carry a note rather than a literal title: `ColorPanel:270` and
+    /// `ColorPanel:997` take `ColorEngine.bandNames` and `ZonesPanel:135` takes the zone
     /// register's name, so the WIDEST member of each list stands for the row.
     static let all: [SliderSpec] = [
         // Basic — white balance and tone.
@@ -459,18 +459,18 @@ enum SliderInventory {
         // Colour — mixer, point colour, black and white.
         // The mixer's Hue, Saturation and Luminance views: one row per band, titled
         // from `ColorEngine.bandNames` — Magenta is the widest of the eight.
-        SliderSpec("Magenta", "ColorPanel.swift:273", .developTop, -100...100, step: 1),
+        SliderSpec("Magenta", "ColorPanel.swift:270", .developTop, -100...100, step: 1),
         SliderSpec("Hue", "ColorPanel.swift:300", .developTop, -100...100, step: 1),
         SliderSpec("Saturation", "ColorPanel.swift:304", .developTop, -100...100, step: 1),
         SliderSpec("Luminance", "ColorPanel.swift:308", .developTop, -100...100, step: 1),
-        SliderSpec("Even out hues", "ColorPanel.swift:361", .developTop, 0...100, step: 1),
-        SliderSpec("Hue", "ColorPanel.swift:718", .developTop, -60...60, step: 1),
-        SliderSpec("Saturation", "ColorPanel.swift:723", .developTop, -100...100, step: 1),
-        SliderSpec("Luminance", "ColorPanel.swift:727", .developTop, -100...100, step: 1),
-        SliderSpec("Range", "ColorPanel.swift:731", .developTop, 0...100, step: 1),
-        SliderSpec("Variance", "ColorPanel.swift:737", .developTop, -100...100, step: 1),
+        SliderSpec("Even out hues", "ColorPanel.swift:363", .developTop, 0...100, step: 1),
+        SliderSpec("Hue", "ColorPanel.swift:722", .developTop, -60...60, step: 1),
+        SliderSpec("Saturation", "ColorPanel.swift:727", .developTop, -100...100, step: 1),
+        SliderSpec("Luminance", "ColorPanel.swift:731", .developTop, -100...100, step: 1),
+        SliderSpec("Range", "ColorPanel.swift:735", .developTop, 0...100, step: 1),
+        SliderSpec("Variance", "ColorPanel.swift:741", .developTop, -100...100, step: 1),
         // `ColorEngine.bandNames` — Magenta is the widest of the eight.
-        SliderSpec("Magenta", "ColorPanel.swift:993", .developTop, -100...100, step: 1),
+        SliderSpec("Magenta", "ColorPanel.swift:997", .developTop, -100...100, step: 1),
 
         // Crop.
         SliderSpec("Angle", "CropPanel.swift:361", .developTop, -45...45,
@@ -667,9 +667,9 @@ enum SliderInventory {
         // suite already filters empty titles out. An unmeasured control is the one that
         // ships broken, and this one is the app's narrowest track by a wide margin —
         // `MaskPanel`'s four-up gets 50 points for 200 steps, a quarter of a point each.
-        SliderSpec("", "LumenControls.swift:2222 (LookPanel.swift:986)", .gradeWheelBar,
+        SliderSpec("", "LumenControls.swift:2231 (LookPanel.swift:986)", .gradeWheelBar,
                    -1...1, step: 0.01, decimals: 2),
-        SliderSpec("", "LumenControls.swift:2222 (MaskPanel.swift:3011)", .maskWheelBar,
+        SliderSpec("", "LumenControls.swift:2231 (MaskPanel.swift:3011)", .maskWheelBar,
                    -1...1, step: 0.01, decimals: 2),
 
         // The Heal tool's bar on the loupe. Size is in pixels of the original file.

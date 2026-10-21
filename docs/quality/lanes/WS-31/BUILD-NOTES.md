@@ -131,3 +131,6 @@ Made in the UI fix round (after 49cf99b), with the reason for each.
   - a round trip over every band, all four handles and drag targets ±80° around the centre in 2.5° steps: `bandArcs(wireHandles(dragged))` equals the dragged arc, with the feather only ever widened to `bandMinReach`;
   - a check that the canonical arc written back, and `resetArc`'s wire defaults, both resolve exactly to `canonicalArcs`, so the Band range "reshaped" dot cannot light from a no-op.
 - `Tests/LumenAppTests/LayoutMetricSupport.swift`: the ColorPanel slider citations moved with the lines `moveHandle`'s rewrite added.
+- Verify round 1 fixes, as listed below.
+  - `PanelSnapshotTests`: the `panel-grade-colour-mixer-band-range` state now opens the fold by setting `AppState.mixerRangeExpanded = true` (and closes it after). Previously it used `press: ["Band range"]`, which the accessibility walk never found ("could not find" in index.md), so that PNG was identical to the collapsed state.
+  - `LayoutMetricSupport.swift`: the ColorPanel and `LumenControls.swift:2231` (colour-wheel bar) citations moved with the lines this round added.

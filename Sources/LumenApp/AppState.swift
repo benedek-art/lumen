@@ -1564,6 +1564,12 @@ final class AppState: ObservableObject {
         case hue, saturation, luminance, band
     }
 
+    /// Whether the mixer's Band range fold (ring, ribbon, arc handles) is open. Closed by
+    /// default: shaping a band's reach is the advanced edit. View state, never written to
+    /// a recipe; here rather than `@State` in `ColorPanel` so the snapshot suite can open
+    /// it (its `press:` click could not find the fold), and so it survives a rebuild.
+    @Published var mixerRangeExpanded: Bool = false
+
     /// Which mask the loupe is showing as an overlay, if any. Setting it rasterizes
     /// that mask's alpha.
     @Published var soloMaskOverlay: String? {

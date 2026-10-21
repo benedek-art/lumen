@@ -54,11 +54,8 @@ struct ColorPanel: View {
     private var selectedBand: Int { state.mixerBand }
     @State private var selectedSwatch: Int = 0
     // Folds inside the section, not the section itself: the accordion decides whether
-    // Colour is open, these four decide whether the rows under one of its headers are.
+    // Colour is open, these three decide whether the rows under one of its headers are.
     @State private var mixerExpanded: Bool = true
-    /// The Band range disclosure (ring, ribbon, arc handles). Closed by default: shaping a
-    /// band's reach is the advanced edit, and the three sliders are the everyday one.
-    @State private var rangeExpanded: Bool = false
     /// The row an eyedropper pick landed on while Hue, Saturation or Luminance is showing
     /// — see `mixerSection`'s `onChange`. Nil until a pick, and cleared by a view switch.
     @State private var pickedRow: Int? = nil
@@ -274,7 +271,10 @@ struct ColorPanel: View {
                             value: mixerBinding(component, band: band),
                             range: -100...100, defaultValue: 0, step: 1, decimals: 0,
                             trackStops: ColorPanel.trackStops(component, band),
-                            help: ColorPanel.rowHelp(component, band))
+                            help: ColorPanel.rowHelp(component, band),
+                            // Eight names that are the rows' index, not their state:
+                            // dimmed at rest, seven of eight read as disabled.
+                            labelAtFullStrength: true)
                     .lumenFocusSurface(focused: pickedRow == band)
             }
         }
@@ -349,7 +349,9 @@ struct ColorPanel: View {
     /// upgrade: the house group label, the one Colour Balance's axes wear.
     private var evenOutHues: some View {
         VStack(alignment: .leading, spacing: Lumen.rowGap) {
-            LumenCapsLabel(text: "All bands")
+            // "Every band", not "All bands": that was the removed group-offset
+            // mode's name, and reusing it here would bring the confusion back.
+            LumenCapsLabel(text: "Every band")
                 // 12 over, 4 under — the group-label rhythm LookPanel argues: enough
                 // above to read as a new group, little enough below that the row still
                 // belongs to it.
@@ -466,7 +468,7 @@ struct ColorPanel: View {
         let anyReshaped = arcs != ColorEngine.canonicalArcs
         return VStack(alignment: .leading, spacing: Lumen.rowGap) {
             bandRangeHeader(index, reshaped: reshaped, anyReshaped: anyReshaped)
-            if rangeExpanded {
+            if state.mixerRangeExpanded {
                 bandReach(arcs, index)
             }
         }
@@ -479,12 +481,12 @@ struct ColorPanel: View {
                                  anyReshaped: Bool) -> some View {
         HStack(spacing: 4) {
             Button {
-                withAnimation(Lumen.motionFold) { rangeExpanded.toggle() }
+                withAnimation(Lumen.motionFold) { state.mixerRangeExpanded.toggle() }
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "chevron.right")
                         .font(.lumenGlyphCaptionStrong)
-                        .rotationEffect(.degrees(rangeExpanded ? 90 : 0))
+                        .rotationEffect(.degrees(state.mixerRangeExpanded ? 90 : 0))
                         .frame(width: 20, height: 20)
                     Text("Band range")
                         .font(.lumenBody)
@@ -503,11 +505,13 @@ struct ColorPanel: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(Lumen.secondaryText)
-            // Named for the snapshot suite's `press:` and for VoiceOver alike; without
-            // it the chevron's own symbol name is read into the label.
+            // Named for VoiceOver; without it the chevron's symbol name is read into the
+            // label. (The snapshot suite does not click this: SwiftUI did not surface
+            // it to `press:`'s accessibility walk, so the suite sets
+            // `AppState.mixerRangeExpanded` instead.)
             .accessibilityLabel("Band range")
             .lumenClickCursor()
-            .help(rangeExpanded
+            .help(state.mixerRangeExpanded
                   ? "Hide the ring that shapes which hues this band reaches"
                   : "Show the ring that shapes which hues this band reaches")
 
@@ -1183,16 +1187,19 @@ struct ColorPanel: View {
     // THE SWATCH IS THE BAND'S CENTRE, DRAWN. These were eight hand-picked sRGB
     // triples, chosen as reference colours rather than as the centres, on the argument
     // that the swatch labelled Orange has to look orange. Measured against the
-    // centres they sat 14–21° off: the fourth chip was foliage green and split 51/49 between two bands, so a
-    // photographer matching the chip to the sky or the leaves picked the wrong one. The
+    // centres they sat 14–21° off: the fourth chip was foliage green and split 51/49
+    // between two bands, so a photographer matching the chip to the sky or the leaves picked the wrong one. The
     // band IS its centre hue — that is what the engine selects with — so the colour is
     // computed from `ColorEngine.bandHueCentres` and follows them wherever they move.
     //
     // Hue is exact and lightness and chroma are chosen per hue, because one fixed
     // OKLCh lightness cannot paint all eight well: at the L where blue is rich, yellow is
-    // olive. So each hue is drawn halfway between a mid-panel lightness and its own sRGB
-    // cusp (the lightness where that hue reaches its most colourful), at 90% of the
-    // chroma the display has there, capped so no band shouts. Getting into gamut is done
+    // olive. So each hue is drawn mostly at its own sRGB cusp (the lightness where that
+    // hue reaches its most colourful) — 85% of the way there from a dark anchor — at 95%
+    // of the chroma the display has at that lightness, capped so no band shouts. The
+    // cusp weight is what makes Yellow read yellow rather than mustard (its cusp is near
+    // white) and the dark anchor is what keeps Red deep rather than coral; an even blend
+    // toward a mid-panel lightness, which this was, gave both of those away (verify R1). Getting into gamut is done
     // by REDUCING CHROMA, never by clipping channels — a per-channel clip moves hue,
     // which is the one property these colours exist to hold.
     //
@@ -1202,10 +1209,15 @@ struct ColorPanel: View {
     // editable but the centres are not; the ribbon is where live geometry is drawn, and
     // these say which band you are in.
 
+    /// How far each band's display lightness sits toward its own cusp (the rest is
+    /// `paintLightnessAnchor`).
+    static let paintCuspWeight: Double = 0.85
     /// Where every band's display lightness is pulled toward from its cusp.
-    static let paintLightnessAnchor: Double = 0.62
+    static let paintLightnessAnchor: Double = 0.45
     /// The most chroma any band colour is drawn with.
-    static let paintChromaCap: Double = 0.17
+    static let paintChromaCap: Double = 0.22
+    /// The share of the display's chroma at that lightness a band colour takes.
+    static let paintChromaShare: Double = 0.95
 
     /// An OKLCh colour in display-linear sRGB, through the working space the engine
     /// measures hue in — the same route `Lumen.hueColor` takes.
@@ -1252,8 +1264,9 @@ struct ColorPanel: View {
 
     /// The colour a hue is painted with in this panel. See the block comment above.
     static func paint(h: Double) -> OKLCh {
-        let L = 0.5 * cuspLightness(h: h) + 0.5 * paintLightnessAnchor
-        let C = min(paintChromaCap, 0.9 * maxChroma(L: L, h: h))
+        let L = paintCuspWeight * cuspLightness(h: h)
+            + (1 - paintCuspWeight) * paintLightnessAnchor
+        let C = min(paintChromaCap, paintChromaShare * maxChroma(L: L, h: h))
         return OKLCh(L: L, C: C, h: h)
     }
 
