@@ -279,6 +279,53 @@ enum ProofFrames {
         fineTexture(width: width, height: height)
     }
 
+    /// Isotropic, roughly 1/f log-luminance texture (0.25 EV RMS) at 2048 x 64 — the
+    /// presence frame (WS-14).
+    ///
+    /// Texture and Clarity are bands of the PICTURE: 375–1500 and 20–160 cycles per
+    /// image long edge. On the 256 px `fineTexture` Texture's whole band is above
+    /// Nyquist, and `fineTexture`'s strips are perfectly regular ±20 % gratings, which
+    /// the presence edge gate reads as runs of parallel edges — so that frame measured
+    /// a gate, not a control. This one carries every octave at equal energy, like a
+    /// photograph's texture, at a long edge where both bands are inside the frame
+    /// (Texture 1.4–5.5 px, Clarity 13–100 px). The same move `wideFineTexture` made for
+    /// sharpening once its radius became frame-denominated.
+    static func presenceTexture(width: Int = 2048, height: Int = 64) -> ImageBuffer {
+        var rng = Noise(seed: 0x5EED_14)
+        var field = [Double](repeating: 0, count: width * height)
+        var cell = 2.0
+        while cell < Double(width) / 2 {
+            let gw = Int(Double(width) / cell) + 2
+            let gh = Int(Double(height) / cell) + 2
+            var grid = [Double](repeating: 0, count: gw * gh)
+            for i in grid.indices { grid[i] = rng.normal() }
+            for y in 0..<height {
+                let fy = Double(y) / cell
+                let y0 = Int(fy), ty = fy - Double(y0)
+                for x in 0..<width {
+                    let fx = Double(x) / cell
+                    let x0 = Int(fx), tx = fx - Double(x0)
+                    let a = grid[y0 * gw + x0] * (1 - tx) + grid[y0 * gw + x0 + 1] * tx
+                    let b = grid[(y0 + 1) * gw + x0] * (1 - tx)
+                        + grid[(y0 + 1) * gw + x0 + 1] * tx
+                    field[y * width + x] += a * (1 - ty) + b * ty
+                }
+            }
+            cell *= 2
+        }
+        let mean = field.reduce(0, +) / Double(field.count)
+        let rms = (field.map { ($0 - mean) * ($0 - mean) }.reduce(0, +)
+                   / Double(field.count)).squareRoot()
+        let scale = 0.25 / Swift.max(rms, 1e-12)
+        var image = ImageBuffer(width: width, height: height)
+        for y in 0..<height {
+            for x in 0..<width {
+                image[x, y] = RGB(gray: midGrey * exp2((field[y * width + x] - mean) * scale))
+            }
+        }
+        return image
+    }
+
     /// A grey ramp at a long edge big enough that a grain plate cell exceeds a pixel —
     /// 4096 px, where the plate scale runs 0.68…2.7 across Grain Size's 0.5…2.0 travel.
     ///

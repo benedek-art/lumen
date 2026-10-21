@@ -944,136 +944,229 @@ public struct RenderGraph {
         return out
     }
 
-    /// Texture and Clarity, each the picture minus its own guided base. Neither
-    /// base is built unless its slider is off zero, so this is one guided filter
-    /// for a one-slider recipe rather than two for every recipe.
+    /// Texture and Clarity — the GPU twin of `DetailEngine.applyTexture` and
+    /// `DetailEngine.applyClarity`, step for step (WS-14). The step table:
+    ///
+    ///   reference (DetailEngine)               here
+    ///   presenceLogLuminance (presenceEV)      `lumenPresenceEV` of `lum`
+    ///   presenceBlur                           `presenceBlur` (same 9 taps, then a Gaussian)
+    ///   clarityPrefilter                       `clarityPrefilter` (CIMorphologyRectangle*)
+    ///   presenceStructure                      `presenceStructure` (tensor products, blur
+    ///                                          σi) + the coherence / strength lines of
+    ///                                          the delta kernels
+    ///   localExtremum                          CIMorphologyRectangleMinimum/Maximum
+    ///   textureDelta / clarityDelta +
+    ///   overshootLimited                       `lumenTextureDelta` / `lumenClarityDelta`
+    ///   holdLocalBrightness + applyLumaRatio   `lumenPresenceMeanWeights` → blur 4σ2 →
+    ///                                          `lumenPresenceGain`, then multiply
+    ///
+    /// with σ1, σ2, σi from `DetailEngine.textureBand` / `clarityBand` at this render's
+    /// long edge, unrounded (the min/max windows are `2·overshootRadius + 1` on both).
+    /// Listed differences, all primitive-level: `CIGaussianBlur` is a true Gaussian
+    /// where the reference uses three boxes above σ = 8; the intermediates are half
+    /// float (the tensor is stored ×64 for it); morphology is Core Image's.
+    /// Both read the same pre-Texture `lum`, Texture's gain multiplies first, then
+    /// Clarity's, each clamped at ±4 EV on its own. Nothing is built for a slider at 0.
     private static func applyDetailBands(_ image: CIImage, detail d: Detail,
                                          lum: CIImage, longEdge: Int) -> CIImage {
         var out = image
+        let extent = image.extent
+        guard let ev = KernelLibrary.apply(
+            KernelLibrary.presenceEV, extent: extent,
+            [lum, Float(LumenLog.encode(LumenLog.midGrey)), Float(LumenLog.range)])
+        else { return image }
 
-        // Two bands, each the picture minus its own guided base. Rounded, not
-        // truncated, and floored at 2 like every other radius in this file.
-        // `Int(longEdge * 0.003)` is 0 for any long edge below 334 px — every thumbnail
-        // and grid preview in the app — and the old floor of 1 is the radius CIBoxBlur
-        // ignores, so Texture was inert across that whole range rather than merely
-        // coarse. The tone mask and dehaze already floor at 2 and 3; 1 was the outlier.
-        let fine = Swift.max(Int((Double(longEdge) * 0.003).rounded()), 2)
-        let mid = Swift.max(Int((Double(longEdge) * 0.02).rounded()), 3)
-
-        // A guided filter's ε is a CONTRAST THRESHOLD SQUARED: `a = var / (var + ε)`, so
-        // √ε is the excursion across the window below which the window is treated as one
-        // surface. The reference names its own — `baseEpsilon = 0.01`, "√0.01 = 0.1 EV:
-        // anything flatter than a tenth of a stop across the window is one surface" —
-        // and it applies it to a plane in EV.
-        //
-        // This plane is `LumenLog`-encoded, where a stop is 1/24 of a unit, so an ε that
-        // means 0.1 EV here is smaller by `range²`. The values were 0.0008 and 0.004,
-        // which on this plane mean thresholds of 0.68 EV and 1.52 EV. A one-and-a-half
-        // stop edge was inside the threshold, so the mid base SMOOTHED ACROSS IT —
-        // measured, it preserved 49.4% of a 3 EV step and blurred the other 50.6%. The
-        // band then contained the edge, and a gain on the band put a rim either side of
-        // it: on a clean 3 EV step, Clarity at +100 left a trench of 0.72 EV on the dark
-        // side and 0.70 EV on the bright side, against the reference local Laplacian's
-        // 0.066 and 0.050. Eleven times the artefact, for slightly LESS local contrast
-        // than the reference produces. That is the crunchy, over-processed look, and the
-        // comment above used to say these filters could not halo.
-        //
-        // With the reference's ε the same step is preserved 99.8%, and the rim falls to
-        // 0.108 / 0.092 — within four hundredths of a stop of the local Laplacian —
-        // while the texture gain on the flat sides is unchanged at 1.63 against 1.63.
-        let epsilon = DetailEngine.baseEpsilon / (LumenLog.range * LumenLog.range)
-
-        // `k` is a gain exponent PER STOP, and the plane these bands come off is
-        // `logLuminance` — which is `LumenLog.encode`d, not EV. The encoding squeezes a
-        // 24-stop domain into [0,1], so one stop of local detail arrives as 1/24 of a
-        // unit and `exp2(k · Δ)` was computing a gain of `2^(k·ΔEV/24)`.
-        //
-        // What that cost: Texture at +100 moved local contrast by 2.6% where the
-        // reference implementation, whose delta is explicitly `deltaEV`, moves it by
-        // 100%. The two most-used presence sliders in the app were, on every preview
-        // and every export, doing about one twenty-fifth of what they said — and the
-        // one test that turns these stages on also sets a −1 EV vignette and asserts
-        // only that *something* moved, so it passed either way.
-        //
-        // Converting the coefficient is exact rather than approximate: the encoding is
-        // affine in EV above its toe, so `k · range` reproduces `2^(k·ΔEV)` to 1.6e-14
-        // across the whole 0.05–4 EV band.
-        let perStop = LumenLog.range
-
-        if d.texture != 0, let baseFine = Self.guidedSelfFilter(lum, radius: fine,
-                                                                epsilon: epsilon) {
-            let k = d.texture / 100.0 * 0.9 * perStop
-            // BOTH signs are gated by local structure, for opposite reasons, and the
-            // two gate shapes differ. Negative Texture closes on any structure at all:
-            // ungated it attacks an eyelash as readily as a pore, so the face goes waxy
-            // while the edges go soft, and docs/06 names the gate as the point of the
-            // control. Positive Texture closes only on genuine coherent edges, because
-            // the band it gains still contains the edge — ungated here, as this was,
-            // it rimmed a clean 3 EV step by 1.39 EV against a 0.30 EV bar. It cannot
-            // simply borrow the negative shape: hair and fabric weave measure 0.19
-            // coherence against a hard step's 1.00, and they are what the positive
-            // control is for.
-            //
-            // The radius is the reference's `workingRadius / 4`, not `mid`. It was
-            // `mid` here — four times too wide — which, together with the two errors in
-            // the coherence kernel itself, had the gate closing on the flat skin it is
-            // meant to smooth and opening on the edges it is meant to protect.
-            let gate = Self.localStructure(
-                lum, radius: Self.structureRadius(longEdge: longEdge))?.coherence
-            let gained: CIImage?
-            if let gate {
-                gained = KernelLibrary.apply(
-                    KernelLibrary.detailGainGated, extent: out.extent,
-                    [lum, baseFine, gate, Float(k),
-                     Float(d.texture < 0 ? 1.0 : 0.0),
-                     Float(DetailEngine.texturePositiveGateLo),
-                     Float(DetailEngine.texturePositiveGateHi)])
-            } else {
-                gained = KernelLibrary.apply(KernelLibrary.detailGain,
-                                             extent: out.extent,
-                                             [lum, baseFine, Float(k)])
-            }
-            if let gained,
-               let combined = KernelLibrary.apply(KernelLibrary.multiply,
-                                                  extent: out.extent, [out, gained]) {
-                out = combined
-            }
+        if d.texture != 0, let gain = Self.textureGain(ev, amount: d.texture / 100,
+                                                        longEdge: longEdge),
+           let combined = KernelLibrary.apply(KernelLibrary.multiply, extent: extent,
+                                              [out, gain]) {
+            out = combined
         }
-        if d.clarity != 0, let baseMid = Self.guidedSelfFilter(lum, radius: mid,
-                                                               epsilon: epsilon) {
-            // The picture minus its MID base, not the fine base minus the mid one.
-            //
-            // `Decomposition.base` is exactly this — `guidedFilter(logLum, logLum,
-            // workingRadius, baseEpsilon)` — and Clarity is what is left over after it.
-            // Differencing two bases instead put the band between two radii, which
-            // needed the outer one to blur across edges to have any content at all;
-            // that is what the oversized ε above was quietly paying for. Measured on
-            // the same clean step, this construction gives a texture gain of 1.627
-            // against the two-base form's 1.625 — the same strength — with a peak
-            // excursion of 0.089 EV against 0.620, because the 0.53 EV difference was
-            // all rim.
-            //
-            // It also costs one guided filter rather than two, and each is now built
-            // only if its own slider is off zero, so a Clarity-only recipe no longer
-            // runs the fine decomposition it never reads.
-            // The reference's own remap, and the reference's own parameterization: the
-            // slider sets the remap exponent, not a gain. `detailRemap` carries the
-            // midtone Gaussian and the σ cut-off, so Clarity is no longer
-            // exposure-invariant — a shadow six stops down used to get exactly the
-            // local-contrast boost a face got, which is how the control ends up
-            // amplifying shadow noise and fighting the highlight rolloff at once.
-            let gain = KernelLibrary.apply(
-                KernelLibrary.detailRemap, extent: out.extent,
-                [lum, baseMid, Float(d.clarity / 100),
-                 Float(DetailEngine.clarityDetailEV), Float(LumenLog.encode(0.18)),
-                 Float(LumenLog.range), Float(DetailEngine.clarityMidtoneEV)])
-            if let gain,
-               let combined = KernelLibrary.apply(KernelLibrary.multiply,
-                                                  extent: out.extent, [out, gain]) {
-                out = combined
-            }
+        if d.clarity != 0, let gain = Self.clarityGain(ev, amount: d.clarity / 100,
+                                                        longEdge: longEdge),
+           let combined = KernelLibrary.apply(KernelLibrary.multiply, extent: extent,
+                                              [out, gain]) {
+            out = combined
         }
         return out
+    }
+
+    /// The tensor products are stored ×64 in the half-float intermediate (and divided
+    /// back out in the delta kernels): a 0.01 EV gradient squared is 1e-4, at the edge
+    /// of half precision's normal range, and the coherence floor η = 2e-4 lives there.
+    /// The reference computes in Float and needs no such factor; coherence is a ratio
+    /// and does not see it.
+    static let presenceTensorScale: Double = 64
+
+    /// Texture's gain field (`DetailEngine.applyTexture`).
+    static func textureGain(_ ev: CIImage, amount a: Double, longEdge: Int) -> CIImage? {
+        let band = DetailEngine.textureBand
+        let s = band.sigmas(longEdge: longEdge)
+        let k = a > 0 ? DetailEngine.textureGainPositive : DetailEngine.textureGainNegative
+        guard let fine = Self.presenceBlur(ev, sigma: s.inner),
+              let coarse = Self.presenceBlur(ev, sigma: s.outer),
+              let tensor = Self.presenceStructure(fine, derivativeSigma: s.inner,
+                                                  integrationSigma: s.integration),
+              let delta = KernelLibrary.apply(
+                KernelLibrary.textureDelta, extent: ev.extent,
+                [fine, coarse, tensor, Float(a), Float(k),
+                 Float(DetailEngine.textureDetailRangeEV), Float(band.coherenceFloor),
+                 Float(band.gateLow), Float(band.gateHigh),
+                 Float(Self.presenceTensorScale)])
+        else { return nil }
+        return Self.presenceGain(ev, delta: delta,
+                                 window: DetailEngine.presenceMeanWindow * s.outer)
+    }
+
+    /// Clarity's gain field (`DetailEngine.applyClarity`).
+    static func clarityGain(_ ev: CIImage, amount a: Double, longEdge: Int) -> CIImage? {
+        let band = DetailEngine.clarityBand
+        let s = band.sigmas(longEdge: longEdge)
+        guard let prefiltered = Self.clarityPrefilter(ev, sigma: s.inner),
+              let fine = Self.presenceBlur(prefiltered, sigma: s.inner),
+              let coarse = Self.presenceBlur(prefiltered, sigma: s.outer),
+              let tensor = Self.presenceStructure(fine, derivativeSigma: s.inner,
+                                                  integrationSigma: s.integration)
+        else { return nil }
+        // The overshoot limit's local range — positive Clarity only, like the
+        // reference, which builds it only when a > 0. The negative side passes `fine`
+        // twice as placeholders that `limit = 0` multiplies away.
+        var low = fine
+        var high = fine
+        if a > 0 {
+            guard let range = Self.localRange(
+                fine, radius: DetailEngine.overshootRadius(s.outer))
+            else { return nil }
+            low = range.low
+            high = range.high
+        }
+        let k = a > 0 ? DetailEngine.clarityGainPositive : DetailEngine.clarityGainNegative
+        guard let delta = KernelLibrary.apply(
+            KernelLibrary.clarityDelta, extent: ev.extent,
+            [fine, coarse, tensor, low, high,
+             Float(DetailEngine.clarityShapedAmount(a)), Float(k),
+             Float(DetailEngine.clarityDetailRangeEV), Float(band.coherenceFloor),
+             Float(band.gateLow), Float(band.gateHigh),
+             Float(DetailEngine.clarityStrengthLowEV),
+             Float(DetailEngine.clarityStrengthHighEV),
+             Float(DetailEngine.clarityMidtoneEV),
+             Float(DetailEngine.clarityOvershootSlope), Float(a > 0 ? 1.0 : 0.0),
+             Float(Self.presenceTensorScale)])
+        else { return nil }
+        return Self.presenceGain(ev, delta: delta,
+                                 window: DetailEngine.presenceMeanWindow * s.outer)
+    }
+
+    /// `holdLocalBrightness` and the ±4 EV clamp of `applyLumaRatio`, as a gain image.
+    static func presenceGain(_ ev: CIImage, delta: CIImage, window: Double) -> CIImage? {
+        let g = Float(DetailEngine.presenceMeanExponent)
+        guard let weights = KernelLibrary.apply(KernelLibrary.presenceMeanWeights,
+                                                extent: ev.extent, [ev, delta, g]),
+              let means = Self.presenceBlur(weights, sigma: window)
+        else { return nil }
+        return KernelLibrary.apply(KernelLibrary.presenceGain, extent: ev.extent,
+                                   [delta, means, g])
+    }
+
+    /// The local minimum and maximum over a (2r+1)² square — `DetailEngine.localExtremum`.
+    static func localRange(_ image: CIImage, radius: Int) -> (low: CIImage, high: CIImage)? {
+        guard let low = Self.morphology(image, radius: radius, maximum: false),
+              let high = Self.morphology(image, radius: radius, maximum: true)
+        else { return nil }
+        return (low, high)
+    }
+
+    /// One square min or max filter of width 2r + 1, clamp-to-edge.
+    static func morphology(_ image: CIImage, radius: Int, maximum: Bool) -> CIImage? {
+        let width = Float(2 * Swift.max(radius, 1) + 1)
+        if maximum {
+            let filter = CIFilter.morphologyRectangleMaximum()
+            filter.inputImage = image.clampedToExtent()
+            filter.width = width
+            filter.height = width
+            return filter.outputImage?.cropped(to: image.extent)
+        }
+        let filter = CIFilter.morphologyRectangleMinimum()
+        filter.inputImage = image.clampedToExtent()
+        filter.width = width
+        filter.height = width
+        return filter.outputImage?.cropped(to: image.extent)
+    }
+
+    /// `DetailEngine.clarityPrefilter`: (close(open(v)) + open(close(v))) / 2 over a
+    /// square of radius round(`clarityPrefilterRatio`·σ1).
+    static func clarityPrefilter(_ ev: CIImage, sigma: Double) -> CIImage? {
+        let r = DetailEngine.overshootRadius(DetailEngine.clarityPrefilterRatio * sigma)
+        func erode(_ i: CIImage?) -> CIImage? {
+            i.flatMap { Self.morphology($0, radius: r, maximum: false) }
+        }
+        func dilate(_ i: CIImage?) -> CIImage? {
+            i.flatMap { Self.morphology($0, radius: r, maximum: true) }
+        }
+        let opened = dilate(erode(ev))
+        let closed = erode(dilate(ev))
+        guard let a = erode(dilate(opened)), let b = dilate(erode(closed)),
+              let half = Self.constant(RGB(gray: 0.5), extent: ev.extent)
+        else { return nil }
+        return KernelLibrary.apply(KernelLibrary.blendMask, extent: ev.extent, [a, b, half])
+    }
+
+    /// `DetailEngine.presenceBlur`: the same 9 discrete-Gaussian taps
+    /// (`DetailEngine.presenceKernel`) through `CIConvolution9Horizontal/Vertical` for
+    /// σ ≤ √2; above it the variance-1 taps followed by `gaussianBlur(√(σ² − 1))`. The
+    /// one primitive difference: the reference realizes Gaussians wider than σ' = 8 as
+    /// three boxes (`SpatialOps.gaussianBlur`), where `CIGaussianBlur` is a Gaussian.
+    static func presenceBlur(_ image: CIImage, sigma: Double) -> CIImage? {
+        guard sigma > 0, sigma.isFinite else { return image }
+        if sigma <= DetailEngine.presenceSmallSigma {
+            return Self.convolve9(image, DetailEngine.presenceKernel(variance: sigma * sigma))
+        }
+        guard let pre = Self.convolve9(image, DetailEngine.presenceKernel(variance: 1))
+        else { return nil }
+        return Self.gaussianBlur(pre, sigma: (sigma * sigma - 1).squareRoot())
+    }
+
+    /// A separable 9-tap convolution with clamp-to-edge sampling — the twin of
+    /// `DetailEngine.convolve9`.
+    static func convolve9(_ image: CIImage, _ taps: [Double]) -> CIImage? {
+        guard taps.count == 9 else { return nil }
+        let weights = CIVector(values: taps.map { CGFloat($0) }, count: 9)
+        let horizontal = CIFilter.convolution9Horizontal()
+        horizontal.inputImage = image.clampedToExtent()
+        horizontal.weights = weights
+        horizontal.bias = 0
+        guard let across = horizontal.outputImage else { return nil }
+        let vertical = CIFilter.convolution9Vertical()
+        vertical.inputImage = across
+        vertical.weights = weights
+        vertical.bias = 0
+        return vertical.outputImage?.cropped(to: image.extent)
+    }
+
+    /// `DetailEngine.presenceStructure`: central-difference gradients of the smoothed
+    /// plane (the same ±0.5 taps), the products in EV per derivative σ, integrated by
+    /// `presenceBlur(σi)`. Returns the integrated (Jxx, Jyy, Jxy)·`presenceTensorScale`;
+    /// coherence and strength are formed inside the gain kernels. The vertical
+    /// gradient's sign follows Core Image's bottom-up rows, which only flips Jxy — and
+    /// both coherence and strength read Jxy squared.
+    static func presenceStructure(_ smooth: CIImage, derivativeSigma: Double,
+                                  integrationSigma: Double) -> CIImage? {
+        let horizontal = CIFilter.convolution3X3()
+        horizontal.inputImage = smooth.clampedToExtent()
+        horizontal.weights = CIVector(values: [0, 0, 0, -0.5, 0, 0.5, 0, 0, 0], count: 9)
+        horizontal.bias = 0
+        let vertical = CIFilter.convolution3X3()
+        vertical.inputImage = smooth.clampedToExtent()
+        vertical.weights = CIVector(values: [0, -0.5, 0, 0, 0, 0, 0, 0.5, 0], count: 9)
+        vertical.bias = 0
+        let norm = Swift.max(derivativeSigma, DetailEngine.presenceDerivativeFloor)
+        guard let gx = horizontal.outputImage?.cropped(to: smooth.extent),
+              let gy = vertical.outputImage?.cropped(to: smooth.extent),
+              let products = KernelLibrary.apply(
+                KernelLibrary.presenceTensor, extent: smooth.extent,
+                [gx, gy, Float(norm), Float(Self.presenceTensorScale)])
+        else { return nil }
+        return Self.presenceBlur(products, sigma: integrationSigma)
     }
 
     static func applyDehaze(_ image: CIImage, amount: Double, longEdge: Int) -> CIImage {

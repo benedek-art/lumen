@@ -358,16 +358,19 @@ enum ProofRegistry {
     /// improves is a diff; asserting a bar would only paint a red test over a decision
     /// already taken.
     static let presence: [ControlSpec] = [
+        // Texture and Clarity: on `presenceTexture`, not `fineTexture` (WS-14) — both
+        // bands are fractions of the long edge, and at 256 px Texture's is above
+        // Nyquist; see that frame's comment. Floors unchanged.
         ControlSpec(
             id: "detail.texture", panel: "Presence", displayName: "Texture",
             low: -100, high: 100,
-            frameName: "fineTexture", frame: { ProofFrames.fineTexture() },
+            frameName: "presenceTexture", frame: { ProofFrames.presenceTexture() },
             authorityFloor: 27, mayLeaveRange: false,
             apply: { r, v in r.develop.detail.texture = v }),
         ControlSpec(
             id: "detail.clarity", panel: "Presence", displayName: "Clarity",
             low: -100, high: 100,
-            frameName: "fineTexture", frame: { ProofFrames.fineTexture() },
+            frameName: "presenceTexture", frame: { ProofFrames.presenceTexture() },
             authorityFloor: 13, mayLeaveRange: false,
             apply: { r, v in r.develop.detail.clarity = v }),
         ControlSpec(

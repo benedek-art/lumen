@@ -365,11 +365,15 @@ final class EngineIntegrationTests: XCTestCase {
         XCTAssertLessThan(out.maxAbsDifference(source), 1e-12)
     }
 
+    /// WS-14: the frame is 1536 x 32 with a 3.2 px period, where it was 48 x 16 with a
+    /// 5 px one. Texture is now a band of the PICTURE — 375–1500 cycles per image long
+    /// edge — so on a 48 px frame it is entirely above Nyquist and rightly does
+    /// nothing; at 1536 px a 3.2 px period (480 cpi) is inside the band.
     func testTextureChangesLocalContrastWithoutMovingTheMean() {
-        let source = ImageBuffer(width: 48, height: 16) { u, v in
-            RGB(gray: 0.25 + sin(u * 60) * cos(v * 40) * 0.04)
+        let source = ImageBuffer(width: 1536, height: 32) { u, v in
+            RGB(gray: 0.25 + sin(u * 1536 * 2 * .pi / 3.2) * cos(v * 32 * 2 * .pi / 3.2) * 0.04)
         }
-        let decomposition = DetailEngine.Decomposition(image: source, workingRadius: 6)
+        let decomposition = DetailEngine.Decomposition(image: source, workingRadius: 30)
         var detail = Detail()
         detail.texture = 80
         let out = DetailEngine.apply(source, detail: detail, decomposition: decomposition)

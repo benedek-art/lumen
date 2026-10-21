@@ -1,13 +1,14 @@
 // DetailEngine.swift
 // Presence (S8: Texture / Clarity / Dehaze) and the two sharpening stages that bracket the
-// pipeline (S4 capture, S12 manual), plus the S13 vignette — every one of them a
-// recombination of ONE cached base–detail decomposition.
+// pipeline (S4 capture, S12 manual), plus the S13 vignette — every one of them reading
+// ONE cached base–detail decomposition.
 //
 // The structure is the feature (docs/14 §5.3, docs/06 §10.1). `Decomposition` is a pure
 // function of the image, never of a slider: a guided-filter base, an à-trous stack, a
-// Gaussian pyramid, a local gradient-structure gate, and a lazily-built dark-channel
-// transmission map. Dragging Texture, Clarity, or Dehaze re-weights coefficients that are
-// already in memory (≤5 ms), and only an upstream WB/tone change rebuilds the node
+// local gradient-structure gate, the lazily-built presence log-luminance plane, and a
+// lazily-built dark-channel transmission map. Dragging Texture, Clarity, or Dehaze
+// re-weights planes that are cached or cheap to rebuild, and only an upstream WB/tone
+// change rebuilds the node
 // (≤35 ms at 2560-px working resolution). LrC recomputes per drag; that difference is why
 // all three sliders can be live at once.
 //
@@ -18,8 +19,10 @@
 // docs/06, implemented once rather than per tool.
 //
 // Two anti-halo commitments, both structural rather than tuned:
-//   · Clarity is a local Laplacian (§ applyClarity) — a per-level remap that cannot
-//     reverse a gradient, so there is no overshoot to feather away.
+//   · Texture and Clarity are difference-of-Gaussians bands gated by a scale-space
+//     structure tensor and range-compressed per coefficient (§ Presence), and positive
+//     Clarity's band-limited result is held to its local range — so a straight edge, a
+//     corner or a soft blob gets no rim (§ applyTexture, § applyClarity).
 //   · Dehaze neutralizes the estimated airlight cast before inverting the haze model
 //     (§ applyDehaze), which is what stops LR's magenta skies at the algorithm level.
 
@@ -36,6 +39,14 @@ fileprivate final class DehazeCache: @unchecked Sendable {
     init() {}
 }
 
+/// The presence planes Texture and Clarity read, built on first use and shared by both,
+/// so a recipe with both sliders set computes the log-luminance plane once. Same
+/// single-render, single-threaded contract as `DehazeCache`.
+fileprivate final class PresenceCache: @unchecked Sendable {
+    var ev: Plane?
+    init() {}
+}
+
 public struct DetailEngine: Sendable {
 
     public init() {}
@@ -43,60 +54,184 @@ public struct DetailEngine: Sendable {
     // MARK: - Tuning constants
 
     /// Number of à-trous scales. Level `i` carries ~`2^(i+1)` px of structure, so five
-    /// levels span 2–64 px — the whole range Texture and manual sharpening address.
+    /// levels span 2–64 px. The stack feeds manual sharpening's fine band (S12); Texture
+    /// no longer reads it (see `textureBand`).
     public static let waveletLevels: Int = 5
-    /// Gaussian-pyramid depth for the local Laplacian. Deeper buys nothing for Clarity,
-    /// whose remap is midtone-weighted and dies out at the coarse end anyway.
-    /// Pyramid depth at the reference resolution. See `pyramidLevels(longEdge:)`.
-    public static let basePyramidLevels: Int = 5
-
-    /// The resolution `basePyramidLevels` is calibrated at, shared with the Texture
-    /// band's own centre so the two presence stages track the frame the same way.
-    public static let pyramidReferenceLongEdge: Double = 2560
-
-    /// Pyramid depth for Clarity, tracked to the FRAME rather than fixed.
-    ///
-    /// It was a constant 5, so the local Laplacian reached 16 px whatever the picture
-    /// was — 5% of a 300 px preview and 1.3% of a 1200 px render. Clarity therefore
-    /// acted on a different fraction of the PICTURE at every resolution, which is
-    /// exactly the promise a fit preview makes and cannot keep: measured, a 4x scale
-    /// change moved the render by 7.4 code values, where every per-pixel stage moves by
-    /// 0.5 and Texture — which tracks the long edge on purpose — moves by 2.8.
-    ///
-    /// One level per doubling, because a Gaussian pyramid's reach doubles per level.
-    /// That is the same relationship `bandCenter` uses for Texture, written the same way
-    /// so the two cannot drift apart in intent.
-    public static func pyramidLevels(longEdge: Int) -> Int {
-        let steps = log2(Double(Swift.max(longEdge, 1)) / pyramidReferenceLongEdge)
-        guard steps.isFinite else { return basePyramidLevels }
-        return Int(Num.clamp((Double(basePyramidLevels) + steps.rounded()), 2, 9))
-    }
     /// Guided-filter regularization for the base, in EV². √0.01 = 0.1 EV: anything flatter
     /// than a tenth of a stop across the window is one surface.
     public static let baseEpsilon: Double = 0.01
-    /// Clarity's detail/edge threshold in EV. Excursions below this are "texture" and get
-    /// remapped; anything above is an edge and passes through untouched.
-    public static let clarityDetailEV: Double = 0.7
-    /// Width in EV of the midtone weight on Clarity's remap, so Clarity expands local
-    /// contrast without reaching the white and black points docs/04 owns.
-    public static let clarityMidtoneEV: Double = 3.0
-    /// Where positive Texture's edge gate starts and finishes closing, on the
-    /// structure tensor's coherence.
-    ///
-    /// Positive Texture is a gain on a band that still contains hard edges, so an
-    /// ungated gain rims them — measured on a clean 3 EV step, 0.43 EV of trench at
-    /// +25 and 1.39 EV at +100, against the 0.30 EV bar the presence golden holds
-    /// Clarity to. The negative side was gated by `1 − coherence` from the start and
-    /// the positive side was not, which is the whole defect.
-    ///
-    /// The gate cannot simply mirror the negative one: `1 − coherence` at full depth
-    /// would also flatten hair, fabric weave and foliage, which are the subjects
-    /// positive Texture exists for. Measured coherence separates them cleanly — fine
-    /// parallel lines sit at 0.19, a smooth ramp at 0.00, and a hard step at 1.00 —
-    /// so a gate that only starts closing at 0.35 leaves the first two at full
-    /// authority and shuts on the third.
-    public static let texturePositiveGateLo: Double = 0.35
-    public static let texturePositiveGateHi: Double = 0.85
+
+    // MARK: Presence (Texture / Clarity) — WS-14
+    //
+    // Both controls are one construction at two scales, and every number below is shared
+    // with the GPU twin (`RenderGraph.applyDetailBands`) rather than restated there.
+    //
+    //   v     = presence log luminance, EV around mid-grey (`presenceEV`, LumenLog's toe)
+    //   v'    = v (Texture); for Clarity v with features narrower than ~0.8·σ1 opened and
+    //           closed away (`clarityPrefilter`), so thin lines and specks are not
+    //           mistaken for mid-scale contrast
+    //   b     = G(σ1)·v' − G(σ2)·v'      the band; σ ∝ the long edge, never rounded
+    //   gate  = 1 − smoothstep(lo, hi, coherence)        scale-space structure tensor of
+    //           (· 1 − smoothstep(0.2, 0.6, strength))   G(σ1)·v': a straight edge closes
+    //                                                    it, isotropic texture does not;
+    //                                                    Clarity also closes on very strong
+    //                                                    structure (junctions of big edges)
+    //   w     = gate / (1 + (b/τ)²)  (· tone weight, Clarity)
+    //   Δ     = k·a·b·w             (Texture both signs; Clarity a > 0)
+    //         = −min(1, |a|·k·w)·b   (Clarity a < 0, k = 0.95: removes up to the whole
+    //                                 band, never past it — no sign flip)
+    //   Clarity a > 0: `G(σ1)·v' + Δ` keeps 12 % of any excursion outside its local
+    //                  range (the overshoot limit — no ring round a soft blob)
+    //   Δ    −= log2(G(2^(γ(v+Δ))) / G(2^(γv))) / γ,  γ = 0.4   local brightness held
+    //   out   = RGB · 2^clamp(Δ, ±4)          luma ratio: hue and chroma ratios fixed
+    //
+    // There is no image-global statistic anywhere, and every scale is a continuous
+    // fraction of the long edge, so a 1600 px preview applies the same cycles-per-image
+    // band as the 24 MP export (the part above the preview's Nyquist is simply absent).
+
+    /// A presence band: a difference of Gaussians whose response peaks at `centreCPI`
+    /// cycles per image long edge, plus the integration scale of the structure tensor
+    /// that gates it.
+    public struct PresenceBand: Sendable, Equatable {
+        /// Peak of the band's response, in cycles per image long edge.
+        public let centreCPI: Double
+        /// σ2 / σ1 of the difference of Gaussians.
+        public let ratio: Double
+        /// Structure-tensor integration σ as a multiple of σ2.
+        public let integrationRatio: Double
+        /// The tensor's strength floor η, in EV² (gradients in EV per derivative σ):
+        /// coherence is `(λ1 − λ2) / (λ1 + λ2 + η)`, so a region with no real structure
+        /// reads isotropic. A half-stop step measures λ ≈ 3.5–4.3e-3 at its edge, a
+        /// 0.05 EV grating 3–4e-4.
+        public let coherenceFloor: Double
+        /// Coherence at which the edge gate starts and finishes closing.
+        public let gateLow: Double
+        public let gateHigh: Double
+
+        public init(centreCPI: Double, ratio: Double, integrationRatio: Double,
+                    coherenceFloor: Double, gateLow: Double, gateHigh: Double) {
+            self.centreCPI = centreCPI
+            self.ratio = ratio
+            self.integrationRatio = integrationRatio
+            self.coherenceFloor = coherenceFloor
+            self.gateLow = gateLow
+            self.gateHigh = gateHigh
+        }
+
+        /// σ1 · f0 for a DoG with this ratio: the peak of
+        /// `exp(−2π²σ1²f²) − exp(−2π²σ2²f²)` sits where `2π²σ1²f² = 2·ln(r)/(r² − 1)`.
+        public var innerSigmaTimesPeak: Double {
+            let r = ratio
+            return (2 * log(r) / ((r * r - 1) * 2 * Double.pi * Double.pi)).squareRoot()
+        }
+
+        /// σ1 as a fraction of the long edge.
+        public var innerFraction: Double { innerSigmaTimesPeak / centreCPI }
+
+        /// The three blur scales, in pixels of a render whose long edge is `longEdge`.
+        /// Continuous in the long edge: nothing here is rounded.
+        public func sigmas(longEdge: Int) -> (inner: Double, outer: Double,
+                                              integration: Double) {
+            let l = Double(Swift.max(longEdge, 1))
+            let inner = innerFraction * l
+            let outer = inner * ratio
+            return (inner, outer, outer * integrationRatio)
+        }
+
+        /// The DoG's analytic response at `cpi` (0 at DC and at infinity), for tests.
+        public func response(cpi: Double) -> Double {
+            let f = cpi * innerFraction
+            let a = 2 * Double.pi * Double.pi * f * f
+            return exp(-a) - exp(-a * ratio * ratio)
+        }
+
+        /// The edge gate: open on isotropic texture, closed on a coherent edge.
+        public func gate(coherence c: Double) -> Double {
+            1 - Num.smoothstep(gateLow, gateHigh, c)
+        }
+    }
+
+    /// Texture: centred on 750 cycles per image long edge — an 8 px period at 6000 px,
+    /// i.e. 2–8 px features on a 24 MP file — one octave between σ1 and σ2, so the
+    /// half-power band runs about 375–1500 cpi and leaves both the pixel level (noise)
+    /// and the Clarity band alone. σ1 = 1.22 px at 6000, 0.33 px at 1600.
+    /// η = 1.2e-3 sits between a faint oriented texture (a 0.05 EV grating at the band
+    /// centre, λ ≈ 3.7e-4: coherence 0.24, gate open) and a half-stop step (λ ≈ 4.3e-3
+    /// at its edge: coherence 0.78, gate shut).
+    public static let textureBand = PresenceBand(centreCPI: 750, ratio: 2,
+                                                 integrationRatio: 3,
+                                                 coherenceFloor: 0.0012,
+                                                 gateLow: 0.35, gateHigh: 0.75)
+    /// Clarity: centred on 60 cpi — a 100 px period at 6000 px, Lightroom's "radius of
+    /// tens to about 150 px" — with σ2 = 4·σ1 (9.7 / 38.7 px at 6000), two octaves below
+    /// Texture. η = 8e-4 between a 0.05 EV grating (λ ≈ 3.2e-4) and a half-stop step
+    /// (λ ≈ 3.5e-3).
+    public static let clarityBand = PresenceBand(centreCPI: 60, ratio: 4,
+                                                 integrationRatio: 2,
+                                                 coherenceFloor: 0.0008,
+                                                 gateLow: 0.35, gateHigh: 0.75)
+
+    /// Texture's band gain per unit slider at the two signs. +100 multiplies the band by
+    /// up to 1 + 2.0·0.47 at its centre; −100 removes up to 1.7·0.47 ≈ 80 % of it, below
+    /// 1/peak(band) = 2.12, so no frequency changes sign at any render size.
+    public static let textureGainPositive: Double = 2.0
+    public static let textureGainNegative: Double = 1.7
+    /// Clarity's band gain per unit slider (positive), and the negative side's
+    /// gain: −100 removes `0.95·w` of the band (w ≤ 1), and a mask at Strength 200 up to
+    /// `min(1, 1.9·w)` — never more than the whole band, so nothing can change sign, and
+    /// −100 stays below saturation so a mask's Strength above 100 still responds.
+    public static let clarityGainPositive: Double = 1.95
+    public static let clarityGainNegative: Double = 0.95
+    /// Range compression of each band, in EV: the gain on a coefficient `b` is weighted
+    /// by `1 / (1 + (b/τ)²)`, so `b + k·b/(1+(b/τ)²)` stays monotone in `b` for k < 8 —
+    /// detail can be expanded or compressed, never inverted — and a coefficient several
+    /// stops tall gets almost none of the slider.
+    public static let textureDetailRangeEV: Double = 0.35
+    public static let clarityDetailRangeEV: Double = 0.5
+    /// Clarity's strength gate on √(Jxx + Jyy), in EV per σ1: closes on structure
+    /// stronger than any texture — the corners and junctions of multi-stop edges, where
+    /// two orientations meet and coherence alone reads "isotropic". Real photographs'
+    /// mid-scale structure sits mostly below 0.5.
+    public static let clarityStrengthLowEV: Double = 0.2
+    public static let clarityStrengthHighEV: Double = 0.6
+    /// Clarity's prefilter radius as a multiple of σ1: lines and specks narrower than
+    /// about 0.8·σ1 are removed (an opening and a closing, averaged both ways round)
+    /// before Clarity measures local contrast, so a thin dark line does not read as a
+    /// mid-scale dip that darkens its neighbours.
+    public static let clarityPrefilterRatio: Double = 0.4
+    /// Width in EV of Clarity's tone weight, a Gaussian on G(σ2)·v' around mid-grey, so
+    /// the effect fades smoothly toward deep shadows and specular highlights and is
+    /// continuous over tone (no reference levels, no image range).
+    public static let clarityMidtoneEV: Double = 8.0
+    /// Positive Clarity's slider shape: the amount `a` enters as `a·(1 + 0.4·a)`. The
+    /// overshoot limit and the brightness hold both bite harder the stronger the boost,
+    /// so a linear law delivered +50 at 0.69 of +100's effect (measured on the 1/f
+    /// probe, spec M3 wants 0.35–0.65); this curve brings it to ≈0.63 and keeps +25 at
+    /// ≈0.36. Negative Clarity is linear in `a` and needs no shaping.
+    public static let clarityPositiveCurvature: Double = 0.4
+
+    /// The shaped positive amount (see `clarityPositiveCurvature`); `a` for a ≤ 0.
+    public static func clarityShapedAmount(_ a: Double) -> Double {
+        a > 0 ? a * (1 + clarityPositiveCurvature * a) : a
+    }
+
+    /// Positive Clarity's overshoot limit: where `G(σ1)·v' + Δ` leaves the local range
+    /// of `G(σ1)·v'` (a square window of radius round(σ2)) only this fraction of the
+    /// excess survives.
+    public static let clarityOvershootSlope: Double = 0.12
+    /// Local brightness: the exponent of the power mean the stage holds, and the
+    /// window, as a multiple of σ2. A gain on log detail raises the linear mean
+    /// (Jensen) and the display's tone curve turns that into a brighter picture;
+    /// holding the local mean of Y^0.4 — close to what the display encodes — kept the
+    /// 8 test photos within ±0.16 codes at ±100 in the design runs, where doing nothing
+    /// moved them +0.6 / −0.4 and holding the LINEAR mean overshot to −1.0 / +0.6.
+    public static let presenceMeanExponent: Double = 0.4
+    public static let presenceMeanWindow: Double = 4.0
+    /// Derivative scale floor for the structure tensor's normalization (px).
+    public static let presenceDerivativeFloor: Double = 0.5
+    /// The largest σ the 9-tap discrete Gaussian carries on its own (see `presenceBlur`).
+    public static let presenceSmallSigma: Double = 2.0.squareRoot()
+
     /// He et al.'s haze-retention constant: keep 5% of the haze so distance still reads.
     public static let dehazeOmega: Double = 0.95
     /// docs/06's Distance disclosure default (0–100). Caps the transmission floor.
@@ -127,21 +262,22 @@ public struct DetailEngine: Sendable {
         public let details: [Plane]
         /// What the à-trous stack could not explain — the coarse residual.
         public let residual: Plane
-        /// Gaussian pyramid of `logLuminance`, finest first. Feeds the local Laplacian.
-        public let pyramid: [Plane]
         /// Structure-tensor gradient magnitude in EV/px. Drives sharpening's edge mask and
         /// dehaze's sky floor.
         public let gradient: Plane
         /// 0 = isotropic mid-frequency texture (pores, noise-adjacent detail);
-        /// 1 = a coherent high-contrast edge (eyelashes, jawline, horizon).
-        /// Negative Texture attenuates through `1 − coherence`, which is what makes it a
-        /// skin smoother instead of a negative-Clarity glow.
+        /// 1 = a coherent high-contrast edge (eyelashes, jawline, horizon), at the
+        /// working-radius scale and with the EV/px strength gate. Texture and Clarity do
+        /// NOT read this one: they build their own scale-space tensor at their own band
+        /// (`presenceStructure`), because a per-pixel strength gate means a different
+        /// contrast at every render size.
         public let coherence: Plane
 
         /// The stage input, kept for the lazily-built dehaze primitives.
         public let source: ImageBuffer
 
         fileprivate let cache: DehazeCache
+        fileprivate let presence: PresenceCache
 
         /// Build the node. This is the ≤35 ms half of the budget; everything downstream is
         /// the ≤5 ms half.
@@ -156,6 +292,7 @@ public struct DetailEngine: Sendable {
             self.workingRadius = radius
             self.source = image
             self.cache = DehazeCache()
+            self.presence = PresenceCache()
 
             let lum = image.luminancePlane(space: space)
             // safeLog2 floors at −20 EV, so a zero or negative luminance (legal in
@@ -171,12 +308,20 @@ public struct DetailEngine: Sendable {
             self.details = stack.details
             self.residual = stack.residual
 
-            self.pyramid = DetailEngine.gaussianPyramid(
-                logLum, levels: DetailEngine.pyramidLevels(longEdge: Swift.max(w, h)))
-
             let structure = DetailEngine.structureTensor(logLum, radius: Swift.max(radius / 4, 1))
             self.gradient = structure.magnitude
             self.coherence = structure.coherence
+        }
+
+        /// The presence log-luminance plane (`DetailEngine.presenceEV` of the stage
+        /// input's luminance), built once per decomposition and shared by Texture and
+        /// Clarity — both read the PRE-Texture picture, like the GPU graph's one `lum`.
+        public func presenceLogLuminance() -> Plane {
+            if let ev = presence.ev { return ev }
+            let lum = source.luminancePlane(space: space)
+            let ev = lum.map { DetailEngine.presenceEV($0) }
+            presence.ev = ev
+            return ev
         }
 
         /// Atmospheric light, estimated once and frozen. Cached on first use so a Dehaze
@@ -248,127 +393,375 @@ public struct DetailEngine: Sendable {
 
     // MARK: - Texture
 
-    /// Texture: a gain on the mid scales of the à-trous stack (docs/06 §10.2).
-    ///
-    /// The band is a raised-cosine window over scale index, centered where ~2–8 px of
-    /// structure lives, with smooth edges so adjacent scales blend rather than seam. The
-    /// centre shifts with resolution so the band means the same physical detail size on a
-    /// 61 MP file as on a 24 MP one.
-    ///
-    /// Positive values multiply band coefficients. Negative values attenuate them through
-    /// `1 − coherence`, so coherent high-contrast edges keep their energy while isotropic
-    /// mid-frequency texture loses it: −Texture smooths skin without dissolving eyelashes,
-    /// and without negative Clarity's glow.
     /// Texture/Clarity controls retain their ±100 domain; a local mask can scale
     /// that resolved control up to 200%. Do not clamp again after multiplication.
     public static func scaledPresenceAmount(_ amount: Double, strength: Double = 1) -> Double {
         Num.clamp(amount, -100, 100) * Num.clamp(strength, 0, 2)
     }
 
+    /// Texture: a gain on the 2–8 px@24 MP band (`textureBand`, 375–1500 cycles per
+    /// image long edge), gated by a scale-space structure tensor.
+    ///
+    ///   b = G(σ1)·v − G(σ2)·v,   σ1 = 0.153·L/750, σ2 = 2·σ1   (1.22 / 2.45 px at 6000)
+    ///   Δ = k·a · b/(1 + (b/0.35)²) · (1 − smoothstep(0.35, 0.75, coherence))
+    ///
+    /// with k = 2.0 for a > 0 and 1.7 for a < 0, then the local-brightness hold.
+    ///
+    /// The SAME gate serves both signs, for opposite reasons: positive Texture must not
+    /// rim an edge, negative Texture must not soften one. Coherence is measured on
+    /// G(σ1)·v with gradients in EV per σ1 and an integration σ of 3·σ2, so a half-stop
+    /// step is "an edge" at 1600 px and at 6000 px alike — the old gate measured strength
+    /// in EV per PIXEL, which closed on a 2 EV step at a preview size and rimmed it at
+    /// full size. Isotropic texture — pores, weave, foliage — keeps the whole slider.
+    ///
+    /// Above the render's Nyquist the band simply does not exist, so at a small preview
+    /// the visible part of the export's effect is what the preview shows, and −100 can
+    /// never reverse a frequency: k·max(b) = 1.7·0.47 < 1 at every size.
     public static func applyTexture(_ image: ImageBuffer, amount: Double,
                                     strength: Double = 1,
                                     decomposition d: Decomposition) -> ImageBuffer {
         let a = scaledPresenceAmount(amount, strength: strength) / 100
-        guard a != 0, !d.details.isEmpty else { return image }
-
-        let w = image.width
-        let h = image.height
-        let coherence = fit(d.coherence, width: w, height: h)
-        let center = bandCenter(width: w, height: h)
-        let halfWidth = 1.6
-
-        // Normalize by the weight the window ACTUALLY realizes. The band centre
-        // tracks resolution correctly, but the window is truncated at level 0, so a
-        // preview whose centre sits at level 0 keeps only the levels above it. The
-        // weights summed to 1.617 at 2560 px and 1.309 at 1280 px, which made the same
-        // Texture setting 19 % weaker in a fit view than in the export — a scale
-        // honesty failure, and this stage's whole claim is scale honesty.
-        var realized = 0.0
-        for i in 0..<d.details.count {
-            realized += bandWeight(level: i, center: center, halfWidth: halfWidth)
+        guard a != 0 else { return image }
+        let v = d.presenceLogLuminance()
+        let longEdge = Swift.max(d.width, d.height)
+        let s = textureBand.sigmas(longEdge: longEdge)
+        let fine = presenceBlur(v, sigma: s.inner)
+        let coarse = presenceBlur(v, sigma: s.outer)
+        let structure = presenceStructure(fine, derivativeSigma: s.inner,
+                                          integrationSigma: s.integration,
+                                          floor: textureBand.coherenceFloor)
+        var delta = Plane(width: v.width, height: v.height)
+        for i in 0..<delta.values.count {
+            let b = Double(fine.values[i]) - Double(coarse.values[i])
+            delta.values[i] = Float(textureDelta(
+                band: b, coherence: Double(structure.coherence.values[i]), amount: a))
         }
-        guard realized > 1e-9 else { return image }
-        let normalization = referenceBandWeight(halfWidth: halfWidth) / realized
-
-        var delta = Plane(width: w, height: h)
-        for i in 0..<d.details.count {
-            let weight = bandWeight(level: i, center: center, halfWidth: halfWidth)
-                * normalization
-            if weight <= 0 { continue }
-            let band = fit(d.details[i], width: w, height: h)
-            for y in 0..<h {
-                for x in 0..<w {
-                    // Both signs are gated by local structure, for opposite reasons:
-                    // negative Texture must not dissolve an edge, positive Texture must
-                    // not rim one. Negative closes fully because smoothing an edge is
-                    // never wanted; positive closes only on genuine coherent edges, so
-                    // hair and weave keep the whole slider (see the gate constants).
-                    let c = Num.saturate(coherence[x, y])
-                    let gate = a >= 0
-                        ? 1.0 - Num.smoothstep(Self.texturePositiveGateLo,
-                                               Self.texturePositiveGateHi, c)
-                        : 1.0 - c
-                    delta[x, y] = delta[x, y] + a * weight * gate * band[x, y]
-                }
-            }
-        }
+        holdLocalBrightness(&delta, v: v, window: presenceMeanWindow * s.outer)
         return applyLumaRatio(image, deltaEV: delta, limit: 4)
+    }
+
+    /// Texture's per-pixel law, shared by the reference and (spelt out in the kernel
+    /// source) by the GPU: `k·a·b/(1 + (b/τ)²)·gate`.
+    public static func textureDelta(band b: Double, coherence: Double,
+                                    amount a: Double) -> Double {
+        let k = a > 0 ? textureGainPositive : textureGainNegative
+        let r = b / textureDetailRangeEV
+        return k * a * b / (1 + r * r) * textureBand.gate(coherence: coherence)
     }
 
     // MARK: - Clarity
 
-    /// Clarity: fast local Laplacian filtering (Paris/Hasinoff 2011, Aubry variant) on
-    /// log2 luminance — darktable's `locallaplacian.c` parameterization.
+    /// Clarity: local contrast in the 20–160 cpi band (`clarityBand`, a 100 px period
+    /// at 6000 px), edge-aware, continuous over tone.
     ///
-    /// **Why this construction is halo-free, and what "halo-free" means here.** USM and
-    /// bilateral clarity both build a single blurred reference and add back the difference;
-    /// near a strong edge the reference is wrong on both sides, so the difference reverses
-    /// the gradient and you get a bright rim on the dark side and vice versa. The local
-    /// Laplacian never forms a global reference. For each of six sampled reference levels
-    /// γ it remaps the *whole* image through a monotone point function anchored at γ, builds
-    /// that image's Laplacian pyramid, and then reads each output coefficient from the
-    /// remapped pyramid whose γ matches the pixel's own local average. Because every remap
-    /// is monotone in the input, no coefficient can change sign relative to its neighbours:
-    /// gradient reversal — the thing a halo *is* — is unrepresentable.
+    ///   v'   = (close(open(v)) + open(close(v))) / 2, square radius round(0.4·σ1)
+    ///   fine = G(σ1)·v',  base = G(σ2)·v',  σ1 = 0.0968·L/60, σ2 = 4·σ1  (9.7 / 38.7 px)
+    ///   b    = fine − base
+    ///   w    = (1 − smoothstep(0.35, 0.75, coherence)) · (1 − smoothstep(0.2, 0.6, strength))
+    ///          / (1 + (b/0.5)²) · exp(−base² / (2·8²))
+    ///   Δ    = 1.95·a'·b·w,  a' = a(1 + 0.4a)  a > 0, then the overshoot limit (window
+    ///                                        radius round(σ2), 12 % of any excess kept)
+    ///        = −min(1, |a|·0.95·w)·b         a < 0
+    ///   then the local-brightness hold.
     ///
-    /// The remap is `r(x) = γ + sign(d)·σ·(|d|/σ)^α` for `|d| ≤ σ` and the identity beyond,
-    /// where `d = x − γ`. `α < 1` expands sub-σ detail (positive Clarity), `α > 1`
-    /// compresses it (negative Clarity, clean soft-focus with no bloom leak). The identity
-    /// branch is why edges above σ pass through at unit slope, and the coarsest pyramid
-    /// level is copied from the input untouched — together those two facts are what keep
-    /// Clarity off the white and black points.
+    /// The pixel-level detail `v − fine` is never touched, which is why Clarity leaves
+    /// pores, noise and the Texture band alone; the prefilter keeps thin lines and
+    /// specks out of what Clarity measures; the coherence gate keeps a straight edge of
+    /// any contrast out of the gain and the strength gate the junctions of big ones;
+    /// and the overshoot limit catches a soft blob's ring.
     ///
-    /// α is weighted by a Gaussian on γ centred at mid-grey (`clarityMidtoneEV`), so the
-    /// effect concentrates where the eye reads local contrast and fades toward the endpoints.
+    /// What this replaced, and why: a local Laplacian sampled at SIX reference levels
+    /// spread over the image's global min..max. On a real photograph those levels were
+    /// 1.3–4.9 EV apart against a 0.7 EV remap, so tones between two levels got no
+    /// effect or the opposite one (a 1.8×/0.6× comb over tone), a single black pixel
+    /// moved every level, the α = 0.3 power remap posterised soft gradients, every level
+    /// down to 2 px was remapped (a high-pass shelf that amplified noise), and the
+    /// pyramid depth was rounded.
     ///
-    /// Recombination is by RGB ratio: zero saturation change — docs/06's **Natural** mode.
-    /// **Punch** (chroma gain at ~35% of the amount, in OKLCh with skin protection) is not
-    /// implemented here because the recipe's `Detail` has no mode field yet; adding it is a
-    /// wire-format change (D52).
+    /// Negative values compress the band toward the base: a soft, low-contrast glow
+    /// that leaves edges (gate closed) and fine detail where they were.
     public static func applyClarity(_ image: ImageBuffer, amount: Double,
                                     strength: Double = 1,
                                     decomposition d: Decomposition) -> ImageBuffer {
         let a = scaledPresenceAmount(amount, strength: strength) / 100
         guard a != 0 else { return image }
-        let w = image.width
-        let h = image.height
-
-        let input = fit(d.logLuminance, width: w, height: h)
-        // The cached pyramid is reused whenever the decomposition and the render target
-        // agree on extent; a fit-view/full-res mismatch rebuilds it at the target size.
-        let pyramid: [Plane]
-        if d.pyramid.count >= 2 && d.pyramid[0].width == w && d.pyramid[0].height == h {
-            pyramid = d.pyramid
-        } else {
-            pyramid = gaussianPyramid(input,
-                                      levels: pyramidLevels(longEdge: Swift.max(w, h)))
+        let v = d.presenceLogLuminance()
+        let longEdge = Swift.max(d.width, d.height)
+        let s = clarityBand.sigmas(longEdge: longEdge)
+        let prefiltered = clarityPrefilter(v, sigma: s.inner)
+        let fine = presenceBlur(prefiltered, sigma: s.inner)
+        let base = presenceBlur(prefiltered, sigma: s.outer)
+        let structure = presenceStructure(fine, derivativeSigma: s.inner,
+                                          integrationSigma: s.integration,
+                                          floor: clarityBand.coherenceFloor)
+        var low: Plane?
+        var high: Plane?
+        if a > 0 {
+            let r = overshootRadius(s.outer)
+            low = localExtremum(fine, radius: r, maximum: false)
+            high = localExtremum(fine, radius: r, maximum: true)
         }
-        guard pyramid.count >= 2 else { return image }
-
-        let remapped = localLaplacian(input, pyramid: pyramid, amount: a,
-                                      sigma: clarityDetailEV, midtoneEV: clarityMidtoneEV)
-        let delta = remapped.zip(input) { $0 - $1 }
+        var delta = Plane(width: v.width, height: v.height)
+        for i in 0..<delta.values.count {
+            let f = Double(fine.values[i])
+            let c = Double(base.values[i])
+            var dv = clarityDelta(band: f - c, base: c,
+                                  coherence: Double(structure.coherence.values[i]),
+                                  strength: Double(structure.strength.values[i]),
+                                  amount: a)
+            if let low, let high {
+                dv = overshootLimited(fine: f, delta: dv, low: Double(low.values[i]),
+                                      high: Double(high.values[i]),
+                                      slope: clarityOvershootSlope)
+            }
+            delta.values[i] = Float(dv)
+        }
+        holdLocalBrightness(&delta, v: v, window: presenceMeanWindow * s.outer)
         return applyLumaRatio(image, deltaEV: delta, limit: 4)
+    }
+
+    /// Clarity's per-pixel law before the overshoot limit.
+    public static func clarityDelta(band b: Double, base: Double, coherence: Double,
+                                    strength: Double, amount a: Double) -> Double {
+        let r = b / clarityDetailRangeEV
+        let tone = exp(-(base * base) / (2 * clarityMidtoneEV * clarityMidtoneEV))
+        let w = clarityBand.gate(coherence: coherence)
+            * (1 - Num.smoothstep(clarityStrengthLowEV, clarityStrengthHighEV, strength))
+            / (1 + r * r) * tone
+        if a > 0 { return clarityGainPositive * clarityShapedAmount(a) * b * w }
+        let s = Swift.min(1, -a * clarityGainNegative * w)
+        return -s * b
+    }
+
+    /// The overshoot limit on the band-limited picture: inside [low, high] the delta
+    /// passes, outside it only `slope` of the excess survives. Continuous and monotone
+    /// in `fine + delta`.
+    public static func overshootLimited(fine f: Double, delta: Double, low: Double,
+                                        high: Double, slope: Double) -> Double {
+        var o = f + delta
+        if o > high { o = high + slope * (o - high) }
+        if o < low { o = low + slope * (o - low) }
+        return o - f
+    }
+
+    /// A square window radius from a σ in pixels: rounded, at least 1. The one rounded
+    /// quantity in either control — a min/max window has to be a whole number of
+    /// pixels — and `CIMorphologyRectangle*` gets the same `2r + 1`. It sizes Clarity's
+    /// prefilter and overshoot window; a jump of one pixel there moves neither band.
+    public static func overshootRadius(_ sigma: Double) -> Int {
+        Swift.max(Int(sigma.rounded()), 1)
+    }
+
+    /// Local brightness hold: `Δ −= log2(G(2^(γ(v+Δ))) / G(2^(γv))) / γ`, γ =
+    /// `presenceMeanExponent`, G = `presenceBlur(window)`. The local mean of Y^γ is
+    /// what the stage leaves where it found it.
+    static func holdLocalBrightness(_ delta: inout Plane, v: Plane, window: Double) {
+        let g = presenceMeanExponent
+        var after = Plane(width: v.width, height: v.height)
+        var before = Plane(width: v.width, height: v.height)
+        for i in 0..<v.values.count {
+            let e = Double(v.values[i])
+            after.values[i] = Float(pow(2.0, g * (e + Double(delta.values[i]))))
+            before.values[i] = Float(pow(2.0, g * e))
+        }
+        let num = presenceBlur(after, sigma: window)
+        let den = presenceBlur(before, sigma: window)
+        for i in 0..<delta.values.count {
+            let n = Swift.max(Double(num.values[i]), 1e-30)
+            let m = Swift.max(Double(den.values[i]), 1e-30)
+            delta.values[i] = Float(Double(delta.values[i]) - log2(n / m) / g)
+        }
+    }
+
+    /// Clarity's prefilter: an opening and a closing over a square of radius
+    /// round(`clarityPrefilterRatio`·σ1), each followed by the other, averaged.
+    static func clarityPrefilter(_ v: Plane, sigma: Double) -> Plane {
+        let r = overshootRadius(clarityPrefilterRatio * sigma)
+        func erode(_ p: Plane) -> Plane { localExtremum(p, radius: r, maximum: false) }
+        func dilate(_ p: Plane) -> Plane { localExtremum(p, radius: r, maximum: true) }
+        let opened = dilate(erode(v))
+        let closed = erode(dilate(v))
+        let a = erode(dilate(opened))
+        let b = dilate(erode(closed))
+        return a.zip(b) { 0.5 * ($0 + $1) }
+    }
+
+    // MARK: - Presence primitives
+
+    /// Presence log luminance: EV around mid-grey on LumenLog's axis (log2 above the
+    /// shaper's linear toe at 0.18·2^−10.5, linear below it, negatives clamped to 0).
+    /// The GPU's `RenderGraph.logLuminance` is `LumenLog.encode(max(Y, 0))`; this is the
+    /// same number re-centred and in stops, so both paths threshold the same quantity.
+    /// The old −20 EV `safeLog2` floor is gone with the global-range sampling it fed.
+    public static func presenceEV(_ y: Double) -> Double {
+        (LumenLog.encode(Swift.max(y, 0)) - LumenLog.encode(LumenLog.midGrey))
+            * LumenLog.range
+    }
+
+    /// Nine taps of the discrete Gaussian kernel of variance `t` (Lindeberg's
+    /// `e^−t·I_n(t)`), normalized over the taps kept. Unlike a sampled Gaussian it has
+    /// the requested variance at ANY σ, sub-pixel included, and its response
+    /// `exp(−2t·sin²(ω/2))` is a Gaussian in a warped frequency — so a difference of two
+    /// of them is never larger than the continuous band's peak, which is what keeps
+    /// −Texture from reversing the finest frequency of a small preview.
+    public static func presenceKernel(variance t: Double) -> [Double] {
+        let tv = Swift.max(t, 0)
+        var weights = [Double](repeating: 0, count: 9)
+        var total = 0.0
+        for n in 0...4 {
+            // I_n(t) by its power series; 40 terms is far past convergence for t ≤ 2.
+            var term = pow(tv / 2, Double(n))
+            var fact = 1.0
+            if n > 0 { for k in 1...n { fact *= Double(k) } }
+            term /= fact
+            var sum = term
+            if tv > 0 {
+                for k in 1..<40 {
+                    term *= (tv / 2) * (tv / 2) / (Double(k) * Double(k + n))
+                    sum += term
+                    if term < 1e-17 * sum { break }
+                }
+            }
+            let w = exp(-tv) * sum
+            weights[4 + n] = w
+            weights[4 - n] = w
+            total += n == 0 ? w : 2 * w
+        }
+        guard total > 0 else { return [0, 0, 0, 0, 1, 0, 0, 0, 0] }
+        return weights.map { $0 / total }
+    }
+
+    /// The Gaussian blur both presence controls use, continuous in σ from 0 up:
+    /// σ ≤ √2: one separable 9-tap discrete Gaussian of variance σ²;
+    /// σ > √2: the 9-tap kernel of variance 1, then a Gaussian of σ' = √(σ² − 1)
+    /// (`SpatialOps.gaussianBlur`: exact taps to σ' = 8, three boxes above). Variances
+    /// add, so the result has variance σ² in both branches. The GPU twin is the same
+    /// 9 taps through `CIConvolution9Horizontal/Vertical` and `CIGaussianBlur(σ')`.
+    public static func presenceBlur(_ plane: Plane, sigma: Double) -> Plane {
+        guard sigma > 0, sigma.isFinite else { return plane }
+        if sigma <= presenceSmallSigma {
+            return convolve9(plane, presenceKernel(variance: sigma * sigma))
+        }
+        let pre = convolve9(plane, presenceKernel(variance: 1))
+        return SpatialOps.gaussianBlur(pre, sigma: (sigma * sigma - 1).squareRoot())
+    }
+
+    /// Separable 9-tap convolution with clamp-to-edge sampling.
+    static func convolve9(_ plane: Plane, _ k: [Double]) -> Plane {
+        let w = plane.width
+        let h = plane.height
+        var horizontal = Plane(width: w, height: h)
+        for y in 0..<h {
+            for x in 0..<w {
+                var acc = 0.0
+                for t in 0..<9 { acc += k[t] * plane.clampedSample(x + t - 4, y) }
+                horizontal[x, y] = acc
+            }
+        }
+        var out = Plane(width: w, height: h)
+        for y in 0..<h {
+            for x in 0..<w {
+                var acc = 0.0
+                for t in 0..<9 { acc += k[t] * horizontal.clampedSample(x, y + t - 4) }
+                out[x, y] = acc
+            }
+        }
+        return out
+    }
+
+    /// Scale-space structure tensor of an already-smoothed plane (`G(σd)·v`).
+    ///
+    /// Central-difference gradients, scaled by `max(σd, 0.5)` so they read in EV per
+    /// derivative scale rather than per pixel; the products are integrated with
+    /// `presenceBlur(σi)`. `coherence = √((Jxx−Jyy)² + 4Jxy²) / (Jxx + Jyy + floor)` and
+    /// `strength = √(Jxx + Jyy)` in EV.
+    public static func presenceStructure(_ smooth: Plane, derivativeSigma: Double,
+                                         integrationSigma: Double, floor: Double)
+        -> (coherence: Plane, strength: Plane) {
+        let w = smooth.width
+        let h = smooth.height
+        let n = Swift.max(derivativeSigma, presenceDerivativeFloor)
+        var jxx = Plane(width: w, height: h)
+        var jyy = Plane(width: w, height: h)
+        var jxy = Plane(width: w, height: h)
+        for y in 0..<h {
+            for x in 0..<w {
+                let gx = 0.5 * (smooth.clampedSample(x + 1, y)
+                                - smooth.clampedSample(x - 1, y)) * n
+                let gy = 0.5 * (smooth.clampedSample(x, y + 1)
+                                - smooth.clampedSample(x, y - 1)) * n
+                jxx[x, y] = gx * gx
+                jyy[x, y] = gy * gy
+                jxy[x, y] = gx * gy
+            }
+        }
+        let bxx = presenceBlur(jxx, sigma: integrationSigma)
+        let byy = presenceBlur(jyy, sigma: integrationSigma)
+        let bxy = presenceBlur(jxy, sigma: integrationSigma)
+        var coherence = Plane(width: w, height: h)
+        var strength = Plane(width: w, height: h)
+        for i in 0..<coherence.values.count {
+            let a = Double(bxx.values[i])
+            let c = Double(byy.values[i])
+            let b = Double(bxy.values[i])
+            let trace = Swift.max(a + c, 0)
+            let d = a - c
+            let spread = (d * d + 4 * b * b).squareRoot()
+            coherence.values[i] = Float(spread / (trace + floor))
+            strength.values[i] = Float(trace.squareRoot())
+        }
+        return (coherence, strength)
+    }
+
+    /// Running minimum or maximum over a (2r+1)² square, clamp-to-edge, separable —
+    /// the twin of `CIMorphologyRectangleMinimum/Maximum` with width = height = 2r+1.
+    /// van Herk / Gil-Werman: O(1) per pixel in r.
+    static func localExtremum(_ plane: Plane, radius r: Int, maximum: Bool) -> Plane {
+        guard r > 0 else { return plane }
+        let pick: (Float, Float) -> Float = maximum ? { Swift.max($0, $1) } : { Swift.min($0, $1) }
+        func pass(_ line: [Float]) -> [Float] {
+            let n = line.count
+            let win = 2 * r + 1
+            // Padded line with clamp-to-edge.
+            var padded = [Float](repeating: 0, count: n + 2 * r)
+            for i in 0..<padded.count {
+                padded[i] = line[Swift.min(Swift.max(i - r, 0), n - 1)]
+            }
+            let m = padded.count
+            var forward = [Float](repeating: 0, count: m)
+            var backward = [Float](repeating: 0, count: m)
+            for i in 0..<m {
+                forward[i] = i % win == 0 ? padded[i] : pick(forward[i - 1], padded[i])
+            }
+            var i = m - 1
+            while i >= 0 {
+                backward[i] = (i == m - 1 || (i + 1) % win == 0)
+                    ? padded[i] : pick(backward[i + 1], padded[i])
+                i -= 1
+            }
+            var out = [Float](repeating: 0, count: n)
+            for x in 0..<n {
+                // Window [x, x + win − 1] in padded coordinates.
+                out[x] = pick(backward[x], forward[x + win - 1])
+            }
+            return out
+        }
+        let w = plane.width
+        let h = plane.height
+        var rows = Plane(width: w, height: h)
+        for y in 0..<h {
+            let line = Array(plane.values[(y * w)..<((y + 1) * w)])
+            let o = pass(line)
+            for x in 0..<w { rows.values[y * w + x] = o[x] }
+        }
+        var out = Plane(width: w, height: h)
+        for x in 0..<w {
+            var column = [Float](repeating: 0, count: h)
+            for y in 0..<h { column[y] = rows.values[y * w + x] }
+            let o = pass(column)
+            for y in 0..<h { out.values[y * w + x] = o[y] }
+        }
+        return out
     }
 
     // MARK: - Dehaze
@@ -859,144 +1252,6 @@ public struct DetailEngine: Sendable {
         return out
     }
 
-    // MARK: - Local Laplacian internals
-
-    /// Number of sampled remap curves. Six is darktable's `locallaplacian.c` count: enough
-    /// that the piecewise-linear interpolation between them is invisible, few enough that
-    /// the cost is six pyramid builds rather than one per intensity.
-    private static let remapLevels: Int = 6
-
-    private static func localLaplacian(_ input: Plane, pyramid: [Plane], amount: Double,
-                                       sigma: Double, midtoneEV: Double) -> Plane {
-        let levels = pyramid.count
-        guard levels >= 2, sigma > 0 else { return input }
-        let span = input.range
-        let lo = span.min
-        let extent = span.max - lo
-        guard extent > 1e-6 else { return input }
-
-        let n = remapLevels
-        var accumulated: [Plane] = []
-        for l in 0..<levels {
-            accumulated.append(Plane(width: pyramid[l].width, height: pyramid[l].height))
-        }
-
-        for j in 0..<n {
-            let gamma = lo + extent * Double(j) / Double(n - 1)
-            // Midtone weight: a Gaussian on the reference level, centred at mid-grey.
-            let weight = exp(-(gamma * gamma) / (2 * midtoneEV * midtoneEV))
-            let alpha = Swift.max(1.0 - 0.7 * amount * weight, 0.05)
-            let remapped = input.map { remap($0, gamma: gamma, sigma: sigma, alpha: alpha) }
-            let lap = laplacianPyramid(remapped, levels: levels)
-
-            for l in 0..<(levels - 1) {
-                // The remapped plane has the input's extent, so its pyramid has the same
-                // depth — but bound the index anyway: an out-of-range read here would take
-                // the whole render down, and the check costs one comparison per level.
-                if l >= lap.count { break }
-                let g = pyramid[l]
-                let src = lap[l]
-                guard src.width == g.width && src.height == g.height else { continue }
-                var target = accumulated[l]
-                guard target.width == g.width && target.height == g.height else { continue }
-                for y in 0..<target.height {
-                    for x in 0..<target.width {
-                        let t = Num.saturate((g[x, y] - lo) / extent) * Double(n - 1)
-                        let contribution = Swift.max(0.0, 1.0 - abs(t - Double(j)))
-                        if contribution > 0 {
-                            target[x, y] = target[x, y] + contribution * src[x, y]
-                        }
-                    }
-                }
-                accumulated[l] = target
-            }
-        }
-
-        // The coarsest level is copied straight from the input: global tone, and therefore
-        // the white and black points, survive Clarity untouched.
-        accumulated[levels - 1] = pyramid[levels - 1]
-        return collapse(accumulated)
-    }
-
-    /// The remap point function. Monotone in `x` for any `alpha > 0`, which is the property
-    /// the halo-free claim rests on. Continuous at `|d| = sigma`, where both branches give
-    /// `gamma + d`.
-    private static func remap(_ x: Double, gamma: Double, sigma: Double, alpha: Double) -> Double {
-        let d = x - gamma
-        let a = abs(d)
-        if a >= sigma { return gamma + d }
-        let sign = d < 0 ? -1.0 : 1.0
-        let t = Num.saturate(a / sigma)
-        return gamma + sign * sigma * pow(t, alpha)
-    }
-
-    // MARK: - Pyramids
-
-    /// Gaussian pyramid, finest first. Each level is a binomial-blurred, 2× decimated copy.
-    public static func gaussianPyramid(_ plane: Plane, levels: Int) -> [Plane] {
-        let n = Swift.min(Swift.max(levels, 1), 12)
-        var out: [Plane] = [plane]
-        for _ in 1..<Swift.max(n, 1) {
-            guard let last = out.last else { break }
-            if last.width < 4 || last.height < 4 { break }
-            out.append(downsample(last))
-        }
-        return out
-    }
-
-    /// Laplacian pyramid with the same level count as the Gaussian one; the last entry is
-    /// the coarse residual, not a difference.
-    private static func laplacianPyramid(_ plane: Plane, levels: Int) -> [Plane] {
-        let gauss = gaussianPyramid(plane, levels: levels)
-        var out: [Plane] = []
-        if gauss.count >= 2 {
-            for l in 0..<(gauss.count - 1) {
-                let up = gauss[l + 1].resized(width: gauss[l].width, height: gauss[l].height)
-                out.append(gauss[l].zip(up) { $0 - $1 })
-            }
-        }
-        if let last = gauss.last { out.append(last) }
-        return out
-    }
-
-    private static func collapse(_ pyramid: [Plane]) -> Plane {
-        guard var out = pyramid.last else { return Plane(width: 1, height: 1) }
-        var l = pyramid.count - 2
-        while l >= 0 {
-            let target = pyramid[l]
-            let up = out.resized(width: target.width, height: target.height)
-            out = target.zip(up) { $0 + $1 }
-            l -= 1
-        }
-        return out
-    }
-
-    /// Binomial [1,4,6,4,1]/16 blur then 2× decimation. Both axes floor to at least 1, so
-    /// the pyramid never produces an empty extent.
-    private static func downsample(_ plane: Plane) -> Plane {
-        let w = Swift.max(plane.width / 2, 1)
-        let h = Swift.max(plane.height / 2, 1)
-        let k: [Double] = [1.0 / 16, 4.0 / 16, 6.0 / 16, 4.0 / 16, 1.0 / 16]
-
-        var tmp = Plane(width: plane.width, height: plane.height)
-        for y in 0..<plane.height {
-            for x in 0..<plane.width {
-                var acc = 0.0
-                for t in 0..<5 { acc += k[t] * plane.clampedSample(x + t - 2, y) }
-                tmp[x, y] = acc
-            }
-        }
-        var out = Plane(width: w, height: h)
-        for y in 0..<h {
-            for x in 0..<w {
-                var acc = 0.0
-                for t in 0..<5 { acc += k[t] * tmp.clampedSample(x * 2, y * 2 + t - 2) }
-                out[x, y] = acc
-            }
-        }
-        return out
-    }
-
     // MARK: - Local structure
 
     /// Structure-tensor analysis of a log-luminance plane.
@@ -1078,37 +1333,5 @@ public struct DetailEngine: Sendable {
     private static func fit(_ plane: Plane, width: Int, height: Int) -> Plane {
         if plane.width == width && plane.height == height { return plane }
         return plane.resized(width: width, height: height)
-    }
-
-    /// Texture's band centre in à-trous scale index. Level 1 is ~4 px of structure, the
-    /// middle of docs/06's 2–8 px target band at the 2560-px working resolution; the log2
-    /// term shifts the band with resolution so the same physical detail is addressed on a
-    /// 61 MP file as on a 24 MP one.
-    private static func bandCenter(width: Int, height: Int) -> Double {
-        let longEdge = Double(Swift.max(width, height))
-        guard longEdge > 0 else { return 1.0 }
-        return 1.0 + Num.clamp(log2(longEdge / 2560.0), -1.0, 2.0)
-    }
-
-    /// Total weight an UNTRUNCATED window carries — what the normalization above
-    /// restores every realized window to, so a given Texture setting means the same
-    /// amount of texture at every resolution.
-    private static func referenceBandWeight(halfWidth: Double) -> Double {
-        var total = 0.0
-        var level = -32
-        while level <= 32 {
-            total += bandWeight(level: level, center: 0, halfWidth: halfWidth)
-            level += 1
-        }
-        return total
-    }
-
-    /// Raised-cosine window over scale index: 1 at the centre, 0 at the band edges, with a
-    /// smooth transition so adjacent scales blend rather than seam.
-    private static func bandWeight(level: Int, center: Double, halfWidth: Double) -> Double {
-        guard halfWidth > 0 else { return 0 }
-        let d = abs(Double(level) - center) / halfWidth
-        if d >= 1 { return 0 }
-        return 0.5 * (1 + cos(.pi * d))
     }
 }

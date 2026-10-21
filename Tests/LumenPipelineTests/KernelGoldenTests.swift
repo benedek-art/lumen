@@ -2096,6 +2096,17 @@ final class KernelGoldenTests: XCTestCase {
     /// cannot. Asserting that Clarity moved that frame was asking the mid band about a
     /// picture built to contain nothing it responds to; it measured 0.00098 against a
     /// bar of 0.001 and the real number it was reporting was the ramp leaking through.
+    /// A gentle ramp with a 3 px ripple in both axes: inside Texture's band
+    /// (375–1500 cycles per image long edge) once the frame is ~1100 px or wider.
+    private func fineTextureTestImage(width: Int, height: Int) -> ImageBuffer {
+        ImageBuffer(width: width, height: height) { u, v in
+            let x = Int(u * Double(width)), y = Int(v * Double(height))
+            let ev = -1.5 + 3.0 * Double(x) / Double(width - 1)
+            let ripple = 0.12 * cos(Double(x) * 2 * .pi / 3) * cos(Double(y) * 2 * .pi / 5)
+            return RGB(gray: 0.18 * pow(2, ev + ripple))
+        }
+    }
+
     private func midScaleTestImage(width: Int = 64, height: Int = 32) -> ImageBuffer {
         ImageBuffer(width: width, height: height) { u, v in
             let x = Int(u * Double(width)), y = Int(v * Double(height))
@@ -2568,7 +2579,8 @@ final class KernelGoldenTests: XCTestCase {
             let p = RenderPlan(recipe: r, lutSize: LUT3D.exportSize)
             guard let out = readBack(
                 RenderGraph().build(ciImage(from: frame), plan: p,
-                                    options: RenderGraph.Options(longEdge: 64)),
+                                    options: RenderGraph.Options(
+                                        longEdge: Swift.max(frame.width, frame.height))),
                 width: frame.width, height: frame.height) else {
                 throw XCTSkip("render failed")
             }
@@ -2602,8 +2614,15 @@ final class KernelGoldenTests: XCTestCase {
         //   contract honoured ~4e-3
         // so 0.001 clears the second by 7x and sits 4x under the third. The measured
         // value is in the message either way, so a miss here is self-diagnosing.
-        let texture = movement(source, plain,
-                               try render(source) { $0.develop.detail.texture = 40 })
+        // WS-14: Texture is a band of the PICTURE (375–1500 cycles per image long edge,
+        // 2–8 px at 24 MP), so on this 64 px frame it is entirely above Nyquist and
+        // rightly moves nothing. Its per-stage checks get their own frame, 1536 px wide
+        // with a 3 px ripple — inside the band at that size — rendered at its own long
+        // edge.
+        let fineFrame = fineTextureTestImage(width: 1536, height: 32)
+        let finePlain = try render(fineFrame) { _ in }
+        let texture = movement(fineFrame, finePlain,
+                               try render(fineFrame) { $0.develop.detail.texture = 40 })
         XCTAssertGreaterThan(texture, 0.001,
                              "Texture +40 moved the frame by \(texture) — 0.0 means the "
                                  + "band collapsed, a few e-4 means the gain is being "
@@ -2631,23 +2650,31 @@ final class KernelGoldenTests: XCTestCase {
         // instead of another guess.
         var textureRecipe = Recipe()
         textureRecipe.develop.denoise.mode = .off
-        let gpuTexturePlain = try render(source) { $0.develop.denoise.mode = .off }
-        let gpuTexture = movement(source, gpuTexturePlain, try render(source) {
+        let gpuTexturePlain = try render(fineFrame) { $0.develop.denoise.mode = .off }
+        let gpuTexture = movement(fineFrame, gpuTexturePlain, try render(fineFrame) {
             $0.develop.denoise.mode = .off
             $0.develop.detail.texture = 40
         })
         let referenceTexturePlain = ReferenceRenderer.render(
-            source, plan: RenderPlan(recipe: textureRecipe))
+            fineFrame, plan: RenderPlan(recipe: textureRecipe))
         textureRecipe.develop.detail.texture = 40
         let referenceTexture = movement(
-            source, referenceTexturePlain,
-            ReferenceRenderer.render(source,
+            fineFrame, referenceTexturePlain,
+            ReferenceRenderer.render(fineFrame,
                                      plan: RenderPlan(recipe: textureRecipe)))
         XCTAssertGreaterThan(referenceTexture, 1e-5,
                              "the REFERENCE moved this frame by \(referenceTexture) with "
                                  + "Texture +40, so there is nothing to compare the GPU "
                                  + "against and the ratio below would be meaningless")
         let textureRatio = gpuTexture / Swift.max(referenceTexture, 1e-12)
+        // WS-14 (spec G2c): the two paths now implement ONE algorithm step for step
+        // (`RenderGraph.applyDetailBands`'s step table), so the ratio is held to
+        // [0.80, 1.25] — the half-float intermediates and CIGaussianBlur against the
+        // reference's three-box Gaussian are the only differences left.
+        XCTAssertGreaterThanOrEqual(textureRatio, 0.80,
+                                    "Texture +40 GPU/reference ratio \(textureRatio)")
+        XCTAssertLessThanOrEqual(textureRatio, 1.25,
+                                 "Texture +40 GPU/reference ratio \(textureRatio)")
         XCTAssertGreaterThan(textureRatio, 0.1,
                              "Texture +40 moved the frame \(gpuTexture) on the GPU where "
                                  + "the reference moves it \(referenceTexture) — a ratio "
@@ -2674,7 +2701,9 @@ final class KernelGoldenTests: XCTestCase {
         // they are allowed to drift.
         var clarityRecipe = Recipe()
         clarityRecipe.develop.denoise.mode = .off
-        let midFrame = midScaleTestImage()
+        // WS-14: Clarity's band is 20–160 cycles per image long edge, so its frame is
+        // 1024 px wide, where the 12 px modulation (85 cpi) sits inside it.
+        let midFrame = midScaleTestImage(width: 1024, height: 64)
         let midPlain = try render(midFrame) { $0.develop.denoise.mode = .off }
         let clarity = movement(midFrame, midPlain, try render(midFrame) {
             $0.develop.denoise.mode = .off
@@ -2700,6 +2729,11 @@ final class KernelGoldenTests: XCTestCase {
         // to 1.3x, so a regression to 3x, the crunchy over-processed direction the
         // stage was rewritten to escape, was invisible. 2.0 sits above the measured top
         // of the window with room and well under anything a defect produces.
+        // WS-14 (spec G2c): one algorithm on both paths now — [0.80, 1.25].
+        XCTAssertGreaterThanOrEqual(clarity / referenceClarity, 0.80,
+                                    "Clarity +30 GPU/reference ratio \(clarity / referenceClarity)")
+        XCTAssertLessThanOrEqual(clarity / referenceClarity, 1.25,
+                                 "Clarity +30 GPU/reference ratio \(clarity / referenceClarity)")
         XCTAssertLessThan(clarity / referenceClarity, 2.0,
                           "Clarity +30 moved the frame by \(clarity) where the reference "
                               + "moves it \(referenceClarity) — the GPU is applying "
@@ -4113,60 +4147,37 @@ final class KernelGoldenTests: XCTestCase {
                        "the floor moved a positive-luminance pixel")
     }
 
-    // MARK: - Texture's gain carries the reference's ±4 EV limit (docs/31 R2 §15)
+    // MARK: - Presence gains carry the reference's ±4 EV limit (docs/31 R2 §15)
 
-    /// The texture kernels' exponent clamps at ±4 EV, exactly where the reference
+    /// The presence gain kernel's exponent clamps at ±4 EV, exactly where the reference
     /// clamps every presence excursion (`DetailEngine.applyLumaRatio(limit: 4)`).
     ///
-    /// Driven at the kernel level, because that is where the limit lives: a band
-    /// of 0.5 encoded units (12 EV) under Texture +100's own coefficient
-    /// (0.9 · range = 21.6 per encoded unit) asks for 2^10.8 ≈ 1783× — the
-    /// unbounded gain the GPU used to apply — and must get 2^4 = 16.
+    /// WS-14 moved the clamp: Texture and Clarity now produce a delta in EV
+    /// (`lumenTextureDelta` / `lumenClarityDelta`), the local-brightness hold corrects
+    /// it, and `lumenPresenceGain` clamps and exponentiates — the twin of
+    /// `holdLocalBrightness` followed by `applyLumaRatio(limit: 4)`. So the clamp is
+    /// driven here, at the kernel that carries it: a 12 EV delta with a neutral
+    /// brightness correction (equal means) must give 2^4 = 16, and −12 EV 1/16.
     func testTextureGainClampsAtFourEVLikeTheReference() throws {
-        try XCTSkipUnless(KernelLibrary.detailGain != nil
-                              && KernelLibrary.detailGainGated != nil,
-                          "kernels unavailable")
+        try XCTSkipUnless(KernelLibrary.presenceGain != nil, "kernels unavailable")
         let width = 8, height = 4
-        let hi = ciImage(from: ImageBuffer(width: width, height: height) { _, _ in
-            RGB(gray: 0.75)
+        let means = ciImage(from: ImageBuffer(width: width, height: height) { _, _ in
+            RGB(0.7, 0.7, 0)
         })
-        let lo = ciImage(from: ImageBuffer(width: width, height: height) { _, _ in
-            RGB(gray: 0.25)
-        })
-        // A gate plane of zero coherence: fully open for both signs, so the clamp
-        // — not the gate — is what bounds the result.
-        let gate = ciImage(from: ImageBuffer(width: width, height: height) { _, _ in
-            RGB(gray: 0)
-        })
-        let k = 100.0 / 100.0 * 0.9 * LumenLog.range
-
-        guard let up = KernelLibrary.apply(KernelLibrary.detailGain,
-                                           extent: hi.extent, [hi, lo, Float(k)]),
-              let upPixels = readBack(up, width: width, height: height)
-        else { return XCTFail("detailGain render failed") }
-        XCTAssertEqual(Double(upPixels[2, 2].g), 16.0, accuracy: 0.5,
-                       "a 12 EV band at Texture +100 produced a gain of "
-                           + "\(upPixels[2, 2].g) — the reference clamps the "
-                           + "excursion at +4 EV (gain 16); unbounded it is 2^10.8")
-
-        guard let down = KernelLibrary.apply(KernelLibrary.detailGain,
-                                             extent: hi.extent, [hi, lo, Float(-k)]),
-              let downPixels = readBack(down, width: width, height: height)
-        else { return XCTFail("detailGain render failed") }
-        XCTAssertEqual(Double(downPixels[2, 2].g), 0.0625, accuracy: 0.002,
-                       "the negative direction must clamp at −4 EV (gain 1/16), "
-                           + "got \(downPixels[2, 2].g)")
-
-        guard let gated = KernelLibrary.apply(
-                KernelLibrary.detailGainGated, extent: hi.extent,
-                [hi, lo, gate, Float(k), Float(0.0),
-                 Float(DetailEngine.texturePositiveGateLo),
-                 Float(DetailEngine.texturePositiveGateHi)]),
-              let gatedPixels = readBack(gated, width: width, height: height)
-        else { return XCTFail("detailGainGated render failed") }
-        XCTAssertEqual(Double(gatedPixels[2, 2].g), 16.0, accuracy: 0.5,
-                       "the gated kernel must carry the same ±4 EV clamp, got "
-                           + "\(gatedPixels[2, 2].g)")
+        for (delta, expected) in [(12.0, 16.0), (-12.0, 0.0625)] {
+            let deltaImage = ciImage(from: ImageBuffer(width: width, height: height) { _, _ in
+                RGB(gray: delta)
+            })
+            guard let gain = KernelLibrary.apply(
+                    KernelLibrary.presenceGain, extent: deltaImage.extent,
+                    [deltaImage, means, Float(DetailEngine.presenceMeanExponent)]),
+                  let pixels = readBack(gain, width: width, height: height)
+            else { return XCTFail("presenceGain render failed") }
+            XCTAssertEqual(Double(pixels[2, 2].g), expected, accuracy: expected * 0.03,
+                           "a \(delta) EV presence delta produced a gain of "
+                               + "\(pixels[2, 2].g) — the reference clamps every "
+                               + "presence excursion at ±4 EV")
+        }
     }
 
     // MARK: - The vignette clamps its amount like the reference (docs/31 R2 §15)

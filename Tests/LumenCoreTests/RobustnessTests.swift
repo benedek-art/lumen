@@ -313,6 +313,18 @@ final class RobustnessTests: XCTestCase {
             RGB(gray: 0.18 + 0.03 * sin(2 * .pi * 64 * u))
         }
         let unsoftened = ReferenceRenderer.render(softeningSource, plan: RenderPlan(recipe: base))
+        // Texture and Clarity are bands of the picture (WS-14: 375–1500 and 20–160
+        // cycles per image long edge), so on the 24 px toy image both sit above
+        // Nyquist — the same reason softening has its own frame. Theirs carries 2.5 px
+        // ripples (in Texture's band at 1024 px) and 20 px ones (in Clarity's).
+        // 2-D ripples (x times y): a strong 1-D grating is a run of parallel edges to
+        // the presence edge gate, which rightly leaves it alone.
+        let presenceSource = ImageBuffer(width: 1024, height: 48) { u, v in
+            let y = v * 48
+            return RGB(gray: 0.18 + 0.03 * sin(2 * .pi * 1024 * u / 2.5) * sin(2 * .pi * y / 2.5)
+                + 0.03 * sin(2 * .pi * 1024 * u / 20) * sin(2 * .pi * y / 20))
+        }
+        let unpresenced = ReferenceRenderer.render(presenceSource, plan: RenderPlan(recipe: base))
 
         let fields: [(String, (inout LocalAdjust) -> Void)] = [
             ("temp", { $0.temp = 80 }),
@@ -358,8 +370,9 @@ final class RobustnessTests: XCTestCase {
             var recipe = base
             mutate(&recipe.masks[0].adjust)
             let isSoftening = recipe.masks[0].adjust.sharpness < 0
-            let input = isSoftening ? softeningSource : source
-            let baseline = isSoftening ? unsoftened : unedited
+            let isPresence = name == "texture" || name == "clarity"
+            let input = isSoftening ? softeningSource : (isPresence ? presenceSource : source)
+            let baseline = isSoftening ? unsoftened : (isPresence ? unpresenced : unedited)
             let out = ReferenceRenderer.render(input, plan: RenderPlan(recipe: recipe))
             var worst = 0.0
             for y in 0..<out.height {
@@ -2107,25 +2120,34 @@ final class RobustnessTests: XCTestCase {
     /// has to come down AND the control has to keep its authority on the coherent fine
     /// detail it exists for. Mirroring the negative gate would have passed the first
     /// and failed the second.
+    ///
+    /// WS-14: the frame is 2048 px wide and its texture has a 3 px period, where it was
+    /// 128 px with a 12.6 px period. Texture is now a fixed band of the PICTURE —
+    /// 375–1500 cycles per image long edge, 2–8 px features at 24 MP — so on a 128 px
+    /// frame the band is far above the Nyquist limit and Texture rightly does nothing
+    /// (a 128 px thumbnail of a 24 MP texture edit shows none of it). The step, the
+    /// assertions and their bars are unchanged.
     func testPositiveTextureDoesNotRimAHardEdge() {
-        let width = 128, height = 64
+        let width = 2048, height = 32
         // 0.09 linear on the left, 0.72 on the right: three stops, hard. Fine texture
         // on both flats and none within 12 px of the step.
         let step = ImageBuffer(width: width, height: height) { u, _ in
             let x = u * Double(width)
             let base = x < Double(width) / 2 ? 0.09 : 0.72
             let away = abs(x - Double(width) / 2) > 12
-            let texture = away ? 1.0 + 0.08 * sin(x / 2.0) : 1.0
+            let texture = away ? 1.0 + 0.08 * sin(x * 2 * Double.pi / 3) : 1.0
             return RGB(gray: base * texture)
         }
-        let d = DetailEngine.Decomposition(image: step, workingRadius: 4)
+        let d = DetailEngine.Decomposition(image: step, workingRadius: 40)
         let row = height / 2
 
         for amount in [25.0, 50.0, 100.0] {
             let out = DetailEngine.applyTexture(step, amount: amount, decomposition: d)
 
             var plateau = 0.0
-            for x in 20..<50 { plateau = runningMax(plateau, step[x, row].g) }
+            for x in (width / 2 - 60)..<(width / 2 - 30) {
+                plateau = runningMax(plateau, step[x, row].g)
+            }
             var trench = 0.0
             for x in (width / 2 - 8)..<(width / 2) {
                 trench = runningMax(trench, plateau - out[x, row].g)
@@ -2146,7 +2168,7 @@ final class RobustnessTests: XCTestCase {
             // It still has to DO something on the textured flats, or a stage that
             // gated itself into a no-op would pass the line above.
             var moved = 0.0
-            for x in 20..<50 {
+            for x in (width / 2 - 60)..<(width / 2 - 30) {
                 moved = runningMax(moved, abs(step[x, row].g - out[x, row].g))
             }
             XCTAssertGreaterThan(moved, 1e-4,
@@ -2158,26 +2180,38 @@ final class RobustnessTests: XCTestCase {
     /// The gate must cost positive Texture nothing on coherent FINE detail.
     ///
     /// Hair, fabric weave and foliage are coherent, and they are exactly what someone
-    /// reaches for positive Texture to bring up. Measured, fine parallel lines sit at
-    /// 0.19 coherence and a hard step at 1.00, which is why the gate opens where it
-    /// does. If someone later widens it down toward the fine-detail end, this fails.
+    /// reaches for positive Texture to bring up. WS-14 replaced the gate: it is now a
+    /// scale-space structure tensor of G(σ1)·v with a strength floor η in EV per σ1
+    /// (`DetailEngine.textureBand`), so faint oriented detail reads isotropic and a
+    /// half-stop edge reads coherent at every render size. The frame grew from 128 px to
+    /// 2048 px for the reason given on `testPositiveTextureDoesNotRimAHardEdge`, and the
+    /// lines carry the spec's U2 amplitude (a 0.05 EV log-sinusoid, here with a 3 px
+    /// period that sits in the band at 2048 px) rather than ±15 %: a perfectly regular
+    /// grating of 0.2 EV is, to a structure tensor, indistinguishable from a run of
+    /// parallel edges and is now gated like one (BUILD-NOTES, "known limits").
     func testPositiveTextureKeepsItsAuthorityOnFineDetail() {
-        let width = 128, height = 64
+        let width = 2048, height = 64
         let hair = ImageBuffer(width: width, height: height) { _, v in
             let y = v * Double(height)
-            return RGB(gray: 0.30 * (1.0 + 0.15 * sin(y * Double.pi / 1.5)))
+            return RGB(gray: 0.30 * pow(2.0, 0.05 * sin(y * 2 * Double.pi / 3)))
         }
-        let d = DetailEngine.Decomposition(image: hair, workingRadius: 4)
+        let d = DetailEngine.Decomposition(image: hair, workingRadius: 40)
 
         // The gate is a function of coherence alone, so pin the measured separation
         // that justifies where it opens.
+        let band = DetailEngine.textureBand
+        let s = band.sigmas(longEdge: width)
+        let fine = DetailEngine.presenceBlur(d.presenceLogLuminance(), sigma: s.inner)
+        let coherence = DetailEngine.presenceStructure(
+            fine, derivativeSigma: s.inner, integrationSigma: s.integration,
+            floor: band.coherenceFloor).coherence
         var worstCoherence = 0.0
         for y in 8..<(height - 8) {
             for x in 8..<(width - 8) {
-                worstCoherence = Swift.max(worstCoherence, Num.saturate(d.coherence[x, y]))
+                worstCoherence = Swift.max(worstCoherence, Num.saturate(coherence[x, y]))
             }
         }
-        XCTAssertLessThan(worstCoherence, DetailEngine.texturePositiveGateLo,
+        XCTAssertLessThan(worstCoherence, band.gateLow,
                           "fine parallel detail reached \(worstCoherence) coherence, at "
                               + "or above the gate's opening threshold — positive "
                               + "Texture is now gating the detail it exists to raise")

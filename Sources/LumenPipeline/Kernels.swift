@@ -99,23 +99,113 @@ public enum KernelLibrary {
     }
     """
 
-    /// Presence: turn a band of the base–detail decomposition into a gain field.
-    /// `hi` and `lo` are two log-luminance scales from the guided filter, so the
-    /// difference is a band of detail and the gain is halo-free by construction —
-    /// the guided filter has no gradient reversal, which is the whole reason it beats
-    /// a bilateral base for this job.
-    ///
-    /// The exponent is CLAMPED at ±4 EV — the twin of the reference's
-    /// `DetailEngine.applyLumaRatio(limit: 4)`, which bounds every presence tool's
-    /// excursion "so a pathological coefficient cannot turn into an infinity
-    /// downstream" (docs/31 round two §15). This kernel had no limit at all: `k` at
-    /// Texture ±100 is 21.6 per encoded unit, so a pathological band drove
-    /// `exp2(unbounded)` while the reference stopped at 2^±4.
-    static let detailGainSource = """
-    kernel vec4 lumenDetailGain(__sample hi, __sample lo, float k) {
-        float e = clamp(k * (hi.r - lo.r), -4.0, 4.0);
-        float g = exp2(e);
-        return vec4(g, g, g, 1.0);
+    /// Presence (WS-14): the shaper-encoded log luminance re-centred on mid-grey and
+    /// put back into stops — `DetailEngine.presenceEV`. Every presence threshold is in
+    /// EV on both paths, and centring on 0 keeps the midtones where a half-float
+    /// intermediate is finest (≈0.0002 EV at ±0.5 EV against 0.006 EV around 0.5
+    /// encoded).
+    static let presenceEVSource = """
+    kernel vec4 lumenPresenceEV(__sample lum, float centre, float range) {
+        float e = (lum.r - centre) * range;
+        return vec4(e, e, e, 1.0);
+    }
+    """
+
+    /// Presence structure tensor products from central-difference gradients (the
+    /// `CIConvolution3X3` taps are ±0.5, so no Sobel /8 here), in EV per derivative σ
+    /// (`norm` = max(σd, 0.5)), packed (Jxx, Jyy, Jxy) and multiplied by `tscale`
+    /// (`RenderGraph.presenceTensorScale`) to keep the products out of half-float's
+    /// subnormal range; the gain kernels divide it back out. The twin of the products
+    /// in `DetailEngine.presenceStructure`.
+    static let presenceTensorSource = """
+    kernel vec4 lumenPresenceTensor(__sample gx, __sample gy, float norm, float tscale) {
+        float x = gx.r * norm;
+        float y = gy.r * norm;
+        return vec4(x * x * tscale, y * y * tscale, x * y * tscale, 1.0);
+    }
+    """
+
+    /// Texture's delta — `DetailEngine.textureDelta`, per pixel:
+    ///   b = fine − coarse                            (G(σ1)·v − G(σ2)·v, EV)
+    ///   c = √((Jxx−Jyy)² + 4Jxy²) / (Jxx + Jyy + η)  (`presenceStructure`)
+    ///   Δ = k·a · b/(1 + (b/τ)²) · (1 − smoothstep(lo, hi, c))
+    /// Output: Δ in EV.
+    static let textureDeltaSource = """
+    kernel vec4 lumenTextureDelta(__sample fine, __sample coarse, __sample tensor,
+                                  float a, float k, float tau, float eta,
+                                  float lo, float hi, float tscale) {
+        float b = fine.r - coarse.r;
+        float jxx = tensor.r / tscale;
+        float jyy = tensor.g / tscale;
+        float jxy = tensor.b / tscale;
+        float trace = max(jxx + jyy, 0.0);
+        float d = jxx - jyy;
+        float c = sqrt(d * d + 4.0 * jxy * jxy) / (trace + eta);
+        float gate = 1.0 - smoothstep(lo, hi, c);
+        float r = b / tau;
+        float e = k * a * b / (1.0 + r * r) * gate;
+        return vec4(e, e, e, 1.0);
+    }
+    """
+
+    /// Clarity's delta — `DetailEngine.clarityDelta` and `overshootLimited`:
+    ///   b    = fine − base                  (G(σ1)·v' − G(σ2)·v')
+    ///   w    = (1 − smoothstep(lo, hi, c)) · (1 − smoothstep(slo, shi, √(Jxx+Jyy)))
+    ///          / (1 + (b/τ)²) · exp(−base²/(2·toneEV²))
+    ///   Δ    = k·a·b·w                         (a > 0; `a` arrives already shaped by
+    ///                                           `DetailEngine.clarityShapedAmount`)
+    ///        = −min(1, −a·k·w)·b               (a < 0)
+    /// then, when `limit` is 1 (a > 0), `fine + Δ` keeps only `slope` of its excursion
+    /// outside [low, high], the local range of `fine`. Output: Δ in EV.
+    static let clarityDeltaSource = """
+    kernel vec4 lumenClarityDelta(__sample fine, __sample coarse, __sample tensor,
+                                  __sample low, __sample high,
+                                  float a, float k, float tau, float eta,
+                                  float lo, float hi, float slo, float shi,
+                                  float toneEV, float slope, float limit, float tscale) {
+        float f = fine.r;
+        float base = coarse.r;
+        float b = f - base;
+        float jxx = tensor.r / tscale;
+        float jyy = tensor.g / tscale;
+        float jxy = tensor.b / tscale;
+        float trace = max(jxx + jyy, 0.0);
+        float d = jxx - jyy;
+        float c = sqrt(d * d + 4.0 * jxy * jxy) / (trace + eta);
+        float r = b / tau;
+        float w = (1.0 - smoothstep(lo, hi, c))
+                * (1.0 - smoothstep(slo, shi, sqrt(trace)))
+                / (1.0 + r * r)
+                * exp(-(base * base) / (2.0 * toneEV * toneEV));
+        float positive = k * a * b * w;
+        float negative = -min(1.0, -a * k * w) * b;
+        float dv = mix(negative, positive, step(0.0, a));
+        float o = f + dv;
+        float over = max(o - high.r, 0.0);
+        float under = min(o - low.r, 0.0);
+        o = o - limit * (1.0 - slope) * (over + under);
+        float e = o - f;
+        return vec4(e, e, e, 1.0);
+    }
+    """
+
+    /// The local-brightness hold's two weights, packed: (2^(γ(v+Δ)), 2^(γv)) — the
+    /// power mean the stage holds (`DetailEngine.holdLocalBrightness`).
+    static let presenceMeanWeightsSource = """
+    kernel vec4 lumenPresenceMeanWeights(__sample ev, __sample delta, float g) {
+        float v = ev.r;
+        return vec4(exp2(g * (v + delta.r)), exp2(g * v), 0.0, 1.0);
+    }
+    """
+
+    /// The presence gain: Δ minus the brightness hold's correction, clamped at ±4 EV
+    /// (`applyLumaRatio(limit: 4)`), as a multiplier.
+    static let presenceGainSource = """
+    kernel vec4 lumenPresenceGain(__sample delta, __sample means, float g) {
+        float corr = log2(max(means.r, 1e-30) / max(means.g, 1e-30)) / g;
+        float e = clamp(delta.r - corr, -4.0, 4.0);
+        float m = exp2(e);
+        return vec4(m, m, m, 1.0);
     }
     """
 
@@ -320,89 +410,9 @@ public enum KernelLibrary {
     }
     """
 
-    /// `detailGain` with a per-pixel gate on the band before it is exponentiated.
-    ///
-    /// The gate multiplies the BAND, not the result: gating the gain afterwards would
-    /// pull the whole multiply toward zero rather than toward one, which darkens
-    /// wherever the gate closes instead of leaving the pixel alone.
-    ///
-    /// `negative` picks which of the two gate shapes `DetailEngine.applyTexture` uses,
-    /// and the two are not the same function for a reason. Negative Texture closes on
-    /// any structure at all (`1 − coherence`), because smoothing an edge is never
-    /// wanted. Positive Texture closes only on genuine coherent edges, because an
-    /// ungated gain on a band that still contains the edge rims it: measured against
-    /// the reference on a clean 3 EV step, 1.39 EV of trench at +100 against the
-    /// 0.30 EV bar the presence golden holds Clarity to. Mirroring the negative gate
-    /// instead would have flattened hair and fabric weave — measured at 0.19 coherence
-    /// where a hard step measures 1.00 — which are the subjects the positive control
-    /// exists for, so the gate only starts closing above them.
-    /// The exponent carries the same ±4 EV clamp as `detailGain` — the twin of the
-    /// reference's `applyLumaRatio(limit: 4)`; see that kernel's comment.
-    static let detailGainGatedSource = """
-    kernel vec4 lumenDetailGainGated(__sample hi, __sample lo, __sample gate,
-                                     float k, float negative,
-                                     float gateLo, float gateHi) {
-        float c = clamp(gate.r, 0.0, 1.0);
-        float closed = mix(smoothstep(gateLo, gateHi, c), c, negative);
-        float open = 1.0 - closed;
-        float e = clamp(k * open * (hi.r - lo.r), -4.0, 4.0);
-        float g = exp2(e);
-        return vec4(g, g, g, 1.0);
-    }
-    """
-
     /// Keep the pixels where a plane is at or above a threshold, zero elsewhere, and
     /// carry the selection weight in alpha so a masked mean can be recovered from two
     /// area averages.
-    /// Clarity, as the reference parameterizes it: the Aubry remap on the detail band,
-    /// applied at one scale.
-    ///
-    /// `DetailEngine.applyClarity` is a local Laplacian. Every one of its six reference
-    /// levels remaps the image through `r(x) = γ + sign(d)·σ·(|d|/σ)^α` for `|d| ≤ σ`
-    /// and the identity beyond, with `α = max(1 − 0.7·amount·w, 0.05)` and `w` a
-    /// Gaussian on the tone. `α < 1` expands sub-σ detail; the identity branch is why
-    /// an edge larger than σ passes at unit slope. This applies that same point
-    /// function to a single band, which is what a Core Image graph can afford.
-    ///
-    /// What it replaces: `exp2(k · Δ)` with `k = amount/100 · 1.1 · range`, a linear
-    /// gain on the band with an amplitude nobody had checked against the reference.
-    /// Measured against `applyClarity` on five frames, that construction applied
-    /// between 1/2.6 and 1/48 of the reference's gain — Clarity +30 on the spatial
-    /// golden's own frame moved it 0.00098 where the reference moves it 0.0096. The
-    /// remap lands between 0.5x and 1.3x instead, because a power law with α < 1
-    /// expands a SMALL band much harder than a linear gain does: at Δ = 0.1 EV and
-    /// Clarity +30 it adds 50% where `k` adds 33%, and the edge-preserving base leaves
-    /// exactly such small bands.
-    ///
-    /// The tone weight is computed here rather than passed in as an image, which drops
-    /// a filter node and the `tonalFalloff` kernel that fed it.
-    ///
-    /// Halo, measured on a clean 3 EV step: 0.0117 EV at +30 and 0.127 EV at +100,
-    /// against the reference local Laplacian's 0.0014 and 0.0049 and against 0.72 EV
-    /// for the two-base construction that preceded the current one. The multi-scale
-    /// pyramid suppresses the rim in a way one band cannot — it selects each output
-    /// coefficient by the pixel's own local average, so `d` never sweeps through the
-    /// sub-σ range on the way across an edge. Closing that gap is the local Laplacian
-    /// on the GPU, and it is not this change.
-    static let detailRemapSource = """
-    kernel vec4 lumenDetailRemap(__sample hi, __sample lo, float amount, float sigmaEV,
-                                 float centre, float range, float midtoneEV) {
-        float dEV = (hi.r - lo.r) * range;
-        float gammaEV = (hi.r - centre) * range;
-        float w = exp(-(gammaEV * gammaEV) / (2.0 * midtoneEV * midtoneEV));
-        float alpha = max(1.0 - 0.7 * amount * w, 0.05);
-        float mag = abs(dEV);
-        float t = min(mag / sigmaEV, 1.0);
-        // `pow` is undefined at 0 on some drivers; the branch also skips the whole
-        // remap for the edges it is defined to pass through untouched.
-        float added = (mag >= sigmaEV || mag < 1e-7)
-            ? 0.0
-            : (sigmaEV * pow(t, alpha) - mag) * sign(dEV);
-        float g = exp2(added);
-        return vec4(g, g, g, 1.0);
-    }
-    """
-
     static let thresholdMaskSource = """
     kernel vec4 lumenThresholdMask(__sample image, __sample plane, float threshold) {
         float keep = step(threshold, plane.r);
@@ -1154,14 +1164,17 @@ public enum KernelLibrary {
     public static let maskInvert = make(maskInvertSource)
     public static let grain = make(grainSource)
     public static let vignette = make(vignetteSource)
-    public static let detailGain = make(detailGainSource)
+    public static let presenceEV = make(presenceEVSource)
+    public static let presenceTensor = make(presenceTensorSource)
+    public static let textureDelta = make(textureDeltaSource)
+    public static let clarityDelta = make(clarityDeltaSource)
+    public static let presenceMeanWeights = make(presenceMeanWeightsSource)
+    public static let presenceGain = make(presenceGainSource)
     public static let sharpenDelta = make(sharpenDeltaSource)
     public static let subtract = make(subtractSource)
     public static let thresholdMask = make(thresholdMaskSource)
-    public static let detailRemap = make(detailRemapSource)
     public static let structureTensor = make(structureTensorSource)
     public static let coherence = make(coherenceSource)
-    public static let detailGainGated = make(detailGainGatedSource)
     public static let lumaRatio = make(lumaRatioSource)
     public static let tensorMagnitude = make(tensorMagnitudeSource)
     public static let dehaze = make(dehazeSource)
@@ -1234,11 +1247,14 @@ public enum KernelLibrary {
             // defect the comment on `unavailableMaskKernels` below describes.
             ("blendMask", blendMask), ("blendMaskMode", blendMaskMode),
             ("grain", grain), ("vignette", vignette),
-            ("detailGain", detailGain), ("dehaze", dehaze), ("addGlow", addGlow),
+            ("presenceEV", presenceEV), ("presenceTensor", presenceTensor),
+            ("textureDelta", textureDelta), ("clarityDelta", clarityDelta),
+            ("presenceMeanWeights", presenceMeanWeights), ("presenceGain", presenceGain),
+            ("dehaze", dehaze), ("addGlow", addGlow),
             ("sharpenDelta", sharpenDelta), ("lumaRatio", lumaRatio),
-            ("subtract", subtract), ("thresholdMask", thresholdMask), ("detailRemap", detailRemap),
+            ("subtract", subtract), ("thresholdMask", thresholdMask),
             ("structureTensor", structureTensor),
-            ("coherence", coherence), ("detailGainGated", detailGainGated),
+            ("coherence", coherence),
             ("tensorMagnitude", tensorMagnitude),
             ("highlightEnergy", highlightEnergy), ("halationEnergy", halationEnergy),
             ("denoiseForward", denoiseForward), ("denoiseInverse", denoiseInverse),

@@ -11,10 +11,14 @@ final class GlobalPresenceClampTests: XCTestCase {
     private let context = CIContext(options: [.workingColorSpace: NSNull(),
         .outputColorSpace: NSNull(), .workingFormat: CIFormat.RGBAf])
 
+    /// 1024 x 64 with a 3 px ripple added (WS-14): Texture is a band of the picture —
+    /// 375–1500 cycles per image long edge — so on the old 128 px frame it sat above
+    /// Nyquist and could not move the picture enough for the liveness check below to
+    /// mean anything. The clamp assertions are unchanged.
     private var input: ImageBuffer {
-        ImageBuffer(width: 128, height: 128) { u, v in
-            let value = 0.18 + 0.04 * sin(2 * .pi * 16 * u) * cos(2 * .pi * 11 * v)
-                + 0.015 * sin(2 * .pi * 3 * u)
+        ImageBuffer(width: 1024, height: 64) { u, v in
+            let value = 0.18 + 0.04 * sin(2 * .pi * 128 * u) * cos(2 * .pi * 11 * v)
+                + 0.015 * sin(2 * .pi * 3 * u) + 0.02 * cos(2 * .pi * 1024 * u / 3)
             return RGB(value * 0.9, value, value * 1.1)
         }
     }
@@ -37,7 +41,7 @@ final class GlobalPresenceClampTests: XCTestCase {
 
     private func cpu(_ detail: Detail) -> ImageBuffer {
         let image = input
-        let node = DetailEngine.Decomposition(image: image, workingRadius: 3, space: .rec2020)
+        let node = DetailEngine.Decomposition(image: image, workingRadius: 20, space: .rec2020)
         return DetailEngine.apply(image, detail: detail, decomposition: node)
     }
 

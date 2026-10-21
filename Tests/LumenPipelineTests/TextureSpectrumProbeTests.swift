@@ -1,5 +1,16 @@
 // TextureSpectrumProbeTests.swift
 //
+// WS-14 (docs/quality/lanes/WS-14/SPEC.md G2): the two paths now implement ONE
+// algorithm for each control (`RenderGraph.applyDetailBands`'s step table against
+// `DetailEngine.applyTexture` / `applyClarity`), so this probe is no longer a sanity
+// print: the GPU/reference gain ratio is asserted within [0.85, 1.15] at every period,
+// for Texture (periods 2–32 px on a 2048 px frame, where Texture's band — 375–1500
+// cycles per image long edge — is 1.4–5.5 px) and for Clarity (periods 8–128 px on a
+// 2048 px frame; its band is 20–160 cpi, 13–100 px there). The frame was 96 px wide,
+// where both bands are above Nyquist and the old ratio tested nothing.
+//
+// The history below is kept for the record.
+//
 // The measurement docs/24-detail's gap list calls "Texture one-band spectrum vs
 // reference band-pass, unmeasured post-fix". The reference realizes Texture as a
 // weighted à-trous band STACK with a resolution-tracked centre; the shipping GPU
@@ -32,7 +43,7 @@ final class TextureSpectrumProbeTests: XCTestCase {
     private let context = CIContext(options: [.workingFormat: CIFormat.RGBAh,
                                               .cacheIntermediates: false])
 
-    private func sinusoid(period: Double, width: Int = 96, height: Int = 32)
+    private func sinusoid(period: Double, width: Int = 2048, height: Int = 32)
         -> ImageBuffer
     {
         ImageBuffer(width: width, height: height) { u, _ in
@@ -87,50 +98,66 @@ final class TextureSpectrumProbeTests: XCTestCase {
         return ImageBuffer(width: width, height: height, pixels: pixels)
     }
 
-    func testTextureFrequencyResponseOnBothPaths() throws {
-        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
-
+    /// Gain of the presence stage on a sinusoid, on both paths.
+    private func gains(_ detail: Detail, period: Double) throws -> (reference: Double, gpu: Double) {
         var recipe = Recipe()
         recipe.develop.denoise.mode = .off
-        recipe.develop.detail.texture = 100
+        recipe.develop.detail = detail
         let plan = RenderPlan(recipe: recipe)
-        var detail = Detail()
-        detail.texture = 100
+        let frame = sinusoid(period: period)
+        let base = rmsContrast(frame)
+        XCTAssertGreaterThan(base, 0.05, "the probe frame carries no signal")
 
-        for period in [2.0, 3.0, 4.0, 6.0, 8.0, 12.0, 16.0, 24.0, 32.0] {
-            let frame = sinusoid(period: period)
-            let base = rmsContrast(frame)
-            XCTAssertGreaterThan(base, 0.05, "the probe frame carries no signal")
+        // Reference: the presence stage exactly as ReferenceRenderer runs it.
+        let radius = Swift.max(Int(Double(frame.width) * 0.02), 3)
+        let node = DetailEngine.Decomposition(image: frame, workingRadius: radius)
+        let reference = DetailEngine.apply(frame, detail: detail, decomposition: node)
 
-            // Reference: the presence stage exactly as ReferenceRenderer runs it.
-            let radius = Swift.max(Int(Double(frame.width) * 0.02), 3)
-            let node = DetailEngine.Decomposition(image: frame, workingRadius: radius)
-            let reference = DetailEngine.apply(frame, detail: detail,
-                                               decomposition: node)
-            let referenceGain = rmsContrast(reference) / base
+        // GPU: the same stage through the shipping graph, colour/tone identity.
+        guard let gpuOut = readBack(
+            RenderGraph().localStageInput(
+                ciImage(from: frame), plan: plan,
+                options: RenderGraph.Options(longEdge: frame.width)),
+            width: frame.width, height: frame.height) else {
+            throw XCTSkip("GPU stage render failed at period \(period)")
+        }
+        return (rmsContrast(reference) / base, rmsContrast(gpuOut) / base)
+    }
 
-            // GPU: the same stage through the shipping graph, colour/tone identity.
-            guard let gpuOut = readBack(
-                RenderGraph().localStageInput(
-                    ciImage(from: frame), plan: plan,
-                    options: RenderGraph.Options(longEdge: frame.width)),
-                width: frame.width, height: frame.height) else {
-                return XCTFail("GPU stage render failed at period \(period)")
+    func testTextureFrequencyResponseOnBothPaths() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        for amount in [100.0, -100.0] {
+            var detail = Detail()
+            detail.texture = amount
+            for period in [2.0, 3.0, 4.0, 6.0, 8.0, 12.0, 16.0, 24.0, 32.0] {
+                let g = try gains(detail, period: period)
+                let ratio = g.gpu / Swift.max(g.reference, 1e-9)
+                print(String(format:
+                    "TEXSPEC t%+.0f period %4.1f px: reference gain %5.3f   gpu gain %5.3f   "
+                    + "gpu/ref %5.3f", amount, period, g.reference, g.gpu, ratio))
+                XCTAssertGreaterThanOrEqual(ratio, 0.85,
+                                            "Texture \(amount) at \(period) px: gpu/ref \(ratio)")
+                XCTAssertLessThanOrEqual(ratio, 1.15,
+                                         "Texture \(amount) at \(period) px: gpu/ref \(ratio)")
             }
-            let gpuGain = rmsContrast(gpuOut) / base
+        }
+    }
 
-            print(String(format:
-                "TEXSPEC period %4.1f px: reference gain %5.3f   gpu gain %5.3f   "
-                + "gpu/ref %5.3f", period, referenceGain, gpuGain,
-                referenceGain > 1e-9 ? gpuGain / referenceGain : .nan))
-
-            // Sanity ceilings only — a gain of 5x or an attenuation to a fifth at
-            // +100 on either path is a wiring failure, not a tuning question.
-            for (label, gain) in [("reference", referenceGain), ("gpu", gpuGain)] {
-                XCTAssertLessThan(gain, 5.0,
-                                  "\(label) gain \(gain) at period \(period)")
-                XCTAssertGreaterThan(gain, 0.2,
-                                     "\(label) gain \(gain) at period \(period)")
+    func testClarityFrequencyResponseOnBothPaths() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        for amount in [100.0, -100.0] {
+            var detail = Detail()
+            detail.clarity = amount
+            for period in [8.0, 16.0, 24.0, 32.0, 48.0, 64.0, 96.0, 128.0] {
+                let g = try gains(detail, period: period)
+                let ratio = g.gpu / Swift.max(g.reference, 1e-9)
+                print(String(format:
+                    "CLARSPEC c%+.0f period %5.1f px: reference gain %5.3f   gpu gain %5.3f   "
+                    + "gpu/ref %5.3f", amount, period, g.reference, g.gpu, ratio))
+                XCTAssertGreaterThanOrEqual(ratio, 0.85,
+                                            "Clarity \(amount) at \(period) px: gpu/ref \(ratio)")
+                XCTAssertLessThanOrEqual(ratio, 1.15,
+                                         "Clarity \(amount) at \(period) px: gpu/ref \(ratio)")
             }
         }
     }

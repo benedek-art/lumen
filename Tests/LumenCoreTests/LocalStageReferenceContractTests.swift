@@ -95,10 +95,19 @@ final class LocalStageReferenceContractTests: XCTestCase {
 
     // MARK: - M11 · mask Strength above 100 still scales Texture and Clarity
 
+    /// WS-14: 1024 x 48 with 2-D detail inside both bands (2.5 px ripples for Texture,
+    /// 410 cycles per image; 20 px ones for Clarity, 51 cpi), where it was 96 x 96.
+    /// Both controls are now bands of the PICTURE, so on a 96 px frame Texture's band is
+    /// above Nyquist and the difference between Strength 100 and 200 was float noise.
+    /// The assertion is unchanged.
     func testTextureAndClarityKeepRespondingAboveOneHundredStrength() {
         let plan = RenderPlan(recipe: Recipe(), lutSize: 17)
-        let input = ImageBuffer(width: 96, height: 96) { u, v in
-            let value = 0.18 + 0.04 * sin(2 * .pi * 16 * u) * cos(2 * .pi * 11 * v)
+        let input = ImageBuffer(width: 1024, height: 48) { u, v in
+            // Products of x and y ripples: 2-D detail, so the presence edge gate (which
+            // closes on a strong 1-D grating, a run of parallel edges) stays open.
+            let y = v * 48
+            let value = 0.18 + 0.04 * sin(2 * .pi * 1024 * u / 2.5) * sin(2 * .pi * y / 2.5)
+                + 0.03 * sin(2 * .pi * 1024 * u / 20) * sin(2 * .pi * y / 20)
                 + 0.015 * sin(2 * .pi * 3 * u)
             return RGB(value * 0.9, value, value * 1.1)
         }

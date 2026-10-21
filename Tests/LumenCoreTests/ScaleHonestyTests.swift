@@ -182,41 +182,53 @@ final class ScaleHonestyTests: XCTestCase {
         }
     }
 
-    /// Clarity's pyramid depth tracks the frame: one level per doubling, so the local
-    /// Laplacian reaches the same FRACTION of the picture at every resolution.
-    func testTheClarityPyramidTracksTheLongEdge() {
-        // One level per doubling, over the range a real file spans.
-        XCTAssertEqual(DetailEngine.pyramidLevels(longEdge: 2560),
-                       DetailEngine.basePyramidLevels)
-        XCTAssertEqual(DetailEngine.pyramidLevels(longEdge: 5120),
-                       DetailEngine.basePyramidLevels + 1)
-        XCTAssertEqual(DetailEngine.pyramidLevels(longEdge: 1280),
-                       DetailEngine.basePyramidLevels - 1)
-
-        // Monotone, and never deep enough to ask for a pyramid the image cannot carry
-        // or shallow enough to leave the stage with nothing to remap.
-        var previous = 0
-        for longEdge in [1, 64, 256, 640, 1280, 2560, 5120, 11648, 40000] {
-            let levels = DetailEngine.pyramidLevels(longEdge: longEdge)
-            XCTAssertGreaterThanOrEqual(levels, 2, "\(longEdge) px")
-            XCTAssertLessThanOrEqual(levels, 9, "\(longEdge) px")
-            XCTAssertGreaterThanOrEqual(levels, previous, "\(longEdge) px went shallower")
-            previous = levels
+    /// Texture's and Clarity's bands track the frame CONTINUOUSLY.
+    ///
+    /// This asserted Clarity's local-Laplacian pyramid depth, `5 + round(log2(L/2560))`
+    /// levels. That depth was rounded, so Clarity's reach jumped by 2x at L ≈ 3620 px,
+    /// and the stage it described was replaced in WS-14 (docs/quality/lanes/WS-14): both
+    /// presence controls are now difference-of-Gaussians bands quoted in cycles per
+    /// image long edge, so every σ is an exact, unrounded fraction of the long edge.
+    /// The test now pins that: doubling the frame doubles every σ, two sizes either
+    /// side of the old rounding rung differ by exactly their ratio, and a zero long edge
+    /// answers like one pixel.
+    func testThePresenceBandsTrackTheLongEdgeContinuously() {
+        for band in [DetailEngine.textureBand, DetailEngine.clarityBand] {
+            let a = band.sigmas(longEdge: 2560)
+            let b = band.sigmas(longEdge: 5120)
+            XCTAssertEqual(b.inner, 2 * a.inner, accuracy: 1e-12)
+            XCTAssertEqual(b.outer, 2 * a.outer, accuracy: 1e-12)
+            XCTAssertEqual(b.integration, 2 * a.integration, accuracy: 1e-12)
+            // The old rung: 3619 and 3621 px rounded to different pyramid depths.
+            let below = band.sigmas(longEdge: 3619)
+            let above = band.sigmas(longEdge: 3621)
+            XCTAssertEqual(above.outer / below.outer, 3621.0 / 3619.0, accuracy: 1e-12,
+                           "a presence scale stepped between two adjacent sizes")
+            XCTAssertEqual(band.sigmas(longEdge: 0).inner, band.sigmas(longEdge: 1).inner,
+                           "a zero long edge must not produce a different answer to one pixel")
         }
-        XCTAssertEqual(DetailEngine.pyramidLevels(longEdge: 0),
-                       DetailEngine.pyramidLevels(longEdge: 1),
-                       "a zero long edge must not produce a different answer to one pixel")
+        // And the bands sit where the spec puts them: Texture's response peaks at 750
+        // cycles per image (8 px at 6000 px), Clarity's at 60 (100 px at 6000 px).
+        for (band, centre) in [(DetailEngine.textureBand, 750.0),
+                               (DetailEngine.clarityBand, 60.0)] {
+            let peak = band.response(cpi: centre)
+            XCTAssertGreaterThan(peak, band.response(cpi: centre * 0.8))
+            XCTAssertGreaterThan(peak, band.response(cpi: centre * 1.25))
+        }
     }
 
     /// Sharpening's radius tracks the frame on the same reference and by the same rule
     /// Clarity's pyramid and Texture's band do — and its fine band does not JUMP as the
     /// preview ladder steps, which is the one place the three conventions differ.
     func testTheSharpenRadiusTracksTheLongEdgeWithoutSteppingAtALadderRung() {
-        XCTAssertEqual(SpatialOps.spatialReferenceLongEdge,
-                       DetailEngine.pyramidReferenceLongEdge,
-                       "the presence stages and sharpening quote their sizes at "
-                           + "different reference frames, so one setting means two "
-                           + "different fractions of the same picture")
+        // This opened by asserting sharpening's reference frame equals Clarity's
+        // pyramid reference (`DetailEngine.pyramidReferenceLongEdge`, 2560 px). The
+        // presence stages no longer have a reference frame at all — their bands are
+        // quoted in cycles per image long edge (WS-14, see
+        // `testThePresenceBandsTrackTheLongEdgeContinuously`), which is the same
+        // fraction of the picture at every size by construction. Sharpening's own
+        // reference is pinned here instead.
+        XCTAssertEqual(SpatialOps.spatialReferenceLongEdge, 2560)
 
         // At the reference the fix is the identity: a 2560 px render is exactly what
         // every one of these stages was tuned at, and must not have moved.
