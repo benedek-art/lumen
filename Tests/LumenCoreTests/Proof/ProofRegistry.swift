@@ -1280,15 +1280,18 @@ enum ProofRegistry {
             id: "denoise.hotPixels", panel: "Detail", displayName: "Hot pixels",
             low: 0, high: 100,
             frameName: "hotPixels", frame: { ProofFrames.hotPixels() },
-            // A THRESHOLD control, and the record says so: authority 171 (removing
-            // an impulse moves that pixel a long way) with 19 of 20 steps dead —
-            // the whole job happens at the bottom of the travel and the rest of the
-            // slider holds the result. Declared, per the plateau rule: a plateau
-            // that GROWS to 20 means the control died, one that shrinks means the
-            // response gained a ramp, and either way somebody argues it in a commit.
+            // A THRESHOLD control, and the record says so: removing an impulse moves
+            // that pixel a long way, and most of the travel holds the result.
+            // Declared, per the plateau rule: a plateau that GROWS to 20 means the
+            // control died, one that shrinks means the response gained a ramp, and
+            // either way somebody argues it in a commit.
+            //
+            // 19 → 17 (WS-20): the gate went from 2…12σ to 8…24σ so it stops firing
+            // on plain noise, which makes it a ramp over the frame's spikes — each
+            // contrast is caught at its own setting, three live steps instead of one.
             authorityFloor: 119, mayLeaveRange: false,
             captureISO: 6400, denoisedFirst: true,
-            declaredPlateauSteps: 19,
+            declaredPlateauSteps: 17,
             apply: { r, v in
                 r.develop.denoise.mode = .classic
                 r.develop.denoise.classic.hotPixels = v

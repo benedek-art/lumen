@@ -2176,8 +2176,17 @@ public enum ISODefaults {
     /// double count. The remaining reason for the climb — coarse blotching growing with
     /// gain — is what the coarse band entries now remove at their own measured noise.
     /// At Colour 25 every high-ISO corpus frame lands at ≤ 2.1 ΔE*ab of flat-area chroma
-    /// noise (from 2.7–9.0), and at ISO 100 the thresholds are a few thousandths of a
-    /// stop, which cannot touch a photograph.
+    /// noise (from 2.7–9.0).
+    ///
+    /// Being σ-denominated also means Colour 25 acts just as hard at base ISO, on
+    /// base ISO's own (small) chroma speckle. Measured on clean low-ISO decodes at their
+    /// default: A7 IV ISO 250 flat-area chroma speckle 1.26 → 0.34 ΔE*ab, GX85 ISO 200
+    /// 3.70 → 2.21, R5 ISO 100 0.99 → 0.20, mean colour change 1.4–1.9 ΔE*ab, and at 3×
+    /// zoom the before and after are indistinguishable. Colour-edge detail survives
+    /// better than with the shipped engine on the A7 IV (0.94 vs 0.83 of edge chroma
+    /// kept) and GX85 (1.00 vs 0.95); on the R5's dark still life the same number reads
+    /// 0.44 vs 0.70, where the "detail" at those gradient peaks is mostly its own
+    /// ISO-100 speckle. That is the same trade Lightroom's flat 25 makes.
     public static let colorAnchors: [(x: Double, y: Double)] = [
         (x: log2(100.0), y: 25.0),
         (x: log2(25600.0), y: 25.0),

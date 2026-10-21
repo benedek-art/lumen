@@ -398,8 +398,9 @@ final class ResetSemanticsTests: XCTestCase {
         a.resetDenoise(.luma, from: low)
         b.resetDenoise(.luma, from: high)
         XCTAssertEqual(a.develop.denoise.classic.luma, 0)
-        XCTAssertEqual(b.develop.denoise.classic.luma, 40,
-                       "an ISO 25600 raw imports at Luminance 40; the reset gave it 0")
+        XCTAssertEqual(b.develop.denoise.classic.luma, 25,
+                       "an ISO 25600 raw imports at Luminance 25 (WS-21 anchors); the "
+                           + "reset gave it something else")
     }
 
     /// One row, one field: every other value on the frame stays where the photographer

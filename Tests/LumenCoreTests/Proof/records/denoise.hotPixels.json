@@ -1,18 +1,18 @@
 {
-  "authority" : 171.22882350580434,
-  "deadSteps" : 19,
+  "authority" : 171.18127499201705,
+  "deadSteps" : 17,
   "frame" : "hotPixels",
   "frontLoading" : 1,
   "givenBack" : 0,
   "hueRotation" : 0,
   "id" : "denoise.hotPixels",
   "isMonotone" : true,
-  "meanSeparation" : 0.19607469980399128,
+  "meanSeparation" : 0.21190593531062343,
   "overshoot" : 0,
   "overshootAbove" : 0,
   "overshootBelow" : 0,
   "panel" : "Detail",
-  "smallestLiveStep" : 171.22882350580434,
+  "smallestLiveStep" : 113.35328882492455,
   "travelHigh" : 100,
   "travelLow" : 0
 }

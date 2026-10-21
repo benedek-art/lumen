@@ -252,9 +252,6 @@ def cmd_hot():
     line('20.3', min(sp) >= 1.0, 'speculars keeping >=90%% at 25/50/100: %s' % fmt(sp))
     line('20.4', res[50]['touched'] <= 0.001 and res[100]['touched'] <= 0.01,
          'noise pixels changed: %.4f%% at 50, %.4f%% at 100' % (100 * res[50]['touched'], 100 * res[100]['touched']))
-    # the shipped pass on the same frames, for the report
-    a, b = lfi.seed(3200)
-    print('       shipped pass (port): see REPORT.md')
 
 def cmd_defaults():
     ok2 = ok4 = True; rows = []
