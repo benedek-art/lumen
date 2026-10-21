@@ -1,0 +1,1 @@
+{"look":{"render":{"preset":"Film Base","blackTarget":1.0},"wheels":{"shadows":{"hue":170,"sat":0.06},"high":{"hue":80,"sat":0.1},"colorBalance":{"saturation":{"global":-30}}},"vignette":-0.5,"grain":{"amount":30,"size":50,"roughness":55}}}
