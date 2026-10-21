@@ -2046,7 +2046,7 @@ struct LoupeView: View {
             // everything" — and this button is the app's only way to look at a mask.
             // The sampler goes in too: four of the six modes redraw the UNMASKED
             // pixels (grey, black or white), which needs the picture.
-            if state.soloMaskOverlay != nil, let alpha = state.maskOverlayAlpha {
+            if shownMaskOverlay != nil, let alpha = state.maskOverlayAlpha {
                 MaskOverlayView(alpha: alpha, sampler: sampler,
                                 geometry: recipe.develop.geometry,
                                 sourceSize: sourceFrameSize
@@ -2563,8 +2563,19 @@ struct LoupeView: View {
         return effectiveRenderedLongEdge(cg) >= (model.displayFullLongEdge ?? Int.max)
     }
 
+    /// The mask overlay the loupe draws: `soloMaskOverlay`, but only while masking.
+    ///
+    /// Leaving masking by Esc (`PanelLayout.setMasking(false)`) left a pinned or
+    /// persistent overlay set, so the red wash and its "MASK · Sun" badge stayed on the
+    /// loupe in Develop with no mask editor to explain or remove them — the lane's own
+    /// 1:1 snapshot caught it. Every way back in (M, O, the rail) puts it back, because
+    /// the state underneath is untouched.
+    private var shownMaskOverlay: String? {
+        panel.layout.isMasking ? state.soloMaskOverlay : nil
+    }
+
     private var soloMaskName: String? {
-        guard let id = state.soloMaskOverlay else { return nil }
+        guard let id = shownMaskOverlay else { return nil }
         if let named = recipe.masks.first(where: { $0.id == id }), !named.name.isEmpty {
             return named.name
         }
@@ -2945,7 +2956,7 @@ struct LoupeView: View {
         layoutZoom > 0
             && !cropArmed
             && state.clippingOverlay == nil
-            && state.soloMaskOverlay == nil
+            && shownMaskOverlay == nil
             && !healVisualizing
             && !panel.layout.isMasking
             && !needsBeforeRender
@@ -3036,7 +3047,7 @@ struct LoupeView: View {
         guard !cropArmed else { return false }
         return (viewport.showReadout && cursor != nil)
             || state.clippingOverlay != nil
-            || state.soloMaskOverlay != nil
+            || shownMaskOverlay != nil
             // Peaking reads the sampler exactly as the other two overlays do, and
             // without this line it is wired and dead: `canvas` binds `let sampler`,
             // the binding fails, `FocusPeakingOverlayView` is never built, and ⇧F

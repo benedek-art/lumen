@@ -179,16 +179,25 @@ struct BeforeAfterPair: View {
         .background(Lumen.viewerBackground)
     }
 
+    /// The picture CENTRED in its pane, inside the loupe's matte, and the label at the
+    /// top. The pane was a `.bottomLeading` ZStack, which aligned the fitted image as
+    /// well as the badge: side by side, both pictures sat on the floor of the viewer
+    /// with the top half empty, and the BEFORE badge was drawn under the loupe's own
+    /// bottom-leading HUD (FIT, MASK, CLIPPING). Lightroom labels the panes at the top.
     private func pane(_ image: CGImage, label: String) -> some View {
-        ZStack(alignment: .bottomLeading) {
+        ZStack {
             Lumen.viewerBackground
             Image(decorative: InspectionGain.displayed(image, hold: hold),
                   scale: 1, orientation: .up)
                 .resizable()
                 .interpolation(.high)
                 .aspectRatio(contentMode: .fit)
+                .padding(LoupeGeometry.fitMatte / 2)
+        }
+        .overlay(alignment: .topLeading) {
             LumenBadge(text: label)
                 .padding(8)
+                .allowsHitTesting(false)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
