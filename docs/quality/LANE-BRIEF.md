@@ -74,6 +74,27 @@ Do not edit `docs/` outside your lane folder, do not write new plan documents, a
 touch another lane's functions. Do not merge into other branches or open PRs; the
 integrator does that. Commit messages end with the attribution lines your session gives you.
 
+## 3b. UI lanes: seeing the interface
+
+Every push to any branch runs `.github/workflows/ui-snapshots.yml` on a macOS runner, which
+renders 36 panel, overlay and full-window PNGs (real views, real fonts, 2x, dark) and
+publishes them to the `ui-snapshots` branch under `<branch with / replaced by ->/<short sha>/`:
+
+```
+git fetch origin ui-snapshots
+git show origin/ui-snapshots:<branch-dashed>/LATEST          # newest sha
+git worktree add /tmp/snaps origin/ui-snapshots              # then open PNGs with Read
+```
+
+The baseline set is `claude-inspiring-dirac-ulgpch/a93efb2/`. A UI lane's auditor works from
+those images; its verifier waits for the lane branch's own snapshot set (about 15 min after
+push; re-run `git fetch` until `LATEST` shows your sha) and compares before and
+after side by side. If a state you need isn't captured, add it to
+`Tests/LumenAppTests/PanelSnapshotTests.swift` (append only; don't reorder). Layout metrics
+tests (`ui-layout.yml`) must stay green. Interaction feel (drag latency, gestures) can't be
+seen in a PNG: reason about it from the code, and list what the owner must try by hand in
+REPORT.md.
+
 ## 4. What "good" means here
 
 Lightroom is the floor, not the ceiling. When the maths and Lightroom disagree, say so and
