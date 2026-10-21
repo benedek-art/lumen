@@ -71,6 +71,15 @@ geometry (now 10 / 4, the new numbers asserted the same way) and listed
 `nearestIndexByX` as a call the editor must make (it is now called inside
 `CurveEditing.placing`, which the list names instead). `LayoutMetricSupport` slider line
 citations renumbered. `PanelSnapshotTests` gained three curve states (appended).
+`ParametricReadoutCompatibilityTests` (Darwin-only byte record): cases 6 and 7 re-recorded
+from the macOS runner, because their splits lie outside the editor's 10–90 % bounds and
+now render as the editor draws them (the split-bounds fix); the eight in-bounds cases are
+byte-identical.
+
+CI on f3bc90c: UI snapshots, UI layout, GPU parity, Proof sweep green. CI `test-fast`
+failed on exactly those two (slider citations moved by 3 lines; the two re-recorded
+hashes), fixed in the next commit. CI `fixtures-linux` fails on `check-swift-surface.py`
+with the same findings as the base commit 9068ded (pre-existing; this lane adds none).
 
 ## Not fixed / judged
 

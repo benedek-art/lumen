@@ -17,11 +17,17 @@ final class ParametricReadoutCompatibilityTests: XCTestCase {
 
     // Recorded before refactoring the shared bake on the native Darwin release
     // build at f64456b. Darwin cos() bytes are not claimed to be Linux libm bytes.
+    //
+    // Cases 6 and 7 re-recorded on the Darwin CI runner for lane T2 (quality/t2-curves):
+    // their splits ([.02, .03, .04] and [.96, .97, .98]) lie outside the editor's
+    // 10–90 % bounds, and `regionCentres` now reads splits through
+    // `CurveEditing.sanitizedSplits`, so they render the curve the editor draws for
+    // them instead of one the editor could not show. Every in-bounds case is unchanged.
     #if os(macOS)
     func testRecordedDarwinPreReadoutCurveLUTBytes() {
         let expected = ["b08b6d2e7ae1088a", "31058daf12c29c18", "5aca7b43497da42a",
                         "48eea1d39fd5fcb2", "63b01fd0fe042002", "6d5484e57be381c0",
-                        "ca9d96efdb69e11a", "a6b86199cdff1364", "e352ab703238ab5e",
+                        "3b631b452324859c", "140964803e5523f4", "e352ab703238ab5e",
                         "61a49a0dae3b3c85"]
         for (index, curve) in Self.cases.enumerated() {
             let lut = CurveStack.bakeParametric(curve)
