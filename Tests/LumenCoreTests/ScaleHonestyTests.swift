@@ -439,47 +439,21 @@ final class ScaleHonestyTests: XCTestCase {
                               + "preview and a 1200 px render")
     }
 
-    /// Film grain has the same amplitude at every render size — and a resample after
-    /// the fact does NOT take much of it away, which is the measurement FILM-08's
-    /// premise needed and never had.
+    /// A small render's film grain IS the large render's grain, downsampled — the
+    /// property that makes a preview honest about the export (WS-40 SPEC line 8).
     ///
-    /// This file swept tone, colour, grade, curve, presence and vignette and touched
-    /// film nowhere, so nothing here ever looked at grain across a scale change. The
-    /// audit's reading was that `PipelineRenderer.export` grained at decode resolution
-    /// and then resampled to the target, so a 6000 px render delivered at 2048
-    /// "averages roughly 9 grain samples per output pixel, cutting grain sigma about
-    /// 3x". Measured here, on the reference path, that estimate is wrong by an order of
-    /// magnitude, for two reasons the estimate did not account for:
-    ///
-    ///   - `plateScale` anchors the grain's footprint to the render's own long edge, so
-    ///     the 6000 px render's grain is already about 3x coarser IN PIXELS. Resampling
-    ///     by 3 lands the same structure at the same relative size rather than
-    ///     averaging independent samples.
-    ///   - the plate is four octaves of value noise with amplitudes 1, ½, ¼, ⅛
-    ///     (`FilmGrainProfile.plate`), so most of its energy is in its COARSEST octave,
-    ///     which a box average barely touches.
-    ///
-    /// Measured σ ratios of "render at k·N, average down to N" against "render at N",
-    /// flat field, Portra 400, grain 100:
-    ///
-    ///     k                        2       3       4       6
-    ///     plate at the 0.5 floor  0.966   0.926   0.859   0.780
-    ///     plate scaling freely    0.99 at k = 3 (scale 1.600 -> 0.533)
-    ///
-    /// So the loss is 1% where the plate scales freely — the common export — and up to
-    /// 22% where the render's own grain has hit the half-pixel floor and the average
-    /// eats the finest octaves. Real, worth removing, and not the "visibly less grain"
-    /// the audit expected. The reason the export ordering was still changed is that
-    /// σ is not the only thing that has to match: at the floor the delivered PATTERN
-    /// lands at a different spatial frequency from the preview's, which the assertions
-    /// here cannot see. That is `testGrainIsAppliedOnTheGridThatIsDelivered` in the
-    /// macOS suite.
-    func testFilmGrainHasTheSameAmplitudeAtEveryRenderSize() {
+    /// The tiled plate held the opposite: the same per-pixel σ at every render size,
+    /// because its texels scaled with the frame and sat on a half-pixel floor below
+    /// that, so a 3x downsample of the large render measured 0.964 of the small one and
+    /// up to 22% less where the floor bit — the preview and the export were two
+    /// different patterns. The grain field is defined in the frame and seen through
+    /// each render's pixel aperture: a small render averages the grains the way a box
+    /// downsample of the large one does. So the large render carries MORE per-pixel
+    /// grain (its pixels resolve finer grains), and its downsample matches the small
+    /// render.
+    func testFilmGrainPreviewIsTheExportDownsampled() {
         var recipe = Recipe()
         recipe.develop.denoise.mode = .off
-        // Grain size 2.0 — the top of the panel's range — so the plate scales freely at
-        // 1200 px (0.800) rather than sitting on the half-pixel floor at both sizes,
-        // which would make the comparison below true by construction.
         recipe.look.filmLab = FilmLab(stock: "lumen/portra400", amount: 100,
                                       grain: FilmGrain(size: 2.0, amount: 100))
         let plan = RenderPlan(recipe: recipe)
@@ -516,49 +490,31 @@ final class ScaleHonestyTests: XCTestCase {
         let large = ReferenceRenderer.render(flat(longEdge: 1200), plan: plan)
         let big = statistics(large)
         let resampled = statistics(downsample(large, by: 3))
-        let scaleSmall = chain.grain.plateScale(longEdgePixels: 400,
-                                                printSizeInches: chain.printLongEdgeInches)
-        let scaleLarge = chain.grain.plateScale(longEdgePixels: 1200,
-                                                printSizeInches: chain.printLongEdgeInches)
-        print(String(format: "  GRAIN sigma 400 %.5f (plate %.3f)  1200 %.5f (plate "
+        let radiusSmall = chain.grain.grainRadiusPixels(
+            longEdgePixels: 400, printSizeInches: chain.printLongEdgeInches, channel: 1)
+        let radiusLarge = chain.grain.grainRadiusPixels(
+            longEdgePixels: 1200, printSizeInches: chain.printLongEdgeInches, channel: 1)
+        print(String(format: "  GRAIN sigma 400 %.5f (radius %.3f)  1200 %.5f (radius "
                          + "%.3f)  1200->400 %.5f  mean %.4f",
-                     small.sigma, scaleSmall, big.sigma, scaleLarge, resampled.sigma,
+                     small.sigma, radiusSmall, big.sigma, radiusLarge, resampled.sigma,
                      small.mean))
 
-        // The two sizes must not have landed on the same plate scale, or the first
-        // assertion below is comparing a number with itself.
-        XCTAssertGreaterThan(scaleLarge, scaleSmall * 1.2,
-                             "both renders scaled the plate by \(scaleSmall) — this "
-                                 + "test proves nothing until they differ")
+        // The grain is a fraction of the frame: three times the pixels, three times
+        // the radius in pixels.
+        XCTAssertEqual(radiusLarge / radiusSmall, 3, accuracy: 1e-9)
         // Grain has to be DOING something, or every comparison below is between a pair
-        // of zeros: the shape of the green test `testWhatCIGaussianBlurRadiusMeans` is.
-        XCTAssertGreaterThan(small.sigma, 0.02 * small.mean,
+        // of zeros.
+        XCTAssertGreaterThan(small.sigma, 0.01 * small.mean,
                              "grain moved \(small.sigma) on a mean of \(small.mean) — "
-                                 + "under 2% of the level is not a film grain, and "
                                  + "nothing below this line means anything")
-
-        // The amplitude does not depend on how many pixels the render has. Measured
-        // 0.02392 at 400 px and 0.02377 at 1200 px, 0.6% apart across a 1.5x change in
-        // plate scale.
-        XCTAssertEqual(big.sigma, small.sigma, accuracy: 0.10 * small.sigma,
-                       "grain measured \(big.sigma) at 1200 px against \(small.sigma) "
-                           + "at 400 px — the amplitude has picked up a dependence on "
-                           + "the render's pixel count, and the whole print-anchored "
-                           + "grain model rests on it not having one")
-
-        // And the resample keeps most of it: 0.02394 -> 0.02307, a ratio of 0.964
-        // where the audit expected 0.33. Two-sided on purpose: the floor catches a
-        // plate that has stopped being fractal or a `plateScale` that has stopped
-        // tracking the long edge — either would make independent samples of it average
-        // away toward 1/3 here — and the ceiling catches a resampler that has stopped
-        // averaging at all, which would mean the harness is not measuring what it says.
+        // The larger render resolves more of the grain per pixel.
+        XCTAssertGreaterThan(big.sigma, small.sigma * 1.1,
+                             "the 1200 px render carries no more per-pixel grain than "
+                                 + "the 400 px one — the grain is tied to pixels again")
+        // And its 3x average IS the small render's grain.
         let ratio = resampled.sigma / small.sigma
-        XCTAssertGreaterThan(ratio, 0.6,
-                             "a 3x average took grain from \(small.sigma) to "
-                                 + "\(resampled.sigma) — far more than the 0.964 "
-                                 + "measured when this was written")
-        XCTAssertLessThan(ratio, 1.02,
-                          "a 3x average did not attenuate grain at all (\(ratio)), so "
-                              + "this harness is not averaging anything")
+        XCTAssertEqual(ratio, 1, accuracy: 0.1,
+                       "a 3x average of the 1200 px render's grain is \(ratio) of the "
+                           + "400 px render's — the preview no longer shows the export")
     }
 }

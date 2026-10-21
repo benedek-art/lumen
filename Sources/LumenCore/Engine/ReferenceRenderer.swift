@@ -629,79 +629,57 @@ public enum ReferenceRenderer {
 
     /// The density-domain grain stage, for whichever grain the plan resolved.
     ///
-    /// Unchanged in every arithmetic detail from the version that took a `FilmChain`;
-    /// what moved is where the four scalars come from. A creative grain differs from a
-    /// stock's only in the profile it was built from — a 35 mm gate, a pitch off the Size
-    /// slider, a flat Dmax and a plate persistence off Roughness — so there is one grain
-    /// implementation on this path and there always was.
+    /// The noise is `GrainPlan.field(longEdge:seed:)` — per-pixel procedural grain,
+    /// evaluated at each pixel's centre, top-down (`GrainField`). `RenderGraph`'s
+    /// `lumenGrainField` generator evaluates the same formula and `lumenGrain` applies
+    /// it exactly as below; KernelGoldenTests holds the two together on macOS CI.
+    ///
+    /// Two applications:
+    ///   · LUMINANCE-ONLY (the creative grain): one field, one density offset for all
+    ///     three channels, its envelope from the pixel's luminance. R, G and B scale by
+    ///     the same factor, so hue and chroma ratios do not move (SPEC line 10b).
+    ///   · PER CHANNEL (a stock): each dye layer its own field, mixed by the plan's
+    ///     `noiseLumaWeight`/`noiseOwnWeight` (C2-02) — how much of the three layers'
+    ///     independence reaches the picture — and each channel its own envelope. A
+    ///     monochrome stock has one field for all three.
     static func applyGrain(_ image: ImageBuffer, grain: GrainPlan, seed: UInt64,
                            longEdge: Int) -> ImageBuffer {
-        let plateSize = GrainPlan.plateSize
-        // One plate per emulsion layer, at that layer's own crystal size.
-        //
-        // The amplitude envelope √(p(1−p)) was already per-channel, but a single noise
-        // value `n` went into all three — which is a luminance overlay wearing film's
-        // envelope, not film. Colour film has three physically separate dye layers with
-        // their own crystals, so their grain is uncorrelated and the blue layer's is
-        // coarsest; `grainSizeScale` has said (0.8, 1.0, 2.0) since the stocks were
-        // authored and `plateScale(…, channel:)` was written to use it and never called.
-        //
-        // `plateSeed(channel:)` collapses to one seed on a monochrome stock, so Tri-X
-        // keeps a single field and cannot acquire coloured speckle.
-        //
-        // Through `GrainPlan.plate` rather than `FilmGrainProfile.plate`, because the
-        // plate's PERSISTENCE now lives on the profile and a caller that assembled the
-        // arguments itself would have had to remember to pass it — which is precisely
-        // how the GPU plate ended up with a different seed from this one, back when both
-        // spelled the seed themselves.
-        // The scales first: each layer's plate is BAND-LIMITED to the resolution it is
-        // about to be sampled at, so a preview is the low-pass of the export rather
-        // than a differently-pitched pattern (C2-01b). `RenderGraph` passes the same
-        // value from the same function, and gpu-parity is what holds the two together.
-        let scales = (0..<3).map {
-            grain.plateScale(longEdgePixels: longEdge, channel: $0)
-        }
-        let plates = (0..<3).map {
-            grain.plate(channel: $0, size: plateSize, seed: seed,
-                        renderPixelsPerCell: scales[$0])
-        }
+        guard grain.amount > 0, image.width > 0, image.height > 0 else { return image }
+        let fields = grain.field(longEdge: longEdge, seed: seed)
+            .evaluate(width: image.width, height: image.height)
         var out = image
         let dmax = Swift.max(grain.dMax, 0.1)
         let amount = grain.amount
-        // HOW MUCH OF THE THREE LAYERS' INDEPENDENCE REACHES THE PICTURE (C2-02).
-        // Three unit-variance fields laid at full amplitude put 2.45× as much noise
-        // into colour as into luminance, in cells up to 5.3 px at export and
-        // sub-display-pixel at preview — so the delivered file carries coloured
-        // speckle the app can never show. The mix is one multiply-add per channel, and
-        // it is scaled to hold the LUMINANCE grain exactly where it was (measured on
-        // Portra 400: σ 0.0068103 → 0.0068133, +0.04%), so what a photographer sees is
-        // what they saw minus the speckle. The derivation is on
-        // `FilmGrainProfile.noiseMixWeights`. `lumenGrain` performs the identical two
-        // lines from the identical two scalars; gpu-parity is what holds them together.
         let lumaWeight = grain.noiseLumaWeight
         let ownWeight = grain.noiseOwnWeight
+        let w = GrainPlan.luminanceWeights
+        let luminanceOnly = grain.luminanceOnly
+        func envelope(_ v: Double) -> (density: Double, amplitude: Double) {
+            let density = -log10(Swift.max(v, 1e-5))
+            let p = Num.saturate(density / dmax)
+            return (density, (p * (1 - p)).squareRoot())
+        }
         for y in 0..<image.height {
             for x in 0..<image.width {
+                let i = y * image.width + x
                 let c = image[x, y]
+                if luminanceOnly {
+                    let n = Double(fields[0][i])
+                    let e = envelope(w.r * c.r + w.g * c.g + w.b * c.b)
+                    let factor = pow(10, -(e.amplitude * n * amount))
+                    out[x, y] = c * factor
+                    continue
+                }
                 var noise = RGB.zero
                 for channel in 0..<3 {
-                    noise[channel] = FilmGrainProfile.sample(
-                        plates[channel], size: plateSize,
-                        x: Double(x) / scales[channel],
-                        y: Double(y) / scales[channel])
+                    noise[channel] = Double(fields[fields.count == 1 ? 0 : channel][i])
                 }
-                // The three samples first, then the mix: the fields are sampled at
-                // three DIFFERENT cell sizes, so the shared component has to be formed
-                // here, after scaling, and not baked into the plates.
                 let shared = (noise.r + noise.g + noise.b) * lumaWeight
                 var result = RGB.zero
                 for channel in 0..<3 {
                     let n = shared + ownWeight * noise[channel]
-                    let v = Swift.max(c[channel], 1e-5)
-                    let density = -log10(v)
-                    let p = Num.saturate(density / dmax)
-                    let amplitude = (p * (1 - p)).squareRoot()
-                    result[channel] = pow(10, -(density + amplitude * n * amount))
+                    let e = envelope(c[channel])
+                    result[channel] = pow(10, -(e.density + e.amplitude * n * amount))
                 }
                 out[x, y] = result
             }

@@ -1,290 +1,180 @@
 // GrainParityScanTests.swift
-// I2-05, and the half of I2-04 that text can hold.
-//
-// C2-01b IS A LANDING THIS PROJECT HAS MADE TWICE. Once in `GrainPlan` — a plate is
-// band-limited to the resolution it is about to be sampled at, so a preview is the
-// low-pass of the export rather than a differently pitched pattern — and once again in
-// the GPU builder, because the film path had its own copy that did not go through the
-// plan and went on handing the kernel every octave. Nothing failed either time.
-//
-// `GrainPlateTests.testThereIsOneGPUPlateBuilderAndItAsksThePlanForItsScale` was written
-// to stop the third time. Its name has two clauses and it asserts the first: that one
-// builder is declared, and that nothing calls `FilmGrainProfile.plate` directly. It
-// never asks whether the builder passes `renderPixelsPerCell:`. Delete that argument
-// from both call sites in `RenderGraph.grainPlate` — which is precisely C2-01b — and
-// that test stays green, `testAPlateBuiltForARenderIsNotTheUnlimitedPlate` stays green
-// (it exercises `GrainPlan` directly and never reaches the GPU builder),
-// `testGrainPlateCarriesThreeLayersOnAColourStock` stays green (the channels still
-// decorrelate) and `testGrainIsAppliedOnTheGridThatIsDelivered` stays green (both of
-// its deliveries come from the same builder). The whole suite is green with C2-01b
-// restored. This file is the second clause.
-//
-// WHAT MADE THE FIRST VERSION WEAK IS ENUMERATION BY NAME. It counts lines matching
-// `func …GrainPlate` or `func grainPlate(`, so a second builder called `noisePlate`
-// that reached `GrainPlan.plate(channel:)` without a scale is invisible to both of its
-// assertions — and that is exactly the call the duplicate made. The rule here is
-// name-free instead: every `.plate(` CALL in the shipping pipeline must carry a render
-// scale, and every plate call anywhere in the tree must live in one of the three
-// functions allowed to make one. A builder can be called anything; it cannot avoid
-// calling `plate`.
+// WS-40, SPEC lines 12 and 13: the grain is ONE formula, declared once in LumenCore and
+// transcribed once into the GPU kernel, and the tiled plate it replaced is gone.
 //
 // Read as text because `Sources/LumenPipeline` is `#if os(macOS)` and no test in this
-// package can call into it — the same reason `KernelRosterTests` reads `Kernels.swift`
-// and `SettleGateTests` reads the viewer's settle gate.
+// package can call into it — the same reason `KernelRosterTests` reads `Kernels.swift`.
+// What this file cannot see is whether the kernel COMPUTES what the reference computes;
+// `KernelGoldenTests.testGrainMatchesTheReferenceRenderer` checks that on the macOS
+// gpu-parity lane, against `ReferenceRenderer.applyGrain`, at < 1e-3.
 //
-// COMMENTS ARE STRIPPED FIRST, and that is not hygiene. `DeliveryNameTests` records the
-// first draft of this class of test passing its own substitution proof because a doc
-// comment above the deleted property explained the rule and contained the symbol being
-// scanned for; `EditRevisionRuleTests` records the same. Every file scanned here has
-// paragraphs about `renderPixelsPerCell` and `plateScale` sitting directly above the
-// code that uses them, so an unstripped scan would be satisfied by the prose that
-// justifies the line it is meant to find missing. String literals are stripped too, but
-// only for brace matching — `Kernels.swift` is thirty-eight shader bodies inside string
-// literals, and a `{` in a kernel would otherwise close a Swift function.
+// COMMENTS ARE STRIPPED FIRST, and that is not hygiene: every file scanned here has
+// paragraphs about the names being scanned for sitting directly above the code that uses
+// them, so an unstripped scan would be satisfied by the prose. String literals are kept
+// for searching (the kernels are string literals) and blanked for brace matching.
 //
-// WHAT THIS FILE CANNOT SEE, so a green run is not read as more than it is:
-//   · whether the two renderers SAMPLE the plate at the same coordinates. Text cannot
-//     answer that; `KernelGoldenTests.testGrainMatchesTheReferenceRenderer` does, on
-//     the gpu-parity lane, and it is the only thing that can.
-//   · whether the scale passed is the right CHANNEL's. The channel guard below is the
-//     closest text gets: every `plateScale(` in a grain stage must ask for a channel.
-//   · a plate built in a module this file does not walk. It walks all of `Sources`.
-//   · a raw string literal (`#"…"#`), which the stripper does not model. There are none
-//     in the tree today and a kernel would have no reason to be one.
+// The retired plate's names are spelled here in pieces, so that SPEC line 13's own grep
+// over `Sources` and `Tests` (which reads comments too) does not find them in the test
+// that checks they are gone.
 
 import XCTest
 @testable import LumenCore
 
 final class GrainParityScanTests: XCTestCase {
 
-    /// Functions whose NAME contains "plate" and which are not plate builders, each
-    /// with the reason. The list exists so that an exemption has to be argued in the
-    /// commit that makes it rather than being invisible — `KernelRosterTests.exempt`'s
-    /// doctrine, and the same reason it is a fixed set rather than a filter.
-    ///
-    /// `ditherPlate` is the 8×8 Bayer cell `PipelineRenderer` tiles for output dither.
-    /// It shares the bias-into-(0,1) convention with `grainPlate` and nothing else: no
-    /// noise, no `GrainPlan`, no seed. `testTheDitherPlateIsNotAGrainBuilder` checks
-    /// that rather than taking this comment's word for it.
+    /// Functions whose NAME contains "plate" in the pipeline and which are not grain
+    /// builders, each with the reason. `ditherPlate` is the 8×8 Bayer cell
+    /// `PipelineRenderer` tiles for output dither: no noise, no `GrainPlan`, no seed.
+    /// `testTheDitherPlateIsNotAGrainBuilder` checks that rather than taking this
+    /// comment's word for it.
     private static let plateNamesThatAreNotGrainBuilders: Set<String> = ["ditherPlate"]
 
-    /// The three functions in the whole tree that may call `plate`.
-    ///
-    /// `plate` is `GrainPlan.plate` itself, the one door onto the generator;
-    /// `applyGrain` is `ReferenceRenderer`'s stage; `grainPlate` is the GPU builder. A
-    /// fourth name here means a fourth place that decides what a plate is, which is the
-    /// defect this file exists for.
-    private static let functionsAllowedToBuildAPlate: Set<String> =
-        ["plate", "applyGrain", "grainPlate"]
+    /// The functions in the whole tree that may ask a plan for its grain field:
+    /// `ReferenceRenderer.applyGrain` and the GPU builder `RenderGraph.grainPlate`.
+    private static let functionsAllowedToBuildAField: Set<String> = ["applyGrain", "grainPlate"]
+
+    /// The tiled plate's vocabulary (SPEC line 13). Split so this file is not a hit.
+    private static let retiredNames: [String] = [
+        "GrainPlate" + "Memo", "plateEncode" + "Scale", "lattice" + "Value",
+        "plate" + "Size", "FilmGrainProfile.sam" + "ple(", "FilmGrainProfile.pl" + "ate(",
+        ".plate(" + "channel", "renderPixels" + "PerCell", "default" + "Persistence",
+    ]
 
     // MARK: - The names this file scans for, written as Swift
 
-    /// Every string the scans below search for is also called here as real Swift.
-    ///
-    /// This is the answer to "what would the scan MISS". A text search for
-    /// `renderPixelsPerCell:` that stops matching because the label was renamed does
-    /// not fail — it finds nothing, concludes nothing, and goes green. Writing the same
-    /// name as a call makes a rename a COMPILE error in the file that depends on it, so
-    /// the scan cannot quietly become a check on a name that no longer exists.
-    ///
-    /// `grainPlate` is the one name that cannot be anchored: it lives in
-    /// `LumenPipeline`, which does not build on this lane at all. That is why the rules
-    /// below are written about plate CALLS rather than about the builder's name.
+    /// Every name the scans below search for is also used here as real Swift, so a
+    /// rename is a compile error rather than a scan that quietly finds nothing.
     func testTheNamesThisFileScansForStillExist() {
         let chain = FilmChain(FilmChain.defaultRecipe(for: FilmStock.triX400),
                               displayWhite: 1.0)
         let plan = GrainPlan.film(chain)
-
-        // `renderPixelsPerCell:` and `plateScale(longEdgePixels:channel:)` — the pair
-        // the whole file is about.
-        let scale = plan.plateScale(longEdgePixels: 2000, channel: 0)
-        XCTAssertGreaterThan(scale, 0, "a plate scale is a positive cell size")
-        let limited = plan.plate(channel: 0, renderPixelsPerCell: scale)
-        XCTAssertEqual(limited.count, GrainPlan.plateSize * GrainPlan.plateSize)
-
-        // `FilmGrainProfile.plate(` — the raw generator nothing outside `GrainPlan` may
-        // reach — and `plateEncodeScale`, the constant the kernel divides back out.
-        let raw = FilmGrainProfile.plate(size: 8, seed: 1, sigma: 1)
-        XCTAssertEqual(raw.count, 64)
-        XCTAssertGreaterThan(FilmGrainProfile.plateEncodeScale, 0)
-
-        // The two mix weights, by the names the scan looks for on both renderers.
+        let field = plan.field(longEdge: 2000)
+        XCTAssertEqual(field.channels.count, 1, "a monochrome stock is one field")
+        XCTAssertGreaterThan(GrainField.primeA, 0)
+        XCTAssertGreaterThan(GrainField.primeB, 0)
+        XCTAssertGreaterThan(GrainField.maxGrains, 0)
+        XCTAssertGreaterThan(GrainField.pixelAperture, 0)
         XCTAssertEqual(plan.noiseLumaWeight + plan.noiseOwnWeight, 1.0, accuracy: 1e-9,
                        "a monochrome profile's mix is the identity — luma 0, own 1")
-
-        // And `ReferenceRenderer.applyGrain`, by label.
+        XCTAssertFalse(plan.luminanceOnly)
         let frame = ImageBuffer(width: 4, height: 4) { _, _ in RGB(gray: 0.18) }
         let grained = ReferenceRenderer.applyGrain(
             frame, grain: plan, seed: FilmGrainProfile.defaultPlateSeed, longEdge: 2000)
         XCTAssertEqual(grained.width, 4)
     }
 
-    // MARK: - I2-05, the second clause of the other test's name
+    // MARK: - SPEC 13: the plate is gone
 
-    /// EVERY plate the shipping pipeline builds is band-limited to the render, and asks
-    /// the plan for the number.
-    ///
-    /// Four rules, and each one is a way the two renderers came apart before:
-    ///   a. every `.plate(` call passes `renderPixelsPerCell:` — deleting it is C2-01b;
-    ///   b. the value is not a literal and not `nil` — passing `nil` builds every octave
-    ///      under a label that says otherwise, and a literal is a second opinion about
-    ///      the cell size;
-    ///   c. the enclosing function asks `plateScale(longEdgePixels:` for it — the same
-    ///      call `ReferenceRenderer.applyGrain` makes, which is what "the same value
-    ///      from the same function" means;
-    ///   d. every `plateScale(` in that function passes `channel:` — the un-channelled
-    ///      overload is the whole-plate cell size, and `sizeScale` is (0.8, 1.0, 2.0),
-    ///      so using it would give the red and blue records the green one's pitch.
-    func testEveryPlateTheShippingPipelineBuildsCarriesTheRenderScale() throws {
+    func testNoPlateCodeIsLeft() throws {
+        var hits: [String] = []
+        for root in ["Sources", "Tests"] {
+            let base = Self.repositoryRoot().appendingPathComponent(root)
+            let names = try FileManager.default.subpathsOfDirectory(atPath: base.path)
+            for name in names.sorted() where name.hasSuffix(".swift") {
+                let text = try String(contentsOf: base.appendingPathComponent(name),
+                                      encoding: .utf8)
+                for needle in Self.retiredNames where text.contains(needle) {
+                    hits.append("\(root)/\(name): \(needle)")
+                }
+            }
+        }
+        XCTAssertEqual(hits, [], "the tiled plate's code is back:\n"
+                           + hits.joined(separator: "\n"))
+        let graph = try String(contentsOf: Self.pipelineFile("RenderGraph.swift"),
+                               encoding: .utf8)
+        XCTAssertFalse(graph.contains("affine" + "Tile"),
+                       "RenderGraph tiles something again — the grain was a tiled plate")
+        let film = try String(contentsOf: Self.engineFile("FilmLab.swift"), encoding: .utf8)
+            .lowercased()
+        XCTAssertFalse(film.contains("oct" + "ave") || film.contains("persis" + "tence"),
+                       "FilmLab.swift speaks of octaves again")
+    }
+
+    // MARK: - SPEC 12: one formula, its constants declared once
+
+    /// The kernel interpolates every constant of the hash and the field from
+    /// `GrainField`, and carries no literal copy of either modulus.
+    func testTheGrainFieldKernelInterpolatesItsConstants() throws {
         let sources = try Self.swiftSources(under: "Sources/LumenPipeline")
-        XCTAssertGreaterThan(sources.count, 5,
-                             "the walk found \(sources.count) Swift files under "
-                                 + "Sources/LumenPipeline — it is reading the wrong "
-                                 + "directory, and every assertion below would pass by "
-                                 + "checking nothing")
-
-        let calls = Self.plateCalls(in: sources)
-        XCTAssertGreaterThan(calls.count, 1,
-                             "no `.plate(` call was found anywhere in "
-                                 + "Sources/LumenPipeline. Either the GPU stopped "
-                                 + "building a plate — in which case film grain is gone "
-                                 + "from every preview and every export — or the pattern "
-                                 + "has stopped matching and this test is vacuous, which "
-                                 + "is the failure KernelRosterTests records shipping in "
-                                 + "its own first draft")
-
-        var missingScale: [String] = []
-        var literalScale: [String] = []
-        for call in calls {
-            if call.scaleArgument.isEmpty {
-                missingScale.append(call.site)
-            } else if call.scaleArgument == "nil"
-                        || Double(call.scaleArgument) != nil {
-                literalScale.append("\(call.site): \(call.scaleArgument)")
-            }
+        guard let kernels = sources.first(where: { $0.path.hasSuffix("Kernels.swift") })
+        else { return XCTFail("Kernels.swift not found by the walk") }
+        guard let body = Self.stringLiteral(after: "grainFieldSource", in: kernels) else {
+            return XCTFail("no `grainFieldSource` string literal in Kernels.swift")
         }
-        XCTAssertEqual(missingScale, [],
-                       "a plate is built for the GPU WITHOUT `renderPixelsPerCell:`, so "
-                           + "it carries the octaves the render cannot resolve while "
-                           + "`ReferenceRenderer.applyGrain` band-limits — the preview "
-                           + "and the export go back to aliasing and no golden compares "
-                           + "them (C2-01b, the landing this project made twice):\n"
-                           + missingScale.joined(separator: "\n"))
-        XCTAssertEqual(literalScale, [],
-                       "a plate's render scale is a literal or `nil` rather than the "
-                           + "plan's own `plateScale`, which is a second opinion about "
-                           + "the cell size — the shape of every grain defect in "
-                           + "FilmLab's history, from the seed to the encode scale:\n"
-                           + literalScale.joined(separator: "\n"))
-
-        var builders = Set(calls.map { $0.function })
-        builders.remove("<no enclosing function>")
-        XCTAssertEqual(builders.count, 1,
-                       "plates are being built in \(builders.count) different functions "
-                           + "in Sources/LumenPipeline — \(builders.sorted()). There is "
-                           + "one builder; a second one is how the film path kept an "
-                           + "unlimited plate after C2-01b, and it does not have to be "
-                           + "called anything in particular to do it again")
-
-        for call in calls {
-            XCTAssertTrue(call.enclosingBody.contains("plateScale(longEdgePixels:"),
-                          "\(call.site) builds a plate in a function that never asks "
-                              + "`plateScale(longEdgePixels:…)` for the render's cell "
-                              + "size, so whatever it passes came from somewhere else")
-            let scales = Self.offsets(of: "plateScale(", in: Array(call.enclosingBody))
-            XCTAssertGreaterThan(scales.count, 0, "\(call.site): no plateScale call")
-            for scale in scales {
-                let text = Self.callText(open: scale + 10,
-                                         code: Array(call.enclosingBody),
-                                         structure: Array(call.enclosingBody))
-                XCTAssertTrue(text.contains("channel:"),
-                              "\(call.site) asks for a plate scale without a channel. "
-                                  + "`sizeScale` is (0.8, 1.0, 2.0), so the un-channelled "
-                                  + "overload gives the red and blue records the green "
-                                  + "one's pitch — and the reference renderer would keep "
-                                  + "asking per channel: \(text)")
-            }
+        XCTAssertTrue(body.contains("lumenGrainField"),
+                      "the literal after `grainFieldSource` is not the grain field kernel")
+        for name in ["GrainField.primeA", "GrainField.primeB", "GrainField.maxGrains",
+                     "GrainField.pixelAperture"] {
+            XCTAssertTrue(body.contains("\\(" + name) || body.contains("\\(1 / " + name),
+                          "the kernel does not interpolate `\(name)`")
         }
+        for literal in ["4091", "4079", "0.825", "0.680625"] {
+            XCTAssertFalse(body.contains(literal),
+                           "the kernel carries a literal copy (`\(literal)`) of a constant "
+                               + "`GrainField` declares — the shape of every grain "
+                               + "parity defect this project has had")
+        }
+        guard let apply = Self.stringLiteral(after: "grainSource", in: kernels) else {
+            return XCTFail("no `grainSource` string literal in Kernels.swift")
+        }
+        XCTAssertTrue(apply.contains("lumenGrain(") && apply.contains("luminanceOnly"),
+                      "`lumenGrain` lost its luminance-only mode")
     }
 
-    /// And the reference renderer band-limits through the same call, so "the same value
-    /// from the same function" is a fact rather than a comment.
-    ///
-    /// Asserted here rather than left to the GPU golden because it is the other half of
-    /// the pair: if this side stopped band-limiting, every parity comparison would go
-    /// green again by agreeing on the wrong plate.
-    func testTheReferenceRendererBandLimitsThroughTheSameCall() throws {
-        let source = try Self.read(Self.engineFile("ReferenceRenderer.swift"),
-                                   path: "Sources/LumenCore/Engine/ReferenceRenderer.swift")
-        let calls = Self.plateCalls(in: [source])
-        XCTAssertEqual(calls.count, 1,
-                       "the reference's grain stage builds \(calls.count) plates; it "
-                           + "builds one per layer through one call, and a second site "
-                           + "is a second opinion")
-        for call in calls {
-            XCTAssertEqual(call.function, "applyGrain",
-                           "\(call.site): the reference builds plates outside its grain "
-                               + "stage")
-            XCTAssertFalse(call.scaleArgument.isEmpty,
-                           "\(call.site): the reference renderer stopped band-limiting, "
-                               + "so both renderers would agree again — on the wrong "
-                               + "plate, and every gpu-parity comparison would say so")
-            XCTAssertTrue(call.enclosingBody.contains("plateScale(longEdgePixels:"),
-                          "\(call.site): the scale did not come from the plan")
-            XCTAssertTrue(call.enclosingBody.contains("channel:"),
-                          "\(call.site): the reference's scale is not per channel")
-        }
-    }
+    /// Both renderers get their field from the plan — the one door, `GrainPlan.field`.
+    func testBothRenderersGetTheFieldFromThePlan() throws {
+        let graph = try Self.read(Self.pipelineFile("RenderGraph.swift"),
+                                  path: "Sources/LumenPipeline/RenderGraph.swift")
+        let gpu = try Self.functionBody("grainPlate", in: graph)
+        XCTAssertTrue(gpu.contains(".field(longEdge:"), "the GPU builder does not ask the plan")
+        XCTAssertTrue(gpu.contains("KernelLibrary.grainField"),
+                      "the GPU builder does not run the grain field generator")
+        let reference = try Self.functionBody(
+            "applyGrain",
+            in: try Self.read(Self.engineFile("ReferenceRenderer.swift"),
+                              path: "Sources/LumenCore/Engine/ReferenceRenderer.swift"))
+        XCTAssertTrue(reference.contains(".field(longEdge:"),
+                      "the reference does not ask the plan for its field")
 
-    /// Nothing anywhere in the tree builds a plate outside the three functions allowed
-    /// to, and nothing but `GrainPlan.plate` touches the generator.
-    ///
-    /// This is the walk `GrainPlateTests` does with `contentsOfDirectory(atPath:)`,
-    /// which is not recursive and stops at `Sources/LumenPipeline`. A builder one
-    /// directory down, or in `LumenApp`, was invisible to it.
-    func testNothingElseInTheTreeBuildsAPlate() throws {
-        let sources = try Self.swiftSources(under: "Sources")
-        XCTAssertGreaterThan(sources.count, 50,
-                             "the recursive walk found \(sources.count) Swift files "
-                                 + "under Sources — it is not walking the tree")
-        let calls = Self.plateCalls(in: sources)
-        XCTAssertGreaterThan(calls.count, 2,
-                             "the tree builds \(calls.count) plates in total, which is "
-                                 + "fewer than the reference renderer, the GPU builder "
-                                 + "and the generator's own door — the pattern has "
-                                 + "stopped matching")
-
-        let strays = calls
-            .filter { !Self.functionsAllowedToBuildAPlate.contains($0.function) }
-            .map { "\($0.site) — \($0.text.prefix(80))" }
-        XCTAssertEqual(strays, [],
-                       "a plate is being built outside "
-                           + "\(Self.functionsAllowedToBuildAPlate.sorted()). A second "
-                           + "builder produced identical bytes for a year and then "
-                           + "silently stopped, because band-limiting was added to the "
-                           + "plan and the copy did not go through the plan:\n"
-                           + strays.joined(separator: "\n"))
-
-        var rawGenerator: [String] = []
-        for source in sources {
+        // And nothing else in the tree builds one.
+        var strays: [String] = []
+        for source in try Self.swiftSources(under: "Sources") {
             let spans = Self.functions(in: source.structure)
-            for offset in Self.offsets(of: "FilmGrainProfile.plate(", in: source.code) {
+            for offset in Self.offsets(of: ".field(longEdge:", in: source.code) {
                 let function = Self.enclosing(offset, spans)?.name ?? "<no function>"
-                guard function != "plate" else { continue }
-                rawGenerator.append(
-                    "\(source.path):\(Self.line(at: offset, in: source.raw)) in \(function)")
+                if !Self.functionsAllowedToBuildAField.contains(function) {
+                    strays.append("\(source.path):\(Self.line(at: offset, in: source.raw)) "
+                                      + "in \(function)")
+                }
             }
         }
-        XCTAssertEqual(rawGenerator, [],
-                       "a caller is building a plate straight from `FilmGrainProfile` "
-                           + "instead of through `GrainPlan`, so it carries neither the "
-                           + "profile's persistence — which is Roughness — nor the "
-                           + "render's band limit:\n" + rawGenerator.joined(separator: "\n"))
+        XCTAssertEqual(strays, [], "a grain field is built outside "
+                           + "\(Self.functionsAllowedToBuildAField.sorted()):\n"
+                           + strays.joined(separator: "\n"))
     }
 
-    /// A second builder does not have to call `plate` to be a second builder, so the
-    /// name is checked too — and every "plate" in the pipeline that is not the grain
-    /// builder has to be argued for.
+    /// Both renderers read the two mix weights and the luminance-only flag off the
+    /// plan, by name, rather than each computing its own.
+    func testBothRenderersReadTheLayerMixOffThePlan() throws {
+        let gpu = try Self.functionBody("applyGrain",
+                                        in: try Self.read(
+                                            Self.pipelineFile("RenderGraph.swift"),
+                                            path: "Sources/LumenPipeline/RenderGraph.swift"))
+        let reference = try Self.functionBody(
+            "applyGrain",
+            in: try Self.read(Self.engineFile("ReferenceRenderer.swift"),
+                              path: "Sources/LumenCore/Engine/ReferenceRenderer.swift"))
+        for (label, body) in [("RenderGraph", gpu), ("ReferenceRenderer", reference)] {
+            for name in ["noiseLumaWeight", "noiseOwnWeight", "luminanceOnly",
+                         "GrainPlan.luminanceWeights"] {
+                XCTAssertTrue(body.contains(name),
+                              "\(label).applyGrain does not read `\(name)` off the plan")
+            }
+        }
+    }
+
+    /// A second grain builder in the pipeline does not have to call the plan to be a
+    /// second builder, so the name is checked too.
     func testTheOnlyPlateNamedFunctionsInThePipelineAreTheTwoThatAreArguedFor() throws {
         let sources = try Self.swiftSources(under: "Sources/LumenPipeline")
         var named: [String] = []
@@ -296,11 +186,8 @@ final class GrainParityScanTests: XCTestCase {
         }
         XCTAssertEqual(named.filter { !Self.plateNamesThatAreNotGrainBuilders.contains($0) },
                        ["grainPlate"],
-                       "the pipeline declares \(named.sorted()) — one grain plate "
-                           + "builder, plus whatever is listed in "
-                           + "`plateNamesThatAreNotGrainBuilders` with a reason. A new "
-                           + "one is either the second builder this file exists to "
-                           + "prevent or an exemption that has to be written down")
+                       "the pipeline declares \(named.sorted()) — one grain builder, plus "
+                           + "whatever is listed in `plateNamesThatAreNotGrainBuilders`")
     }
 
     /// The exemption above, verified rather than asserted.
@@ -310,74 +197,15 @@ final class GrainParityScanTests: XCTestCase {
         for source in sources {
             for span in Self.functions(in: source.structure) where span.name == "ditherPlate" {
                 let body = String(source.code[span.bodyStart...span.bodyEnd])
-                XCTAssertFalse(body.contains("GrainPlan"),
-                               "the dither plate reaches the grain plan; it is a Bayer "
-                                   + "cell and the exemption is no longer true")
-                XCTAssertFalse(body.contains(".plate("),
-                               "the dither plate builds a noise plate")
+                XCTAssertFalse(body.contains("GrainPlan") || body.contains("GrainField"),
+                               "the dither plate reaches the grain; it is a Bayer cell and "
+                                   + "the exemption is no longer true")
                 checked += 1
             }
         }
         XCTAssertEqual(checked, 1,
-                       "`ditherPlate` is exempted from the builder count and was found "
-                           + "\(checked) times — an exemption for a function that is "
-                           + "gone is a hole with a comment over it")
-    }
-
-    // MARK: - I2-04, the half of the parity claim text can hold
-
-    /// `Kernels.swift:614` says the grain kernel's layer mix is performed "identically
-    /// in `ReferenceRenderer.applyGrain`, which is what gpu-parity checks", and
-    /// `ReferenceRenderer.applyGrain` says "gpu-parity is what holds them together"
-    /// twice, about `plateScale` and about the two mix weights. Until
-    /// `KernelGoldenTests.testGrainMatchesTheReferenceRenderer` there was no such check
-    /// at all. That golden needs a GPU; these two facts do not, and they are the two the
-    /// comments actually name.
-    ///
-    /// FIRST: the kernel recovers the plate with the named constant, interpolated. It
-    /// was a hardcoded `2.0` against a store that divided by 4, so the GPU laid half the
-    /// amplitude the reference defines — in every preview and every export — and clamped
-    /// away the strongest 3.4% of the grains on the way. A literal here is that defect.
-    func testTheGrainKernelRecoversThePlateWithTheNamedEncodeScale() throws {
-        let sources = try Self.swiftSources(under: "Sources/LumenPipeline")
-        guard let kernels = sources.first(where: { $0.path.hasSuffix("Kernels.swift") })
-        else { return XCTFail("Kernels.swift not found by the walk") }
-        guard let body = Self.stringLiteral(after: "grainSource", in: kernels) else {
-            return XCTFail("no `grainSource` string literal in Kernels.swift")
-        }
-        XCTAssertTrue(body.contains("lumenGrain"),
-                      "the literal found after `grainSource` is not the grain kernel, so "
-                          + "this test is reading the wrong block")
-        XCTAssertTrue(body.contains("FilmGrainProfile.plateEncodeScale"),
-                      "the grain kernel recovers the plate with something other than "
-                          + "`FilmGrainProfile.plateEncodeScale`. The store and the "
-                          + "recovery lived in different files and did not agree once "
-                          + "already; interpolating the one constant is what stops the "
-                          + "pair drifting again")
-    }
-
-    /// SECOND: both renderers read the two mix weights off the plan, by name, rather
-    /// than each computing its own. "The way for two renderers to disagree about a
-    /// number is for each to be handed it separately" is `RenderGraph.applyGrain`'s own
-    /// comment; this is that sentence as a check.
-    func testBothRenderersReadTheLayerMixOffThePlan() throws {
-        let gpu = try Self.functionBody("applyGrain",
-                                        in: try Self.read(
-                                            Self.pipelineFile("RenderGraph.swift"),
-                                            path: "Sources/LumenPipeline/RenderGraph.swift"))
-        let reference = try Self.functionBody(
-            "applyGrain",
-            in: try Self.read(Self.engineFile("ReferenceRenderer.swift"),
-                              path: "Sources/LumenCore/Engine/ReferenceRenderer.swift"))
-        for (label, body) in [("RenderGraph", gpu), ("ReferenceRenderer", reference)] {
-            XCTAssertTrue(body.contains("noiseLumaWeight"),
-                          "\(label).applyGrain does not read `noiseLumaWeight` off the "
-                              + "plan, so the two renderers are each deciding how much "
-                              + "of the three dye layers' independence reaches the "
-                              + "picture (C2-02)")
-            XCTAssertTrue(body.contains("noiseOwnWeight"),
-                          "\(label).applyGrain does not read `noiseOwnWeight` off the plan")
-        }
+                       "`ditherPlate` is exempted and was found \(checked) times — an "
+                           + "exemption for a function that is gone is a hole")
     }
 
     // MARK: - Reading Swift as text
@@ -398,52 +226,6 @@ final class GrainParityScanTests: XCTestCase {
         let name: String
         let bodyStart: Int
         let bodyEnd: Int
-    }
-
-    /// One `.plate(` call site, with everything an assertion needs to name it.
-    private struct PlateCall {
-        let path: String
-        let line: Int
-        let function: String
-        /// The call, from its opening parenthesis to the matching close.
-        let text: String
-        /// The value passed as `renderPixelsPerCell:`, trimmed; empty when absent.
-        let scaleArgument: String
-        /// The body of the function the call sits in.
-        let enclosingBody: String
-
-        /// `path:line in function`, which is every failure message's first line.
-        var site: String { "\(path):\(line) in \(function)" }
-    }
-
-    private static func plateCalls(in sources: [Source]) -> [PlateCall] {
-        var calls: [PlateCall] = []
-        for source in sources {
-            let spans = functions(in: source.structure)
-            for offset in offsets(of: ".plate(", in: source.code) {
-                let open = offset + 6
-                let text = callText(open: open, code: source.code,
-                                    structure: source.structure)
-                let characters = Array(text)
-                var scale = ""
-                if let label = offsets(of: "renderPixelsPerCell:", in: characters).first {
-                    scale = argument(after: label + 20, in: characters)
-                }
-                let span = enclosing(offset, spans)
-                var body = ""
-                if let span = span {
-                    body = String(source.code[span.bodyStart...span.bodyEnd])
-                }
-                calls.append(PlateCall(
-                    path: source.path,
-                    line: line(at: offset, in: source.raw),
-                    function: span?.name ?? "<no enclosing function>",
-                    text: text,
-                    scaleArgument: scale.trimmingCharacters(in: .whitespacesAndNewlines),
-                    enclosingBody: body))
-            }
-        }
-        return calls
     }
 
     /// EVERY overload's body, joined.
@@ -540,43 +322,6 @@ final class GrainParityScanTests: XCTestCase {
             i += 1
         }
         return nil
-    }
-
-    /// From an opening parenthesis to its match. Depth is counted on `structure`, where
-    /// a parenthesis inside a string literal has already been blanked; the characters
-    /// come from `code`, so the caller reads the call as written.
-    private static func callText(open: Int, code: [Character],
-                                 structure: [Character]) -> String {
-        var depth = 0
-        var i = open
-        var out = ""
-        while i < code.count && i < structure.count {
-            if structure[i] == "(" { depth += 1 }
-            if structure[i] == ")" { depth -= 1 }
-            out.append(code[i])
-            if depth == 0 { break }
-            i += 1
-        }
-        return out
-    }
-
-    /// The argument value beginning at `from`, up to the comma or close that ends it.
-    private static func argument(after from: Int, in characters: [Character]) -> String {
-        var depth = 0
-        var i = from
-        var out = ""
-        while i < characters.count {
-            let c = characters[i]
-            if c == "(" || c == "[" { depth += 1 }
-            if c == ")" || c == "]" {
-                if depth == 0 { break }
-                depth -= 1
-            }
-            if c == "," && depth == 0 { break }
-            out.append(c)
-            i += 1
-        }
-        return out
     }
 
     private static func offsets(of needle: String, in characters: [Character]) -> [Int] {

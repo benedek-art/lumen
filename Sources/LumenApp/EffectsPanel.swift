@@ -279,7 +279,7 @@ struct EffectsPanel: View {
             // footprint is denominated at the GATE and scales with the render's
             // pixel count, so it is the same fraction of the picture at every
             // delivery size — print size cancels algebraically out of
-            // `plateScale`, pinned to 1e-12 by
+            // `grainRadiusPixels`, pinned to 1e-12 by
             // `testGrainFollowsTheGateAndTheRenderSizeNotThePrintSize`. Kept as
             // a comment because `LookPanel` binds this same field, and two
             // panels binding one value must not tell opposite stories about it —
@@ -302,8 +302,8 @@ struct EffectsPanel: View {
     /// Lightroom's three names, and each is used only where it is true —
     /// `CreativeGrain` carries the whole mapping and the help below is the short form of
     /// it. Roughness is the one a photographer will not have seen behave honestly
-    /// elsewhere: it redistributes the plate's energy across its four octaves and the
-    /// plate is renormalized afterwards, so it changes the grain's character and cannot
+    /// elsewhere: it makes the grains sparser, mixes their sizes and adds clumps, and
+    /// the field is renormalized, so it changes the grain's character and cannot
     /// secretly change its strength.
     @ViewBuilder
     private var creativeGrainRows: some View {
@@ -325,22 +325,23 @@ struct EffectsPanel: View {
                                                set: { $0.size = $1 }),
                         range: 0...100, hardRange: nil, defaultValue: 50,
                         step: 1, decimals: 0, bipolar: false,
-                        help: "The grain's pitch, measured at the gate of a 35 mm "
-                            + "frame: 7 µm at 0 — about Ektar's — around 20 µm at 50 "
-                            + "and 56 µm at 100, doubling every 33 points. Anchored to "
-                            + "the gate, so the grain is the same fraction of the "
-                            + "picture on a preview and on a full-size export.")
+                        help: "The grain's size, measured at the gate of a 35 mm "
+                            + "frame: 7 µm at 0 — about Ektar's — around 23 µm at 50 "
+                            + "and 72 µm at 100. Anchored to the gate, so the grain is "
+                            + "the same fraction of the picture on a preview and on a "
+                            + "full-size export; a preview shows it as the export "
+                            + "would look scaled down.")
             LumenSlider(title: "Roughness",
                         value: creativeBinding("look.grain.roughness",
                                                get: { $0.roughness },
                                                set: { $0.roughness = $1 }),
                         range: 0...100, hardRange: nil, defaultValue: 50,
                         step: 1, decimals: 0, bipolar: false,
-                        help: "How irregular the grain is. Low puts the energy into "
-                            + "the coarsest structure — an even, regular field; high "
-                            + "feeds the fine octaves for a gritty, clumpy one. 50 is "
-                            + "the plate every film stock in the Film Lab uses. It "
-                            + "changes the character only: the amplitude is Amount's.")
+                        help: "How irregular the grain is. Low is dense, even grains "
+                            + "of one size; high is sparser grains of mixed sizes that "
+                            + "clump together. 50 is the character every film stock in "
+                            + "the Film Lab uses. It changes the character only: the "
+                            + "amplitude is Amount's.")
             // The one sentence a photographer needs when a stock is loaded but its
             // grain is switched off — otherwise these three rows look like they are
             // fighting the Film Lab. No button: this is a statement about what renders,

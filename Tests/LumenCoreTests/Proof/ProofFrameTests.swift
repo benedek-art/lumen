@@ -175,11 +175,13 @@ final class ProofFrameTests: XCTestCase {
         let right = edge[3 * edge.width / 4, edge.height / 2].r
         XCTAssertEqual(log2(right / left), 4, accuracy: 0.01)
 
-        // Grain: a plate cell has to clear the half-pixel floor at the SMALLEST size the
-        // slider offers, or the bottom of that travel is the floor rather than the
-        // control. The pitch arithmetic is `FilmGrainProfile.plateScale`, restated here
-        // rather than called, so a change to it shows up as this test disagreeing with
-        // the engine instead of following it silently.
+        // Grain: the grain's pitch has to clear half a pixel at the SMALLEST size the
+        // slider offers. There is no floor any more (WS-40), but a grain much finer than
+        // a pixel is averaged by the pixel aperture into the same speckle at every Size,
+        // so a sweep on a frame where it is would measure the aperture rather than the
+        // control. The pitch arithmetic is `FilmGrainProfile.grainRadiusPixels` (×2),
+        // restated here rather than called, so a change to it shows up as this test
+        // disagreeing with the engine instead of following it silently.
         let field = ProofFrames.grainField()
         let longEdge = Double(Swift.max(field.width, field.height))
         let printMM = 10.0 * 25.4                     // defaultPrintLongEdgeInches

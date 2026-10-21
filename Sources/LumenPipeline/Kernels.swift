@@ -620,33 +620,139 @@ public enum KernelLibrary {
     /// vanishes at Dmin and Dmax, which is why film grain lives in the midtones and
     /// clean film blacks stay clean — the property a constant-sigma RGB overlay
     /// cannot reproduce.
-    /// The recovery factor MUST be `FilmGrainProfile.plateEncodeScale` — the same
-    /// number `grainPlate` divides by. It used to be hardcoded as 2.0 against a store
-    /// that divided by 4, so the GPU saw half the amplitude the reference defines.
-    /// Interpolated rather than written out, so the pair cannot drift again.
-    /// `lumaW` and `ownW` are `GrainPlan.noiseLumaWeight` / `noiseOwnWeight` — how much
-    /// of the three dye layers' independence reaches the picture (C2-02). Three
-    /// unit-variance fields laid at full amplitude put 2.45x as much noise into colour
-    /// as into luminance, and at export the cells are big enough to see it; at preview
-    /// they are sub-display-pixel, so the app could never show what the file carries.
-    /// The weights are derived on `FilmGrainProfile.noiseMixWeights`, and they are
-    /// scaled so the luminance grain does not move — only its colour does. At the
-    /// shipped colour default they
-    /// are not (0, 1), so this line changes pixels — deliberately, and identically in
-    /// `ReferenceRenderer.applyGrain`, which is what gpu-parity checks.
+    ///
+    /// `noise` is `grainField`'s output: the unit-variance field itself, one value per
+    /// channel, raw (no encode). Two modes, as `ReferenceRenderer.applyGrain`:
+    ///   · `luminanceOnly` > 0.5 (the creative grain): one density offset from
+    ///     `noise.r` for all three channels, the envelope from the luminance
+    ///     `dot(rgb, lumaCoef)` (`GrainPlan.luminanceWeights`), so R, G and B scale by
+    ///     one factor and hue does not move;
+    ///   · otherwise (a stock): per channel, after the layer mix — `lumaW`/`ownW` are
+    ///     `GrainPlan.noiseLumaWeight`/`noiseOwnWeight`, how much of the three dye
+    ///     layers' independence reaches the picture (C2-02).
     static let grainSource = """
     kernel vec4 lumenGrain(__sample image, __sample noise, float amount, float dmax,
-                           float lumaW, float ownW) {
+                           float lumaW, float ownW, vec3 lumaCoef, float luminanceOnly) {
+        if (luminanceOnly > 0.5) {
+            float yl = max(dot(image.rgb, lumaCoef), 1e-5);
+            float dl = -log(yl) / log(10.0);
+            float pl = clamp(dl / dmax, 0.0, 1.0);
+            float al = sqrt(max(pl * (1.0 - pl), 0.0));
+            float factor = pow(10.0, -(al * noise.r * amount));
+            return vec4(image.rgb * factor, image.a);
+        }
         vec3 c = max(image.rgb, vec3(1e-5));
         vec3 d = -log(c) / log(10.0);
         vec3 p = clamp(d / dmax, 0.0, 1.0);
         vec3 amp = sqrt(max(p * (vec3(1.0) - p), vec3(0.0)));
-        vec3 n = (noise.rgb - vec3(0.5)) * \(Float(FilmGrainProfile.plateEncodeScale));
+        vec3 n = noise.rgb;
         float nShared = (n.r + n.g + n.b) * lumaW;
         n = vec3(nShared) + n * ownW;
         vec3 d2 = d + amp * n * amount;
         vec3 shifted = pow(vec3(10.0), -d2);
         return vec4(shifted, image.a);
+    }
+    """
+
+    /// The grain noise field (WS-40) — the GPU twin of `GrainField.layerValue`, line for
+    /// line: the same two-lane cube hash (`cellState`, `stream`), the same 3 x 3 cells,
+    /// the same grains, the same kernel, the same gain. Every constant is interpolated
+    /// from `GrainField`, so there is no second copy of a number to drift.
+    ///
+    /// A generator: no input image. Pixel centres arrive as `destCoord()`, bottom-up;
+    /// the field is defined top-down at `(x + ½, y + ½)` of the frame, so
+    /// `p = (dc.x − ox, h − (dc.y − oy))` — the mask kernels' convention (see
+    /// `maskLinearSource`), with the frame's origin and height passed in.
+    ///
+    /// Per channel two layers (grain, clump), each `vec4 (cell, radius, spread, count)`
+    /// plus `vec4 (seedA, seedB, gain, 0)`; a clump with gain 0 is skipped. `channels`
+    /// is 1 for one shared field (creative, monochrome) or 3 for a colour stock.
+    ///
+    /// EXACTNESS. The hash runs on integer-valued floats below 2^24 (4090² =
+    /// 16 728 100 < 16 777 216), so every product, sum and floor is exact in float32 and
+    /// the GPU draws the same grains as the CPU. `lgMod`'s two fix-ups absorb a
+    /// `floor(x · (1/n))` that rounds to the neighbouring integer. A pixel on a cell
+    /// boundary may pick either neighbour as its centre cell on the two sides; both
+    /// 3 x 3 sets hold every grain that reaches it (the support is at most one cell).
+    static let grainFieldSource = """
+    float lgMod(float x, float n, float inv) {
+        float r = x - floor(x * inv) * n;
+        if (r >= n) { r = r - n; }
+        if (r < 0.0) { r = r + n; }
+        return r;
+    }
+    float lgCubeA(float x) {
+        float y = lgMod(x, \(GrainField.primeA), \(1 / GrainField.primeA));
+        float y2 = lgMod(y * y, \(GrainField.primeA), \(1 / GrainField.primeA));
+        return lgMod(y2 * y, \(GrainField.primeA), \(1 / GrainField.primeA));
+    }
+    float lgCubeB(float x) {
+        float y = lgMod(x, \(GrainField.primeB), \(1 / GrainField.primeB));
+        float y2 = lgMod(y * y, \(GrainField.primeB), \(1 / GrainField.primeB));
+        return lgMod(y2 * y, \(GrainField.primeB), \(1 / GrainField.primeB));
+    }
+    vec2 lgCell(float cx, float cy, float sa, float sb) {
+        float lx = lgMod(cx, \(GrainField.primeA), \(1 / GrainField.primeA));
+        float hx = lgMod(floor((cx - lx) * \(1 / GrainField.primeA) + 0.5),
+                         \(GrainField.primeA), \(1 / GrainField.primeA));
+        float ly = lgMod(cy, \(GrainField.primeB), \(1 / GrainField.primeB));
+        float hy = lgMod(floor((cy - ly) * \(1 / GrainField.primeB) + 0.5),
+                         \(GrainField.primeB), \(1 / GrainField.primeB));
+        float a = lgCubeA(sa + lx);
+        float b = lgCubeB(sb + ly);
+        a = lgCubeA(a + ly + hy);
+        b = lgCubeB(b + lx + hx);
+        a = lgCubeA(a + b);
+        b = lgCubeB(b + a);
+        return vec2(a, b);
+    }
+    vec2 lgStream(vec2 st, float t) {
+        float a1 = lgCubeA(st.x + t);
+        float b1 = lgCubeB(st.y + a1 + 3.0 * t);
+        float a2 = lgCubeA(a1 + b1);
+        float b2 = lgCubeB(b1 + a2);
+        return vec2((a2 + 0.5) * \(1 / GrainField.primeA), (b2 + 0.5) * \(1 / GrainField.primeB));
+    }
+    float lgLayer(vec2 p, vec4 g, vec4 s) {
+        float c = g.x;
+        vec2 q = p / c;
+        vec2 cb = floor(q);
+        vec2 f = q - cb;
+        float acc = 0.0;
+        for (int iy = 0; iy < 3; iy++) {
+            for (int ix = 0; ix < 3; ix++) {
+                vec2 o = vec2(float(ix) - 1.0, float(iy) - 1.0);
+                vec2 st = lgCell(cb.x + o.x, cb.y + o.y, s.x, s.y);
+                for (int j = 0; j < \(GrainField.maxGrains); j++) {
+                    float w = clamp(g.w - float(j), 0.0, 1.0);
+                    if (w > 0.0) {
+                        vec2 u = lgStream(st, float(2 * j + 1));
+                        vec2 v = lgStream(st, float(2 * j + 2));
+                        vec2 d = (f - o - u) * c;
+                        float rg = g.y * exp2(g.z * (v.y - 0.5));
+                        float r2 = rg * rg + \(GrainField.pixelAperture * GrainField.pixelAperture);
+                        float k = max(1.0 - dot(d, d) / r2, 0.0);
+                        acc = acc + w * (2.0 * v.x - 1.0) * (rg * rg / r2) * k * k;
+                    }
+                }
+            }
+        }
+        return acc * s.z;
+    }
+    kernel vec4 lumenGrainField(float ox, float oy, float h, float channels,
+                                vec4 g0, vec4 s0, vec4 k0, vec4 t0,
+                                vec4 g1, vec4 s1, vec4 k1, vec4 t1,
+                                vec4 g2, vec4 s2, vec4 k2, vec4 t2) {
+        vec2 dc = destCoord();
+        vec2 p = vec2(dc.x - ox, h - (dc.y - oy));
+        float n0 = lgLayer(p, g0, s0);
+        if (t0.z != 0.0) { n0 = n0 + lgLayer(p, k0, t0); }
+        if (channels < 1.5) { return vec4(n0, n0, n0, 1.0); }
+        float n1 = lgLayer(p, g1, s1);
+        if (t1.z != 0.0) { n1 = n1 + lgLayer(p, k1, t1); }
+        float n2 = lgLayer(p, g2, s2);
+        if (t2.z != 0.0) { n2 = n2 + lgLayer(p, k2, t2); }
+        return vec4(n0, n1, n2, 1.0);
     }
     """
 
@@ -1153,6 +1259,8 @@ public enum KernelLibrary {
     public static let maskFold = make(maskFoldSource)
     public static let maskInvert = make(maskInvertSource)
     public static let grain = make(grainSource)
+    // General: a generator, no `__sample` (see `grainFieldSource`).
+    public static let grainField = makeGeneral(grainFieldSource)
     public static let vignette = make(vignetteSource)
     public static let detailGain = make(detailGainSource)
     public static let sharpenDelta = make(sharpenDeltaSource)
@@ -1233,7 +1341,7 @@ public enum KernelLibrary {
             // GPU path. It was in NEITHER, which is the fifth instance of exactly the
             // defect the comment on `unavailableMaskKernels` below describes.
             ("blendMask", blendMask), ("blendMaskMode", blendMaskMode),
-            ("grain", grain), ("vignette", vignette),
+            ("grain", grain), ("grainField", grainField), ("vignette", vignette),
             ("detailGain", detailGain), ("dehaze", dehaze), ("addGlow", addGlow),
             ("sharpenDelta", sharpenDelta), ("lumaRatio", lumaRatio),
             ("subtract", subtract), ("thresholdMask", thresholdMask), ("detailRemap", detailRemap),
