@@ -2217,47 +2217,53 @@ struct LoupeView: View {
         let plateRatio: Double = cg.width > 0
             ? Double(plateDrawn.width) * Double(Swift.max(displayScale, 1)) / Double(cg.width)
             : 1
-        ZStack {
-            plate(cg, ratio: plateRatio, drawn: plateDrawn, zoomRatio: LoupeZoom.fit)
-                .rotationEffect(.degrees(tilt))
-
-            // Guided Upright's lines (WS-25), framed and turned exactly as the plate is
-            // so the overlay's coordinates are the plate's.
-            if uprightGuides.isDrawing {
-                UprightGuideOverlayView(geometry: geometry, sourceSize: source,
-                                        onAdd: { state.addUprightGuide($0) })
-                    .frame(width: plateDrawn.width, height: plateDrawn.height)
+        // `CropImagePanOffset` slides the whole stack while a drag inside the rectangle
+        // moves the picture (Lightroom's grammar, `CropOverlayView.moveGesture`); it
+        // observes the crop tool itself so this view is not re-bodied for the offset.
+        CropImagePanOffset {
+            ZStack {
+                plate(cg, ratio: plateRatio, drawn: plateDrawn, zoomRatio: LoupeZoom.fit)
                     .rotationEffect(.degrees(tilt))
-            }
 
-            CropOverlayView(crop: cropBinding,
-                            geometry: geometry,
-                            // The SOURCE frame, not `cg` — the same reason the mask
-                            // canvas needs it: the overlay's conversions are stated in
-                            // source pixels.
-                            sourceSize: source,
-                            // The plate above is the frame WITHOUT its crop, and the
-                            // overlay is sized to the usable frame. Passed rather than
-                            // assumed, because the day that changes the rectangle must
-                            // move with it.
-                            viewShowsCrop: false,
-                            photoID: photo.id,
-                            onAngle: { angle in applyRotation(angle) },
-                            frameAspect: cropFrameAspect)
-                .frame(width: usableDrawn.width, height: usableDrawn.height)
+                // Guided Upright's lines (WS-25), framed and turned exactly as the plate is
+                // so the overlay's coordinates are the plate's.
+                if uprightGuides.isDrawing {
+                    UprightGuideOverlayView(geometry: geometry, sourceSize: source,
+                                            onAdd: { state.addUprightGuide($0) })
+                        .frame(width: plateDrawn.width, height: plateDrawn.height)
+                        .rotationEffect(.degrees(tilt))
+                }
 
-            // Above the crop rectangle, so the ruler's drag belongs to the ruler while
-            // it is armed. It lives inside the crop tool because that is the one place
-            // the whole straightened frame is on screen — a ruler over an
-            // already-cropped picture would be measuring a frame the angle is not
-            // expressed in.
-            if viewport.showStraighten {
-                StraightenOverlayView(
-                    currentAngle: geometry.angle,
-                    isFlipped: geometry.flipH,
-                    onAngle: { angle in applyRotation(angle) },
-                    onFinish: { viewport.showStraighten = false })
+                CropOverlayView(crop: cropBinding,
+                                geometry: geometry,
+                                // The SOURCE frame, not `cg` — the same reason the mask
+                                // canvas needs it: the overlay's conversions are stated in
+                                // source pixels.
+                                sourceSize: source,
+                                // The plate above is the frame WITHOUT its crop, and the
+                                // overlay is sized to the usable frame. Passed rather than
+                                // assumed, because the day that changes the rectangle must
+                                // move with it.
+                                viewShowsCrop: false,
+                                photoID: photo.id,
+                                onAngle: { angle in applyRotation(angle) },
+                                frameAspect: cropFrameAspect,
+                                plate: cg)
                     .frame(width: usableDrawn.width, height: usableDrawn.height)
+
+                // Above the crop rectangle, so the ruler's drag belongs to the ruler while
+                // it is armed. It lives inside the crop tool because that is the one place
+                // the whole straightened frame is on screen — a ruler over an
+                // already-cropped picture would be measuring a frame the angle is not
+                // expressed in.
+                if viewport.showStraighten {
+                    StraightenOverlayView(
+                        currentAngle: geometry.angle,
+                        isFlipped: geometry.flipH,
+                        onAngle: { angle in applyRotation(angle) },
+                        onFinish: { viewport.showStraighten = false })
+                        .frame(width: usableDrawn.width, height: usableDrawn.height)
+                }
             }
         }
         .frame(width: container.width, height: container.height)

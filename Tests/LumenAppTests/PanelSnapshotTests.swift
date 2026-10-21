@@ -255,6 +255,36 @@ final class PanelSnapshotTests: XCTestCase {
             SnapshotMaskOverlay(image: sample, overlay: overlay, container: viewer)
         }
 
+        // Lane C1: the two shaped guides, and the picture turning with its fine grid.
+        let tool = CropTool.shared
+        let rememberedGuide = tool.overlay
+        tool.overlay = .triangle
+        tool.guideOrientation = 0
+        await recorder.render("overlay-crop-triangle",
+                              "Crop overlay, Golden Triangle guide",
+                              width: viewer.width, height: viewer.height) {
+            SnapshotCropOverlay(image: sample, crop: crop, photoID: photo.id,
+                                container: viewer)
+        }
+        tool.overlay = .spiral
+        tool.guideOrientation = 1
+        await recorder.render("overlay-crop-spiral",
+                              "Crop overlay, Golden Spiral guide turned once with ⇧O",
+                              width: viewer.width, height: viewer.height) {
+            SnapshotCropOverlay(image: sample, crop: crop, photoID: photo.id,
+                                container: viewer)
+        }
+        tool.overlay = rememberedGuide
+        tool.guideOrientation = 0
+        let tilted = CropGeometry.reangled(crop, sourceWidth: 1800, sourceHeight: 1200,
+                                           from: 0, to: 6)
+        await recorder.render("overlay-crop-rotating",
+                              "Crop overlay while the angle moves: picture at +6°, fine grid",
+                              width: viewer.width, height: viewer.height) {
+            SnapshotCropOverlay(image: sample, crop: tilted, photoID: photo.id,
+                                container: viewer, angle: 6, forceRotationGrid: true)
+        }
+
         // WS-25: the Crop section with its Transform fold opened, Upright Vertical
         // chosen and a manual tilt, so the mode row's dot and the moved sliders show.
         state.updateRecipe { r in
@@ -1151,25 +1181,34 @@ private struct SnapshotCropOverlay: View {
     let crop: Crop
     let photoID: URL
     let container: CGSize
+    /// A straighten angle: the plate turns under an overlay sized to the usable frame,
+    /// the way `LoupeView.cropCanvas` lays it out.
+    var angle: Double = 0
+    var forceRotationGrid: Bool = false
 
     var body: some View {
         let inset: CGFloat = 40
-        let k = Swift.min((container.width - inset * 2) / CGFloat(image.width),
-                          (container.height - inset * 2) / CGFloat(image.height))
+        let usable = CropGeometry.usableSize(width: Double(image.width),
+                                             height: Double(image.height), degrees: angle)
+        let k = Swift.min((container.width - inset * 2) / CGFloat(usable.width),
+                          (container.height - inset * 2) / CGFloat(usable.height))
         let drawn = CGSize(width: CGFloat(image.width) * k, height: CGFloat(image.height) * k)
+        let frame = CGSize(width: CGFloat(usable.width) * k, height: CGFloat(usable.height) * k)
         ZStack {
             Image(decorative: image, scale: 1, orientation: .up)
                 .resizable()
                 .interpolation(.high)
                 .frame(width: drawn.width, height: drawn.height)
+                .rotationEffect(.degrees(angle))
             CropOverlayView(crop: .constant(crop),
-                            geometry: Geometry(crop: crop),
+                            geometry: Geometry(crop: crop, angle: angle),
                             sourceSize: CGSize(width: image.width, height: image.height),
                             viewShowsCrop: false,
                             photoID: photoID,
                             onAngle: { _ in },
-                            frameAspect: Double(image.width) / Double(image.height))
-                .frame(width: drawn.width, height: drawn.height)
+                            frameAspect: usable.width / usable.height,
+                            forceRotationGrid: forceRotationGrid)
+                .frame(width: frame.width, height: frame.height)
         }
         .frame(width: container.width, height: container.height)
         .background(Color(nsColor: NSColor(white: 0.165, alpha: 1)))

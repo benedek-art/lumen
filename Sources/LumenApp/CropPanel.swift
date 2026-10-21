@@ -33,50 +33,11 @@ import SwiftUI
 
 // MARK: - Guides
 
-/// What the crop rectangle draws inside itself.
-///
-/// docs/09 lists six and binds them to O; four are here, and the two that are not —
-/// Golden Spiral and Triangle — are the two that need an orientation cycle of their own
-/// to be worth anything. A spiral you cannot turn is a decoration.
-enum CropOverlayStyle: String, CaseIterable, Identifiable, Sendable {
-    /// Spelled `off` rather than `none`, matching `BeforeAfterMode`: a case called
-    /// `none` on a non-optional value reads as `Optional.none` to every human who
-    /// glances at a comparison, and eventually to the compiler in some context where
-    /// the value has become optional.
-    case off
-    case thirds
-    case grid
-    case golden
-    case diagonals
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .off: return "None"
-        case .thirds: return "Thirds"
-        case .grid: return "Grid"
-        case .golden: return "Golden Ratio"
-        case .diagonals: return "Diagonals"
-        }
-    }
-
-    /// The fractions of the rectangle's width and height the guides sit at, or nil for
-    /// the styles that are not a set of straight divisions.
-    ///
-    /// One list drives both axes because every one of these divisions is scale-free —
-    /// thirds are thirds of whatever edge they cut, and φ is φ. A style that needed
-    /// different fractions per axis would be describing a shape rather than a division.
-    var divisions: [Double]? {
-        switch self {
-        case .off, .diagonals: return nil
-        case .thirds: return [1.0 / 3, 2.0 / 3]
-        case .grid: return [0.25, 0.5, 0.75]
-        // 1/φ and 1−1/φ. The same two numbers photographers know as 0.382 and 0.618.
-        case .golden: return [1 - 1 / 1.618033988749895, 1 / 1.618033988749895]
-        }
-    }
-}
+/// What the crop rectangle draws inside itself. The styles, their O-cycle order, their
+/// ⇧O orientations and every segment they draw are `CropGuides` in LumenCore, where the
+/// triangle's right angles and the spiral's eye are tested; this name stays so the
+/// panel and the overlay read as before.
+typealias CropOverlayStyle = CropGuides.Style
 
 // MARK: - The tool's session state
 
@@ -140,6 +101,168 @@ final class CropTool: ObservableObject {
     // MARK: Guides
 
     @Published var overlay: CropOverlayStyle = .thirds
+    /// Which way the triangle or the spiral is turned (⇧O), modulo the style's count.
+    @Published var guideOrientation: Int = 0
+
+    /// O: the next guide in Lightroom's cycle, starting it unturned.
+    func cycleGuide() {
+        overlay = overlay.next
+        guideOrientation = 0
+    }
+
+    /// ⇧O: turn the triangle or the spiral; nothing for the symmetric guides.
+    func turnGuide() {
+        let count = Swift.max(overlay.orientations, 1)
+        guideOrientation = (guideOrientation + 1) % count
+    }
+
+    // MARK: Dragging the picture
+
+    /// How far the picture is displaced on screen while a drag inside the rectangle is
+    /// under way, in view points. Lightroom's grammar: the picture follows the hand and
+    /// the rectangle holds still, so the loupe's crop canvas offsets the plate AND the
+    /// overlay by this while the crop moves the other way inside the overlay. Zero at
+    /// rest; the release animates it back, which re-fits the picture around the new
+    /// crop.
+    @Published var imagePan: CGSize = .zero
+
+    // MARK: The plate Auto reads
+
+    /// The picture the crop canvas is drawing — flip applied, angle and crop left off —
+    /// and the photograph it belongs to, so Auto straighten measures the pixels the
+    /// photographer is looking at and never another frame's. Cleared when the canvas
+    /// goes away. Not published: nothing draws from it.
+    private(set) var plate: (photo: URL, image: CGImage, flipped: Bool)?
+    /// An Auto press that arrived before its photograph's plate did (the same click
+    /// that opened the tool): run when that plate lands.
+    private var pendingAuto: (photo: URL, run: @MainActor () -> Void)?
+
+    @MainActor
+    func notePlate(_ image: CGImage?, photo: URL, flipped: Bool) {
+        guard let image else {
+            if plate?.photo == photo { plate = nil }
+            return
+        }
+        plate = (photo, image, flipped)
+        guard let pending = pendingAuto else { return }
+        // A press for another photograph is stale the moment this one is on screen.
+        pendingAuto = nil
+        if pending.photo == photo { pending.run() }
+    }
+
+    /// The canvas went away (Escape, R, another workspace): its plate and any Auto
+    /// press still waiting for it go too, so nothing fires later unasked.
+    func forgetPlate(of photo: URL) {
+        if plate?.photo == photo { plate = nil }
+        pendingAuto = nil
+    }
+
+    // MARK: Keys and buttons that write the framing
+
+    /// Return, or a double click inside the rectangle: put the tool away KEEPING the
+    /// crop. The crop already saved as it was dragged, so this is R's close with a key
+    /// every other editor uses for "done"; Escape stays the way back.
+    @MainActor
+    func commit() {
+        endSession()
+        forgetArming()
+        LoupeViewport.shared.showStraighten = false
+        LoupeViewport.shared.showCrop = false
+    }
+
+    /// An arrow press: slide the crop over the picture, never resize it. The primary
+    /// photograph only, for the reason `revert` gives — the rectangle is on one picture.
+    @MainActor
+    func nudge(stepsX: Double, stepsY: Double, shift: Bool, in state: AppState) {
+        guard let photo = state.primarySelection else { return }
+        state.updateRecipe(coalescingKey: "crop", targets: [photo]) { _, recipe in
+            recipe.develop.geometry.crop = CropGeometry.nudge(recipe.develop.geometry.crop,
+                                                              stepsX: stepsX, stepsY: stepsY,
+                                                              shift: shift)
+        }
+    }
+
+    /// X in the crop tool: portrait ↔ landscape about the same centre, the ⇅ button's
+    /// write (`CropAspectEdit`, per target). A held ratio is carried across as its
+    /// reciprocal, so a locked 3:2 stays locked as 2:3.
+    @MainActor
+    func swapOrientation(in state: AppState) {
+        let held = CropAspectEdit.heldLock(in: state, tool: self)
+        Task { @MainActor in
+            switch await CropAspectEdit.apply(.swap, in: state) {
+            case .failure(let issue): state.statusMessage = issue.message
+            case .success:
+                guard let photo = state.primarySelection else { return }
+                self.setLock(held.map { 1 / $0 }, for: photo.id)
+            }
+        }
+    }
+
+    /// Auto straighten: measure the plate's dominant lines off the main thread and write
+    /// the levelling angle to the PRIMARY photograph — the one whose pixels were
+    /// measured; another frame's tilt is its own — through `BatchFraming`, so the crop
+    /// rides the angle the way every other angle write carries it. Its own undo step.
+    /// A frame with nothing straight in it changes nothing and says so.
+    @MainActor
+    func autoStraighten(in state: AppState, fallback: BatchFraming.Frame?) {
+        guard let photo = state.primarySelection else { return }
+        guard let plate, plate.photo == photo.id else {
+            // The click that opened the tool: the plate is still being drawn.
+            pendingAuto = (photo.id, { [weak self] in
+                self?.autoStraighten(in: state, fallback: fallback)
+            })
+            state.statusMessage = "Measuring the horizon…"
+            return
+        }
+        let image = plate.image
+        let flipped = plate.flipped
+        Task { @MainActor in
+            let estimate = await Task.detached(priority: .userInitiated) {
+                CropTool.lumaPlane(of: image, longEdge: 800).flatMap {
+                    AutoStraighten.estimate(luma: $0.luma, width: $0.width, height: $0.height,
+                                            plateIsFlipped: flipped)
+                }
+            }.value
+            guard state.primarySelection?.id == photo.id else { return }
+            guard let estimate else {
+                state.statusMessage = "Auto straighten found no horizon or vertical to level"
+                return
+            }
+            state.updateRecipe(coalescingKey: "geometry.angle.auto",
+                               targets: [photo]) { photo, recipe in
+                let frame = state.framingFrame(for: photo, primaryFallback: fallback)
+                if let next = BatchFraming.apply(.angle(estimate.angle),
+                                                 to: recipe.develop.geometry, frame: frame) {
+                    recipe.develop.geometry = next
+                }
+            }
+            state.statusMessage = String(format: "Straightened to %+.1f°", estimate.angle)
+        }
+    }
+
+    /// A luma plane of `image` at most `longEdge` on its long side, y downward.
+    static func lumaPlane(of image: CGImage, longEdge: Int)
+        -> (luma: [Float], width: Int, height: Int)? {
+        let scale = Swift.min(1, Double(longEdge) / Double(Swift.max(image.width, image.height, 1)))
+        let w = Swift.max(Int((Double(image.width) * scale).rounded()), 1)
+        let h = Swift.max(Int((Double(image.height) * scale).rounded()), 1)
+        guard let gray = CGColorSpace(name: CGColorSpace.genericGrayGamma2_2) else { return nil }
+        var bytes = [UInt8](repeating: 0, count: w * h)
+        let drawn: Bool = bytes.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(data: buffer.baseAddress, width: w, height: h,
+                                          bitsPerComponent: 8, bytesPerRow: w,
+                                          space: gray,
+                                          bitmapInfo: CGImageAlphaInfo.none.rawValue)
+            else { return false }
+            context.interpolationQuality = .medium
+            context.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+            return true
+        }
+        guard drawn else { return nil }
+        // A bitmap context's first row is the TOP of the picture, which is the y-down
+        // order the estimator wants.
+        return (bytes.map { Float($0) / 255 }, w, h)
+    }
 
     // MARK: Commit and revert
 
@@ -281,6 +404,10 @@ private let cropAspects: [CropAspect] = [
     CropAspect(name: "7:5", ratio: 7.0 / 5.0),
     CropAspect(name: "16:9", ratio: 16.0 / 9.0),
     CropAspect(name: "16:10", ratio: 16.0 / 10.0),
+    // The two print shapes Lightroom's list carries that the ratios above do not:
+    // US Letter and the A series (√2, so A4, A3 and A5 are one entry).
+    CropAspect(name: "11:8.5 Letter", ratio: 11.0 / 8.5),
+    CropAspect(name: "√2:1 A4", ratio: 2.0.squareRoot()),
 ]
 
 /// The frame aspect the ratio menu falls back to before the real one is known.
@@ -400,9 +527,9 @@ struct CropSection: View {
                                    + "beside the ratio.")
                 // No Done/Revert row: the crop saves as you go (owner, pass 4). R — or
                 // leaving the workspace — puts the tool away, Escape reverts to the
-                // framing this session opened with, Reset clears everything. Return no
-                // longer means anything here; the grammar change landed in `KeyGrammar`
-                // and the help sheet with this.
+                // framing this session opened with, Reset clears everything. Return (and a
+                // double click inside the rectangle) puts the tool away keeping the crop,
+                // from `CropKeys` — a key, so no row is needed for it.
                 // Perspective (WS-25): Upright's modes and the manual Transform
                 // sliders. They reach a stage now — `GeometryMap` on both paths.
                 CropTransformSection()
@@ -517,10 +644,9 @@ struct CropSection: View {
                   + "or an edge to reframe, inside the rectangle to move it, and "
                   + "outside the frame to turn the picture.")
 
-            // ⇅, not X. docs/09 binds portrait ↔ landscape to X, and X is the reject
-            // flag everywhere in this app with no crop-mode branch anywhere in `Keymap`
-            // — so a photographer following that binding inside the crop tool rejects
-            // the photograph they are cropping.
+            // ⇅, and X while the crop tool is armed (`CropKeys`): X is the reject flag
+            // everywhere else, so the crop-mode branch claims it only while the
+            // rectangle is on the photograph.
             Button {
                 swapOrientation()
             } label: {
@@ -532,7 +658,7 @@ struct CropSection: View {
             }
             .buttonStyle(.plain)
             .help("Turn the crop between portrait and landscape, keeping its size and "
-                  + "its centre.")
+                  + "its centre. X does the same while the crop tool is open.")
         }
         .frame(height: Lumen.rowHeight)
     }
@@ -600,8 +726,21 @@ struct CropSection: View {
             }
             .font(.lumenCaption)
             .help("Drag along a horizon or a doorframe and the frame levels to whichever "
-                  + "axis that line is nearer. To turn the picture by hand instead, drag "
-                  + "outside the rectangle.")
+                  + "axis that line is nearer — or hold ⌘ and drag the same line on the "
+                  + "photograph. To turn the picture by hand instead, drag outside the "
+                  + "rectangle.")
+            // Lightroom's Auto: the picture's own horizon or verticals, measured on the
+            // plate the crop canvas is drawing (`AutoStraighten`). It writes the Angle
+            // field, so the number it chose is right there to adjust.
+            Button("Auto") {
+                state.showLoupe()
+                viewport.showCrop = true
+                tool.autoStraighten(in: state, fallback: assumedFrame)
+            }
+            .font(.lumenCaption)
+            .help("Level the picture on its own horizon or verticals. Sets the Angle above, "
+                  + "so you can adjust what it chose; a frame with nothing straight in it "
+                  + "is left alone.")
             Spacer()
         }
         .frame(height: Lumen.rowHeight)
@@ -615,15 +754,19 @@ struct CropSection: View {
                 .frame(width: Lumen.labelWidth, alignment: .leading)
             Menu {
                 ForEach(CropOverlayStyle.allCases) { style in
-                    Button(style.title) { tool.overlay = style }
+                    Button(style.title) {
+                        tool.overlay = style
+                        tool.guideOrientation = 0
+                    }
                 }
             } label: {
                 Text(tool.overlay.title)
                     .font(.lumenCaption)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .help("Drawn inside the rectangle while you frame. A guide is a way of "
-                  + "looking, so it is remembered across photographs and is not part of "
+            .help("Drawn inside the rectangle while you frame. O cycles them on the "
+                  + "photograph and ⇧O turns the triangle and the spiral. A guide is a way "
+                  + "of looking, so it is remembered across photographs and is not part of "
                   + "the recipe.")
         }
         .frame(height: Lumen.rowHeight)

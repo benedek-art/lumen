@@ -69,6 +69,8 @@ final class SliderEvidenceTests: XCTestCase {
         "detail.sharpen.classic": "toggle — classic sharpening on/off",
         "detail.sharpen.reset": "section reset button",
         "denoise.mode": "segmented picker — off/classic/AI",
+        "geometry.angle.auto": "action — Auto straighten; writes geometry.angle, whose "
+            + "slider is accounted for, as its own undo step",
         "geometry.crop.aspect": "aspect-ratio picker",
         "geometry.crop.orientation": "orientation button",
         "geometry.crop.original": "action — restore the original crop",
