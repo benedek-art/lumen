@@ -2003,19 +2003,28 @@ struct MaskPanel: View {
         let text: String
         switch status {
         case .ready:
-            badge = c.model ?? "VISION"
-            text = "Computed on this Mac by Apple's Vision framework, cached at 1024 px; "
-                + "Refine carries the edge up to full resolution."
+            badge = c.model ?? (c.kind == .aiSky ? "ON DEVICE" : "VISION")
+            text = c.kind == .aiSky
+                ? "Found on this Mac from colour, smoothness and position, with its "
+                    + "edge snapped to the photograph at 2048 px."
+                : "Computed on this Mac by Apple's Vision framework, with its edge "
+                    + "snapped to the photograph at 2048 px."
         case .working:
-            badge = "VISION"
+            badge = c.kind == .aiSky ? "ON DEVICE" : "VISION"
             text = "Computing on this Mac — no download, no model. The mask is empty "
                 + "until it lands, and the picture stays editable meanwhile."
         case .notFound:
             badge = "NOTHING FOUND"
-            text = c.kind == .aiPerson
-                ? "Vision found no person in this frame. Try a brush, or Subject."
-                : "Vision found no clear subject in this frame. Try a brush, or a "
+            switch c.kind {
+            case .aiPerson:
+                text = "Vision found no person in this frame. Try a brush, or Subject."
+            case .aiSky:
+                text = "No open sky found in this frame. Try a Linear gradient with a "
+                    + "Brightness Range, or a Colour Pick on the sky."
+            default:
+                text = "Vision found no clear subject in this frame. Try a brush, or a "
                     + "Colour Pick on what you meant."
+            }
         case .unavailable:
             badge = "ORIGINAL UNREADABLE"
             text = "Vision works from the original file, and it cannot be read — "
@@ -3332,15 +3341,16 @@ struct MaskPanel: View {
                                       .aiPerson, .aiLandscape]
 
     /// What the picker offers, derived from `MaskKind.matteProvider` so a kind cannot
-    /// end up in the wrong list. Only Vision's three: they come out of an OS framework
-    /// on this Mac with no download and no bundled weights.
+    /// end up in the wrong list. Vision's three plus Sky: all four are made on this Mac
+    /// with no download and no bundled weights (Sky by `SkyDetector`, or by a sky model
+    /// the owner has installed).
     static let visionKinds: [MaskKind] = aiKinds.filter { $0.matteProvider == .vision }
 
     /// THE KINDS THAT CANNOT BE MADE HERE, derived rather than listed.
     ///
-    /// Four of them, and every one is a kind whose matte would have to come from a Core
-    /// ML model this application does not bundle: Sky, Object, Landscape and Depth
-    /// Range. Each rasterizes to an empty plane, so each is ABSENT from the picker rather
+    /// Three of them, and every one is a kind whose matte would have to come from a Core
+    /// ML model this application does not bundle: Object, Landscape and Depth Range.
+    /// (Sky left this list when `SkyDetector` gave it an on-device matte.) Each rasterizes to an empty plane, so each is ABSENT from the picker rather
     /// than present-and-disabled — `kindTile` carries no `.disabled` and no greyed row,
     /// because a tile a photographer can see, read and never enable is a promise the app
     /// cannot keep, and it teaches that the app is unfinished rather than that this kind

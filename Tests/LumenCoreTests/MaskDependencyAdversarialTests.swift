@@ -50,9 +50,9 @@ final class MaskDependencyAdversarialTests: XCTestCase {
         return c
     }
 
-    private static let visionKinds: [MaskKind] = [.aiSubject, .aiBackground, .aiPerson]
-    private static let modelKinds: [MaskKind] = [.aiSky, .aiObject, .aiLandscape,
-                                                 .depthRange]
+    private static let visionKinds: [MaskKind] = [.aiSubject, .aiBackground, .aiPerson,
+                                                  .aiSky]
+    private static let modelKinds: [MaskKind] = [.aiObject, .aiLandscape, .depthRange]
     private static var matteKinds: [MaskKind] { visionKinds + modelKinds }
 
     private func matte(_ shift: Double) -> Plane {

@@ -324,9 +324,12 @@ final class MaskPanelTests: XCTestCase {
     /// A tile a photographer can see, read and never enable is a promise the app cannot
     /// keep. Absence teaches nothing false; a greyed tile teaches that the app is
     /// unfinished.
-    func testTheFourKindsWithNoModelAreNotOnThePickerBoard() {
+    ///
+    /// Three since WS-49: Sky has an on-device matte (`SkyDetector`) and is offered.
+    func testTheThreeKindsWithNoModelAreNotOnThePickerBoard() {
         XCTAssertEqual(Set(MaskPanel.unofferedKinds),
-                       Set<MaskKind>([.aiSky, .aiObject, .aiLandscape, .depthRange]))
+                       Set<MaskKind>([.aiObject, .aiLandscape, .depthRange]))
+        XCTAssertTrue(MaskPanel.pickerKinds(maskCount: 1).contains(.aiSky))
         let offered = Set(MaskPanel.pickerKinds(maskCount: 4))
         for kind in MaskPanel.unofferedKinds {
             XCTAssertFalse(offered.contains(kind),
