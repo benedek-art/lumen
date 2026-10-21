@@ -77,7 +77,7 @@ No Lightroom exports were available, so this is from knowledge of Lightroom's be
   - `DenoiseTests`: Smoothness now tilts (finest band moves down by design); hot-pixel gate 12/8; receptive field +2; ISO-default test pins the new curve; GPU-plan test uses an explicit read-noise profile because base ISO no longer needs a rescale, and now checks the V thresholds.
   - `DenoiseQualityTests`: the full-deflection and top-of-travel claims are scored on a demosaiced twin of the same frame with noise from the engine's profile (the old frame's white noise at its own σ is what no camera produces); bars unchanged. The ceiling test is restated in band-noise σ (3σ max).
   - `EngineIntegrationTests`, `ResetSemanticsTests`: new ISO defaults.
-  - `ProofRegistry` `denoise.hotPixels`: declared plateau 19 → 17 (the gate now ramps over the frame's spikes instead of flipping at one step), and the seven `denoise.*` proof records regenerated. Authority rose for Luminance 9.6 → 20.2, Detail 6.8 → 15.1, Contrast 0.75 → 2.05, Colour 16.2 → 51.6, Colour Detail 11.8 → 91.4; Smoothness fell 6.8 → 4.9 (the blotch pass is gone); Hot Pixels unchanged at 171.
+  - `ProofRegistry` `denoise.hotPixels`: declared plateau 19 → 17 (the gate now ramps over the frame's spikes instead of flipping at one step), and the seven `denoise.*` proof records regenerated. Authority rose for Luminance 9.6 → 20.2, Detail 6.8 → 15.1, Contrast 0.75 → 2.05, Colour 16.2 → 51.6, Colour Detail 11.8 → 91.4; Smoothness fell 6.8 → 4.9 against a floor of 4 (the blotch pass is gone); Hot Pixels unchanged at 171. The records' worst-pixel hue rotation rose for Colour Detail (5.1° → 55.7°) and Colour (10.6° → 23.2°): the metric is the single worst pixel on a noisy frame, and a noise reducer that now removes the colour speckle rotates those speckle pixels by design. Colour Detail's front-loading is now 1.0 (most of its effect in the first step of travel).
 - Full Linux suite (release, `-enable-testing`): base commit 3058 tests, 0 failures; final tree 3065 tests, 0 failures.
 - Note: on the Swift 6.0.3 toolchain the brief installs, `swift test` cannot build `LumenApp` (`CompareView.swift` trailing commas, pre-existing). Tests were run with that file patched locally and not committed (NEEDS.md #4).
 
@@ -85,7 +85,7 @@ No Lightroom exports were available, so this is from knowledge of Lightroom's be
 
 - Round 1 (fresh verifier, spec + diff only): FAIL. All 19 measured lines and V1 to V3 passed, and the line-by-line GPU vs CPU review found no mismatch. Failures: 8 existing tests broken, REPORT.md missing, and one wrong comment (it claimed Colour 25 cannot touch an ISO 100 photo).
 - Fixed: the tests above; this report; the comment now states the measured low-ISO effect (A7 IV ISO 250 speckle 1.26 → 0.34 ΔE, indistinguishable at 3×; colour-edge detail kept better than shipped on A7 IV and GX85).
-- Round 2: pending at the time of writing; result appended below.
+- Round 2 (same verifier, diff d26c5f4): PASS. Full Linux release suite 3065 tests, 0 failures; 19 of 19 lines and V1 to V3 pass. Its residual notes: the restated quality tests draw noise from the engine's own profile, so they no longer test a misjudged σ (real for the A7C, see NEEDS.md #1); the chroma ceiling was only a pin, now also bounded at 8σ in the bands that carry colour detail.
 
 ## What I could not fix, and what a human must judge
 

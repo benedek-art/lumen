@@ -345,6 +345,14 @@ final class DenoiseQualityTests: XCTestCase {
                                      + "under 2% of it and every further step is paid "
                                      + "in texture")
         XCTAssertEqual(ClassicalDenoise.chromaMaxK, pow(4, 0.75), accuracy: 1e-12)
+        // And a bound on what chroma can actually reach where chroma signal lives:
+        // bands 1 and up (2 px and coarser). Band 0 is excluded on purpose — it holds
+        // no chroma signal and is zeroed at every setting. 8σ of a band's real noise
+        // is where the thinnest colour edges the edge map does not protect start to go.
+        let reachable = ClassicalDenoise.chromaBandWeight.dropFirst().max() ?? 0
+        XCTAssertLessThanOrEqual(ClassicalDenoise.chromaMaxK * reachable, 8.0,
+                                 "Colour 100 reaches \(ClassicalDenoise.chromaMaxK * reachable)σ "
+                                     + "in the bands that carry colour detail")
 
         // The anchors are what stop the bound from being a quiet weakening: each master
         // must still reach its stated strength at its stated setting.
