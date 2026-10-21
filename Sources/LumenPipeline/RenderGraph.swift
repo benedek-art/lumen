@@ -884,14 +884,11 @@ public struct RenderGraph {
         guard let lum = Self.logLuminance(image) else { return image }
         // The mask is edge-aware and computed in log space, so it stays valid when
         // Exposure moves — the exposure-independent property the tone equalizer needs.
-        let radius = Swift.max(Int(Double(options.longEdge) * 0.02), 2)
-        // ε from the reference, in lockstep — the fifth units bug lived HERE as a bare
-        // 0.004 on the encoded plane (a 1.52 EV threshold; Shadows +100 haloed a 4 EV
-        // edge by half a stop). The number and its measurement live on
-        // `ReferenceRenderer.toneMaskContrastThresholdEV`.
-        let mask = Self.guidedSelfFilter(
-            lum, radius: radius,
-            epsilon: ReferenceRenderer.toneMaskEpsilon) ?? lum
+        // Radius, texture scale and ε all come from the reference, in lockstep — the
+        // fifth units bug lived HERE as a bare 0.004 on the encoded plane (a 1.52 EV
+        // threshold; Shadows +100 haloed a 4 EV edge by half a stop). The numbers and
+        // their measurements live on `ReferenceRenderer.toneMask`.
+        let mask = Self.toneMask(lum, longEdge: options.longEdge) ?? lum
         // The plan's stored cube, baked once per plan. Calling `toneGainCube()`
         // rebuilt 32 768 samples on every frame of every slider drag.
         let cube = plan.toneGainCubeBaked ?? plan.toneGainCube()
@@ -2129,6 +2126,20 @@ public struct RenderGraph {
                                                 extent: image.extent, [image]),
               let mapped = ColorCube.filter(cube, image: encoded) else { return nil }
         return applyMatrix(mapped, Mat3.diagonal(RGB(gray: scale)))
+    }
+
+    /// The S7 tone mask, the twin of `ReferenceRenderer.toneMask`: coefficients from
+    /// the guide smoothed at the texture scale (two box passes), applied to the
+    /// unsmoothed log luminance — which is exactly what `guidedFilter(input:guide:)`
+    /// does when the two differ. Smoothing only the variance is what keeps leaf
+    /// texture and grain from reading as edges; the reference says why at length.
+    static func toneMask(_ lum: CIImage, longEdge: Int) -> CIImage? {
+        let radius = ReferenceRenderer.toneMaskRadius(longEdge: longEdge)
+        let textureRadius = ReferenceRenderer.toneMaskTextureRadius(maskRadius: radius)
+        guard let once = boxBlur(lum, radius: textureRadius),
+              let structure = boxBlur(once, radius: textureRadius) else { return nil }
+        return guidedFilter(input: lum, guide: structure, radius: radius,
+                            epsilon: ReferenceRenderer.toneMaskEpsilon)
     }
 
     static func guidedFilter(input: CIImage, guide: CIImage, radius: Int,
