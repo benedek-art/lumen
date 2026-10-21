@@ -10,7 +10,7 @@ sign bug in `Homography.normalized`, fixed in the second commit.
 - The CPU reference and `lumen-render` now crop, straighten, flip and Upright. The mapping is defined once, in LumenCore `GeometryMap`.
 - Upright Level, Vertical, Full, Auto and Guided all solve exactly on a synthetic facade. On the church (7301), Vertical works. On the castle (4213), it correctly refuses to pitch from 2 lines, but Level rotates 1.4° off a field path: judge `evidence/upright_4213.png`.
 - Try by hand on a Mac: the Transform fold (Crop panel), "Draw" guides on the crop canvas, and drag feel with Upright on (kernel cost).
-- GPU parity, UI snapshot and kernel compile are proven only by macOS CI on this branch.
+- macOS CI on this branch: GPU parity, UI layout, Proof sweep and UI snapshots (90b660a) are green. The `ci.yml` run and the expanded-Transform snapshot were still queued at hand-off.
 
 ## Verdict per spec line
 
@@ -26,8 +26,8 @@ sign bug in `Homography.normalized`, fixed in the second commit.
 | 7b (rev.) | σ 0.5 px edge overshoot ≤ 1% | **3.15%** (bicubic 1.93%; ideal pixel step 11.8% vs 7.4%) | **FAIL** |
 | 8 (rev.) | angle response continuous | largest jump 10 px at 0.5° steps, 6 px at 0.25°; mean change 0.38% / 0.33% | PASS |
 | 9 (rev.) | output size = integral crop in the straightened frame | 300 random geometries match the legacy closed form | PASS |
-| 10 | GPU uses the same resampler | `GeometryKernels` evaluates the same map, taps and chain; no `transformed(by:)` resample left on the delivered path except the kernel-missing fallback | PASS (code, verifier review) |
-| 11 | GPU and CPU agree to 2e-3 | `GeometryGPUParityTests` (5 geometries × 3 sizes) | macOS CI |
+| 10 | GPU uses the same resampler | `GeometryKernels` evaluates the same map, taps and chain; no `transformed(by:)` resample left on the delivered path except the kernel-missing fallback | PASS (code review + macOS parity run) |
+| 11 | GPU and CPU agree to 2e-3 | macOS CI (gpu-parity, c35e0c3): 15 cases, max 5.3e-6, mean ≤ 1.7e-7; kernels compile; point mapping vs `geometryRects` 3.3e-16; VignetteGeometryContractTests still pass | PASS |
 | 12 | default Upright is an identity | exact | PASS |
 | 13 | ≥ 8 vertical and ≥ 4 horizontal lines; vertical vanishing point within 0.5° | 41–42 / 41; 0.03°–0.08° | PASS |
 | 14 | Level is roll only, median deviation < 0.2° | pitch = yaw = 0; 0.07°–0.09° | PASS |
@@ -35,7 +35,7 @@ sign bug in `Homography.normalized`, fixed in the second commit.
 | 15 corpus (rev.) | median vertical deviation drops ≥ 60% | 7301: 3.49° → 1.18° (−66%; RMS only 11.4° → 10.7°). 4213: no correction (2 vertical lines, below the 4-line gate); median 1.04° → 2.45° from Level's roll | 7301 PASS, **4213 FAIL** |
 | 16 | Full: horizontals < 0.5° | 1.53° → 0.07–0.10° | PASS |
 | 17 | guides become exact; result always fills the frame | 0.00000°; worst corner 5.7e-13 px over 120 random corrections | PASS |
-| 18 | Transform section in the Crop panel | `CropTransformSection` built from `LumenSegmented`/`LumenSlider`; snapshot `panel-crop-transform-open` | macOS CI (ui-snapshots) |
+| 18 | Transform section in the Crop panel | `CropTransformSection` built from `LumenSegmented`/`LumenSlider`. The app builds and renders in ui-snapshots (90b660a), and the collapsed Transform fold shows in `panel-crop-transform-open`. The expanded-rows snapshot (c35e0c3) was still in the macOS queue at hand-off | PASS (built; expanded rows pending) |
 
 ## What changed and why
 
