@@ -24,7 +24,7 @@ Branch `quality/c1-crop` from `claude/inspiring-dirac-ulgpch` (9068ded). Spec:
 | 7 | Constrain to Image while rotating | PASS: no corner ever leaves the picture | M4: 85,260 verifier checks |
 | 8 | Largest rect at a locked ratio | PASS within the usable-frame model; **gap to Lightroom recorded** (see below) | M5 |
 | 9 | Straighten line, also ⌘-drag | PASS (code), owner to try | |
-| 10 | Auto straighten | PASS after round 2 fixes | M6, corpus table |
+| 10 | Auto straighten | PASS (verifier round 1 FAIL on three bugs, all fixed; round 2 PASS) | M6, corpus numbers, `evidence/auto-straighten-corpus.png` |
 | 11 | O cycles 6 guides + None, ⇧O turns | PASS | M7, `overlay-crop-triangle`, `overlay-crop-spiral` |
 | 12 | Fine grid whenever the angle moves | PASS | `overlay-crop-rotating` |
 | 13 | Dimmed outside | PASS (unchanged) | snapshots |
@@ -58,6 +58,42 @@ Branch `quality/c1-crop` from `claude/inspiring-dirac-ulgpch` (9068ded). Spec:
 - Auto declines on 17 of 25 corpus frames. That is deliberate: every looser threshold tried gave wrong answers of several degrees.
 - `8559` (bench, watering cans) gets +4.65°: Auto levels the bench and boxes, which a human may judge as perspective. Worth a look.
 
+## Verification
+
+Independent verifier, two rounds. Round 1: FAIL on Auto straighten only:
+- B1: a diagonal steeper than the search was "levelled" to 20.3°.
+- B2: Auto could measure a stale plate from another photograph.
+- B3: Auto wrote the primary's angle onto every selected photo.
+
+All three are fixed in 9b1ccad: a rim guard plus a test for the diagonal, a plate
+tagged per photo and deferred until it lands, and a primary-only write with its own
+undo key. Round 2: PASS, with corpus answers byte-identical. Its one low note (a queued
+Auto press never cancelled) is fixed in 5160c5a.
+
 ## CI
 
-(filled in after the macOS runs)
+- Linux: the full `LumenCoreTests` suite (3,067 tests, `--parallel`, ControlProofTests
+  skipped as CI does) passes locally on Swift 6.1.2. On CI, `engine-linux` caught a
+  slider-evidence registry miss for the new `geometry.angle.auto` key. That is fixed in
+  b0f7a37, with one row on the not-a-slider list.
+- `fixtures-linux` (Swift surface) is red on the base branch too, on `CommandLine` and
+  LumenRender inits, so it was pre-existing. This lane's two findings on it (a local
+  `Point` struct and `UnicodeScalar`) are gone.
+- macOS: `UI snapshots` passed on b0f7a37, so the whole app including this lane's SwiftUI
+  compiles, and the three new overlay states render. `build-macos`, `test-fast` and GPU
+  parity were still queued behind the shared macOS queue at the time of writing. See the
+  final push's runs.
+
+## Evidence
+
+The three best:
+1. `evidence/overlay-crop-rotating.png`: the picture turned 6° under the frame, tilted
+   corners dimmed, and the fine grid shown while the angle moves.
+2. `evidence/auto-straighten-corpus.png`: three corpus frames before and after Auto,
+   with level lines.
+3. `evidence/overlay-crop-spiral.png`: the golden spiral turned once with ⇧O. The
+   triangle is in `overlay-crop-triangle.png`.
+
+Panel before and after: `panel-crop-frame-before.png` and `panel-crop-frame.png` (Auto
+beside the ruler). Spiral chords were raised after this snapshot (outer arc was
+faceted); the final push's snapshot shows the smoother curve.

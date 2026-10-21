@@ -149,7 +149,6 @@ public enum CropGuides {
         // Unit construction: a φ × 1 rectangle, landscape.
         var rx = 0.0, ry = 0.0, rw = phi, rh = 1.0
         var points: [(Double, Double)] = []
-        let chordsPerQuarter = 12
         for step in 0..<10 {
             let centre: (Double, Double)
             let from: (Double, Double)
@@ -179,9 +178,12 @@ public enum CropGuides {
             if sweep < -.pi { sweep += 2 * .pi }
             let r = ((from.0 - centre.0) * (from.0 - centre.0)
                      + (from.1 - centre.1) * (from.1 - centre.1)).squareRoot()
+            // Chords scale with the radius: twelve per quarter faceted the outer arc
+            // visibly at window size (lane C1 snapshot), and the inner arcs need few.
+            let chords = Swift.max(6, Int((r * 64).rounded(.up)))
             let first = points.isEmpty ? 0 : 1
-            for i in first...chordsPerQuarter {
-                let a = a0 + sweep * Double(i) / Double(chordsPerQuarter)
+            for i in first...chords {
+                let a = a0 + sweep * Double(i) / Double(chords)
                 points.append((centre.0 + r * cos(a), centre.1 + r * sin(a)))
             }
         }
