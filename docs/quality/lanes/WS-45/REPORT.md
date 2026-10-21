@@ -32,7 +32,7 @@ verifier's own measurements unless noted.
 | S12 monotone, C1 falloff | PASS | all profiles monotone; largest step per pixel: linear 1, F25 5, F50 3, F100 2 codes, all within threshold |
 | S13 perceptually even | **BLOCKED** (fails as measured) | t50 is 0.561 at −2 EV and 0.337 at +2 EV, against a threshold of ±0.08. Cause: scene-linear blending in S11, which this lane does not own (NEEDS N1) |
 | S14 no banding in 8-bit skies | PASS | longest constant-code run, masked against unmasked: 983 14/13 (1.08×), 1840 16/22 (0.73×); dither removes the 1-code contours |
-| V1/V2 snapshots | pending CI | `window-1512x982-masking-linear.png` and `-masking-overlay.png` on the `ui-snapshots` branch |
+| V1/V2 snapshots | PASS | `quality-m3-gradient-masks/f2258be/window-1512x982-masking-linear.png` and `-masking-overlay.png` on the `ui-snapshots` branch |
 | V3 Feather 0 edge | PASS | `evidence/radial-feather0-before-after.png` |
 
 ## What changed and why
@@ -66,7 +66,11 @@ New: `GradientLaneTests` (9, Linux) and `GradientDisplayMappingTests` (2, macOS 
 
 ## Gates
 
-GATES
+- `swift build --target LumenCore --target LumenRender`: clean.
+- Linux `swift test --filter LumenCoreTests --skip ControlProofTests`: 3053 tests. The only failures were two tests pinned to the aliased Feather 0 edge; both were updated (see above), and the verifier re-ran the whole suite on b1565c1 with no failures. Mask/gradient filter (398 tests): 0 failures on f2258be. This needs the local CompareView comma patch (NEEDS N2).
+- macOS on f2258be (the code head; later commits are docs only): GPU parity **success** (includes `MaskGPUParityTests` and the new `GradientDisplayMappingTests`), UI snapshots **success**, Proof sweep **success**. CI and UI layout were still queued at 03:15 UTC (the macOS queue is about 50 runs deep), so they have **not reported**.
+- Verifier: round 1 FAIL, round 2 PASS.
+- Snapshots (`ui-snapshots`, `quality-m3-gradient-masks/f2258be/`): `window-1512x982-masking-linear.png` shows the three lines across the photo, clipped to it, with the pin on the centre line and the red wash lined up with the outer lines (V1 PASS). `window-1512x982-masking-overlay.png`: the unselected Sky gradient draws a faint horizontal centre line where the baseline had a vertical axis hairline (V2 PASS).
 
 ## Evidence (best three)
 
