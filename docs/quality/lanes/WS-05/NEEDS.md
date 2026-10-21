@@ -123,6 +123,12 @@ and HA3.
 
 ### N4. Bright saturated blues drift toward violet, magenta and pink in the display transform, and Highlights and Whites slide pixels along that drift (F1, the owner's "funky blue highlights")
 
+**Status: ACCEPTED by WS-13** as their spec lines 3.1-3.9 (the outset undoes the inset
+rotation; the shoulder bleaches toward neutral at constant hue), per the programme
+director. WS-05 does not fix this. WS-05's own obligation is SPEC H6: a slider adds no hue
+drift beyond the transform. H6 must stay at ≤ 0.5° across the WS-13 merge. The evidence
+below stays as WS-13's reference.
+
 **Where** (`DisplayTransform.apply`, DisplayTransform.swift:357-410).
 
 1. **Static rotation.** The inset primary rotation is `rotation = RGB(0.02, -0.03, 0.06)`
@@ -199,6 +205,8 @@ log space.
 
 ### N6. Near-white skies swing toward cyan on the way to white (F3)
 
+**Status: ACCEPTED by WS-13**, covered by their lines 3.1-3.9 (the shoulder bleaches toward neutral at constant hue). WS-05 keeps only the strength part (W2, W4, W7) and H6.
+
 **Where.** The same per-channel branch as N4. Pale and cyan skies move toward cyan
 (per-channel hue 253 → 230°) as they approach white.
 
@@ -227,3 +235,29 @@ unclip them (0.5 % remain), because it lowers Y-driven t from 0 EV up.
 **Ask.** Confirm whether this is the intended output-gamut behaviour (display gamut soft
 clip after the outset, DisplayTransform.swift:403-410), or a per-channel shoulder artefact
 of the same blend as N4. If it is the blend, the N4 fix covers it.
+
+---
+
+## Notices: what WS-05's SPEC line A1 changes for other lanes
+
+### N8. The default white anchor moves from +5.0 to about +3.0 EV
+
+**Request and verification.** This is WS-13's request, verified in WS-05 `SPEC.md` §A.
+The proof decode puts sensor white at +2.47 EV, and Apple's decode at +2.66…+2.90 EV. Both
+render at code 221-232 today, and no real frame at exposure 0 has a single 255 pixel (6929,
+1569, 2348 and 1332 max out at luma 221-222). With the anchor at 3.0 they render at
+243-254.
+
+This needs no code change in another lane. It changes what other lanes measure against,
+because they read the live anchor:
+
+| owner | where | effect |
+|---|---|---|
+| WS-06 | `contrastMapped` | The highlight-side reach is `whiteAnchorEV - pivot`, so it shrinks from 5 to 3 EV at the default pivot. Contrast's shoulder starts earlier and its authority above mid-grey changes. Re-check the `tone.contrast` authorityFloor 55 (ControlProof). |
+| colour grading | `GradeEngine` | The zone axis is built from the plan's anchors (RenderPlan.swift:202-204). The highlight crossfade moves down by 2 EV. `GradeStripAxisTests` pins agreement and will follow automatically. |
+| WS-08 | `ToneEngine.normalizedAxis` / Zones panel | The normalized axis spans the anchors, so zone pivots map to different scene EVs above mid-grey. |
+| `AutoTone` | `sceneEV(displayLuminance:)` | It inverts the transform between the anchors, so its statistics follow. |
+| WS-13 | hard-coded anchors outside ToneEngine | `DisplayTransformParams.whiteAnchorEV = 5.0` (DisplayTransform.swift:67) and FilmLab's neutral transform (FilmLab.swift:1603-1606) do not go through `applyAnchors`. Decide whether Film Lab's neutral should follow the new default. |
+| WS-08 | `Zones.defaultPivots` | It is derived from `defaultWhiteAnchorEV` (Recipe.swift:604-607), so the pivots keep their scene EVs, -4…+4. With the anchor at +3, though, the "Bright" pivot at +4 EV lies past display white. Re-place it (for example at +2.5 EV). |
+| colour grading | `GradeEngine` defaults | The `whiteAnchorEV: Double = 5.0` defaults (GradeEngine.swift:98, 188, 369) only matter for callers that do not pass the plan's anchors. Check them. |
+| integrator | committed records | The committed ControlProof records and any golden image with tones above mid-grey change. This is a global look change for the owner to sign off. |
