@@ -42,9 +42,6 @@ final class AutoWhiteBalanceTests: XCTestCase {
     }
 
     /// Greys lit by a light near the as-shot: Auto closes at least half the gap.
-    /// (A WARM cast of more than about 20 mired puts the greys inside the skin wedge
-    /// in log-chroma and Auto deliberately stays near as-shot there — the skin-safe
-    /// trade, recorded in BUILD-NOTES.)
     func testItMovesTowardTheLightThatLitTheGreys() {
         let asShot = (5500.0, 10.0)
         for light in [(5200.0, 4.0), (6000.0, 12.0)] {
@@ -107,5 +104,38 @@ final class AutoWhiteBalanceTests: XCTestCase {
         let closed = AutoWhiteBalance.neutralTarget(decodedNeutral: grey, asShot: asShot)!
         XCTAssertEqual(1e6 / closed.kelvin, 1e6 / 3800, accuracy: 1e-6)
         XCTAssertEqual(closed.tint, 21, accuracy: 1e-6)
+    }
+
+    // MARK: - Round 3: a wrong as-shot is recovered (cast invariance)
+
+    /// The frame decoded at a WRONG as-shot A' is `adapt(A' → A)` of the frame decoded at
+    /// A (the engine's own model), so the light Auto finds must not depend on which.
+    /// Casts of ±100 and ±150 mired (a tungsten frame on Daylight is ~170) and ±20 tint
+    /// come back within 15 mired / 8 tint of the uncast answer. 20–50 mired casts are the
+    /// deliberate ambiguity band and only partly recovered (BUILD-NOTES, round 3).
+    func testAWrongAsShotIsRecovered() {
+        let asShot = (5500.0, 10.0)
+        let truth = scene(lit: (5500, 10), asShot: asShot)
+        let reference = AutoWhiteBalance.estimate(truth, asShot: .init(kelvin: asShot.0,
+                                                                         tint: asShot.1))
+        for (castMired, castTint) in [(-150.0, 0.0), (-100, 0), (100, 0), (150, 0),
+                                      (0, -20), (0, 20), (100, 20)] {
+            let wrong = (1e6 / (1e6 / asShot.0 + castMired), asShot.1 + castTint)
+            let m = WhiteBalanceEngine(asShotKelvin: asShot.0, asShotTint: asShot.1,
+                                       targetKelvin: wrong.0, targetTint: wrong.1).matrix
+            var cast = truth
+            for i in stride(from: 0, to: cast.pixels.count, by: 4) {
+                let c = m.apply(RGB(Double(cast.pixels[i]), Double(cast.pixels[i + 1]),
+                                    Double(cast.pixels[i + 2])))
+                cast.pixels[i] = Float(c.r)
+                cast.pixels[i + 1] = Float(c.g)
+                cast.pixels[i + 2] = Float(c.b)
+            }
+            let got = AutoWhiteBalance.estimate(cast, asShot: .init(kelvin: wrong.0, tint: wrong.1))
+            XCTAssertEqual(1e6 / got.kelvin, 1e6 / reference.kelvin, accuracy: 15,
+                           "cast \(castMired) mired / \(castTint) tint: \(got) vs \(reference)")
+            XCTAssertEqual(got.tint, reference.tint, accuracy: 8,
+                           "cast \(castMired) mired / \(castTint) tint: \(got) vs \(reference)")
+        }
     }
 }

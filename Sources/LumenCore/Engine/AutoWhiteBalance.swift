@@ -2,37 +2,38 @@
 // Auto white balance: a Temp/Tint suggestion from scene statistics (WS-03, SPEC line 12).
 //
 // Input is the decode itself — scene-linear Rec.2020 at camera-reference white balance,
-// so a surface the camera thought neutral arrives as R = G = B. Everything below works
-// in log-chroma relative to that as-shot neutral, (p, q) = (ln R/G, ln B/G), where the
-// as-shot is the origin and an illuminant error is a displacement.
+// so a surface the camera thought neutral arrives as R = G = B.
 //
-// THREE ESTIMATES, ONE ANSWER.
-//   · grey-world — the mean of the frame. Robust, and wrong whenever one colour owns
-//     the frame (foliage pulls it to magenta, a blue cloth to yellow).
-//   · white-patch — the mean of the brightest unclipped 2 %. Right when the brightest
-//     thing is a white, wrong when it is a sky or a lamp.
-//   · near-neutral (grey-edge's cousin, gamut-constrained) — an iteratively re-centred,
-//     shrinking window around the as-shot neutral, luminance-weighted. It finds the
-//     greys a camera's own estimate is near, and it is the one that carries the
-//     weight: on the corpus charts it lands within a few mired of the chart greys.
-// They are blended 1 : 0.1 : 0.05 (near-neutral : white-patch : grey-world).
+// CAST-INVARIANT BY CONSTRUCTION (round 3). Everything is measured in CAT16 cone space,
+// as (ln L/M, ln S/M) relative to the working white. The engine's white balance is a von
+// Kries step in exactly that space, so a wrong as-shot — a tungsten frame shot on
+// Daylight — moves every pixel by the SAME vector there: a pure translation. The search
+// below runs over ABSOLUTE candidate illuminants (Adobe/DNG Temp 1667–50000 K × tint
+// −50…+60) and scores the picture under each one, so it finds the same light however
+// wrong the camera's as-shot was. The round-2 estimator searched a window around the
+// as-shot and recovered nothing beyond a ~25 mired cast; this one recovers 150.
 //
-// CONFIDENCE, AND FALLING BACK. The camera's own as-shot is a strong prior — it beat
-// both naive estimators on three of the five chart frames (AUDIT.md finding 7) — so the
-// answer is the as-shot moved toward the blend by a confidence in [0, 1], the product of
-//   · how close the blend is to the as-shot (a big correction is less likely to be right
-//     than a big subject colour: 1346 without its chart sees a cool background at −0.18
-//     in ln B/G and would turn the frame amber),
-//   · how much luminance sits in the near-neutral cluster (no greys, no evidence),
-//   · how far white-patch agrees with near-neutral,
-//   · and 1 − the luminance share of skin.
-// SKIN-SAFE: pixels in the skin wedge are down-weighted to 5 % in every estimate, and
-// a frame that is mostly skin barely moves — greying a portrait is the one Auto failure
-// nobody forgives.
+// FOR EACH CANDIDATE LIGHT, AFTER CORRECTING BY IT:
+//   · near-neutral evidence — the share of luminance (cone M) within 0.02 of neutral;
+//   · a grey ladder — the luminance span of those near-neutral pixels (a chart, a white
+//     wall in light and shade, an overcast sky; a single dyed object spans little);
+//   · white-patch agreement — the brightest 2 % should be near neutral too;
+//   · skin — the skin wedge (Monk 1–10 and both ColorChecker skins) is measured AFTER the
+//     candidate's correction, so a cast does not make every pixel look like skin, and
+//     skin pixels count 5 % in grey-world and white-patch.
+// The best candidate's estimate blends near-neutral : white-patch : grey-world as
+// 1 : 0.1 : 0.05, all in the corrected cone space.
 //
-// Deterministic (no randomness, fixed sequential order) and cheap: one pass over the
-// frame into a ≈640 px block proxy, then a few passes over the proxy. 2400×1600 runs in
-// well under a tenth of a second in release.
+// FALLING BACK. A frame with no credible neutral (quality below 0.02, e.g. a frame of
+// lawn or of skin) stays at as-shot; full trust from 0.06. One more term is deliberately
+// NOT cast-invariant: when the answer moves the light by 20–50 mired from the camera's
+// as-shot, the move is cut to 40 %. That is the band where a near-white surface (a warm
+// paper, a blue cloth) and a real camera error look the same — SPEC 14's chart-OUT runs
+// are exactly that — and below 8 mired or above 80 mired the evidence is trusted fully:
+// a 100–150 mired error is a wrong preset, not a subject colour.
+//
+// Deterministic and cheap: one pass into a ≈640 px block proxy, a 400×400 feature
+// histogram, ~16 000 candidate lights read off it, and full evaluation of the 12 best.
 
 import Foundation
 
@@ -68,7 +69,7 @@ public enum AutoWhiteBalance {
         }
     }
 
-    // MARK: - Tuning (measured on the WS-03 chart frames; see BUILD-NOTES.md)
+    // MARK: - Tuning (measured on the WS-03 corpus; see BUILD-NOTES.md, round 3)
 
     /// Long edge of the block-averaged proxy the statistics run on.
     static let proxyLongEdge = 640
@@ -76,26 +77,34 @@ public enum AutoWhiteBalance {
     static let clipCandidate: Float = 0.5
     /// …and a pixel at ≥ 95 % of that maximum is treated as clipped.
     static let clipFraction: Float = 0.95
-    /// Near-neutral window: starting radius, floor, shrink per pass, passes.
-    static let windowStart = 0.15
-    static let windowFloor = 0.05
-    static let windowShrink = 0.7
-    static let windowPasses = 6
-    /// Radius of the cluster whose luminance share is the evidence term.
-    static let clusterRadius = 0.04
-    /// Luminance share at which the evidence term saturates.
-    static let clusterShareForFullConfidence = 0.15
-    /// Distance from as-shot (ln-chroma) at which the prior has fallen to 1/e.
-    static let priorScale = 0.25
-    /// White-patch ↔ near-neutral disagreement at which agreement has fallen to 1/e.
-    static let agreementScale = 0.3
+    /// Feature histogram: [−2, 2) in both axes at 0.01.
+    static let histogramBins = 400
+    static let histogramStep = 0.01
+    /// Near-neutral radius in corrected (ln L/M, ln S/M).
+    static let neutralRadius = 0.02
+    /// Candidate lights: mired 20…600 in 2, tint −50…+60 in 2.
+    static let candidateMireds = stride(from: 20.0, through: 600.0, by: 2).map { $0 }
+    static let candidateTints = stride(from: -50.0, through: 60.0, by: 2).map { $0 }
+    /// Peaks evaluated in full.
+    static let peakCount = 12
+    /// Grey ladder: no credit below 0.3 stops of span, full credit from 1.0.
+    static let ladderLow = 0.3
+    static let ladderHigh = 1.0
+    /// White-patch disagreement at which agreement has fallen to 1/e.
+    static let whitePatchScale = 0.25
+    /// Quality at which the move starts, and at which it is fully trusted.
+    static let qualityLow = 0.02
+    static let qualityHigh = 0.06
+    /// The ambiguity band, in mired of illuminant move: ramps in over 8…20, out over
+    /// 50…80, cutting the move by 60 % inside it.
+    static let ambiguity = (rise0: 8.0, rise1: 20.0, fall0: 50.0, fall1: 80.0, cut: 0.6)
     /// Blend weights.
     static let weightNearNeutral = 1.0
     static let weightWhitePatch = 0.1
     static let weightGreyWorld = 0.05
-    /// Weight of a skin-wedge pixel relative to any other.
+    /// Weight of a skin-wedge pixel in grey-world and white-patch.
     static let skinWeight = 0.05
-    /// Share of the brightest luminance the white patch averages.
+    /// Share of the brightest (cone M) the white patch averages.
     static let whitePatchPercentile = 0.98
 
     // MARK: - Estimate
@@ -114,12 +123,11 @@ public enum AutoWhiteBalance {
         let asShotAnswer = Estimate(kelvin: shot.kelvin, tint: shot.tint, confidence: 0)
 
         let samples = proxy(image, excluding: excluding)
-        guard let shift = logChromaShift(samples) else { return asShotAnswer }
-        guard shift.confidence > 0, shift.p != 0 || shift.q != 0 else {
-            return asShotAnswer
-        }
-        let neutral = RGB(exp(shift.p), 1, exp(shift.q))
-        guard let solved = neutralTarget(decodedNeutral: neutral, asShot: shot) else {
+        guard let found = search(samples, asShot: shot) else { return asShotAnswer }
+        let p = found.shift.0 * found.confidence
+        let q = found.shift.1 * found.confidence
+        guard found.confidence > 0, abs(p) > 1e-9 || abs(q) > 1e-9,
+              let solved = light(shiftedBy: (p, q), from: shot) else {
             return asShotAnswer
         }
         let kelvin = Num.clamp(solved.kelvin, ColorTemperature.minKelvin,
@@ -128,7 +136,7 @@ public enum AutoWhiteBalance {
             kelvin: kelvin, tint: Num.clamp(solved.tint, ColorTemperature.minTint,
                                             ColorTemperature.maxTint),
             asShot: shot)
-        return Estimate(kelvin: kelvin, tint: tint, confidence: shift.confidence)
+        return Estimate(kelvin: kelvin, tint: tint, confidence: found.confidence)
     }
 
     /// The target (Kelvin, tint) at which `WhiteBalanceEngine.adaptation` from `asShot`
@@ -137,25 +145,30 @@ public enum AutoWhiteBalance {
     /// Closed form, because the adaptation is von Kries in CAT16: the output cone
     /// response is the input's times as-shot / target, so the target's cone response is
     /// the input's times the as-shot's over the working white's. Then the exact inverse
-    /// of the convention (`ColorTemperature.temperatureAndTint`). The eyedropper's
-    /// search (`neutralizing`) finds the same pair by minimisation; this is the
-    /// statistics path, where thousands of evaluations per press would buy nothing.
+    /// of the convention (`ColorTemperature.temperatureAndTint`).
     public static func neutralTarget(decodedNeutral: RGB,
                                      asShot: (kelvin: Double, tint: Double),
                                      space: RGBColorSpace = .rec2020)
         -> (kelvin: Double, tint: Double)? {
-        let cone = ChromaticAdaptation.cat16
-        let c = cone.apply(space.toXYZ.apply(decodedNeutral))
-        let a = cone.apply(ColorTemperature.chromaticity(kelvin: asShot.kelvin,
-                                                         tint: asShot.tint).xyz())
-        let w = cone.apply(space.toXYZ.apply(RGB(1, 1, 1)))
-        guard w.r != 0, w.g != 0, w.b != 0 else { return nil }
-        let t = RGB(a.r * c.r / w.r, a.g * c.g / w.g, a.b * c.b / w.b)
+        let c = ChromaticAdaptation.cat16.apply(space.toXYZ.apply(decodedNeutral))
+        let w = ChromaticAdaptation.cat16.apply(space.toXYZ.apply(RGB(1, 1, 1)))
+        guard c.r > 0, c.g > 0, c.b > 0, w.r > 0, w.g > 0, w.b > 0 else { return nil }
+        return light(shiftedBy: (log(c.r / c.g) - log(w.r / w.g),
+                                 log(c.b / c.g) - log(w.b / w.g)), from: asShot)
+    }
+
+    /// The light whose cone response is the as-shot's moved by `shift` in
+    /// (ln L/M, ln S/M), in Adobe/DNG Temp/Tint.
+    static func light(shiftedBy shift: (Double, Double),
+                      from asShot: (kelvin: Double, tint: Double))
+        -> (kelvin: Double, tint: Double)? {
+        let a = ChromaticAdaptation.cat16.apply(
+            ColorTemperature.chromaticity(kelvin: asShot.kelvin, tint: asShot.tint).xyz())
+        let t = RGB(a.r * exp(shift.0), a.g, a.b * exp(shift.1))
         let xyz = ChromaticAdaptation.cat16Inverse.apply(t)
         let sum = xyz.r + xyz.g + xyz.b
         guard sum.isFinite, sum > 0 else { return nil }
-        let chroma = Chromaticity(xyz.r / sum, xyz.g / sum)
-        let pair = ColorTemperature.temperatureAndTint(for: chroma)
+        let pair = ColorTemperature.temperatureAndTint(for: Chromaticity(xyz.r / sum, xyz.g / sum))
         guard pair.kelvin.isFinite, pair.tint.isFinite else { return nil }
         return pair
     }
@@ -224,109 +237,217 @@ public enum AutoWhiteBalance {
         }
     }
 
-    // MARK: - The statistics
 
-    struct Shift {
-        let p: Double
-        let q: Double
+    // MARK: - The search
+
+    /// (ln L/M, ln S/M) of a working-space colour relative to the working white, and its
+    /// cone M (the luminance weight: a cast scales it by one constant for every pixel,
+    /// so rankings by it do not change with the cast). Nil when a cone is not positive.
+    static let coneFromWorking: Mat3 = ChromaticAdaptation.cat16 * RGBColorSpace.rec2020.toXYZ
+    static let whiteCone: RGB = coneFromWorking.apply(RGB(1, 1, 1))
+
+    static func feature(_ c: RGB) -> (p: Double, q: Double, m: Double)? {
+        let k = coneFromWorking.apply(c)
+        guard k.r > 1e-6, k.g > 1e-6, k.b > 1e-6 else { return nil }
+        return (log(k.r / k.g) - log(whiteCone.r / whiteCone.g),
+                log(k.b / k.g) - log(whiteCone.b / whiteCone.g), k.g)
+    }
+
+    /// Skin, in corrected cone features (neutral at 0): the Monk 1–10 and ColorChecker
+    /// skin patches sit at ln L/M 0.015…0.16 and ln S/M −0.08…−0.65.
+    static func isSkin(p: Double, q: Double) -> Bool {
+        p > 0 && p < 0.2 && q < -0.06 && q > -0.75 && q < -2 * p
+    }
+
+    struct Found {
+        let shift: (Double, Double)
         let confidence: Double
     }
 
-    /// Is this (ln R/G, ln B/G) in the skin wedge at camera-reference white balance:
-    /// R/G 1.04…1.9, B/G 0.40…0.97, and redder than it is blue-deficient by at least
-    /// 0.12 — every Monk tone 2–8 and both ColorChecker skins, none of the chart greys.
-    static func isSkin(p: Double, q: Double) -> Bool {
-        p > log(1.04) && p < log(1.9) && q < log(0.97) && q > log(0.40) && p - q > 0.12
+    private struct Candidate {
+        let shift: (Double, Double)
+        let nearNeutral: (Double, Double)
+        let quality: Double
     }
 
-    /// The confidence-scaled move away from as-shot, in log-chroma. Nil when nothing in
-    /// the frame is usable.
-    static func logChromaShift(_ samples: [RGB]) -> Shift? {
-        var p: [Double] = [], q: [Double] = [], lum: [Double] = [], weight: [Double] = []
-        var rgb: [RGB] = []
-        p.reserveCapacity(samples.count)
-        q.reserveCapacity(samples.count)
-        lum.reserveCapacity(samples.count)
-        weight.reserveCapacity(samples.count)
+    static func search(_ samples: [RGB], asShot: (kelvin: Double, tint: Double)) -> Found? {
+        var fp: [Double] = [], fq: [Double] = [], fm: [Double] = [], rgb: [RGB] = []
+        fp.reserveCapacity(samples.count)
+        fq.reserveCapacity(samples.count)
+        fm.reserveCapacity(samples.count)
         rgb.reserveCapacity(samples.count)
-        var skinLum = 0.0, totalLum = 0.0
-        for s in samples where s.r > 1e-4 && s.g > 1e-4 && s.b > 1e-4 {
-            let pp = log(s.r / s.g), qq = log(s.b / s.g)
-            let y = 0.2627 * s.r + 0.6780 * s.g + 0.0593 * s.b
-            let skin = isSkin(p: pp, q: qq)
-            p.append(pp)
-            q.append(qq)
-            lum.append(y)
-            weight.append(skin ? skinWeight : 1)
+        var total = 0.0
+        for s in samples {
+            guard let f = feature(s), f.m > 1e-4 else { continue }
+            fp.append(f.p)
+            fq.append(f.q)
+            fm.append(f.m)
             rgb.append(s)
-            totalLum += y
-            if skin { skinLum += y }
+            total += f.m
         }
-        let n = p.count
-        guard n > 0, totalLum > 0 else { return nil }
-        let skinShare = skinLum / totalLum
+        let n = fp.count
+        guard n > 0, total > 0 else { return nil }
 
-        // Near-neutral: a shrinking window, re-centred on its own luminance-weighted
-        // mean, starting at the as-shot neutral.
-        var cp = 0.0, cq = 0.0
-        var radius = windowStart
-        for _ in 0..<windowPasses {
-            var sw = 0.0, sp = 0.0, sq = 0.0
-            for i in 0..<n {
-                let dp = p[i] - cp, dq = q[i] - cq
-                guard (dp * dp + dq * dq).squareRoot() < radius else { continue }
-                let wy = weight[i] * lum[i]
-                sw += wy
-                sp += p[i] * wy
-                sq += q[i] * wy
+        // Luminance histogram of the features, then its box sum over ±2 bins.
+        let bins = histogramBins, step = histogramStep
+        var hist = [Double](repeating: 0, count: bins * bins)
+        for i in 0..<n {
+            let a = Int(((fp[i] + 2) / step).rounded(.down))
+            let b = Int(((fq[i] + 2) / step).rounded(.down))
+            guard a >= 0, a < bins, b >= 0, b < bins else { continue }
+            hist[a * bins + b] += fm[i] / total
+        }
+        let reach = Int((neutralRadius / step).rounded())
+        var cumulative = [Double](repeating: 0, count: (bins + 1) * (bins + 1))
+        for a in 0..<bins {
+            var row = 0.0
+            for b in 0..<bins {
+                row += hist[a * bins + b]
+                cumulative[(a + 1) * (bins + 1) + b + 1] = cumulative[a * (bins + 1) + b + 1] + row
             }
-            guard sw >= 1e-9 else { break }
-            cp = sp / sw
-            cq = sq / sw
-            radius = Swift.max(windowFloor, radius * windowShrink)
         }
-        var inCluster = 0.0, allWeighted = 0.0
-        for i in 0..<n {
-            let wy = weight[i] * lum[i]
-            allWeighted += wy
-            let dp = p[i] - cp, dq = q[i] - cq
-            if (dp * dp + dq * dq).squareRoot() < clusterRadius { inCluster += wy }
+        func boxSum(_ a: Int, _ b: Int) -> Double {
+            let a0 = Swift.max(0, a - reach), a1 = Swift.min(bins, a + reach + 1)
+            let b0 = Swift.max(0, b - reach), b1 = Swift.min(bins, b + reach + 1)
+            let w = bins + 1
+            return cumulative[a1 * w + b1] - cumulative[a0 * w + b1]
+                - cumulative[a1 * w + b0] + cumulative[a0 * w + b0]
         }
-        let clusterShare = allWeighted > 0 ? inCluster / allWeighted : 0
 
-        // Grey-world.
-        var gw = RGB(0, 0, 0)
-        var gwWeight = 0.0
-        for i in 0..<n {
-            gw = RGB(gw.r + rgb[i].r * weight[i], gw.g + rgb[i].g * weight[i],
-                     gw.b + rgb[i].b * weight[i])
-            gwWeight += weight[i]
+        // Every candidate light, as the shift it predicts for a neutral, and the
+        // near-neutral share it would make.
+        let a = ChromaticAdaptation.cat16.apply(
+            ColorTemperature.chromaticity(kelvin: asShot.kelvin, tint: asShot.tint).xyz())
+        let mireds = candidateMireds, tints = candidateTints
+        let rows = mireds.count, cols = tints.count
+        var shifts = [(Double, Double)](repeating: (0, 0), count: rows * cols)
+        var score = [Double](repeating: -1, count: rows * cols)
+        for i in 0..<rows {
+            for j in 0..<cols {
+                let c = ChromaticAdaptation.cat16.apply(
+                    DNGTemperature.chromaticity(kelvin: 1e6 / mireds[i], tint: tints[j]).xyz())
+                let rl = c.r / a.r, rm = c.g / a.g, rs = c.b / a.b
+                guard rl > 0, rm > 0, rs > 0 else { continue }
+                let s = (log(rl / rm), log(rs / rm))
+                shifts[i * cols + j] = s
+                let ba = Int(((s.0 + 2) / step).rounded(.towardZero))
+                let bb = Int(((s.1 + 2) / step).rounded(.towardZero))
+                score[i * cols + j] = boxSum(Swift.min(Swift.max(ba, 0), bins - 1),
+                                             Swift.min(Swift.max(bb, 0), bins - 1))
+            }
         }
-        let gwP = log(gw.r / gw.g), gwQ = log(gw.b / gw.g)
+        // Local maxima over a 9×9 neighbourhood, strongest first (row-major ties).
+        var peaks: [Int] = []
+        for i in 0..<rows {
+            for j in 0..<cols {
+                let v = score[i * cols + j]
+                guard v > 0.005 else { continue }
+                var isPeak = true
+                for di in -4...4 where isPeak {
+                    for dj in -4...4 {
+                        let ii = i + di, jj = j + dj
+                        guard ii >= 0, ii < rows, jj >= 0, jj < cols else { continue }
+                        if score[ii * cols + jj] > v { isPeak = false; break }
+                    }
+                }
+                if isPeak { peaks.append(i * cols + j) }
+            }
+        }
+        peaks = peaks.enumerated().sorted {
+            score[$0.element] != score[$1.element]
+                ? score[$0.element] > score[$1.element] : $0.offset < $1.offset
+        }.prefix(peakCount).map(\.element)
 
-        // White-patch: the brightest 2 % (percentile by linear interpolation).
-        let sorted = lum.sorted()
+        // The white patch: brightest 2 % by cone M (percentile by linear interpolation).
+        let sortedM = fm.sorted()
         let rank = whitePatchPercentile * Double(n - 1)
         let lo = Int(rank.rounded(.down)), hi = Swift.min(n - 1, lo + 1)
-        let threshold = sorted[lo] + (sorted[hi] - sorted[lo]) * (rank - Double(lo))
-        var wp = RGB(0, 0, 0)
-        for i in 0..<n where lum[i] >= threshold {
-            wp = RGB(wp.r + rgb[i].r * weight[i], wp.g + rgb[i].g * weight[i],
-                     wp.b + rgb[i].b * weight[i])
+        let threshold = sortedM[lo] + (sortedM[hi] - sortedM[lo]) * (rank - Double(lo))
+        var wpMean = RGB(0, 0, 0)
+        var wpCount = 0.0
+        for i in 0..<n where fm[i] >= threshold {
+            wpMean = RGB(wpMean.r + rgb[i].r, wpMean.g + rgb[i].g, wpMean.b + rgb[i].b)
+            wpCount += 1
         }
-        let wpP = log(wp.r / wp.g), wpQ = log(wp.b / wp.g)
-        guard gwP.isFinite, gwQ.isFinite, wpP.isFinite, wpQ.isFinite else { return nil }
+        guard wpCount > 0, let whitePatch = feature(wpMean / wpCount) else { return nil }
 
-        let total = weightNearNeutral + weightWhitePatch + weightGreyWorld
-        let bp = (weightNearNeutral * cp + weightWhitePatch * wpP + weightGreyWorld * gwP) / total
-        let bq = (weightNearNeutral * cq + weightWhitePatch * wpQ + weightGreyWorld * gwQ) / total
+        func evaluate(_ start: (Double, Double)) -> Candidate? {
+            var cp = start.0, cq = start.1
+            var radius = 0.06
+            for _ in 0..<4 {
+                var sw = 0.0, sp = 0.0, sq = 0.0
+                for i in 0..<n {
+                    let dp = fp[i] - cp, dq = fq[i] - cq
+                    guard (dp * dp + dq * dq).squareRoot() < radius else { continue }
+                    sw += fm[i]
+                    sp += fp[i] * fm[i]
+                    sq += fq[i] * fm[i]
+                }
+                guard sw > 0 else { break }
+                cp = sp / sw
+                cq = sq / sw
+                radius = Swift.max(neutralRadius, radius * 0.7)
+            }
+            var inside: [Double] = []
+            var insideM = 0.0, skinM = 0.0
+            var gw = RGB(0, 0, 0), gwW = 0.0
+            var wp = RGB(0, 0, 0), wpW = 0.0
+            for i in 0..<n {
+                let dp = fp[i] - cp, dq = fq[i] - cq
+                if (dp * dp + dq * dq).squareRoot() < neutralRadius {
+                    inside.append(fm[i])
+                    insideM += fm[i]
+                }
+                let skin = isSkin(p: dp, q: dq)
+                if skin { skinM += fm[i] }
+                let w = skin ? skinWeight : 1
+                gw = RGB(gw.r + rgb[i].r * w, gw.g + rgb[i].g * w, gw.b + rgb[i].b * w)
+                gwW += w
+                if fm[i] >= threshold {
+                    wp = RGB(wp.r + rgb[i].r * w, wp.g + rgb[i].g * w, wp.b + rgb[i].b * w)
+                    wpW += w
+                }
+            }
+            guard inside.count >= 20, gwW > 0, wpW > 0,
+                  let greyWorld = feature(gw / gwW), let whites = feature(wp / wpW) else {
+                return nil
+            }
+            inside.sort()
+            let p10 = inside[Int(0.1 * Double(inside.count - 1))]
+            let p90 = inside[Int(0.9 * Double(inside.count - 1))]
+            let span = log2(p90 / Swift.max(p10, 1e-6))
+            let ladder = Num.clamp((span - ladderLow) / (ladderHigh - ladderLow), 0, 1)
+            let dwp = ((whitePatch.p - cp) * (whitePatch.p - cp)
+                + (whitePatch.q - cq) * (whitePatch.q - cq)).squareRoot()
+            let quality = insideM / total * ladder
+                * exp(-(dwp / whitePatchScale) * (dwp / whitePatchScale)) * (1 - skinM / total)
+            let weights = weightNearNeutral + weightWhitePatch + weightGreyWorld
+            let blend = ((weightNearNeutral * cp + weightWhitePatch * whites.p
+                            + weightGreyWorld * greyWorld.p) / weights,
+                         (weightNearNeutral * cq + weightWhitePatch * whites.q
+                            + weightGreyWorld * greyWorld.q) / weights)
+            return Candidate(shift: blend, nearNeutral: (cp, cq), quality: quality)
+        }
 
-        let distance = (bp * bp + bq * bq).squareRoot()
-        let prior = exp(-(distance / priorScale) * (distance / priorScale))
-        let evidence = Swift.min(1, clusterShare / clusterShareForFullConfidence)
-        let disagreement = ((wpP - cp) * (wpP - cp) + (wpQ - cq) * (wpQ - cq)).squareRoot()
-        let agreement = exp(-(disagreement / agreementScale) * (disagreement / agreementScale))
-        let confidence = Num.clamp(prior * evidence * agreement * (1 - skinShare), 0, 1)
-        return Shift(p: bp * confidence, q: bq * confidence, confidence: confidence)
+        var best: Candidate?
+        for peak in peaks {
+            guard let c = evaluate(shifts[peak]) else { continue }
+            if best == nil || c.quality > best!.quality { best = c }
+        }
+        guard let chosen = best else { return nil }
+
+        func smooth(_ e0: Double, _ e1: Double, _ x: Double) -> Double {
+            let t = Num.clamp((x - e0) / (e1 - e0), 0, 1)
+            return t * t * (3 - 2 * t)
+        }
+        let evidence = smooth(qualityLow, qualityHigh, chosen.quality)
+        var prior = 1.0
+        if let moved = light(shiftedBy: chosen.shift, from: asShot) {
+            let d = abs(1e6 / moved.kelvin - 1e6 / asShot.kelvin)
+            let band = smooth(ambiguity.rise0, ambiguity.rise1, d)
+                * (1 - smooth(ambiguity.fall0, ambiguity.fall1, d))
+            prior = 1 - ambiguity.cut * band
+        }
+        return Found(shift: chosen.shift, confidence: Num.clamp(evidence * prior, 0, 1))
     }
 }

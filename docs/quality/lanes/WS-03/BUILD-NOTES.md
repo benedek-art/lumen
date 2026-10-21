@@ -29,11 +29,11 @@ ran from a release test build (`swift build -c release --build-tests -Xswiftc -e
 | 10 | `SliderScaleTests` passes. The `SliderDrag.swift` diff is empty. `BasicPanel.swift:227 scale: .reciprocal`. | as spec | pass |
 | 11 | `git diff --stat claude/inspiring-dirac-ulgpch -- Sources/LumenPipeline` is empty. The grep finds only comments (`AppleRawSource.swift:46-50`, now stale; see NEEDS §3). No kernel computes Kelvin or tint: WB reaches the GPU only as the CPU-built matrix. | as spec | pass |
 | 12 | `AutoWhiteBalance.estimate(_:asShot:excluding:) -> Estimate{kelvin,tint,confidence}` in the new file. `lumen-render autowb` prints `{"confidence","kelvin","seconds","tint"}`. The only edit to existing LumenRender code is `CLI.swift` +1 (the dispatch `case`); the command lives in the new file `AutoWB.swift`. | `swift build --target LumenCore --target LumenRender`; `git diff … -- Sources/LumenRender` | pass |
-| 13 | (round 2) IN ΔE00: 1346 1.05, 967 1.76, 983 1.55, 3914 9.63, 864 **1.15**. Mean **3.03** (≤ 3.20). \|Δmired\| / \|Δtint\| vs chart-neutral: 3.9/1.5, 2.9/4.2, 7.4/2.2, 5.6/0.8. Round 1 was mean 3.12, with 864 at 1.59. | `python3 $T/auto_eval.py` | pass |
-| 14 | (round 2) OUT ΔE00: 1.71, 2.18, 1.87, 9.59, 0.73. Mean **3.22** (allowed 4.07). Each frame ≤ as-shot + 2.5. | same | pass |
-| 15 | (round 2) 6929: −5.3 mired / −1.4 tint. 2545: +0.6 / −0.5. | same | pass |
-| 16 | skin_tones: +0.39 mired / +0.04 tint. skin_only: 0.0 / 0.0, chroma kept 1.00, max \|Δhue\| 0.0°. | same | pass |
-| 17 | flat_grey at 4000/+5: 0.000 / 0.000. 5 runs give 1 distinct result. Median time **0.084 s** on 6929. | same | pass |
+| 13 | (round 3) IN ΔE00: 1346 1.15, 967 1.83, 983 1.75, 3914 9.72, 864 1.26. Mean **3.14** (≤ 3.20). \|Δmired\| / \|Δtint\| vs chart-neutral: 6.0/1.8, 3.3/4.2, 8.4/2.8, 6.2/0.9. Round 2 was mean 3.03, round 1 3.12. | `python3 $T/auto_eval.py` | pass |
+| 14 | (round 3) OUT ΔE00: 3.53, 2.29, 2.02, 9.71, 0.49. Mean **3.61** (allowed 4.07). Each frame ≤ as-shot + 2.5 (1346: 3.53 against a limit of 3.71). | same | pass |
+| 15 | (round 3) 6929: −7.8 mired / −1.5 tint. 2545: 0.0 / 0.0. | same | pass |
+| 16 | (round 3) skin_tones: 0.00 / 0.00. skin_only: 0.0 / 0.0, chroma kept 1.00, max \|Δhue\| 0.0°. | same | pass |
+| 17 | flat_grey at 4000/+5: 0.000 / 0.000. 5 runs give 1 distinct result. Median time **0.137 s** on 6929 (round 3). | same | pass |
 | 18 | The `presetRow` LumenMenu has `LumenMenuItem(title: "Auto", symbol: "wand.and.stars", …)` under As Shot. An "Auto" button sits left of the eyedropper with the same modifiers (font `.lumenGlyphBody`, padding 5/3, `controlBackground`, `primaryText`, `radiusChip` clip, `.plain` style). The stale comment is gone. `presetName` is unchanged, with no Auto title and no recipe field. Not compiled (macOS-only target); `swiftc -parse` is clean on all three edited app files. | `grep -n "Auto" Sources/LumenApp/BasicPanel.swift` | needs the macOS CI build |
 | 19 | Rewritten tests are listed below. LumenCoreTests, all classes except ControlProofTests, in debug: **3059 executed, 0 failures, 6 skipped**. The base commit gives 3044 / 0 / 6. ControlProofTests in a release test build: **6/6 pass** after re-recording `raw.temp` and `raw.tint`. The drift test flagged exactly those two and no other record. | runcore2.sh; release xctest `LumenCoreTests.ControlProofTests` | pass |
 
@@ -57,13 +57,133 @@ V1–V3 (human judgement, sheets in `evidence/`):
     toward the claim, but neither end meets it.
   - The cause is the isotherm tint axis itself, which line 4 pins to the Adobe model: a green
     adaptation of a blue sky is cyan, and a magenta one is purple.
-  - The sheet is 256-colour quantised to fit under 400 KB, so the flat (clipped) sky posterises. The
-    unquantised sheet is `scratchpad/build/v2_after.png`.
-- **V3** `after_auto_charts.png` (regenerated in round 2; 3/4 size, quantised).
+  - Round 3 re-exported the sheet without palette quantisation: the same sweep, resized to 1200 px wide
+    (337 KB), so the sky no longer posterises.
+- **V3** `after_auto_charts.png` (regenerated in round 3; unquantised at 45 % scale to stay under 400 KB.
+  The numbers below are round 2's; round 3's are in the round 3 table.)
   - 864: Auto (10379/+12.0) is close to chart-neutral (11024/+11.2). The greys match closely but not
     indistinguishably: Auto is 5.6 mired (about 645 K) warmer than chart-neutral.
   - 3914: Auto ≈ as-shot (confidence 0.12), so it is no bluer than as-shot.
   - 967: Auto is slightly warmer than as-shot, toward neutral.
+
+## Round 3: cast recovery (verifier round 2 finding)
+
+**The defect.** The round-2 estimator searched a window around the camera's as-shot, and its prior
+scaled the move down with distance. A frame decoded at a wrong as-shot came back as-shot once the cast
+passed about 25 mired. On the synthetic ColorChecker it recovered 67–106 % of a ±20-mired cast and
+0–5 % beyond ±30.
+
+**The rewrite (`AutoWhiteBalance.swift`; only `estimate`'s internals and the private helpers changed,
+the API is the same):**
+- **Cast-invariant features.** Pixels are measured as (ln L/M, ln S/M) in CAT16 cone space, relative to
+  the working white. The engine's WB is a von Kries step in that space, so a wrong as-shot translates
+  every pixel by one vector. Luminance weights use cone M, so a cast scales them all by one constant and
+  their ranking does not change.
+- **Search over absolute lights.** Candidates are Adobe/DNG Temp 1667–50000 K (mired 20…600 in 2) ×
+  tint −50…+60 (in 2), 16 236 of them. Each is read off a 400×400 luminance histogram of the features,
+  box-summed over a 0.02 radius. The 12 strongest local maxima are evaluated in full.
+- **What each candidate is scored on**, after correcting by it:
+  - near-neutral luminance share (radius 0.02);
+  - grey ladder: the luminance span of those pixels, no credit below 0.3 stops, full credit from 1.0;
+  - white-patch agreement: the brightest 2 % by cone M should be near neutral (1/e at 0.25);
+  - 1 − skin share. **The skin wedge is defined in the corrected space** (Monk 1–10 and ColorChecker
+    skins: ln L/M 0…0.2, ln S/M −0.06…−0.75), so a tungsten cast does not turn the scene into "skin".
+- **The answer** is the best candidate's blend, near-neutral : white-patch : grey-world = 1 : 0.1 : 0.05
+  in the corrected space. Evidence is smoothstep(0.02, 0.06) of the score; below it the frame stays at
+  as-shot.
+- **Ambiguity band (the one non-invariant term).** If the answer moves the light 20–50 mired from the
+  as-shot, the move is cut to 40 %. It ramps in over 8–20 mired and out over 50–80. Below 8 and above
+  80 mired the evidence is trusted fully. Why this term exists is explained below.
+
+**Cast recovery.** `python3 $T/cast_recovery.py` runs `lumen-render autowb` on frames re-adapted with the
+engine's own matrix (`D' = adapt(A' → A)·D`, the decode at the wrong as-shot A'). The reference is Auto's
+uncast answer. 12 frames × 14 casts, 163 valid cells:
+
+| cast band | pass (\|res\| ≤ 15 mired and ≤ 8 tint) | median recovered |
+|---|---|---|
+| −150, −100 mired (orange: a tungsten frame on Daylight) | 10/19 | 100 % |
+| −50, −25 | 7/24 | 42 % |
+| −10, +10 | 24/24 | 70 % (residual ≤ 4 mired) |
+| +25, +50 | 3/24 | 38 % |
+| +100, +150 (blue) | 14/24 | 99 % |
+| tint ±20 | 16/24 | — |
+
+Per frame:
+- **Full recovery at ±100/±150 and tint ±20:** 1346, 967, 983, 4213, 1332, the synthetic ColorChecker,
+  and 864 (+100/+150; its −100/−150 casts fall outside 2000–50000 K and are skipped). The
+  `after_auto_cast_recovery.png` sheet shows 1332 at −100, 4213 at +100 and 1346 at −150: Auto lands
+  within 0.3 mired of its uncast answer.
+- **Partial on 6929** (about 80 %), 3582 (40–95 %) and 7881 (about 15 %). Their best neutral evidence
+  sits between the 0.02 and 0.06 quality thresholds, so the confidence blend toward as-shot shows.
+- **None on 2545 and the synthetic skin_tones.**
+  - 2545 has no neutral that passes. Its candidate cluster is the dry lawn, which falls in the skin wedge.
+  - skin_tones' only neutral is a perfectly uniform synthetic grey, which has no luminance span, so the
+    ladder gives it no credit. The same rule is what keeps skin_only (uniform skin patches) from being
+    greyed. A real grey card has shading and noise; a synthetic one does not.
+
+**Why the 20–50-mired band is cut (an honest conflict).** Within that band, a near-white surface and a
+camera error produce the same pixels, and the SPEC line 14 chart-OUT runs are exactly that case:
+- 1346 without its chart sees a warm white plate. Fully trusted, Auto moves 26 mired and the chart greys
+  go to ΔE 6.47 (the limit is 3.71).
+- 864 without its card sees the blue cloth, a 47-mired move. With it, the OUT mean is 5.19 against 4.07.
+
+Measured on the Python mirror of this exact estimator (`scratchpad/proto/awb4.py`, which reproduces the
+Swift answers to the printed digit):
+- **Without the band:** lines 13 and 15–17 pass and 864 IN reaches −309 K, but line 14 fails, and
+  cast misses drop from 78 to 50 of 150 cells (the mirror's harness applies the cast after the proxy, so its
+  cell count differs from the Swift run's 163). Every 25–50 mired cast on the chart frames is then recovered.
+- **With the band (shipped):** line 14 passes, but 25–50 mired casts are recovered only about 40 %.
+
+Passing the spec's line 14 wins, so the band ships. Removing it is a one-constant change
+(`ambiguity.cut = 0`) if the lead prefers recovery over chart-OUT.
+
+**Owner bar (300 K and 8 tint of chart-neutral, chart IN):**
+
+| frame | Auto | chart-neutral | ΔK | Δtint |
+|---|---|---|---|---|
+| 1346 | 5281/−9.4 | 5454/−7.6 | −173 ✓ | −1.8 ✓ |
+| 967 | 4816/+11.3 | 4740/+15.5 | +76 ✓ | −4.2 ✓ |
+| 983 | 5161/+15.9 | 4947/+13.1 | +214 ✓ | +2.8 ✓ |
+| 864 | 10316/+12.0 | 11024/+11.2 | −708 ✗ | +0.9 ✓ |
+| 3914 | 4684/+47.4 | 5456/+32.2 | −772 ✗ | +15.2 ✗ |
+
+- **864:** the ambiguity band is the reason; without it 864 lands at −309 K.
+- **3914:** still unreachable for the round 2 reasons. Its chart greys are 3.4 % of the luminance, and the
+  bark candidate scores higher.
+
+**All 25 frames** (`scratchpad/build/all25_r3.json` against `all25_r2.json`). Biggest movers from
+as-shot:
+- 832: +24.2 mired, 3009 → 2804 K;
+- 3582: +23.1, 3035 → 2836;
+- 6001: −14.4 mired / −10.9 tint;
+- 8559: −12.0;
+- 2348: +11.1.
+
+Four frames changed by more than 10 mired against round 2: 832, 3582, 6001 and 2348. I rendered the top
+three as-shot | Auto and looked at them (`scratchpad/proto/movers.png`), and each move is plausible:
+- 832: the beige wallpaper wall goes from warm to near-grey;
+- 3582: the white curtain goes from cream to near-white;
+- 6001: the garden loses a green-yellow cast, and the white flowers read white.
+
+Eight frames return as-shot (no credible neutral).
+
+**Other round 3 items**
+- **Tests:** the new `AutoWhiteBalanceTests.testAWrongAsShotIsRecovered` covers ±100/±150 mired, tint
+  ±20 and a diagonal cast on a synthetic grey-ladder scene, each within 15 mired / 8 tint of the uncast
+  answer. The comment in the round-1 Auto test about the warm-cast skin limit is removed, because the
+  skin wedge is now relative to the candidate.
+- **Tool:** new `tools/cast_recovery.py`.
+- **Evidence:**
+  - new `after_auto_cast_recovery.png` (333 KB);
+  - `after_auto_charts.png` regenerated unquantised;
+  - `after_tint_2545_gx85.png` re-exported unquantised at 1200 px (337 KB).
+
+  That makes 8 files in `evidence/`.
+- **Gates (round 3):**
+  - LumenCoreTests, all classes except ControlProofTests (debug): 3060 executed, 0 failures, 6 skipped.
+  - ControlProofTests (release test build): 6/6 pass.
+  - `swift build --target LumenCore --target LumenRender` is clean.
+  - `auto_eval.py` passes every check.
 
 ## Round 2: the owner's Auto bar (within 300 K and a small tint of chart-neutral)
 
