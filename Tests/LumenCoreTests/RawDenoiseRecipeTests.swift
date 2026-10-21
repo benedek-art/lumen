@@ -16,7 +16,10 @@ final class RawDenoiseRecipeTests: XCTestCase {
     private static let defaultCanonical = #"{"pipelineVersion":2}"#
     private static let defaultFingerprint = "xxh64:fd50cceee634dfb4"
     private static let defaultDenoiseInput = "xxh64:d730b5c38ab52508"
-    private static let defaultFullTreeDigest = "68b478a3b73cfdea"
+    // Moved by WS-16 alone: `develop.color.density` defaults to 0 (was 50), the same
+    // one-number change as `default-recipe.json`. The sparse canonical form and both
+    // fingerprints above are unchanged, as they must be.
+    private static let defaultFullTreeDigest = "96517d2ae458902c"
     private static let editedCanonical =
         #"{"develop":{"denoise":{"amount":65,"mode":"ai","model":"nafnet/2.1"},"#
         + #""raw":{"temp":5600}},"pipelineVersion":2}"#

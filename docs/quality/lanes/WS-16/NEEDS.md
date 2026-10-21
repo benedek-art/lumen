@@ -94,3 +94,15 @@ mark while the selection band widens.
   that Saturation alone is a plain, luminance-neutral chroma scale. Stored recipes keep their value.
   If the integrator would rather keep 50 as a bipolar neutral, the meaning of stored values changes,
   which is a recipe-format decision.
+
+## N5. Preview-cache rendering revision (owner: integrator / Catalog, `PreviewCache.renderingRevision`)
+
+**Problem.** WS-16 changes what S9 renders for every recipe with Saturation, Vibrance or a B&W mix,
+and it changes the `ColorAdjust.density` default from 50 to 0. The canonical recipe form is sparse
+against `Recipe()`, so a recipe whose Density was never touched keeps the same canonical JSON and the
+same `recipe_fp`, while its Saturation pushes now render brightness-neutral instead of 0.19 EV darker.
+A stored preview keyed on that fingerprint would be served stale.
+
+**Ask.** Bump `PreviewCache.renderingRevision` (8 → 9, or once for every lane landing together)
+when WS-16 merges. Comment text: "9: S9 Saturation/Vibrance/Density/Protect Skin and the B&W mix were
+redefined (WS-16), and Density's default moved from 50 to 0."

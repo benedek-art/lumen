@@ -640,82 +640,55 @@ struct BasicPanel: View {
         }
     }
 
-    /// Vibrance, Saturation, Density and Protect Skin, flat.
+    /// Vibrance, Saturation, Density and Protect Skin, flat, and all four always drawn.
     ///
     /// The last two used to sit behind an "Advanced" chevron. Two rows do not pay for a
     /// fold: the chevron cost a header, a click and a second level of hierarchy to hide
     /// forty-four points of panel, and it hid them from the photographer who had just
     /// pushed Saturation and was one row away from the dial that shapes the push.
     ///
-    /// DENSITY IS NOT DRAWN UNTIL IT IS LIVE, which is the design that retires a
-    /// sentence. Density blends Saturation's additive push against its subtractive one,
-    /// and a pull has no push to blend — the engine guards it on `satAmount > 0`, and
-    /// the predicate is `ColorAdjust.densityIsLive` in LumenCore, next to the field,
-    /// with a test tying it to that guard.
-    ///
-    /// Three drawings of that gate have now been tried. Live across the whole range
-    /// while doing nothing: worse than dead, because it looked like it was working, and
-    /// session A duly reported it as "doesn't seem to be able to be moved". Disabled
-    /// with the reason in a tooltip: a correct gate reading as a broken control, because
-    /// the explanation sat behind a hover delay. Disabled with the reason printed under
-    /// it: honest, and eleven of those sentences are what "so much wording" means
-    /// (docs/30 §2.2) — a disabled control does owe the reason to the same glance that
-    /// finds it disabled, and a sentence is not what a glance reads.
-    ///
-    /// So it arrives instead, under the control that made it live, at the moment it
-    /// does. That says everything the sentence said and one thing it never did: what
-    /// Density depends on. Nothing is hidden that could have been used — before the
-    /// crossing there is no push for it to act on — and it is strictly more findable
-    /// than it was yesterday, when the fold above shipped closed and no amount of
-    /// Saturation opened it.
+    /// Density used to be withheld until Saturation went above zero, since it shapes a
+    /// push and a pull has none (`ColorAdjust.densityIsLive`, tied to the engine's guard
+    /// by a test). A slider that appears only after another one moves is a slider
+    /// nobody finds, so it is drawn always and enabled, like Protect Skin, and its help
+    /// says what it acts on. Its default is 0, so it is a plain 0–100 dial, not a
+    /// bipolar one; Protect Skin (0–100, default 70) is not bipolar either, because a
+    /// centre tick at 70 reads as "no protection".
     private var saturationRows: some View {
-        let densityIsLive = recipe.develop.color.densityIsLive
-        return VStack(alignment: .leading, spacing: Lumen.rowGap) {
+        VStack(alignment: .leading, spacing: Lumen.rowGap) {
             LumenSlider(title: "Vibrance",
                         value: binder.value(\.develop.color.vibrance, "color.vibrance"),
                         range: -100...100, hardRange: nil, defaultValue: 0,
                         step: 1, decimals: 0,
-                        help: "Saturation weighted toward the muted colours — what is "
-                            + "already rich resists, and skin is protected — so it is "
-                            + "the safer everyday boost.")
+                        help: "A gentler Saturation, weighted toward the muted colours: "
+                            + "what is already rich or near the gamut edge barely moves, "
+                            + "near-greys and skin are spared. −100 mutes, it does not "
+                            + "go black and white.")
             LumenSlider(title: "Saturation",
                         value: binder.value(\.develop.color.saturation, "color.saturation"),
                         range: -100...100, hardRange: nil, defaultValue: 0,
                         step: 1, decimals: 0,
                         help: "Scales every colour's intensity while holding its "
                             + "perceived brightness; −100 is true black and white. "
-                            + "Pushes compress as colours near full saturation, "
+                            + "Pushes ease off as colours near the edge of the gamut, "
                             + "instead of clipping.")
-            if densityIsLive {
-                // The live half of what this row used to say in a `.help` modifier —
-                // on the `help:` parameter now, so the NAME answers the hover. The
-                // other half — "raise Saturation above zero and this comes live" —
-                // is what the row's own arrival says.
-                LumenSlider(title: "Density",
-                            value: binder.value(\.develop.color.density, "color.density"),
-                            range: 0...100, hardRange: nil, defaultValue: 50,
-                            step: 1, decimals: 0, bipolar: true,
-                            help: "How much of a Saturation push is subtractive — "
-                                + "colours deepening as they saturate, the way film "
-                                + "dyes do, instead of brightening.")
-                    // The same transition a section body uses, because to a
-                    // photographer this is the same event.
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-            }
+            LumenSlider(title: "Density",
+                        value: binder.value(\.develop.color.density, "color.density"),
+                        range: 0...100, hardRange: nil, defaultValue: 0,
+                        step: 1, decimals: 0, bipolar: false,
+                        help: "Deepens a Saturation push: colours darken as they "
+                            + "saturate, the way film dyes do, instead of brightening. "
+                            + "Off at 0; it does nothing until Saturation is above zero.")
             LumenSlider(title: "Protect Skin",
                         value: binder.value(\.develop.color.protectSkin,
                                             "color.protectSkin"),
                         range: 0...100, hardRange: nil, defaultValue: 70,
-                        step: 1, decimals: 0, bipolar: true,
-                        help: "How firmly skin hues are shielded from Vibrance and "
+                        step: 1, decimals: 0, bipolar: false,
+                        help: "How firmly skin tones are shielded from Vibrance and "
                             + "Saturation pushes, so a colour move does not turn a "
-                            + "complexion. A pull to −100 still reaches true black "
-                            + "and white.")
+                            + "complexion. Pulls are not shielded: Saturation −100 "
+                            + "still reaches true black and white.")
         }
-        // Declared against the value rather than wrapped around the write: the write is
-        // a drag sample inside `RecipeBinder`, which no panel reaches. Same curve as
-        // `PanelLayout.commit`, so a row appearing moves the way a section opening does.
-        .animation(Lumen.motionReadout, value: densityIsLive)
     }
 }
 

@@ -83,7 +83,7 @@ public struct ExactColorStage: Sendable, Equatable {
         var swatches: [[Double]]
         var vibranceSaturation: (vibrance: Double, saturation: Double,
                                  protectSkin: Double, density: Double)?
-        /// Eight `band/100 · bwKappa` gains when the treatment is on.
+        /// Eight `band/100 · bwKappa` band depths, in EV, when the treatment is on.
         var blackAndWhite: [Double]?
     }
 
@@ -307,7 +307,7 @@ enum ExactColorTwin {
 
     /// Protect Skin's log-chroma ramp: `ColorEngine.protectLoChroma…protectHiChroma`.
     @inline(__always) static func protectGate(_ C: Float) -> Float {
-        smoothstep(log(Float(0.006)), log(Float(0.06)), log(max(C, 1e-9)))
+        smoothstep(log(Float(0.002)), log(Float(0.015)), log(max(C, 1e-9)))
     }
 
     @inline(__always) static func lumShape(_ L: Float) -> Float {
@@ -442,43 +442,63 @@ enum ExactColorTwin {
         return 1 + (-0.1340 * q + 0.0872 * kBr) * (max(0, C) * 4) * 0.1
     }
 
-    @inline(__always) static func satCompress(_ x: Float) -> Float {
-        x > 0.18 ? 0.34 - 0.16 * exp(-(x - 0.18) / 0.16) : x
+    /// `ColorEngine.gamutReach`: the working-gamut boundary along hue `h` as C/L, by
+    /// bisection on [0, 1.2] (`gamutReachCeiling`), 16 steps (`gamutReachSteps`).
+    static func reach(_ h: Float, _ u: U) -> Float {
+        let r = h * 0.0174532925
+        let ca = cos(r), sa = sin(r)
+        var lo: Float = 0, hi: Float = 1.2
+        for _ in 0..<16 {
+            let mid = (lo + hi) * 0.5
+            let n = mul(u, 18, F3(1, mid * ca, mid * sa))
+            let rgb = mul(u, 27, n * n * n)
+            if min(rgb.x, min(rgb.y, rgb.z)) >= 0 { lo = mid } else { hi = mid }
+        }
+        return lo
     }
 
-    static func chromaScale(_ c: F3, _ gain: Float, _ u: U, _ kBr: Float) -> F3 {
+    /// `ColorEngine.gamutCompressedFill` (`satRoomFloor` 0.5, `satRoomKnee` 0.2).
+    @inline(__always) static func compressedFill(_ x0: Float, _ target: Float) -> Float {
+        guard target > x0, x0 < 1 else { return x0 }
+        let room = 1 - x0
+        let y = ((1 - target) / room - 0.5) / (1 - 0.5)
+        let eased = y >= 0.2 ? y : 0.2 * exp((y - 0.2) / 0.2)
+        return 1 - room * (0.5 + (1 - 0.5) * eased)
+    }
+
+    /// `ColorEngine.shapedChromaScale`: an exact scale for a pull, a gamut-compressed one
+    /// for a push keeping `keep` of the fill it adds (Protect Skin), with Density's
+    /// darkening (`darken`) at held chroma and hue.
+    static func chromaScale(_ c: F3, _ gain: Float, _ reach: Float, _ keep: Float,
+                            _ darken: Float, _ u: U, _ kBr: Float) -> F3 {
         let l = lch(toLab(c, u))
         let J = l.x * hkFactor(l.y, l.z, kBr)
         guard finite(F3(J, l.y, 0)) else { return c }
         let base = max(0, l.y)
         let g = max(0, gain)
-        let reference = satCompress(base)
-        let C = reference > 1e-12 ? satCompress(base * g) * base / reference : base * g
-        let f = hkFactor(C, l.z, kBr)
-        let L = f == 0 ? J : J / f
+        let k = hkFactor(1, l.z, kBr) - 1
+        var C = base * g
+        var L: Float
+        if g > 1 {
+            guard l.x > 0, J > 0, reach > 0 else { return c }
+            let x0 = base / (l.x * reach)
+            guard x0 < 1 else { return c }
+            let z = x0 + keep * (compressedFill(x0, C * (1 + k * C) / (J * reach)) - x0)
+            let w = z * reach * J
+            C = 2 * w / (1 + max(0, 1 + 4 * k * w).squareRoot())
+            L = J / (1 + k * C) * (1 - darken * (z - x0) * smoothstep(0, 0.02, base))
+        } else {
+            let f = 1 + k * C
+            L = f == 0 ? J : J / f
+        }
         // As a DELTA between two round trips, not the round trip itself. The two are
         // equal in exact arithmetic (`toRGB(lab(l)) == c`), but in Float32 the round
-        // trip is ~1e-7 off, and Density blends this against `subtractive`, which is
-        // exact on a neutral — so a grey moved with Density at the round trip's error.
-        // The delta cancels it: a colour whose chroma does not change comes back as
+        // trip is ~1e-7 off, so a grey would move by the round trip's error. The delta
+        // cancels it: a colour whose chroma and lightness do not change comes back as
         // itself, bit for bit, as it does in `ColorEngine`'s Double arithmetic.
         let moved = toRGB(lab(F3(L, C, l.z)), u)
         let unmoved = toRGB(lab(l), u)
         let out = c + (moved - unmoved)
-        return finite(out) ? out : c
-    }
-
-    static func subtractive(_ c: F3, _ amount: Float) -> F3 {
-        let norm = max(c.x, max(c.y, c.z))
-        guard norm > 1e-9, norm < 3.0e38 else { return c }
-        let gamma = 1 + amount
-        let r = c / norm
-        // Positive ratios only: a negative (out-of-gamut) channel is not a dye layer
-        // and is held, as in `ColorEngine.subtractivePush`.
-        let p = F3(r.x > 0 ? pow(max(r.x, 1e-30), gamma) : r.x,
-                   r.y > 0 ? pow(max(r.y, 1e-30), gamma) : r.y,
-                   r.z > 0 ? pow(max(r.z, 1e-30), gamma) : r.z)
-        let out = p * norm
         return finite(out) ? out : c
     }
 
@@ -488,45 +508,42 @@ enum ExactColorTwin {
         let l = lch(toLab(c, u))
         let J = l.x * hkFactor(l.y, l.z, kBr)
         guard finite(F3(J, l.y, 0)) else { return c }
-        // Skin membership and the tonal rolloff read the stage input, never the output.
+        // Skin membership, the tonal rolloff and the boundary read the stage input.
+        // `ColorEngine.skinProtectionWeight`: band 63° ± 25° with 30° feathers, lightness
+        // 0.05…0.20 and 1.0…1.2, C/L plausibility 0.12…0.20, log-chroma ease 0.002…0.015.
         var skin: Float = 0
         if finite(l) {
-            let off = abs(hueDelta(56.4, l.z))
-            let inBand = 1 - smoothstep(10, 15, off)
+            let off = abs(hueDelta(63, l.z))
+            let inBand = 1 - smoothstep(25, 55, off)
             if inBand > 0 {
-                let plaus = min(max(smoothstep(0.05, 0.20, l.x) * (1 - smoothstep(0.85, 0.98, l.x))
-                                    * (1 - smoothstep(0.16, 0.26, l.y)), 0), 1)
-                skin = min(max(inBand * protectGate(l.y) * plaus, 0), 1)
+                let light = smoothstep(0.05, 0.20, l.x) * (1 - smoothstep(1.0, 1.2, l.x))
+                if light > 0 {
+                    let plaus = (1 - smoothstep(0.12, 0.20, l.y / l.x)) * light
+                    skin = min(max(inBand * protectGate(l.y) * plaus, 0), 1)
+                }
             }
         }
         let protection = 1 - p.z * skin
         let u2 = max(0, J - 0.86) / 0.35
         let rolloff = smoothstep(0.02, 0.20, J) * (0.35 + 0.65 / (1 + u2 * u2))
-        let low = 1 - smoothstep(0.05, 0.25, l.y)
-        let vib = (p.x >= 0 ? p.x * rolloff : p.x) * low * protection
-        let sat = p.y >= 0 ? p.y * rolloff * protection : p.y
+        let reachH = reach(l.z, u)
+        let low = 1 - smoothstep(0.02, 0.20, l.y)
+        let vib: Float
+        if p.x >= 0 {
+            // `vibranceReachSpreadDegrees`: the least boundary within ±3°.
+            let vibReach = min(reachH, min(reach(wrapHue(l.z - 3), u), reach(wrapHue(l.z + 3), u)))
+            let fill: Float = l.x > 0 && vibReach > 0 ? max(0, l.y) / (l.x * vibReach) : 1
+            let room = max(0, 1 - fill)
+            vib = p.x * rolloff * 0.85 * low * room * room * smoothstep(0, 0.02, l.y)
+        } else {
+            vib = p.x * (0.45 + (0.6 - 0.45) * (1 - gate(l.y)))
+        }
+        let sat = p.y >= 0 ? p.y * rolloff : p.y
         var mid = c
-        if vib != 0 { mid = chromaScale(c, 1 + vib, u, kBr) }
+        if vib != 0 { mid = chromaScale(c, 1 + vib, reachH, protection, 0, u, kBr) }
         guard sat != 0 else { return mid }
-        let additive = chromaScale(mid, 1 + sat, u, kBr)
-        guard sat > 0, p.w > 0 else { return additive }
-        let blended = additive + (subtractive(mid, sat) - additive) * p.w
-        let source = lch(toLab(mid, u))
-        let moved = lch(toLab(blended, u))
-        guard finite(source), finite(moved) else { return blended }
-        // `ColorEngine`'s hue hold: full from `gateLoChroma` (0.02) up, easing to 0 at
-        // chroma 0 — not the 0.02…0.06 chroma gate (September audit B1-05).
-        let weight = smoothstep(0, 0.02, source.y)
-        guard weight > 0 else { return blended }
-        let hue = wrapHue(moved.z + hueDelta(moved.z, source.z) * weight)
-        // As a DELTA between two round trips, for the reason `chromaScale` is one: in
-        // Float32 `toRGB(lab(moved))` is ~1e-7 off `blended`, and since the B1-05 hold
-        // eases in from chroma 0 a neutral (whose round-trip chroma is ~1e-7, not 0)
-        // takes this path — so a grey moved with Density by the round trip's error.
-        let turned = toRGB(lab(F3(moved.x, moved.y, hue)), u)
-        let unturned = toRGB(lab(moved), u)
-        let held = blended + (turned - unturned)
-        return finite(held) ? held : blended
+        let darken: Float = sat > 0 ? p.w * 0.5 : 0
+        return chromaScale(mid, 1 + sat, reachH, protection, darken, u, kBr)
     }
 
     static func finish(_ c: F3, _ original: F3, _ u: U) -> F3 {
@@ -537,7 +554,10 @@ enum ExactColorTwin {
             let luma = u[10]
             let base = luma.x * out.x + luma.y * out.y + luma.z * out.z
             if abs(base) < 3.0e38 {
-                var gain: Float = 1
+                // Grey = Y · 2^EV, EV = Σ wᵢ · gate(C) · band EV (`ColorEngine.bwKappa`
+                // is folded into the band uniforms), with the mix's own soft gate
+                // `smoothstep(0, 0.18, C)` (`bwGateHiChroma`).
+                var ev: Float = 0
                 let l = lch(toLab(finite(c) ? c : out, u))
                 if finite(l) {
                     var w = SIMD8<Float>()
@@ -547,10 +567,10 @@ enum ExactColorTwin {
                         w[i] = membership(l.z, e(u, 48 + i), canonical)
                         total += w[i]
                     }
-                    let g = gate(l.y)
-                    for i in 0..<8 { gain += w[i] / total * g * e(u, 56 + i) }
+                    let g = smoothstep(0, 0.18, l.y)
+                    for i in 0..<8 { ev += w[i] / total * g * e(u, 56 + i) }
                 }
-                let grey = max(0, base * max(0, gain))
+                let grey = max(0, base * exp2(ev))
                 out = F3(grey, grey, grey)
             }
         }
@@ -619,7 +639,7 @@ public enum ExactColorKernelSource {
         return t * t * (3.0 - 2.0 * t);
     }
     float lumenGate(float C) { return lumenSmooth(0.02, 0.06, C); }
-    float lumenProtectGate(float C) { return lumenSmooth(log(0.006), log(0.06), log(max(C, 1e-9))); }
+    float lumenProtectGate(float C) { return lumenSmooth(log(0.002), log(0.015), log(max(C, 1e-9))); }
     float lumenLumShape(float L) { float t = min(max(L, 0.0), 0.5); return t * (1.0 - t); }
     float lumenMembership(float h, float centre, vec4 arc) {
         float d = lumenHueDelta(centre, h);
@@ -637,17 +657,12 @@ public enum ExactColorKernelSource {
             - 0.01900 * sin(3.0 * t) - 0.00764 * sin(4.0 * t);
         return 1.0 + (-0.1340 * q + 0.0872 * kBr) * (max(0.0, C) * 4.0) * 0.1;
     }
-    float lumenSatCompress(float x) { return x > 0.18 ? 0.34 - 0.16 * exp(-(x - 0.18) / 0.16) : x; }
-    vec3 lumenSubtractive(vec3 c, float amount) {
-        float norm = max(c.x, max(c.y, c.z));
-        if (!(norm > 1e-9 && norm < 3.0e38)) { return c; }
-        float gamma = 1.0 + amount;
-        vec3 r = c / norm;
-        vec3 p = vec3(r.x > 0.0 ? pow(max(r.x, 1e-30), gamma) : r.x,
-                      r.y > 0.0 ? pow(max(r.y, 1e-30), gamma) : r.y,
-                      r.z > 0.0 ? pow(max(r.z, 1e-30), gamma) : r.z);
-        vec3 o = p * norm;
-        return lumenFinite(o) ? o : c;
+    float lumenFill(float x0, float target) {
+        if (!(target > x0 && x0 < 1.0)) { return x0; }
+        float room = 1.0 - x0;
+        float y = ((1.0 - target) / room - 0.5) / (1.0 - 0.5);
+        float eased = y >= 0.2 ? y : 0.2 * exp((y - 0.2) / 0.2);
+        return 1.0 - room * (0.5 + (1.0 - 0.5) * eased);
     }
     """
 
@@ -820,8 +835,37 @@ public enum ExactColorKernelSource {
         let total = (0..<8).map { "w\($0)" }.joined(separator: " + ")
         let gains = (0..<8).map { "w\($0) / total * g * \(u(56 + $0))" }
             .joined(separator: " + ")
+        // The twin's `reach`: 16 bisection steps, unrolled. A helper cannot see the
+        // kernel's parameters, so it takes the five conversion vectors it reads
+        // (labToLMS and lmsToRGB, elements 18…35) as arguments of the same names.
+        var steps = ""
+        for _ in 0..<16 {
+            steps += """
+                {
+                    float mid = (lo + hi) * 0.5;
+                    vec3 nv = vec3(1.0, mid * ca, mid * sa);
+                    vec3 cone = \(mul(18, "nv"));
+                    vec3 cube = cone * cone * cone;
+                    vec3 rgb = \(mul(27, "cube"));
+                    if (min(rgb.x, min(rgb.y, rgb.z)) >= 0.0) { lo = mid; } else { hi = mid; }
+                }
+
+            """
+        }
+        let reach = """
+
+        float lumenReach(float h, vec4 m4, vec4 m5, vec4 m6, vec4 m7, vec4 m8) {
+            float r = h * 0.0174532925;
+            float ca = cos(r);
+            float sa = sin(r);
+            float lo = 0.0;
+            float hi = 1.2;
+        \(steps)    return lo;
+        }
+        """
         // `chromaScale` appears twice, so it is generated as a block over a named input.
-        func chromaScale(_ input: String, _ gain: String, into name: String) -> String {
+        func chromaScale(_ input: String, _ gain: String, _ darken: String,
+                         into name: String) -> String {
             """
             vec3 \(name) = \(input);
                     {
@@ -830,21 +874,37 @@ public enum ExactColorKernelSource {
                         if (lumenFinite(vec3(J, cl.y, 0.0))) {
                             float base = max(0.0, cl.y);
                             float gg = max(0.0, \(gain));
-                            float reference = lumenSatCompress(base);
-                            float CC = reference > 1e-12 ? lumenSatCompress(base * gg) * base / reference : base * gg;
-                            float f = lumenHK(CC, cl.z, kBr);
-                            float LL = f == 0.0 ? J : J / f;
-                            vec3 mapped = lumenLab(vec3(LL, CC, cl.z));
-                            \(toRGB("mapped", into: "moved"))
-                            vec3 kept = lumenLab(cl);
-                            \(toRGB("kept", into: "unmoved"))
-                            vec3 scaled = \(input) + (moved - unmoved);
-                            if (lumenFinite(scaled)) { \(name) = scaled; }
+                            float kh = lumenHK(1.0, cl.z, kBr) - 1.0;
+                            float CC = base * gg;
+                            float LL = J;
+                            bool held = false;
+                            if (gg > 1.0) {
+                                if (cl.x > 0.0 && J > 0.0 && reach > 0.0 && base / (cl.x * reach) < 1.0) {
+                                    float x0 = base / (cl.x * reach);
+                                    float z = x0 + protection * (lumenFill(x0, CC * (1.0 + kh * CC) / (J * reach)) - x0);
+                                    float wf = z * reach * J;
+                                    CC = 2.0 * wf / (1.0 + sqrt(max(0.0, 1.0 + 4.0 * kh * wf)));
+                                    LL = J / (1.0 + kh * CC) * (1.0 - \(darken) * (z - x0) * lumenSmooth(0.0, 0.02, base));
+                                } else {
+                                    held = true;
+                                }
+                            } else {
+                                float f = 1.0 + kh * CC;
+                                LL = f == 0.0 ? J : J / f;
+                            }
+                            if (held == false) {
+                                vec3 mapped = lumenLab(vec3(LL, CC, cl.z));
+                                \(toRGB("mapped", into: "moved"))
+                                vec3 kept = lumenLab(cl);
+                                \(toRGB("kept", into: "unmoved"))
+                                vec3 scaled = \(input) + (moved - unmoved);
+                                if (lumenFinite(scaled)) { \(name) = scaled; }
+                            }
                         }
                     }
             """
         }
-        return prelude + """
+        return prelude + reach + """
 
         kernel vec4 lumenColourFinish(__sample s, __sample original, \(conversionParameters),
                                       vec4 p, vec4 luma, vec4 flags, vec4 c0, vec4 c1,
@@ -858,63 +918,58 @@ public enum ExactColorKernelSource {
                 if (lumenFinite(vec3(J0, l.y, 0.0))) {
                     float skin = 0.0;
                     if (lumenFinite(l)) {
-                        float off = abs(lumenHueDelta(56.4, l.z));
-                        float inBand = 1.0 - lumenSmooth(10.0, 15.0, off);
+                        float off = abs(lumenHueDelta(63.0, l.z));
+                        float inBand = 1.0 - lumenSmooth(25.0, 55.0, off);
                         if (inBand > 0.0) {
-                            float plaus = min(max(lumenSmooth(0.05, 0.20, l.x) * (1.0 - lumenSmooth(0.85, 0.98, l.x))
-                                                  * (1.0 - lumenSmooth(0.16, 0.26, l.y)), 0.0), 1.0);
-                            skin = min(max(inBand * lumenProtectGate(l.y) * plaus, 0.0), 1.0);
+                            float light = lumenSmooth(0.05, 0.20, l.x) * (1.0 - lumenSmooth(1.0, 1.2, l.x));
+                            if (light > 0.0) {
+                                float plaus = (1.0 - lumenSmooth(0.12, 0.20, l.y / l.x)) * light;
+                                skin = min(max(inBand * lumenProtectGate(l.y) * plaus, 0.0), 1.0);
+                            }
                         }
                     }
                     float protection = 1.0 - p.z * skin;
                     float u2 = max(0.0, J0 - 0.86) / 0.35;
                     float rolloff = lumenSmooth(0.02, 0.20, J0) * (0.35 + 0.65 / (1.0 + u2 * u2));
-                    float low = 1.0 - lumenSmooth(0.05, 0.25, l.y);
-                    float vib = (p.x >= 0.0 ? p.x * rolloff : p.x) * low * protection;
-                    float sat = p.y >= 0.0 ? p.y * rolloff * protection : p.y;
+                    float reach = lumenReach(l.z, m4, m5, m6, m7, m8);
+                    float low = 1.0 - lumenSmooth(0.02, 0.20, l.y);
+                    float vib = 0.0;
+                    if (p.x >= 0.0) {
+                        float vibReach = min(reach, min(lumenReach(lumenWrap(l.z - 3.0), m4, m5, m6, m7, m8),
+                                                        lumenReach(lumenWrap(l.z + 3.0), m4, m5, m6, m7, m8)));
+                        float fill = l.x > 0.0 && vibReach > 0.0 ? max(0.0, l.y) / (l.x * vibReach) : 1.0;
+                        float room = max(0.0, 1.0 - fill);
+                        vib = p.x * rolloff * 0.85 * low * room * room * lumenSmooth(0.0, 0.02, l.y);
+                    } else {
+                        vib = p.x * (0.45 + (0.6 - 0.45) * (1.0 - lumenGate(l.y)));
+                    }
+                    float sat = p.y >= 0.0 ? p.y * rolloff : p.y;
                     vec3 mid = c;
                     if (vib != 0.0) {
-                        \(chromaScale("c", "1.0 + vib", into: "vibrant"))
+                        \(chromaScale("c", "1.0 + vib", "0.0", into: "vibrant"))
                         mid = vibrant;
                     }
                     res = mid;
                     if (sat != 0.0) {
-                        \(chromaScale("mid", "1.0 + sat", into: "additive"))
-                        res = additive;
-                        if (sat > 0.0 && p.w > 0.0) {
-                            vec3 blended = additive + (lumenSubtractive(mid, sat) - additive) * p.w;
-                            res = blended;
-                            vec3 sl = lumenLCh(\(toLab("mid")));
-                            vec3 ml = lumenLCh(\(toLab("blended")));
-                            if (lumenFinite(sl) && lumenFinite(ml)) {
-                                float weight = lumenSmooth(0.0, 0.02, sl.y);
-                                if (weight > 0.0) {
-                                    float hue = lumenWrap(ml.z + lumenHueDelta(ml.z, sl.z) * weight);
-                                    vec3 held = lumenLab(vec3(ml.x, ml.y, hue));
-                                    \(toRGB("held", into: "turnedRGB"))
-                                    vec3 unheld = lumenLab(ml);
-                                    \(toRGB("unheld", into: "unturnedRGB"))
-                                    vec3 heldRGB = blended + (turnedRGB - unturnedRGB);
-                                    if (lumenFinite(heldRGB)) { res = heldRGB; }
-                                }
-                            }
-                        }
+                        float darken = sat > 0.0 ? p.w * 0.5 : 0.0;
+                        \(chromaScale("mid", "1.0 + sat", "darken", into: "pushed"))
+                        res = pushed;
                     }
                 }
             }
             if (flags.y > 0.5) {
                 float base = luma.x * res.x + luma.y * res.y + luma.z * res.z;
                 if (abs(base) < 3.0e38) {
-                    float gain = 1.0;
+                    float ev = 0.0;
                     vec3 src = lumenFinite(c) ? c : res;
                     vec3 bl = lumenLCh(\(toLab("src")));
                     if (lumenFinite(bl)) {
         \(bwWeights)
                         float total = \(total);
-                        float g = lumenGate(bl.y);
-                        gain += \(gains);
+                        float g = lumenSmooth(0.0, 0.18, bl.y);
+                        ev = \(gains);
                     }
-                    float grey = max(0.0, base * max(0.0, gain));
+                    float grey = max(0.0, base * exp2(ev));
                     res = vec3(grey, grey, grey);
                 }
             }

@@ -1,15 +1,15 @@
 {
-  "authority" : 150.32572264447634,
+  "authority" : 102.05182473771856,
   "deadSteps" : 0,
   "frame" : "colourChart",
-  "frontLoading" : 0.7299247505220718,
+  "frontLoading" : 0.5377412406078315,
   "givenBack" : 0,
   "hueRotation" : 0,
   "id" : "bw.aqua",
   "isMonotone" : true,
-  "meanSeparation" : 7.633441198684897,
+  "meanSeparation" : 5.113103469107308,
   "panel" : "Black & White",
-  "smallestLiveStep" : 3.253621117869585,
+  "smallestLiveStep" : 3.930546493941989,
   "travelHigh" : 100,
   "travelLow" : -100
 }

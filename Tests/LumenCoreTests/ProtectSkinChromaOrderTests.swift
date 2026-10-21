@@ -15,10 +15,11 @@
 //
 // No gate that rises 0 → 1 inside 0.02…0.06 can avoid it: at full gain the protection
 // may fall no faster than d ln C · (1 − g/2), which needs at least ln 4 of log-chroma
-// even with the ideal ramp shape. The protection now fades in over log chroma from
-// 0.006 to 0.06 — full by the same 0.06 as before, so real skin keeps exactly the
-// protection it had — while `skinWeight`, the shared definition of "skin" the Skin
-// tools and the scope read, is left alone.
+// even with the ideal ramp shape. The protection fades in over log chroma instead —
+// 0.006 → 0.06 at first; since WS-16, 0.002 → 0.015 (Vibrance and Saturation
+// compounding at full gain need a factor of about seven), so it reaches Monk MST 1 — while
+// `skinWeight`, the shared definition of "skin" the Skin tools and the scope read, is
+// left alone.
 
 import XCTest
 @testable import LumenCore
@@ -88,14 +89,20 @@ final class ProtectSkinChromaOrderTests: XCTestCase {
         }
     }
 
-    /// What must NOT move: the shared skin membership, and full protection from C 0.06
-    /// up — real skin is spared exactly as much as it was.
+    /// What must NOT move: the shared skin membership. And Protect Skin 100 spares skin
+    /// completely across the whole range real skin occupies.
+    ///
+    /// This used to check C 0.06/0.08/0.10 — "full protection above the old gate". At
+    /// L 0.6, C 0.08 and 0.10 are C/L 0.13 and 0.17, more colourful than any skin patch
+    /// measured (≤ 0.118) and on the way to ColorChecker orange (0.22), which WS-16's
+    /// plausibility deliberately stops protecting (SPEC SKIN-3). So the range is now the
+    /// skin one: from MST 1's chroma (0.015) to C/L 0.117.
     func testTheSharedSkinWeightAndFullProtectionAboveTheOldGateAreUnchanged() {
         let nearGrey = Self.space.toRGB(OKLCh(L: 0.6, C: 0.015, h: ColorEngine.skinLineDegrees))
         XCTAssertEqual(ColorEngine.skinWeight(nearGrey), 0, accuracy: 1e-12,
                        "skinWeight, shared with the Skin tools, changed below the gate")
         let e = engine(vibrance: 100, saturation: 100, protectSkin: 100)
-        for C in [0.06, 0.08, 0.10] {
+        for C in [0.015, 0.03, 0.06, 0.07] {
             let skin = Self.space.toRGB(OKLCh(L: 0.6, C: C, h: ColorEngine.skinLineDegrees))
             XCTAssertEqual(chroma(e.apply(skin)), C, accuracy: 1e-9,
                            "Protect Skin 100 no longer fully spares skin at C \(C)")

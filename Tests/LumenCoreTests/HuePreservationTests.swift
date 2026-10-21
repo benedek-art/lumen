@@ -356,11 +356,13 @@ final class HuePreservationTests: XCTestCase {
     /// after the blend must not also restore lightness, or the dial becomes a no-op and
     /// the fix has thrown out the model along with its artefact.
     ///
-    /// So: at the shipped Density, a positive Saturation move must still land DARKER
-    /// than the purely additive path does, on colours with enough chroma to have a
-    /// direction at all.
+    /// So: at Density 50, a positive Saturation move must still land DARKER than the
+    /// purely additive path does, on colours with enough chroma to have a direction at
+    /// all. (Density 50 is named rather than taken from the default: since WS-16 the
+    /// default is 0, the plain additive push, and Density darkens at held hue by
+    /// construction rather than through a restore.)
     func testDensityStillDarkensAfterTheHueIsRestored() {
-        let dense = colorEngine(ColorAdjust(saturation: 60))
+        let dense = colorEngine(ColorAdjust(saturation: 60, density: 50))
         let additive = colorEngine(ColorAdjust(saturation: 60, density: 0))
         var darker = 0
         var compared = 0
@@ -437,12 +439,18 @@ final class HuePreservationTests: XCTestCase {
         XCTAssertLessThan(worstOrdering, 1e-6,
                           "Vibrance gained MORE on the more saturated colour — \(orderingDetail)")
 
-        // Part two: on a colour the engine's own `skinWeight` scores as skin, the
-        // guarded push must land short of the unguarded one. Compared against the same
-        // engine with Protect Skin at zero, so the only difference is the guard.
+        // Part two: on a colour Protect Skin's own weight scores as skin, the guarded
+        // push must land short of the unguarded one. Compared against the same engine
+        // with Protect Skin at zero, so the only difference is the guard. (It used to
+        // take `skinWeight`'s samples; that band also scores skin-hued colours at 70% and
+        // 95% of the gamut — C/L 0.2 and up, as colourful as ColorChecker orange — which
+        // WS-16's protection deliberately leaves alone, SPEC SKIN-3.)
         let bare = colorEngine(ColorAdjust(vibrance: 100, protectSkin: 0))
-        XCTAssertFalse(Self.skinSamples.isEmpty, "the grid must contain real skin tones")
-        for s in Self.skinSamples {
+        let protectedSkin = HuePreservationTests.grid.filter {
+            ColorEngine.skinProtectionWeight($0.rgb) > 0.5
+        }
+        XCTAssertFalse(protectedSkin.isEmpty, "the grid must contain real skin tones")
+        for s in protectedSkin {
             let guarded = lch(engine.apply(s.rgb)).C / Swift.max(s.chroma, 1e-9)
             let unguarded = lch(bare.apply(s.rgb)).C / Swift.max(s.chroma, 1e-9)
             XCTAssertLessThan(guarded, unguarded - 1e-9,

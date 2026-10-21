@@ -509,13 +509,14 @@ final class MaskingTests: XCTestCase {
     /// local colour stage now inherits density and protectSkin from the GLOBAL colour
     /// panel, so the protection strength is the photographer's own slider.
     ///
-    /// Measured on Vibrance, because that is where the protection is documented to
-    /// bite ("attenuates Vibrance at both signs" — and Sat −100 reaches true B&W at
-    /// EVERY protection setting by its own contract, which is why the first draft of
-    /// this test, written against Sat −100, measured nothing).
+    /// Measured on a Vibrance PUSH. Protect Skin guards pushes only (Sat −100 reaches
+    /// true B&W at every protection setting by its own contract, which is why the first
+    /// draft of this test, written against Sat −100, measured nothing). It was measured
+    /// on Vibrance −80 while Vibrance pulls were protected too; WS-16 made a Vibrance
+    /// pull a uniform mute, because a protected pull left skin coloured in a grey frame.
     func testMaskedVibranceInheritsTheGlobalSkinProtection() {
         var adjust = LocalAdjust()
-        adjust.vibrance = -80
+        adjust.vibrance = 80
         let mask = Mask(name: "mute", components: [hardRadial()], adjust: adjust)
         let skin = ProofFrames.chartPatchColour(2)
         let frame = ImageBuffer(width: 4, height: 1) { _, _ in skin }
@@ -534,12 +535,12 @@ final class MaskingTests: XCTestCase {
             ReferenceRenderer.applyLocalAdjust(frame, mask: mask, plan: offPlan,
                                                space: .rec2020)[0, 0]).C
 
-        XCTAssertLessThan(withOff, withDefault * 0.85,
-                          "global Protect Skin 0 muted the skin to \(withOff) chroma "
+        XCTAssertLessThan(withDefault - baseChroma, (withOff - baseChroma) * 0.85,
+                          "global Protect Skin 0 pushed the skin to \(withOff) chroma "
                               + "against \(withDefault) at the default 70 — the global "
                               + "setting is not reaching the masked stage")
-        XCTAssertLessThan(withDefault, baseChroma,
-                          "the protected push did not move the patch at all")
+        XCTAssertGreaterThan(withDefault, baseChroma,
+                             "the protected push did not move the patch at all")
         _ = baseChroma
     }
 
