@@ -256,55 +256,32 @@ final class PanelSnapshotTests: XCTestCase {
         }
     }
 
-    // MARK: - Range masks (WS-47/48): Brightness Range and Colour Range editors
+    // MARK: - Range masks (WS-47/48): the Brightness Range luminance-map strip
 
+    /// The strip on its own, at three Smooth values. The component editor that holds it
+    /// opens from a mask row's chevron, which this harness cannot press (every `press`
+    /// in the published index reports "could not find"), so the strip is drawn directly
+    /// at the editor's inset width.
     @MainActor
     private func renderRangeMasks(_ recorder: SnapshotRecorder, root: URL) async {
-        let state = AppState(catalogDirectory: { root.appendingPathComponent("range-catalog") },
-                             previewDirectory: { root.appendingPathComponent("range-previews") })
-        defer { state.prepareToQuit() }
-        recorder.attach(state)
-
-        let photo = PhotoItem(id: root.appendingPathComponent("DSC04822.arw"), iso: 3200)
-        state.developPanelWidth = Lumen.defaultPanelWidth
-        state.primarySelection = photo
-        state.selection = [photo.id]
-        PanelLayout.shared.select(.develop)
         let width = Lumen.defaultPanelWidth
-
-        var band = MaskComponent(op: .add, kind: .lumaRange)
-        band.lo = MaskPanel.normalizedEV(-3.5)
-        band.hi = 1
-        band.smooth = 50
-        var snow = Mask(id: "snapshot-snow", name: "Snow", components: [band])
-        snow.adjust.exposure = 0.3
-
-        var colour = MaskComponent(op: .add, kind: .colorRange)
-        colour.samples = [[0.42, 0.07, 0.05], [0.30, 0.05, 0.04]]
-        colour.rangeAmount = 50
-        var can = Mask(id: "snapshot-can", name: "Red can", components: [colour])
-        can.adjust.sat = -20
-
-        state.updateRecipe(label: "Snapshot range masks") { recipe in
-            recipe.masks = [snow, can]
-        }
-        state.activeMaskID = snow.id
-        state.activeComponentIndex = 0
-        await recorder.settle(0.3)
-        await recorder.render("panel-masks-luma-range",
-                              "Masks editor, a Brightness Range (From −3.5 EV, To +4, "
-                                  + "Smooth 50) selected, with its luminance map strip",
+        let lo = MaskPanel.normalizedEV(-3.5)
+        await recorder.render("panel-masks-luma-band-strip",
+                              "Brightness Range luminance map: From −3.5 EV, To +4, at "
+                                  + "Smooth 0, 50 and 100; then a −6…−2 EV band at 50",
                               width: width) {
-            SnapshotMaskEditor()
-        }
-        state.activeMaskID = can.id
-        state.activeComponentIndex = 0
-        await recorder.settle(0.3)
-        await recorder.render("panel-masks-colour-range",
-                              "Masks editor, a Colour Range with two samples and "
-                                  + "Tolerance 50 selected",
-                              width: width) {
-            SnapshotMaskEditor()
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach([0.0, 50, 100], id: \.self) { smooth in
+                    LumaBandStrip(lo: lo, hi: 1, smooth: smooth)
+                }
+                LumaBandStrip(lo: MaskPanel.normalizedEV(-6), hi: MaskPanel.normalizedEV(-2),
+                              smooth: 50)
+            }
+            .padding(.leading, 18)
+            .padding(.trailing, 8)
+            .padding(.vertical, 8)
+            .background(Lumen.windowBase)
+            .foregroundStyle(Lumen.primaryText)
         }
     }
 

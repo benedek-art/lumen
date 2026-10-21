@@ -3995,7 +3995,9 @@ struct MaskThumbnail: View {
 /// strip a photographer reads to see what From, To and Smooth are doing together, and
 /// because the curve is `MaskRaster.lumaRangeValue` it is the mask's own arithmetic,
 /// not a picture of it.
-private struct LumaBandStrip: View {
+/// Internal rather than private so `PanelSnapshotTests` can draw it on its own: the
+/// component editor it sits in is behind a disclosure the snapshot harness cannot open.
+struct LumaBandStrip: View {
     let lo: Double
     let hi: Double
     let smooth: Double
