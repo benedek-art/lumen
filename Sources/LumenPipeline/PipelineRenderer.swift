@@ -2969,6 +2969,12 @@ public final class PipelineRenderer {
         if !plan.denoiseIsIdentity {
             staged = plan.classicalDenoise.scaled(noiseScale: scale * scale).apply(buffer)
         }
+        // S4 — capture sharpening, right after S3 on this path as on the GPU one
+        // (`RenderGraph.applyCaptureSharpen`), at the same decode scale.
+        let capture = plan.capture.scaled(decodeScale: scale)
+        if !capture.isIdentity {
+            staged = capture.apply(staged)
+        }
         // Stroke sets go in, exactly as they do on the GPU path — a fallback that
         // silently drops every brush mask is not the same picture, and this is the
         // path that runs when the graph could not be built at all. The proof goes in for
@@ -2979,7 +2985,8 @@ public final class PipelineRenderer {
             // Mattes too, for the same reason: a fallback that drops the subject mask
             // renders a different picture from the one the user was looking at.
             inputs: ReferenceRenderer.Inputs(strokeSets: strokeSets,
-                                             aiMattes: mattes[source.url]?.planes ?? [:]))
+                                             aiMattes: mattes[source.url]?.planes ?? [:],
+                                             decodeScale: scale))
         guard let cgImage = Self.cgImage(from: rendered) else {
             throw RenderError.renderFailed
         }

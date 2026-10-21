@@ -242,26 +242,17 @@ final class FieldBaselineProbeTests: XCTestCase {
         }
     }
 
-    /// DEFECT RECORD (docs/23 audit queue; docs/24-detail gap list) — the measured
-    /// truth about `haloSuppression`, found writing §6 and pinned here so the fix
-    /// has its failing test pre-written.
+    /// CONTRACT (was a defect record, docs/23 audit queue; promoted by WS-18).
     ///
     /// docs/06 §11.3's claim: damp the BRIGHT overshoot ("a rim"), never the edge
-    /// definition. The implementation (reference and GPU kernel share it) gates the
-    /// damp on the LOCAL usm value, `smoothstep(0.15, 0.60, usm)` — and on a real
-    /// edge those two things live at DIFFERENT columns. Measured on a σ1.5-blurred
-    /// 5.1 EV edge at radius 1.5, halo 100: the ESF's rim maximum sits 2–3 px onto
-    /// the bright plateau where usm has decayed to ~0.148 (below the 0.15 floor) —
-    /// untouched. The damp instead lands mid-edge (usm 0.25–0.33), where pulling v
-    /// down just DULLS the edge — the exact thing the doc says the asymmetry
-    /// exists to avoid. Net: at these settings the slider softens the slope and
-    /// delivers zero rim reduction.
-    ///
-    /// The fix is a designed change (damp against the local plateau — a
-    /// local-range clamp — not against usm magnitude), in BOTH paths, with the
-    /// constants re-measured. When it lands, the Equal below must flip to
-    /// LessThan(damped, free − 0.005): that is the contract this test exists for.
-    func testHaloSuppressionCurrentlyMissesTheRimItExistsToDamp() {
+    /// definition. The old implementation gated the damp on the local usm value and
+    /// on a real edge that landed mid-edge, 2–3 px from the rim, so Halo 100 dulled
+    /// the slope and left the rim exactly where it was — this test pinned that with
+    /// an Equal. The fix it asked for landed: S12 (`SharpenStage`) holds each pixel to
+    /// a local-range bound and Halo Damping scales the bright part of the overshoot
+    /// PAST that bound, which is the rim and nothing else. The Equal flipped to the
+    /// LessThan it was waiting for.
+    func testHaloSuppressionDampsTheRimItExistsToDamp() {
         let scene = blurredEdge(dark: 0.02, bright: 0.70)
         let node = DetailEngine.Decomposition(image: scene, workingRadius: 3)
         func sharpened(halo: Double) -> ImageBuffer {
@@ -280,8 +271,10 @@ final class FieldBaselineProbeTests: XCTestCase {
                      freeProfile.overshoot * 100, dampedProfile.overshoot * 100,
                      freeProfile.undershoot * 100, dampedProfile.undershoot * 100))
 
-        // The mechanism runs — the parameter is not dead. It moves mid-edge
-        // pixels by a visible amount (measured 0.048 linear at full deflection).
+        // The mechanism runs — the parameter is not dead. 0.005 rather than the 0.01 the
+        // defect record held: the damp used to dull the whole slope mid-edge (0.048 at
+        // full deflection); it now touches only the rim past the halo bound, so fewer
+        // pixels move by less, and the overshoot assertion below is the real claim.
         var worstShift = 0.0
         for y in 0..<free.height {
             for x in 0..<free.width {
@@ -289,21 +282,16 @@ final class FieldBaselineProbeTests: XCTestCase {
                                        free[x, y].maxAbsDifference(damped[x, y]))
             }
         }
-        XCTAssertGreaterThan(worstShift, 0.01,
+        XCTAssertGreaterThan(worstShift, 0.005,
                              "halo suppression stopped reaching pixels at all")
 
         // One true half of the contract: the dark-side undershoot is never touched.
         XCTAssertEqual(dampedProfile.undershoot, freeProfile.undershoot,
                        accuracy: 0.005)
 
-        // THE DEFECT, pinned: the rim maximum survives full suppression. A fix
-        // that damps the actual rim BREAKS this line — flip it to
-        // XCTAssertLessThan(dampedProfile.overshoot, freeProfile.overshoot - 0.005)
-        // and delete this record's defect wording when it does.
-        XCTAssertEqual(dampedProfile.overshoot, freeProfile.overshoot,
-                       accuracy: 5e-4,
-                       "the rim responded to halo suppression — the defect is "
-                           + "fixed; promote this test to the contract claim")
+        // The contract: the rim maximum comes down.
+        XCTAssertLessThan(dampedProfile.overshoot, freeProfile.overshoot - 0.005,
+                          "halo suppression no longer reaches the rim")
     }
 
     func testPrintsTheDehazeBaseline() {

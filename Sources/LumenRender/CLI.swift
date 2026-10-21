@@ -10,6 +10,9 @@ struct RenderSettings {
     var space = OutputSpace.srgb
     var dither = true
     var lutSize = LUT3D.interactiveSize
+    /// The sensor's native long edge when the input file is itself a downsampled decode
+    /// (a `corpus/lfi` sidecar's `decoded_full_size`). nil = the input IS native.
+    var nativeLongEdge: Int? = nil
 }
 
 /// The input, downsampled once, with what every render of it shares.
@@ -22,6 +25,14 @@ struct PreparedInput {
     let sourceHeight: Int
     /// Uniformity's measured band hues, from the neutral input, computed on first need.
     let bandHues: [Double]?
+
+    /// The decode scale S3 and S4 are told about: this tool's own downsample, times the
+    /// file's own one when `--native-long-edge` says the file is not native.
+    func decodeScale(nativeLongEdge: Int?) -> Double {
+        guard let native = nativeLongEdge, native > 0 else { return scale }
+        let file = Double(Swift.max(sourceWidth, sourceHeight))
+        return Swift.min(1, scale * file / Double(native))
+    }
 }
 
 enum Renderer {
@@ -46,12 +57,20 @@ enum Renderer {
                               captureISO: settings.iso,
                               bandMeanHues: ColorEngine.needsMeasuredBandHues(
                                   recipe.develop.mixer) ? input.bandHues : nil)
+        let scale = input.decodeScale(nativeLongEdge: settings.nativeLongEdge)
         var staged = input.image
         if !plan.denoiseIsIdentity {
-            staged = plan.classicalDenoise.scaled(noiseScale: input.scale * input.scale)
+            staged = plan.classicalDenoise.scaled(noiseScale: scale * scale)
                 .apply(staged)
         }
-        let rendered = ReferenceRenderer.render(staged, plan: plan)
+        // S4 — capture sharpening, right after S3, as `renderReference` runs it.
+        // Identity without --iso: a plan with no capture ISO is a rendered file.
+        let capture = plan.capture.scaled(decodeScale: scale)
+        if !capture.isIdentity {
+            staged = capture.apply(staged)
+        }
+        let rendered = ReferenceRenderer.render(
+            staged, plan: plan, inputs: ReferenceRenderer.Inputs(decodeScale: scale))
         let encoded = OutputEncode.encode(rendered, space: settings.space,
                                           dither: settings.dither)
         return (encoded, Date().timeIntervalSince(start))
@@ -121,6 +140,10 @@ struct Args {
             s.space = o
         }
         s.dither = !flag("no-dither")
+        if let n = try int("native-long-edge") {
+            guard n > 0 else { throw InputError.message("--native-long-edge must be > 0") }
+            s.nativeLongEdge = n
+        }
         if let n = try int("lut-size") {
             guard (2...129).contains(n) else { throw InputError.message("--lut-size 2…129") }
             s.lutSize = n
@@ -144,7 +167,7 @@ enum LumenRenderCLI {
       lumen-render keys   [--base r.json] [--json]
       lumen-render synth  --out test.lfi [--width 960] [--height 540]
     shared: --as-shot-kelvin 5500 --as-shot-tint 0 --iso N --space srgb|p3
-            --no-dither --lut-size 33
+            --no-dither --lut-size 33 --native-long-edge N
     (full manual: the header of Sources/LumenRender/main.swift)
     """
 

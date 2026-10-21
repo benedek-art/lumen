@@ -98,12 +98,29 @@ final class CaptureSharpenScopeTests: XCTestCase {
                        + "loosening this line")
     }
 
-    /// And the RAW decode is the one place the field is spent.
-    func testTheRawDecodeIsTheSoleShippingReaderOfCaptureStrength() {
+    /// Where the field is spent MOVED (WS-17): capture sharpening is Lumen's own S4
+    /// stage now, read through `RenderPlan.capture`, and the RAW decoder holds Apple's
+    /// sharpener at zero. The premise this file guards is unchanged — a rendered file
+    /// reaches no capture stage — but it now rests on the plan: no capture ISO, no
+    /// stage, and `RenderedImageSource` reports `iso: nil`. The old assertion here
+    /// ("AppleRawSource reads strengthFraction") encoded the decoder-side wiring this
+    /// lane removed, so it is replaced rather than loosened.
+    func testTheCaptureStrengthIsSpentByThePlanAndNotByTheDecoder() {
         let raw = Self.stripped("Sources/LumenPipeline/AppleRawSource.swift")
-        XCTAssertTrue(raw.contains("detail.capture.strengthFraction"),
-                      "AppleRawSource is supposed to be the reader of the capture "
-                      + "strength; if it moved, this whole finding moves with it")
+        XCTAssertFalse(raw.contains("detail.capture"),
+                       "AppleRawSource reads the capture recipe again — S4 would run "
+                       + "twice, once in the decoder ahead of S3")
+        XCTAssertTrue(raw.contains("filter.sharpnessAmount = 0"),
+                      "Apple's at-demosaic sharpener must be held at zero")
+        let plan = Self.stripped("Sources/LumenCore/Engine/RenderPlan.swift")
+        XCTAssertTrue(plan.contains("CaptureStage(capture: develop.detail.capture, "
+                                    + "captureISO: captureISO)"),
+                      "the plan is supposed to be the reader of the capture recipe")
+        let rendered = Self.stripped("Sources/LumenPipeline/ImageSource.swift")
+        XCTAssertTrue(rendered.contains("iso: nil"),
+                      "RenderedImageSource must report no capture ISO, which is what "
+                      + "keeps S4 off a JPEG")
+        XCTAssertTrue(CaptureStage(capture: CaptureSharpen(), captureISO: nil).isIdentity)
     }
 
     // MARK: - The fix

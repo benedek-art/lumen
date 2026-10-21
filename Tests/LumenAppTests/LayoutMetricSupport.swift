@@ -418,7 +418,9 @@ enum SliderInventory {
     /// Heal tool's Size, Feather and Opacity (a new host, `healBar`), the Looks LUT's
     /// Amount, and the export sheet's sequence Start at. 103 → 106 for the export
     /// sheet's Percent, Width and Height (the percentage and box resize modes).
-    static let callSiteCount = 106
+    /// 106 → 107 for capture sharpening's Radius, which came back with Lumen's own S4
+    /// stage (WS-17).
+    static let callSiteCount = 107
 
     /// Every slider the app ships, resolved through its builder where the call site is
     /// a helper rather than a literal — `MaskPanel.adjustSlider`, `LookPanel.bipolarSlider`,
@@ -478,26 +480,28 @@ enum SliderInventory {
         SliderSpec("Shadows", "CurveEditorView.swift:664", .developTop, -100...100, step: 1),
 
         // Detail — capture sharpening, manual sharpening.
-        SliderSpec("Amount", "DetailPanel.swift:213", .developTop, 0...150, step: 1),
-        SliderSpec("Amount", "DetailPanel.swift:296", .developTop, 0...150, step: 1),
-        SliderSpec("Radius", "DetailPanel.swift:320", .developTop, 0.5...3.0,
+        SliderSpec("Amount", "DetailPanel.swift:210", .developTop, 0...150, step: 1),
+        SliderSpec("Radius", "DetailPanel.swift:223", .developTop, 0.4...2.0,
+                   step: 0.05, decimals: 2),
+        SliderSpec("Amount", "DetailPanel.swift:309", .developTop, 0...150, step: 1),
+        SliderSpec("Radius", "DetailPanel.swift:331", .developTop, 0.5...3.0,
                    step: 0.1, decimals: 1),
-        SliderSpec("Detail", "DetailPanel.swift:329", .developTop, 0...100, step: 1),
-        SliderSpec("Masking", "DetailPanel.swift:338", .developTop, 0...100, step: 1),
-        SliderSpec("Halo Damping", "DetailPanel.swift:378", .developTop, 0...100, step: 1),
+        SliderSpec("Detail", "DetailPanel.swift:340", .developTop, 0...100, step: 1),
+        SliderSpec("Masking", "DetailPanel.swift:350", .developTop, 0...100, step: 1),
+        SliderSpec("Halo Damping", "DetailPanel.swift:394", .developTop, 0...100, step: 1),
         // Noise Reduction — all of it inside a `DevelopDisclosure`.
-        SliderSpec("Luminance", "DetailPanel.swift:537", .developDisclosure, 0...100, step: 1),
-        SliderSpec("Detail", "DetailPanel.swift:588", .developDisclosure, 0...100,
+        SliderSpec("Luminance", "DetailPanel.swift:552", .developDisclosure, 0...100, step: 1),
+        SliderSpec("Detail", "DetailPanel.swift:603", .developDisclosure, 0...100,
                    step: 1, indented: true),
-        SliderSpec("Contrast", "DetailPanel.swift:598", .developDisclosure, 0...100,
+        SliderSpec("Contrast", "DetailPanel.swift:613", .developDisclosure, 0...100,
                    step: 1, indented: true),
-        SliderSpec("Colour", "DetailPanel.swift:608", .developDisclosure, 0...100, step: 1),
-        SliderSpec("Detail", "DetailPanel.swift:625", .developDisclosure, 0...100,
+        SliderSpec("Colour", "DetailPanel.swift:623", .developDisclosure, 0...100, step: 1),
+        SliderSpec("Detail", "DetailPanel.swift:640", .developDisclosure, 0...100,
                    step: 1, indented: true),
-        SliderSpec("Smoothness", "DetailPanel.swift:636", .developDisclosure, 0...100,
+        SliderSpec("Smoothness", "DetailPanel.swift:651", .developDisclosure, 0...100,
                    step: 1, indented: true),
-        SliderSpec("Hot Pixels", "DetailPanel.swift:647", .developDisclosure, 0...100, step: 1),
-        SliderSpec("Amount", "DetailPanel.swift:683", .developDisclosure, 0...100, step: 1),
+        SliderSpec("Hot Pixels", "DetailPanel.swift:662", .developDisclosure, 0...100, step: 1),
+        SliderSpec("Amount", "DetailPanel.swift:698", .developDisclosure, 0...100, step: 1),
 
         // Effects — vignette, grain, retouch.
         SliderSpec("Amount", "EffectsPanel.swift:131", .developTop, -4...2,

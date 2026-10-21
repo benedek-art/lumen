@@ -25,15 +25,20 @@ public enum ReferenceRenderer {
         /// the one the app attaches its blob store to and the one the GPU graph reads,
         /// so a fallback render finds the same cube the graph did.
         public var luts: CreativeLUTLibrary
+        /// The input's scale against the sensor (≤ 1; 1 at 1:1 and on export). S12's
+        /// Radius is in native pixels, so it needs to know.
+        public var decodeScale: Double
 
         public init(strokeSets: [String: BrushStrokeSet] = [:],
                     aiMattes: [String: Plane] = [:],
                     grainSeed: UInt64 = FilmGrainProfile.defaultPlateSeed,
-                    luts: CreativeLUTLibrary = .shared) {
+                    luts: CreativeLUTLibrary = .shared,
+                    decodeScale: Double = 1) {
             self.strokeSets = strokeSets
             self.aiMattes = aiMattes
             self.grainSeed = grainSeed
             self.luts = luts
+            self.decodeScale = decodeScale
         }
     }
 
@@ -77,13 +82,11 @@ public enum ReferenceRenderer {
         // S8 — presence, off one decomposition built once.
         let detail = plan.detail
         let needsDecomposition = detail.texture != 0 || detail.clarity != 0
-            || detail.dehaze != 0 || detail.sharpen.amount > 0
-        var decomposition: DetailEngine.Decomposition?
+            || detail.dehaze != 0
         if needsDecomposition {
             let radius = Swift.max(Int(Double(longEdge) * 0.02), 3)
             let node = DetailEngine.Decomposition(image: image, workingRadius: radius,
                                                   space: space)
-            decomposition = node
             image = DetailEngine.apply(image, detail: detail, decomposition: node)
         }
 
@@ -120,9 +123,11 @@ public enum ReferenceRenderer {
 
         // S12 — creative sharpening, after local so masked clarity is never
         // double-sharpened.
-        if detail.sharpen.amount > 0, let node = decomposition {
+        // Its own input, not the S8 decomposition (the GPU path never had that one).
+        if detail.sharpen.amount > 0 {
             image = DetailEngine.applySharpen(image, params: detail.sharpen,
-                                              decomposition: node)
+                                              decodeScale: inputs.decodeScale,
+                                              space: space)
         }
 
         // S13 — vignette in scene-linear, then halation: the lens vignettes the light
