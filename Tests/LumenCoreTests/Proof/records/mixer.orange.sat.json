@@ -1,15 +1,15 @@
 {
-  "authority" : 129.62651272052682,
+  "authority" : 132.75860884467693,
   "deadSteps" : 0,
   "frame" : "colourChart",
-  "frontLoading" : 0.9037549674743769,
-  "givenBack" : 0.7393836897386734,
-  "hueRotation" : 19.2182548206697,
+  "frontLoading" : 0.9469583997344636,
+  "givenBack" : 0,
+  "hueRotation" : 20.772817161626563,
   "id" : "mixer.orange.sat",
-  "isMonotone" : false,
-  "meanSeparation" : 6.939407610163618,
+  "isMonotone" : true,
+  "meanSeparation" : 7.167524539475546,
   "panel" : "Colour Mixer",
-  "smallestLiveStep" : 2.232699348959656,
+  "smallestLiveStep" : 2.138114902634726,
   "travelHigh" : 100,
   "travelLow" : -100
 }

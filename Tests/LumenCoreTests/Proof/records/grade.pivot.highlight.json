@@ -7,9 +7,9 @@
   "hueRotation" : 151.54284773707406,
   "id" : "grade.pivot.highlight",
   "isMonotone" : true,
-  "meanSeparation" : 12.39407045957833,
+  "meanSeparation" : 13.289683421703627,
   "panel" : "Grade",
-  "smallestLiveStep" : 1.6787069342853158,
+  "smallestLiveStep" : 2.5851940341160287,
   "travelHigh" : 1,
   "travelLow" : 0.35
 }

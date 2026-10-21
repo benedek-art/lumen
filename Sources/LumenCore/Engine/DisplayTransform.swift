@@ -79,12 +79,13 @@ public struct DisplayTransformParams: Equatable, Sendable {
 
     /// How fast the path to white bleaches once it starts (`DisplayTransform.
     /// bleachAmount`): 1 is linear in shoulder position; above 1 the bleach front-
-    /// loads, 1 − (1 − v)^k, and lands on white with zero slope. A preset character, like the inset: the steeper presets
-    /// set it so that a +4 EV overexposure renders as white as their per-channel
+    /// loads, 1 − (1 − v)^k, and lands on white with zero slope. A preset character,
+    /// like the inset: the steeper presets set it so that a +4 EV overexposure renders as white as their per-channel
     /// shoulder used to make it (Punchy and Film Base measured 0.034 mean OKLCh
-    /// chroma at +4 EV before WS-13; linear left 0.053). 1.2 by default: linear left
-    /// a saturated magenta's chroma still rising just after the onset.
-    public var pathToWhite: Double = 1.2
+    /// chroma at +4 EV before WS-13; linear left 0.053). 1 (linear) by default: a
+    /// front-loaded bleach right after the +1.5 EV onset took Green purity's
+    /// authority below its proof floor.
+    public var pathToWhite: Double = 1
 
     /// OKLab chroma gain on the hue-stable branch, at constant hue (1…2). A per-channel
     /// curve of this contrast adds purity as a side effect, with its hue twist; hue
@@ -545,21 +546,28 @@ public struct DisplayTransform: Sendable {
     }
 
     /// Where the path to white starts, as a shoulder position of the colour's
-    /// luminance: +0.8 EV over mid-grey at the default anchor (+5 EV). Below it a
-    /// hue-stable colour keeps its purity, so the bright ColorChecker patches are not
-    /// paled (onset at the pivot put the chart at 0.85× its true chroma); from it the
-    /// bleach is linear, steep enough that output chroma never rises again from +1 EV
-    /// on the way to white (a ratio colour's OKLab chroma grows with its lightness,
-    /// about as fast as the shoulder's first stop lifts it; at +0.9 EV some saturated
-    /// probes' chroma still climbed past +1 EV).
-    static let bleachOnset: Double = 0.16
+    /// luminance: +1.5 EV over mid-grey at the default anchor (+5 EV), rounded over
+    /// ±0.12 (`bleachOnsetRound`, ±0.6 EV), so a saturated colour, whose luminance
+    /// sits below a grey of the same lightness, is already bleaching gently by +1.5 EV
+    /// of exposure and output chroma never rises again from there (SPEC 3.8, amended in
+    /// WS-13 round 3). Started at +0.8 EV it took a third of Green purity's authority
+    /// on sunlit greens (39.7 code values against a floor of 44; 44.6 now); Adobe
+    /// keeps chroma until much nearer clip. A sharp onset at +1.35 EV put a corner in
+    /// the colour table's cells (3.6 codes on a bright orange against a 3-code bar).
+    static let bleachOnset: Double = 0.3
+    static let bleachOnsetRound: Double = 0.12
     /// OKLab chroma at which `chromaGain` has fallen to half its excess.
     static let chromaGainKnee: Double = 0.12
 
     /// Bleach amount at a shoulder position: 0 up to `bleachOnset`, 1 at the anchor,
     /// 1 − (1 − v)^power between (`pathToWhite`, clamped to 1…4).
     static func bleachAmount(_ u: Double, power: Double = 1) -> Double {
-        let v = Num.saturate((u - bleachOnset) / (1 - bleachOnset))
+        // The onset is rounded over ±`bleachOnsetRound` (a quadratic that meets the
+        // line with matching slope), so the amount is C¹ there.
+        let d = DisplayTransform.bleachOnsetRound
+        let r = u - bleachOnset
+        let ramp = r <= -d ? 0 : (r >= d ? r : (r + d) * (r + d) / (4 * d))
+        let v = Num.saturate(ramp / (1 - bleachOnset))
         return 1 - pow(1 - v, Num.clamp(power, 1, 4))
     }
 
@@ -586,8 +594,7 @@ public struct DisplayTransform: Sendable {
         // blue (flooring L, M, S instead left 0.33). Every cone row of the working
         // space is positive, so after this clamp L, M and S stay away from zero for
         // any colour with light in it.
-        let positive = RGB(Swift.max(c.r, 0), Swift.max(c.g, 0), Swift.max(c.b, 0))
-        let lab = oklab.toLab(positive)
+        let lab = oklab.toLab(RGB(Swift.max(c.r, 0), Swift.max(c.g, 0), Swift.max(c.b, 0)))
         let greyL = oklab.toLab(RGB(gray: level)).L
         // The gain tapers with chroma: full on the moderate colours a scene is made of
         // (a ColorChecker patch sits at OKLab C 0.03…0.15), fading toward 1 on colours
@@ -604,12 +611,7 @@ public struct DisplayTransform: Sendable {
         // (4.1 this way; pinned at 12.0).
         let walked = oklab.toRGB(OKLab(L: lab.L + (greyL - lab.L) * amount * amount,
                                        a: lab.a * keep, b: lab.b * keep))
-        // What the clamp took off (the out-of-gamut excess) rides along, fading with
-        // the bleach, so a colour pushed further outside the gamut still renders
-        // further out. Dropped, it made every out-of-gamut colour one colour: Green
-        // purity lost a third of its authority (58 → 40 code values) and Blue hue's
-        // hand-back grew past its pinned ceiling.
-        return walked + (c - positive) * (1 - amount)
+        return walked
     }
 
     /// The transform a recipe renders through, without building a whole `RenderPlan`.

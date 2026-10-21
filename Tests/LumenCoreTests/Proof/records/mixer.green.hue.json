@@ -2,14 +2,14 @@
   "authority" : 74.91339925979159,
   "deadSteps" : 0,
   "frame" : "colourChart",
-  "frontLoading" : 0.5375138959299071,
+  "frontLoading" : 0.5479047171903274,
   "givenBack" : 0,
-  "hueRotation" : 34.107291445996964,
+  "hueRotation" : 33.7862662814982,
   "id" : "mixer.green.hue",
   "isMonotone" : true,
-  "meanSeparation" : 3.142449385290264,
+  "meanSeparation" : 3.2480493876088574,
   "panel" : "Colour Mixer",
-  "smallestLiveStep" : 3.098875373630449,
+  "smallestLiveStep" : 3.427565238085009,
   "travelHigh" : 100,
   "travelLow" : -100
 }

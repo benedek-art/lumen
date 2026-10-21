@@ -1,15 +1,15 @@
 {
-  "authority" : 60.829536180952374,
+  "authority" : 62.02919120605833,
   "deadSteps" : 0,
   "frame" : "tonalColourWedge",
-  "frontLoading" : 0.5569244938124744,
+  "frontLoading" : 0.554148796896217,
   "givenBack" : 0,
   "hueRotation" : 156.69059496596526,
   "id" : "grade.global.sat",
   "isMonotone" : true,
-  "meanSeparation" : 11.486783174554915,
+  "meanSeparation" : 12.185758939831615,
   "panel" : "Grade",
-  "smallestLiveStep" : 3.3292262123927543,
+  "smallestLiveStep" : 3.3111684790953717,
   "travelHigh" : 1,
   "travelLow" : 0
 }

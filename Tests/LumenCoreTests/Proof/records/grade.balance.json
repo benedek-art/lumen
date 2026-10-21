@@ -2,14 +2,14 @@
   "authority" : 59.49022770960162,
   "deadSteps" : 0,
   "frame" : "tonalColourWedge",
-  "frontLoading" : 0.8604624105175388,
+  "frontLoading" : 0.8967905317257506,
   "givenBack" : 0,
   "hueRotation" : 179.9017747955726,
   "id" : "grade.balance",
   "isMonotone" : true,
-  "meanSeparation" : 10.738629998345944,
+  "meanSeparation" : 11.1677473504325,
   "panel" : "Grade",
-  "smallestLiveStep" : 5.994718047165378,
+  "smallestLiveStep" : 6.013687468958594,
   "travelHigh" : 100,
   "travelLow" : -100
 }

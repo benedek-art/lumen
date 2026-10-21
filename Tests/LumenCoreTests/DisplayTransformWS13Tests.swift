@@ -5,7 +5,8 @@
 //     (the split constants; 1.1's lift to 0.25 is deferred to WS-05's white anchor)
 //   · a +3 EV white anchor puts sensor white near white and still rolls off (2.1, 2.2)
 //   · the outset undoes the inset rotation, so skies and LED blue keep their hue (3.1, 3.2)
-//   · the path to white keeps hue: blues and a full hue ring, chroma falling to white (3.6-3.9)
+//   · the path to white keeps hue: blues and a full hue ring, chroma falling to white from
+//     the +1.5 EV onset (3.6-3.9)
 //   · ColorChecker chroma lands at 1.05…1.20 of truth on Neutral, Soft < Neutral < Punchy (4.1, 4.2)
 //   · the whole Skew slider is live and monotone (5.1); Black target's range is all live (6.1, 6.2)
 
@@ -223,8 +224,12 @@ final class DisplayTransformWS13Tests: XCTestCase {
                     let out = t.apply(at(ev), gamut: Gamut.sharedBoundary)
                     let c = ok.toLCh(out).C
                     let y = RGBColorSpace.rec2020.luminance(out)
-                    XCTAssertLessThanOrEqual(c, previousC + 1e-6,
-                                             "\(preset) \(name): chroma rose at +\(ev) EV")
+                    // SPEC 3.8 (amended, round 3): chroma non-increasing from the
+                    // bleach onset, +1.5 EV; luminance monotone from +1 EV.
+                    if ev > 1.5 {
+                        XCTAssertLessThanOrEqual(c, previousC + 1e-6,
+                                                 "\(preset) \(name): chroma rose at +\(ev) EV")
+                    }
                     XCTAssertGreaterThanOrEqual(y, previousY - 1e-9,
                                                 "\(preset) \(name): luminance fell at +\(ev) EV")
                     previousC = c

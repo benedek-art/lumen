@@ -2,14 +2,14 @@
   "authority" : 134.8537278132738,
   "deadSteps" : 0,
   "frame" : "tonalColourWedge",
-  "frontLoading" : 0.5971294077445318,
+  "frontLoading" : 0.6793858996912155,
   "givenBack" : 0,
   "hueRotation" : 0,
   "id" : "film.trix400.strength",
   "isMonotone" : true,
-  "meanSeparation" : 21.140680493545567,
+  "meanSeparation" : 23.500860161071724,
   "panel" : "Film Lab",
-  "smallestLiveStep" : 5.47414514670416,
+  "smallestLiveStep" : 5.805749230892985,
   "travelHigh" : 100,
   "travelLow" : 0
 }
