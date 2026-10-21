@@ -52,10 +52,16 @@ final class ColourAccuracyTests: XCTestCase {
     /// Whites has pulled the white anchor below the ±4 pivot limit. Before the fix
     /// `Tone(contrast: -100, contrastPivot: 4, whites: 100)` mapped the anchor 3.5 to
     /// 3.8 and 3.0 to 3.6, past white.
+    ///
+    /// WS-05: Whites no longer moves the anchor; the anchors it used to produce (4.0 …
+    /// 3.5 EV) are set as the engine's base white anchor instead, which is how a mask's
+    /// engine sees a lowered global anchor. Same anchors, same claim.
     func testContrastKeepsTheWhiteAnchorFixedWhenWhitesPullsItBelowThePivot() {
         for whites in [67.0, 80.0, 100.0] {
             for contrast in [-100.0, 100.0] {
-                let engine = ToneEngine(tone: Tone(contrast: contrast, contrastPivot: 4, whites: whites))
+                let engine = ToneEngine(tone: Tone(contrast: contrast, contrastPivot: 4),
+                                        baseWhiteAnchorEV: ToneEngine.defaultWhiteAnchorEV
+                                            - 1.5 * whites / 100)
                 let anchor = engine.whiteAnchorEV
                 XCTAssertLessThan(anchor, 4)
                 XCTAssertEqual(engine.contrastMapped(anchor), anchor, accuracy: 1e-12,

@@ -79,25 +79,31 @@ final class GradeStripAxisTests: XCTestCase {
         }
     }
 
-    /// Whites +100 moves the display curve, so it moves the scene EV each pivot sits at,
-    /// and the strip and the engine must agree on where. (The crossfade width itself is
-    /// display level since lane K1 and no longer depends on the span.)
-    func testAtWhitesPlusOneHundredTheStripDrawsTheRenderedPivotsInStops() {
-        let r = recipe(whites: 100, blacks: 0)
+    /// Blacks +100 moves the display curve's black anchor, so it moves the scene EV each
+    /// pivot sits at, and the strip and the engine must agree on where. (The crossfade
+    /// width itself is display level since lane K1 and no longer depends on the span.)
+    /// WS-05: this was driven by Whites +100, but Whites no longer moves an anchor (its
+    /// white point is gain, so the transform's hue blend does not shift under it); the
+    /// anchor that still moves is Blacks'.
+    func testAtBlacksPlusOneHundredTheStripDrawsTheRenderedPivotsInStops() {
+        let r = recipe(whites: 0, blacks: 100)
         let drawn = ZoneWindows(gradeOf: r)
-        XCTAssertEqual(drawn.spanEV, 12.5, accuracy: 1e-12)
-        XCTAssertEqual(drawn.highlightPivotEV, renderedWindows(r).highlightPivotEV,
+        XCTAssertEqual(drawn.spanEV, 15.5, accuracy: 1e-12)
+        XCTAssertEqual(drawn.shadowPivotEV, renderedWindows(r).shadowPivotEV,
                        accuracy: 1e-12)
-        XCTAssertLessThan(drawn.highlightPivotEV, ZoneWindows().highlightPivotEV,
-                          "Whites +100 lowers the white anchor, so the 2/3 level sits "
+        XCTAssertLessThan(drawn.shadowPivotEV, ZoneWindows().shadowPivotEV,
+                          "Blacks +100 lowers the black anchor, so the 1/3 level sits "
                               + "at a lower scene EV")
+        // And Whites, which no longer moves an anchor, leaves the axis alone.
+        XCTAssertEqual(ZoneWindows(gradeOf: recipe(whites: 100, blacks: 0)).spanEV, 14,
+                       accuracy: 1e-12)
     }
 
     /// Dropping a handle stores `handle − Balance shift`, so the pivot the engine solves
-    /// is where the handle was released, at every Whites setting.
-    func testABalanceShiftedHandleRendersWhereItWasReleasedWhenWhitesMove() {
+    /// is where the handle was released, at every Blacks setting.
+    func testABalanceShiftedHandleRendersWhereItWasReleasedWhenBlacksMove() {
         for balance in [-100.0, 100] {
-            let r = recipe(whites: 100, blacks: 0, balance: balance)
+            let r = recipe(whites: 0, blacks: 100, balance: balance)
             // Above the shadow handle at both Balance extremes (it sits at 0.63 at −100).
             let released = 0.8
             let stored = released - ZoneWindows.pivotShift(balance: balance)

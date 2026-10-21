@@ -77,8 +77,10 @@ final class PlanCostProbeTests: XCTestCase {
     private static let controls: [(name: String, move: (inout Recipe, Double) -> Void)] = [
         // Re-keys the tone gain cube only.
         ("exposure", { r, t in r.develop.tone.exposure = -1 + 2 * t }),
-        // Moves the tone ANCHORS, so it re-keys the finish table as well.
-        ("whites", { r, t in r.develop.tone.whites = -60 + 120 * t }),
+        // Moves the tone ANCHORS, so it re-keys the finish table as well. WS-05: this
+        // was Whites, which no longer moves an anchor (it is a gain and re-keys the
+        // tone cube only); Blacks is the control that still moves both.
+        ("blacks", { r, t in r.develop.tone.blacks = -60 + 120 * t }),
         // Re-keys the colour+grade table.
         ("saturation", { r, t in r.develop.color.saturation = -50 + 100 * t }),
         // Re-keys nothing: presence is not a table. The floor every other row is
@@ -157,7 +159,7 @@ final class PlanCostProbeTests: XCTestCase {
     /// ratio cannot establish any of these properties. The gate never suspends a queue,
     /// has a bounded wait, and releases/drains on every exit, including assertion failure.
     func testATableRekeyingDragDoesNotPayTheBakePerFrame() {
-        for control in ["whites", "saturation"] {
+        for control in ["blacks", "saturation"] {
             guard let move = Self.controls.first(where: { $0.name == control })?.move
             else { return XCTFail("fixture names a control that is not in the table") }
             drainAllSlots()
@@ -205,7 +207,7 @@ final class PlanCostProbeTests: XCTestCase {
             }
             // Saturation re-keys NOTHING now: the colour stage is exact and has no table
             // (AI-03), so a colour drag is a cache hit on every table there is.
-            let changedSlots: [PlanTableCache.Slot] = control == "whites"
+            let changedSlots: [PlanTableCache.Slot] = control == "blacks"
                 ? [.grade, .finish] : []
             for slot in changedSlots {
                 let traffic = PlanTableCache.traffic(slot)
@@ -215,9 +217,9 @@ final class PlanCostProbeTests: XCTestCase {
                 XCTAssertEqual(traffic.deferredBakes, 0, "test worker is still held")
             }
             let tone = PlanTableCache.traffic(.toneGain)
-            XCTAssertEqual(tone.bakes, control == "whites" ? events : 0,
+            XCTAssertEqual(tone.bakes, control == "blacks" ? events : 0,
                            "the tone cube stays exact; do not make it stale to win a timing ratio")
-            XCTAssertEqual(tone.hits, control == "whites" ? 0 : events)
+            XCTAssertEqual(tone.hits, control == "blacks" ? 0 : events)
             XCTAssertEqual(tone.staleServes, 0)
             if control == "saturation" {
                 for slot in [PlanTableCache.Slot.finish, .grade] {
@@ -247,13 +249,13 @@ final class PlanCostProbeTests: XCTestCase {
             XCTAssertEqual(settled.finishScale, fresh.finishScale)
             XCTAssertTrue(settled.toneGainCubeBaked == fresh.toneGainCubeBaked)
             XCTAssertEqual(settled.toneGainScale, fresh.toneGainScale)
-            if control == "whites" {
+            if control == "blacks" {
                 XCTAssertTrue(fresh.gradeLUT != warm.gradeLUT, "fixture must change actual grade pixels")
             } else {
                 XCTAssertTrue(fresh.colorStage != warm.colorStage, "fixture must change actual colour pixels")
                 XCTAssertTrue(fresh.gradeLUT == warm.gradeLUT, "a colour drag must not move the grade table")
             }
-            if control == "whites" {
+            if control == "blacks" {
                 XCTAssertTrue(fresh.finishLUT != warm.finishLUT)
                 XCTAssertTrue(fresh.toneGainCubeBaked != warm.toneGainCubeBaked)
             }
@@ -286,7 +288,7 @@ final class PlanCostProbeTests: XCTestCase {
         // An inherited identity must not lend a stale table to a different photo.
         PlanTableCache.setRenderIdentity("plan-cost-other-photo")
         var changed = recipe
-        changed.develop.tone.whites = 45
+        changed.develop.tone.blacks = 45
         PlanTableCache.resetStats()
         let otherPhoto = RenderPlan(recipe: changed, allowStaleTables: true)
         for slot in [PlanTableCache.Slot.grade, .finish, .toneGain] {
