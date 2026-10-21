@@ -53,3 +53,10 @@ that change is visible in the RAW corpus lane.
 comma, which Swift 6.0.3 (the cloud Linux toolchain) rejects, so `swift build` / `swift
 test` of the whole package fails on Linux at the base commit. This lane patched it
 locally to run tests and did not commit the patch.
+
+## RAW corpus lane owner (`raw-corpus.yml`)
+
+One line appended to the push `paths`: `Tests/LumenPipelineTests/LensProfileRawCorpusTests.swift`,
+so the WS-28 probe runs on the push that changes it. The session that wrote this
+lane cannot `workflow_dispatch` (403), and the probe's class name matches the lane's
+existing `--filter RawCorpusTests`, so nothing else in the workflow changes.
