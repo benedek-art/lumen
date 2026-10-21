@@ -1,9 +1,10 @@
 // ZonalToneTests.swift
 // WS-05's acceptance lines (docs/quality/lanes/WS-05/SPEC.md) held at engine level,
-// without renders: what Shadows +100 does to the black point (S1/S5), where Whites puts
-// the white clip point and how far down it reaches (W2/W4), that Highlights still
-// recovers two stops (R1), that no tone slider re-hues a colour it did not ask to (H6),
-// and that zero is still an exact identity (M3).
+// without renders: where the default white anchor puts sensor white (A1), what Shadows
+// +100 does to the black point (S1/S5), where Whites puts the white clip point and how
+// far down it reaches (W2/W4), that Highlights still recovers two stops (R1), that no
+// tone slider re-hues a colour it did not ask to (H6), and that zero is still an exact
+// identity (M3).
 
 import XCTest
 @testable import LumenCore
@@ -33,6 +34,27 @@ final class ZonalToneTests: XCTestCase {
         var h = atan2(b, a) * 180 / .pi
         if h < 0 { h += 360 }
         return (hypot(a, b), h)
+    }
+
+    // MARK: - A1: sensor white reaches white
+
+    /// The proof decode puts sensor white at log2(1 / 0.18) = +2.47 EV and Apple's decode
+    /// at +2.66 … +2.90 EV. At the old +5 EV anchor +2.47 rendered 221.6 — light grey,
+    /// on every real frame. The default must take it near white without clipping it, and
+    /// leave a diffuse highlight half a stop down visibly separate.
+    func testTheDefaultRecipePutsSensorWhiteNearWhiteWithoutClippingIt() {
+        XCTAssertEqual(ToneEngine.anchors(for: Tone()).white, ToneEngine.defaultWhiteAnchorEV)
+        let sensorWhite = rendered(log2(1 / 0.18))
+        XCTAssertGreaterThanOrEqual(sensorWhite, 238, "sensor white still renders grey")
+        XCTAssertLessThanOrEqual(sensorWhite, 250)
+        XCTAssertGreaterThanOrEqual(rendered(2.66), 245)
+        XCTAssertLessThan(rendered(2.90), 254.5,
+                          "Apple's decode of sensor white clips at the default")
+        XCTAssertGreaterThanOrEqual(sensorWhite - rendered(2.0), 8,
+                                    "a diffuse highlight half a stop under sensor white "
+                                        + "merges into it")
+        // Mid-grey does not move with the anchor.
+        XCTAssertEqual(rendered(0), code(0.18), accuracy: 0.05)
     }
 
     // MARK: - S1 / S5: Shadows opens the quarter tones and leaves the black point to Blacks

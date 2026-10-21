@@ -74,7 +74,7 @@ final class AccuracyProbeTests: XCTestCase {
     /// stage against the engine's own DOCUMENTED constants (M2 calibration
     /// contract): Highlights owns ±2.0 EV of range compression at full deflection,
     /// Shadows −100 drops 2.0 EV and Shadows +100 lifts its tapered bump 1.5 EV,
-    /// Whites +100 lifts its shelf 1.2 EV and −100 pulls 1.9 EV (hold + recovery), Blacks −100
+    /// Whites +100 lifts its shelf 1.0 EV and −100 pulls 1.4 EV (hold + recovery), Blacks −100
     /// drops its shelf 2.2 EV. (WS-05 changed Shadows +100 and both Whites ends; the
     /// contract — the documented constant IS the delivered peak — is unchanged.) Measured as the peak stop shift over the whole tonal axis, so a
     /// weight curve that stopped reaching 1, a solver that started scaling a

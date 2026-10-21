@@ -353,7 +353,8 @@ DEFAULT_RECIPE = {
         "raw": {"decoder": "apple"},
         "tone": {"exposure": 0, "contrast": 0, "contrastPivot": 0, "highlights": 0,
                  "shadows": 0, "whites": 0, "blacks": 0},
-        "zones": {"pivots": [(ev - (-9.0)) / (5.0 - (-9.0)) for ev in (-4.0, -2.0, 0.0, 2.0, 4.0)],
+        # Zones.defaultPivots over ToneEngine's default anchors, -9 .. +3 EV.
+        "zones": {"pivots": [(ev - (-9.0)) / (3.0 - (-9.0)) for ev in (-4.0, -2.0, 0.0, 2.0, 4.0)],
                   "dark": zone_adjust(), "shadow": zone_adjust(), "mid": zone_adjust(),
                   "light": zone_adjust(), "bright": zone_adjust(), "global": zone_adjust()},
         "curve": {"parametric": {"highlights": 0, "lights": 0, "darks": 0,
@@ -1008,7 +1009,7 @@ def gen_zones_fixture():
     # The documented pivot EVs (docs/04: -4/-2/0/+2/+4 around mid-grey) through
     # the default anchors (-9..+5), mirroring Zones.defaultPivots exactly —
     # same operations, same IEEE doubles.
-    default_pivots = [(ev - (-9.0)) / (5.0 - (-9.0)) for ev in (-4.0, -2.0, 0.0, 2.0, 4.0)]
+    default_pivots = [(ev - (-9.0)) / (3.0 - (-9.0)) for ev in (-4.0, -2.0, 0.0, 2.0, 4.0)]
     custom_pivots = [0.1, 0.3, 0.6, 0.85]
     samples = [i / 24 for i in range(25)]
     cases = []
@@ -2758,16 +2759,16 @@ SHADOW_PEAK = 3.5 / 9
 SHADOW_TAPER_START = 3.15 / 9
 SHADOW_TAPER_END = 4.15 / 9
 SHADOW_TAPER_DEPTH = 0.95
-# Whites +100: one shelf from 3.8 to 0.6 EV under the white anchor. Whites -100: a hold
-# from 3.8 to 1.8 EV under it and a recovery shelf from 1.2 under to 1.6 over it, off
-# Contrast's flattest shoulder band. Every Whites window is held at or above 0 EV
+# Whites +100: one shelf from 2.4 to 0.4 EV under the +3 EV white anchor. Whites -100:
+# a hold from 2.4 to 1.0 EV under it and a recovery shelf from 0.4 under to 1.6 over it,
+# off Contrast's flattest shoulder band. Every Whites window is held at or above 0 EV
 # (ToneEngine.upperShelf), so a low anchor cannot reach mid-grey.
-WHITE_SHELF_START_BELOW_ANCHOR_EV = 3.8
-WHITE_SHELF_END_BELOW_ANCHOR_EV = 0.6
-WHITE_HOLD_EV = 0.9
-WHITE_HOLD_END_BELOW_ANCHOR_EV = 1.8
+WHITE_SHELF_START_BELOW_ANCHOR_EV = 2.4
+WHITE_SHELF_END_BELOW_ANCHOR_EV = 0.4
+WHITE_HOLD_EV = 0.4
+WHITE_HOLD_END_BELOW_ANCHOR_EV = 1.0
 WHITE_RECOVERY_EV = 1.0
-WHITE_RECOVERY_START_BELOW_ANCHOR_EV = 1.2
+WHITE_RECOVERY_START_BELOW_ANCHOR_EV = 0.4
 WHITE_RECOVERY_END_ABOVE_ANCHOR_EV = 1.6
 MIN_UPPER_SHELF_WIDTH_EV = 0.5      # ToneEngine.minimumUpperShelfWidthEV
 
@@ -2778,9 +2779,9 @@ def upper_shelf(start, end, t):
     return smoothstep(lower, max(end, lower + MIN_UPPER_SHELF_WIDTH_EV), t)
 BLACK_SHELF_START = 0.15
 BLACK_SHELF_END = 0.62
-WHITE_TONE_EV = 1.2
+WHITE_TONE_EV = 1.0
 BLACK_TONE_EV = 2.2
-DEFAULT_WHITE_ANCHOR_EV = 5.0
+DEFAULT_WHITE_ANCHOR_EV = 3.0       # WS-05 SPEC A1: sensor white (+2.47 EV) renders 243
 DEFAULT_BLACK_ANCHOR_EV = -9.0
 SECANT_MARGIN = 1e-3                # ToneEngine.secantMargin
 
@@ -3078,7 +3079,7 @@ def gen_tone_checks():
     check(e.shadow_weight(e.black_anchor_ev * SHADOW_SHELF_END) > 0.99,
           "shadows do not reach full strength where the toe still has room")
     # Whites and Blacks now carry real authority instead of only moving the endpoint.
-    check(ToneEngine(whites=100).stops(3.5) > 0.4, "Whites has no reach into the highlights")
+    check(ToneEngine(whites=100).stops(2.5) > 0.4, "Whites has no reach into the highlights")
     check(ToneEngine(blacks=100).stops(-4.0) > 0.4, "Blacks has no reach into the shadows")
     check(abs(ToneEngine(whites=100, blacks=100).stops(0.0)) < 1e-12,
           "Whites/Blacks moved mid-grey")
@@ -3089,16 +3090,16 @@ def gen_tone_checks():
 
     # WS-05: Whites moves the white CLIP POINT by gain and leaves the display anchor
     # alone (moving the anchor re-hued saturated blues through the transform's
-    # anchor-normalised blend). A tone 1 EV under white reaches it at +100, and one
-    # 1.5 EV over it is carried back under at -100; mid-grey stays put.
+    # anchor-normalised blend). A tone 0.5 EV under white reaches it at +100, and one
+    # 0.9 EV over it is carried back under at -100; mid-grey stays put.
     plain = ToneEngine()
     lifted = ToneEngine(whites=100)
     pulled = ToneEngine(whites=-100)
     hi = DEFAULT_WHITE_ANCHOR_EV
     check(lifted.white_anchor_ev == hi and pulled.white_anchor_ev == hi,
           "Whites moved the white anchor")
-    check(hi - 1.0 + lifted.stops(hi - 1.0) >= hi, "Whites +100 does not reach white")
-    check(hi + 1.5 + pulled.stops(hi + 1.5) < hi, "Whites -100 does not recover")
+    check(hi - 0.5 + lifted.stops(hi - 0.5) >= hi, "Whites +100 does not reach white")
+    check(hi + 0.9 + pulled.stops(hi + 0.9) < hi, "Whites -100 does not recover")
     check(abs(lifted.stops(0.0) - plain.stops(0.0)) < 1e-12,
           "Whites added gain at mid-grey")
 
@@ -3218,7 +3219,8 @@ def gen_tone_checks():
     # window with no amount at all, and taking it down alongside Highlights was what
     # made the applied Highlights amount fall back at the top of the slider.
     helper_bound = 0
-    for contrast in (-100.0, -60.0, 0.0):
+    # On the +3 EV anchor it is Contrast +100 that holds Highlights -100 back.
+    for contrast in (100.0, 60.0, 0.0):
         for whites in (20.0, 100.0):
             e = ToneEngine(contrast=contrast, highlights=-100, whites=whites)
             if e.zonal_scale < 1 - 1e-12:

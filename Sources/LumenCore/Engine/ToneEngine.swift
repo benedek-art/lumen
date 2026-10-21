@@ -152,24 +152,23 @@ public struct ToneEngine: Sendable {
     public static let shadowTaperEnd: Double = 4.15 / 9
     public static let shadowTaperDepth: Double = 0.95
 
-    /// Where the Whites +100 shelf runs, in EV BELOW the white anchor: +1.2 … +4.4 EV on
-    /// the default anchor. Full strength 0.6 EV under white, so Whites +100
-    /// (`whiteToneEV`) carries the tones from about +4 EV past white: on `top_steps` the
-    /// +4.0 EV step clips under +100 against +5.0 at 0 — the white clip point moved one
-    /// stop, inside Lightroom's 0.5 … 1.5 (SPEC W2) — and it is moved by gain, so the
-    /// display transform does not change (file header).
+    /// Where the Whites +100 shelf runs, in EV BELOW the white anchor: +0.6 … +2.6 EV on
+    /// the default +3 EV anchor. Full strength 0.4 EV under white, so Whites +100
+    /// (`whiteToneEV`) carries every tone from +2.6 EV up past white: on `top_steps` the
+    /// +2.5 EV step clips under +100 against +3.0 at 0 — the white clip point moved half
+    /// a stop to a stop (SPEC W2) — by gain, so the display transform does not change.
     ///
-    /// IT OVERLAPS HIGHLIGHTS, as it always has (`highlightShelfEndEV` rises over
-    /// 0 … +5 EV), but it is now confined to the top. The old shelf ran +1 … +4 EV at
-    /// 1.3 EV PLUS a 1.5 EV anchor move, so +100 clipped from +2.5 EV — half the
-    /// headroom — and moved the ramp's zone 7 by 25.7 codes against Highlights' 16.5.
-    /// Starting 3.8 EV under white keeps zone 6 still and zone 7 to about 2 codes, and
-    /// still moves C0 − 2 EV (+3 EV) by 12 codes (SPEC W4/W5). The width keeps the
-    /// slope at 1.5 x 1.2 / 3.2 = 0.56 stops per stop.
+    /// On the +5 EV anchor this shelf was 1.2 EV over 3.8 … 0.6 EV under white. A +3
+    /// anchor squeezes zones 6-9 of the grey ramp into the top 2.5 EV, so the shelf is
+    /// narrower and lower here: starting 2.4 EV under white keeps Whites +100 at 14.5
+    /// codes in zone 7, under Highlights' 16.9. Zone 6 moves 4.7: the grey ramp's +1 EV
+    /// step patch is two thirds of that zone, and SPEC W3/W5 ask Whites to move that very
+    /// tone (C0 − 2 EV), so it cannot also stay under 3 codes there (BUILD-NOTES.md §7).
+    /// Slope 1.5 x 1.0 / 2.0 = 0.75 stops per stop.
     /// `EngineTests.testTheEndShelvesOverlapTheZonalOnesAsTheCommentSays` holds these
     /// numbers. Whites −100 uses its own two shelves (`whiteRecoveryEV`).
-    public static let whiteShelfStartBelowAnchorEV: Double = 3.8
-    public static let whiteShelfEndBelowAnchorEV: Double = 0.6
+    public static let whiteShelfStartBelowAnchorEV: Double = 2.4
+    public static let whiteShelfEndBelowAnchorEV: Double = 0.4
 
     /// Blacks' shelf, as a fraction of |black anchor|: −1.35 … −5.58 EV on the default
     /// anchors. Shadows −100's shelf saturates at −4.5 EV and Blacks' steepest point is
@@ -179,41 +178,55 @@ public struct ToneEngine: Sendable {
     public static let blackShelfEnd: Double = 0.62
 
     /// ±100 on Whites ⇒ this many stops of gain at the top of the range. It used to be
-    /// 1.3 EV on top of a 1.5 EV anchor move; it is the whole move now.
-    public static let whiteToneEV: Double = 1.2
+    /// 1.3 EV on top of a 1.5 EV anchor move; it is the whole move now (1.2 EV on the
+    /// +5 EV anchor; 1.0 here, where the shoulder is steeper and a stop moves more).
+    public static let whiteToneEV: Double = 1.0
 
     /// Whites −100 is not the mirror of +100, and the reason is Contrast's shoulder.
     ///
-    /// Mirrored, −100 would fall at up to 0.56 stops per stop across +2 … +4 EV, which is
-    /// where Contrast +100's shoulder is flattest (its slope bottoms out at 0.41 at
-    /// +3.85 EV, 0.77 of the reach) and where Highlights −100 is still steep. The limiter
-    /// has to share that 0.41 between them: measured, Highlights −100 with Whites −100
-    /// under Contrast +100 solved to 0.42 — past the 0.62 floor `RobustnessTests` holds
-    /// the four controls to. So −100 is two shelves that stay off that band:
-    ///   · a HOLD of `whiteHoldEV` from `whiteShelfStartBelowAnchorEV` to
-    ///     `whiteHoldEndBelowAnchorEV` under white (+1.2 … +3.2 EV), which pulls the upper
-    ///     tones down and is flat by the time Contrast is;
-    ///   · a RECOVERY of `whiteRecoveryEV` from `whiteRecoveryStartBelowAnchorEV` under
-    ///     the anchor to `whiteRecoveryEndAboveAnchorEV` over it (+3.8 … +6.6 EV), most of
-    ///     it where Contrast is the identity again, which carries tones up to 1.9 EV over
-    ///     white back under it — the clip point moved the other way, as the old anchor
-    ///     move did, without moving the anchor.
-    /// They fall at most 0.68 and 0.54 stops per stop, so a single Whites −100 is still
-    /// never scaled at Contrast 0, and the four-way corner solves to 0.687.
-    public static let whiteHoldEV: Double = 0.9
-    public static let whiteHoldEndBelowAnchorEV: Double = 1.8
+    /// Mirrored, −100 would fall at up to 0.75 stops per stop across +1.6 … +2.6 EV,
+    /// which is exactly where Contrast +100's shoulder is flattest on the +3 EV anchor
+    /// (its slope bottoms out at 0.41 at +2.3 EV, 0.77 of the reach) and where
+    /// Highlights −100 is at its steepest (0.6). Measured, Highlights −100 with Whites
+    /// −100 under Contrast +100 solved to 0.39 — past the 0.62 floor `RobustnessTests`
+    /// holds the four controls to. So −100 is two shelves that stay off that band:
+    ///   · a HOLD of `whiteHoldEV` over +0.6 … +2.0 EV, which pulls the upper tones down
+    ///     (−2.0 EV renders 18 codes darker), and is flat by the time Contrast is;
+    ///   · a RECOVERY of `whiteRecoveryEV` from 0.4 EV under the anchor to
+    ///     `whiteRecoveryEndAboveAnchorEV` over it, where Contrast is the identity again,
+    ///     which carries up to 1.4 EV over white back under it — the clip point moved
+    ///     the other way, as the old anchor move did, without moving the anchor.
+    /// They fall at most 0.43 and 0.75 stops per stop, so a single Whites −100 is still
+    /// never scaled at Contrast 0, and the four-way corner solves to 0.676.
+    public static let whiteHoldEV: Double = 0.4
+    public static let whiteHoldEndBelowAnchorEV: Double = 1.0
     public static let whiteRecoveryEV: Double = 1.0
-    public static let whiteRecoveryStartBelowAnchorEV: Double = 1.2
+    public static let whiteRecoveryStartBelowAnchorEV: Double = 0.4
     public static let whiteRecoveryEndAboveAnchorEV: Double = 1.6
     /// Blacks needs more stops than Whites for the same visible authority, because the
     /// toe compresses far harder than the shoulder: one stop at +4 EV is worth about 12
     /// code values, one stop at −5 EV about 4.
     public static let blackToneEV: Double = 2.2
 
-    /// Default anchors with all sliders at zero: 5 stops of highlight headroom above
-    /// mid-grey and 9 stops of shadow range below it — the working latitude of a
-    /// modern full-frame sensor.
-    public static let defaultWhiteAnchorEV: Double = 5.0
+    /// Default anchors with all sliders at zero: 3 stops of highlight headroom above
+    /// mid-grey and 9 stops of shadow range below it.
+    ///
+    /// The white anchor was +5 EV, "the working latitude of a modern full-frame sensor".
+    /// That is the sensor's latitude, not where its white lands. The proof decode puts
+    /// sensor white at log2(1 / 0.18) = +2.47 EV and Apple's decode at +2.66 … +2.90, and
+    /// at +5 the transform rendered +2.47 EV at code 221.6: on 6929, 1569, 2348 and 1332
+    /// at exposure 0 the brightest pixel was luma 221-222 and not one pixel reached 255.
+    /// The brightest thing a correctly exposed raw can hold rendered light grey, with
+    /// its chroma already bleached by the shoulder — the "pastel" look (WS-05 SPEC A1,
+    /// WS-13's request). At +3 the same tones render 243.5 and 250.1 … 254.1: near white,
+    /// still unclipped, with +2.0 EV 18 codes below (225.6). +2.75 clips Apple's decode
+    /// (255 at +2.90); +3.25 leaves sensor white at 237.7. Mid-grey and the toe do not
+    /// move (117.6 at 0 EV for every anchor).
+    ///
+    /// It moves what other lanes measure against — the grading axis, the Zones pivots,
+    /// Auto Tone's recovery threshold, Contrast's white-side reach. NEEDS N10-N15 list
+    /// them with the tests that fail until their owners follow.
+    public static let defaultWhiteAnchorEV: Double = 3.0
     public static let defaultBlackAnchorEV: Double = -9.0
 
     /// What the Highlights slider actually applies, normalized to −1…1.

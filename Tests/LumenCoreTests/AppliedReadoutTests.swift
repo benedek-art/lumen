@@ -127,11 +127,13 @@ final class EngineLimitReadoutTests: XCTestCase {
     }
 
     /// The caption carries the number the render uses. Measured: Highlights −100 at
-    /// Contrast −100 applies −94; Blacks +100 there applies +91 on its shelf.
+    /// Contrast +100 applies −67; Blacks +100 at Contrast −100 applies +91 on its shelf.
+    /// (WS-05: Highlights binds at Contrast +100 now, not −100 — with the white anchor at
+    /// +3 EV Contrast +100's shoulder is flattest where Highlights' shelf is steepest.)
     ///
     /// SUBSTITUTION: make `easedToneSliders` return `[]` and both unwraps fail.
     func testAnEasedSliderIsNamedWithTheAmountTheRenderApplies() throws {
-        let tone = Tone(contrast: -100, highlights: -100)
+        let tone = Tone(contrast: 100, highlights: -100)
         let engine = ToneEngine(tone: tone)
         let caption = try XCTUnwrap(AppliedReadout.toneEasingCaption(tone: tone),
                                     "Highlights is eased to \(engine.effectiveHighlights) "
@@ -139,7 +141,7 @@ final class EngineLimitReadoutTests: XCTestCase {
         let shown = "Highlights \(AppliedReadout.signed(engine.effectiveHighlights * 100)) "
             + "of \u{2212}100"
         XCTAssertTrue(caption.contains(shown), caption)
-        XCTAssertTrue(caption.contains("\u{2212}94"), caption)
+        XCTAssertTrue(caption.contains("\u{2212}67"), caption)
 
         let blacks = Tone(contrast: -100, blacks: 100)
         let shelf = try XCTUnwrap(AppliedReadout.toneEasingCaption(tone: blacks))

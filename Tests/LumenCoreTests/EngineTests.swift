@@ -205,17 +205,25 @@ final class EngineTests: XCTestCase {
     ///
     /// Reaching the white point is the correct behaviour and is what makes recovery
     /// work. Mid-grey staying untouched is the part that must not change.
+    ///
+    /// The white anchor moved from +5 to +3 EV; the shelf did not. It is full at
+    /// `highlightShelfEndEV` (+5 EV), two stops past the new anchor — the tone full
+    /// Highlights −100 carries back exactly onto white — and already at 0.65 at the
+    /// anchor. Full AT a +3 anchor would be a 2 EV rise over 3 EV, which binds the
+    /// limiter on its own.
     func testHighlightsIsAShelfThatReachesTheHighlights() {
         let e = ToneEngine(tone: Tone(highlights: 100))
         XCTAssertEqual(e.highlightWeight(0), 0, accuracy: 1e-9,
                        "Highlights must not touch mid-grey")
-        XCTAssertGreaterThan(e.highlightWeight(e.whiteAnchorEV), 0.99,
-                             "Highlights must reach the white point, or it cannot "
+        let full = ToneEngine.highlightShelfEndEV
+        XCTAssertGreaterThan(e.highlightWeight(full), 0.99,
+                             "Highlights must reach past the white point, or it cannot "
                                  + "recover a blown highlight")
+        XCTAssertGreaterThan(e.highlightWeight(e.whiteAnchorEV), 0.6)
         // Monotone rising, so every part of the range gets more than the part below it.
         var previous = -1.0
         for step in 0...20 {
-            let w = e.highlightWeight(Double(step) / 20 * e.whiteAnchorEV)
+            let w = e.highlightWeight(Double(step) / 20 * full)
             XCTAssertGreaterThanOrEqual(w, previous)
             previous = w
         }
@@ -369,17 +377,18 @@ final class EngineTests: XCTestCase {
         let bright = ToneEngine(tone: Tone(whites: 100, blacks: 100))
         XCTAssertEqual(bright.whiteAnchorEV, neutral.whiteAnchorEV)
         XCTAssertLessThan(bright.blackAnchorEV, neutral.blackAnchorEV)
-        // The white clip point moves both ways: a tone 1 EV under white reaches it at
-        // +100, and one 1.5 EV over it is carried back under at −100.
+        // The white clip point moves both ways: a tone 0.5 EV under white reaches it at
+        // +100, and one 0.9 EV over it is carried back under at −100 (on the +5 EV
+        // anchor these were 1 and 1.5 EV; the +3 anchor's shelves are narrower).
         let anchor = neutral.whiteAnchorEV
-        XCTAssertGreaterThanOrEqual(anchor - 1 + bright.stops(at: anchor - 1), anchor)
+        XCTAssertGreaterThanOrEqual(anchor - 0.5 + bright.stops(at: anchor - 0.5), anchor)
         let pulled = ToneEngine(tone: Tone(whites: -100))
-        XCTAssertLessThan(anchor + 1.5 + pulled.stops(at: anchor + 1.5), anchor)
+        XCTAssertLessThan(anchor + 0.9 + pulled.stops(at: anchor + 0.9), anchor)
         // Mid-grey is still theirs to leave alone.
         XCTAssertEqual(bright.stops(at: 0), 0, accuracy: 1e-9,
                        "Whites and Blacks must not move mid-grey")
         // And each reaches real authority in its own end of the range.
-        XCTAssertGreaterThan(ToneEngine(tone: Tone(whites: 100)).stops(at: 3.5), 0.4,
+        XCTAssertGreaterThan(ToneEngine(tone: Tone(whites: 100)).stops(at: 2.5), 0.4,
                              "Whites has no reach into the highlights")
         XCTAssertGreaterThan(ToneEngine(tone: Tone(blacks: 100)).stops(at: -4), 0.4,
                              "Blacks has no reach into the shadows")
@@ -401,7 +410,7 @@ final class EngineTests: XCTestCase {
 
         XCTAssertEqual(params, params2, "Whites moved the display transform")
 
-        let t = 3.0
+        let t = 2.0     // under the +3 EV anchor, where neither render is already white
         let highlight = 0.18 * pow(2.0, t)
         XCTAssertGreaterThan(b.tone(highlight * pushed.gain(at: t)),
                              a.tone(highlight * plain.gain(at: t)))
@@ -550,12 +559,12 @@ final class EngineTests: XCTestCase {
     /// constant moves, this fails and points at the paragraph that has to move with it.
     func testTheEndShelvesOverlapTheZonalOnesAsTheCommentSays() {
         let engine = ToneEngine(tone: Tone())
-        // WS-05: Whites' +100 shelf runs +1.2 … +4.4 EV (it was +1 … +4 EV), inside
-        // Highlights' 0 … +5 EV ramp.
-        XCTAssertEqual(engine.whiteWeight(1.2), 0, accuracy: 1e-12)
-        XCTAssertEqual(engine.whiteWeight(4.4), 1, accuracy: 1e-12)
-        XCTAssertEqual(engine.highlightWeight(1.2), 0.145, accuracy: 0.001)
-        XCTAssertEqual(engine.highlightWeight(4.4), 0.960, accuracy: 0.001,
+        // Whites' +100 shelf runs +0.6 … +2.6 EV on the +3 EV anchor (+1.2 … +4.4 on
+        // the +5 one), inside Highlights' 0 … +5 EV ramp.
+        XCTAssertEqual(engine.whiteWeight(0.6), 0, accuracy: 1e-12)
+        XCTAssertEqual(engine.whiteWeight(2.6), 1, accuracy: 1e-12)
+        XCTAssertEqual(engine.highlightWeight(0.6), 0.040, accuracy: 0.001)
+        XCTAssertEqual(engine.highlightWeight(2.6), 0.530, accuracy: 0.001,
                        "Highlights has not saturated where Whites does")
 
         func steepest(_ weight: (Double) -> Double) -> Double {
@@ -752,10 +761,13 @@ final class EngineTests: XCTestCase {
     /// shelf really does reach past white, and that the render still cannot — so the
     /// words in that file are now backed rather than believed.
     func testHighlightsCannotRenderPastDisplayWhite() {
-        // The shelf, first: full weight at the anchor and above it.
+        // The shelf, first: most of its weight at the +3 EV anchor, full weight at
+        // `highlightShelfEndEV` (two stops past it) and above.
         let up = ToneEngine(tone: Tone(highlights: 100))
-        XCTAssertEqual(up.highlightWeight(up.whiteAnchorEV), 1, accuracy: 1e-12,
-                       "the highlight shelf does not reach the white anchor")
+        XCTAssertGreaterThan(up.highlightWeight(up.whiteAnchorEV), 0.6,
+                             "the highlight shelf does not reach the white anchor")
+        XCTAssertEqual(up.highlightWeight(ToneEngine.highlightShelfEndEV), 1,
+                       accuracy: 1e-12)
         XCTAssertEqual(up.highlightWeight(up.whiteAnchorEV + 4), 1, accuracy: 1e-12,
                        "the highlight shelf falls off above the white anchor")
         XCTAssertGreaterThan(up.stops(at: up.whiteAnchorEV + 3), 1.0,

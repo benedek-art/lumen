@@ -16,7 +16,11 @@ final class RawDenoiseRecipeTests: XCTestCase {
     private static let defaultCanonical = #"{"pipelineVersion":2}"#
     private static let defaultFingerprint = "xxh64:fd50cceee634dfb4"
     private static let defaultDenoiseInput = "xxh64:d730b5c38ab52508"
-    private static let defaultFullTreeDigest = "68b478a3b73cfdea"
+    // WS-05 moved `ToneEngine.defaultWhiteAnchorEV` from +5 to +3 EV, and
+    // `Zones.defaultPivots` is derived from it, so the FULL tree's default pivots changed
+    // (0.357 … 0.929 → 0.417 … 1.083) and with them this digest; the sparse canonical
+    // form and both fingerprints above did not move. Was "68b478a3b73cfdea".
+    private static let defaultFullTreeDigest = "e5686379198e83d4"
     private static let editedCanonical =
         #"{"develop":{"denoise":{"amount":65,"mode":"ai","model":"nafnet/2.1"},"#
         + #""raw":{"temp":5600}},"pipelineVersion":2}"#

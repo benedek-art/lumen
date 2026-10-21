@@ -293,8 +293,14 @@ final class RobustnessTests: XCTestCase {
             // It used to sit flat at about +0.5 EV, where the Shadows window and a
             // shadows grading wheel both evaluate to zero weight — so both reported
             // "changed nothing" and were indistinguishable from being unwired. A ramp
-            // from −4 to +4 EV puts real shadows and real highlights in the frame.
-            return base * pow(2.0, -4 + 8 * v)
+            // from −5 to +3 EV puts real shadows and real highlights in the frame.
+            // (It was −4 … +4, the same 8 stops one stop brighter. WS-05 moved the
+            // default white anchor from +5 to +3 EV, so the grading wheels' axis now
+            // runs −9 … +3 and the shadows wheel's crossfade ends at −3.5 EV — above
+            // every row of a ramp starting at −4, where it measured exactly zero; and
+            // a ramp reaching +4 clips its top row, where Texture measured nothing.
+            // Same claim, a range that reaches it.)
+            return base * pow(2.0, -5 + 8 * v)
         }
 
         var base = Recipe()
@@ -1277,7 +1283,11 @@ final class RobustnessTests: XCTestCase {
         // the whole slider: Whites at +20 keeps every bit of its 0.26 EV while
         // Highlights is being held back, instead of being cut down alongside it.
         var helperBound = 0
-        for contrast in [-100.0, -60, 0] {
+        // WS-05: Contrast +100, not −100. With the white anchor at +3 EV, Contrast's
+        // white-side shoulder is flattest at +2.3 EV, where Highlights' shelf is
+        // steepest, so it is the POSITIVE end that holds Highlights −100 back now
+        // (0.68), and the negative end that leaves it alone (its slope there is 0.8+).
+        for contrast in [100.0, 60, 0] {
             for whites in [20.0, 100] {
                 let e = ToneEngine(tone: Tone(contrast: contrast, highlights: -100,
                                               whites: whites))

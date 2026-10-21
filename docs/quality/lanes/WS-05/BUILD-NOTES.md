@@ -6,6 +6,7 @@ Builder, round 2. Two commits, neither pushed:
    anchor kept at **+5 EV**.
 2. **`quality/ws-05-white-anchor`** (branched from 1, §7): `defaultWhiteAnchorEV` 5 → 3 and
    what ToneEngine needs for it. It moves tests owned by other lanes; §7 lists them.
+   Only on that branch: §7 and the owner's sheet `evidence/white-anchor-owner.png`.
 
 Round 1 (one commit with both) was replaced because the anchor move left WS-08/WS-09
 tests red on the lane branch. Round 3 answers the verifier's report (`VERIFY.md`,
@@ -182,6 +183,97 @@ Every other control's record is unchanged:
 +100), `v2_whites_top_steps_before_after.png`, `v3_hue_wheel_whites_before_after.png`
 (sw and swx at exposure +2: after-Whites +100 no longer washes the wheel out),
 `v3_sky_probe_whites_before_after.png`. The four `before_*` files are the audit's.
+
+## 7. The white-anchor commit (`quality/ws-05-white-anchor`)
+
+One commit on top of the lane branch. After-renders: **`$P/anchor1`**
+(`ASHIFT=-2 bash $S/render.sh`, because C0 moves from 5 to 3 EV); printout
+`$P/measure_anchor1.txt`.
+
+### What it changes
+
+- `ToneEngine.defaultWhiteAnchorEV` 5.0 → 3.0 (SPEC A1/A2). It reaches every render:
+  `DisplayTransform.forRecipe` calls `ToneEngine.applyAnchors`, which overwrites
+  `DisplayTransformParams.whiteAnchorEV` (5.0 default), and `RenderPlan` builds its
+  transform through `forRecipe`.
+- Whites' shelves, re-tuned for a +3 anchor, which squeezes zones 6-9 of the ramp into
+  the top 2.5 EV: +100 is 1.0 EV over anchor −2.4 … −0.4 (lane: 1.2 over −3.8 … −0.6);
+  −100 is a 0.4 EV hold over anchor −2.4 … −1.0 plus 1.0 EV recovery over −0.4 … +1.6
+  (lane: 0.9 over −3.8 … −1.8, plus 1.0 over −1.2 … +1.6). Highlights' shelf (+5 EV in
+  EV) and the Shadows lift are unchanged.
+- The Python mirror's anchor and Whites constants, and the fixtures that follow the
+  default pivots (`default-recipe.json`, `zones.json`, `enginemath.json`).
+
+### Spec lines on the anchor branch (ASHIFT = −2, C0 = 3.0 EV): 27/32
+
+A1 **PASS** (sensor white +2.47 EV 242.0; +2.66 247.0 / +2.90 253.0; gap to +2.0 EV 17.0).
+A2 **PASS** (max luma 6929 242.0, 1569 243.1, 2348 242.6, 1332 242.0; 0 % at 255).
+S1-S6 as on the lane branch (S3 FAIL 0.860 / 0.837). W1 1.02, W2 2.5 EV, W3 [0.71, 0.56,
+0.58, 0.85], W7 1.2 / 0.4 / 0.1 % PASS. H1-H6 PASS (H6 worst 0.11°). R1-R4, B1, Z1, Z2,
+M1, M2, HA2 PASS. FAIL: S3, **W4** (z6 4.7 > 3.0; z7 14.5 ≤ 16.9 passes), **W5 +100**
+(+6.0 < 10; −100 −18.0 passes), **W6** (NaN: the +3.5 … +4 EV band holds 0 default-clipped
+pixels; any-clip 0.00 %, ≥+4 EV 0.0 %), HA1 (NEEDS N14).
+
+**W4 zone 6 against W3/W5 is a contradiction in the spec once C0 = 3.** W3 and W5 sit at
+C0 − 2 EV = +1.0 EV. The grey-ramp zone table's zone 6 (codes 153-178) is two thirds the
+ramp's +1 EV STEP patch (renders 175). So W5 (+10 codes at +1 EV) and W4 (zone 6 ≤ 3
+codes) ask for opposite things at the same tone, and W3 alone needs about 5 codes there.
+A scan of every smoothstep shelf (amplitude 0.6-2.0 EV, start −0.5 … +1.0, width 1-6 EV)
+with z6 ≤ 3, z7 ≤ 16.5 and a −100 slope under the limiter's knee tops out at 6.4 codes
+at +1 EV (`$P/bh/scan.py`). The commit keeps W1 and W3; z6 ≤ 3 instead would fail W1,
+W3 and W5. On the +5 anchor (lane branch) the same lines all pass because C0 − 2 = +3 EV
+lies in zone 9.
+
+### Gates on the anchor branch
+
+- **T1** clean (same pre-existing warnings only).
+- **T2** 3052 tests (3044 + 8 new), **2 failures, both owned elsewhere**:
+  `EngineTests.testAutoRecoversABlownSkyThroughTheRealMeasurement` (WS-09, NEEDS N10:
+  Auto's absolute +3.0 EV recovery threshold cannot be reached; reading 2.929) and
+  `RobustnessTests.testEachZoneMovesItsOwnPivotAndNoOther` (WS-08, N11: the default
+  Bright pivot lands at 1.083, past the axis; Bright +1 moves its pivot 0.50). Both pass
+  on the lane branch and on base. Their invariants are right, so they are left failing.
+- **T3** 6 tests, 8 failures (base 0, lane 0); none a floor of the four tone controls or
+  Contrast; 127 committed records move. NEEDS N15 has the full list by owning lane.
+
+### Tests and fixtures this commit moves, with the owning lane
+
+| file | what changed | owner |
+|---|---|---|
+| ZonalToneTests | adds `testTheDefaultRecipePutsSensorWhiteNearWhiteWithoutClippingIt` (A1) | WS-05 |
+| EngineTests `testHighlightsIsAShelfThatReachesTheHighlights`, `testHighlightsCannotRenderPastDisplayWhite` | full weight asserted at `highlightShelfEndEV` (two stops past the +3 anchor), ≥ 0.6 at the anchor | WS-05 |
+| EngineTests `testWhitesAndBlacksMoveBothTheAnchorsAndTheCurve`, `testWhitesBrightensThroughTheTransform`, `testTheEndShelvesOverlapTheZonalOnesAsTheCommentSays` | +3-anchor shelf numbers (clip from C0 − 0.5, recover C0 + 0.9, shelf +0.6 … +2.6) | WS-05 |
+| MaskingTests, AccuracyProbeTests | comment numbers for `whiteToneEV` 1.0 / −100 1.4 (assertions are written against the constants) | WS-05 |
+| AppliedReadoutTests `testAnEasedSliderIsNamedWithTheAmountTheRenderApplies` | Highlights −100 binds at Contrast +100 (−67), not −100 | WS-05 / WS-06 (N13) |
+| RobustnessTests helper-bound loop | contrasts (100, 60, 0) instead of (−100, −60, 0), same reason | WS-05 / WS-06 (N13) |
+| RobustnessTests `testEveryLocalSliderThePanelOffersChangesThePicture` | probe ramp −4 … +4 → −5 … +3 EV (grading axis moved; +4 clipped) | WS-35 / masks |
+| GradeStripAxisTests (2) | spans 13.5 / 12, miss 0.25 EV | WS-35 |
+| RawDenoiseRecipeTests full-tree digest | default pivots changed (sparse form and fingerprints did not) | WS-58 / WS-08 |
+| `Fixtures/default-recipe.json`, `zones.json` | default pivots 0.417 … 1.083 | WS-08 (N11) |
+| `Fixtures/enginemath.json`, `scripts/gen-fixtures.py` | mirror follows the anchor and Whites constants | WS-05 |
+| **failing, not edited**: EngineTests `testAutoRecoversABlownSkyThroughTheRealMeasurement` | | **WS-09** (N10) |
+| **failing, not edited**: RobustnessTests `testEachZoneMovesItsOwnPivotAndNoOther` | | **WS-08** (N11) |
+
+### The owner's sheet
+
+`docs/quality/lanes/WS-05/evidence/white-anchor-owner.png`: six corpus photos at the
+default recipe, rendered by `lumen-render render` with each sidecar's as-shot Kelvin,
+tint and ISO (as `render.sh` does), left "+5 EV anchor (now)" (the base binary), right
+"+3.0 EV anchor" (this commit). Brightest luma / 99th percentile / median, before → after:
+
+| photo | why it is here | max | p99 | p50 |
+|---|---|---|---|---|
+| 6929 Sony A7 IV, ISO 250 | owner's camera; street, trees, overcast | 221 → 242 | 183 → 196 | 68 → 68 |
+| 2545 Panasonic GX85, ISO 200 | owner's camera; lawn, blue sky | 198 → 214 | 171 → 181 | 89 → 89 |
+| 983 Canon 5D Mark IV, ISO 100 | sunlit snow, lantern | 212 → 233 | 174 → 183 | 53 → 53 |
+| 1346 Canon 5D, ISO 400 | the skin frame: the corpus holds no people (raw.pixls.us asks contributors not to upload them, CORPUS.md), so this is the ColorChecker Passport with its dark- and light-skin patches | 220 → 241 | 195 → 209 | 41 → 41 |
+| 2062 Canon EOS Kiss X9, ISO 6400 | the highest ISO in the corpus; pastry on poppy cloth | 192 → 214 | 173 → 181 | 74 → 74 |
+| 1192 Fujifilm X-T10, ISO 4000 | the saturated / sunset-like frame: there is no sunset in the corpus; this backlit stained-glass window is the most saturated high-dynamic-range frame (chosen from rendered thumbnails of 1192, 1346, 2062, 2242, 4694, 7881, 8559) | 168 → 179 | 99 → 100 | 23 → 23 |
+
+Mid-tones do not move (median identical on every frame); the top ~1.5 stops open toward
+white. The sheet is a 256-colour PNG (octree + k-means, Floyd-Steinberg) to stay under
+400 KB at 380 px per image; the measurements above are from the full renders in
+`$P/owner/`.
 
 ## 8. Round 3: the verifier's items
 
