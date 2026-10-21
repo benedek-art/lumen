@@ -2889,10 +2889,11 @@ struct MaskPanel: View {
     /// tungsten window is a fixed nudge, so re-balancing the photograph re-lights the
     /// window too. Kelvin says "this region is lit at 5600 K" and holds.
     ///
-    /// The switch seeds from the balanced neutral in both directions, so flipping it
-    /// changes no pixel: the first thing a photographer does with a new control is press
-    /// it to find out what it is, and a control that jump-cuts the picture on that press
-    /// has taught them to distrust it.
+    /// The switch converts the region's white balance into the other unit (both are
+    /// measured from the balanced neutral), so flipping it changes no pixel: the first
+    /// thing a photographer does with a new control is press it to find out what it
+    /// is, and a control that jump-cuts the picture on that press has taught them to
+    /// distrust it.
     @ViewBuilder
     private func whiteBalanceRows(_ mask: Mask) -> some View {
         let neutral = balancedNeutral
@@ -2908,13 +2909,27 @@ struct MaskPanel: View {
                     get: { absolute },
                     set: { wantsAbsolute in
                         guard wantsAbsolute != absolute else { return }
+                        // Converted, not reset: the region carries its shift across
+                        // the switch in the other unit. Seeding Kelvin from the bare
+                        // neutral dropped a +40 Shift on the floor, so the switch
+                        // jump-cut the picture whenever the mask had a white balance.
                         editMask(mask.id, key: "mask.wb.unit.\(mask.id)") { m in
                             if wantsAbsolute {
-                                m.adjust.kelvin = neutral.kelvin
-                                m.adjust.kelvinTint = neutral.tint
-                            } else {
+                                let k = ReferenceRenderer.LocalWhiteBalance.kelvinEquivalent(
+                                    temp: m.adjust.temp, tint: m.adjust.tint,
+                                    balanced: neutral)
+                                m.adjust.kelvin = k.kelvin
+                                m.adjust.kelvinTint = k.tint
+                                m.adjust.temp = 0
+                                m.adjust.tint = 0
+                            } else if let kelvin = m.adjust.kelvin {
+                                let r = ReferenceRenderer.LocalWhiteBalance.shiftEquivalent(
+                                    kelvin: kelvin, tint: m.adjust.kelvinTint,
+                                    balanced: neutral)
                                 m.adjust.kelvin = nil
                                 m.adjust.kelvinTint = nil
+                                m.adjust.temp = r.temp
+                                m.adjust.tint = r.tint
                             }
                         }
                     }),

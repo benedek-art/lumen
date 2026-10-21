@@ -496,29 +496,45 @@ public enum ReferenceRenderer {
     /// A local Temp/Tint nudge. The mask panel's two sliders are RELATIVE — −100…+100
     /// around whatever the global white balance settled on — so they cannot go through
     /// `WhiteBalanceEngine`, which speaks in absolute Kelvin. They are converted to a
-    /// mired shift about a 5500 K anchor, which is what "warmer by a bit" means in a
-    /// way that behaves the same at every global temperature.
+    /// mired shift about the photograph's balanced neutral, which is what "warmer by a
+    /// bit" means in a way that behaves the same at every global temperature — and,
+    /// inside a full mask, renders exactly what the global row at that shift renders.
     public struct LocalWhiteBalance: Sendable {
         public let matrix: Mat3
         public let isIdentity: Bool
 
-        public init(temp: Double, tint: Double, space: RGBColorSpace = .rec2020) {
-            let t = Num.clamp(temp, -100, 100)
-            let g = Num.clamp(tint, -100, 100)
+        public init(temp: Double, tint: Double,
+                    balanced: WhiteBalanceEngine.Neutral = .reference,
+                    space: RGBColorSpace = .rec2020) {
+            // ±200, not ±100: `temp`/`tint` arrive already scaled by Strength, which
+            // runs to 200. `resolve` clamps the SLIDER to ±100 before scaling, so a
+            // maxed slider at Strength 200 doubles like every other mask slider and like
+            // the Kelvin spelling; clamping the product here instead made Strength past
+            // 100 do nothing at the slider's end and the Shift/Kelvin switch jump there.
+            let t = Num.clamp(temp, -200, 200)
+            let g = Num.clamp(tint, -200, 200)
             guard t != 0 || g != 0 else {
                 self.matrix = .identity
                 self.isIdentity = true
                 return
             }
             self.isIdentity = false
-            // ±100 is ±50 mired about 5500 K (181.8 mired): about 7600 K at +100 and
-            // 4300 K at −100 (7586 K / 4314 K exactly; mired steps are not symmetric in
-            // Kelvin). A decisive nudge, not a relabelling of the whole scene.
-            let anchorMired = 1e6 / 5500.0
-            let target = 1e6 / Num.clamp(anchorMired - t * 0.5, 20, 500)
-            self.matrix = WhiteBalanceEngine(asShotKelvin: 5500, asShotTint: 0,
+            // ±100 is ±50 mired, and Tint ±100 is ±150 of the global Tint scale,
+            // measured FROM `balanced` — the neutral S6 already carried the pixel to.
+            // It used to be measured from a fixed 5500 K / 0 anchor, which is only the
+            // same thing when the photograph happens to be balanced there: on the
+            // corpus (as-shot 4700-5000 K, tint ±50) a full-frame Tint +100 missed the
+            // global row it stands for by ΔE 3-8 and Temp ±100 by up to ΔE 1.8. CAT16
+            // is a von Kries scaling, so adapting from `balanced` composes with S6's
+            // matrix into exactly the global adaptation to the shifted neutral: Temp
+            // +100 inside a full mask IS the global row at 50 mired warmer.
+            // At a 5500 K / 0 balance (`.reference`) the ends are 7586 K / 4314 K.
+            let fromMired = 1e6 / Swift.max(balanced.kelvin, 1)
+            let target = 1e6 / Num.clamp(fromMired - t * 0.5, 20, 500)
+            self.matrix = WhiteBalanceEngine(asShotKelvin: balanced.kelvin,
+                                             asShotTint: balanced.tint,
                                              targetKelvin: target,
-                                             targetTint: g * 1.5,
+                                             targetTint: balanced.tint + g * 1.5,
                                              space: space).matrix
         }
 
@@ -540,16 +556,19 @@ public enum ReferenceRenderer {
         /// which is already a linear axis, interpolates directly.
         ///
         /// At `amount` 0 this is exactly the identity: the endpoint IS `balanced`, so
-        /// the engine is asked to adapt a neutral to itself.
+        /// the engine is asked to adapt a neutral to itself. Above 1 (mask Strength
+        /// past 100) it extrapolates along the same mired line, as the relative spelling
+        /// (slider clamped to ±100, then scaled) and every other mask slider do. It used to stop at 1, so the panel's
+        /// Shift → Kelvin switch moved the picture by ΔE 3.4 at Strength 200.
         public init(kelvin: Double, tint: Double?, amount: Double,
                     balanced: WhiteBalanceEngine.Neutral,
                     space: RGBColorSpace = .rec2020) {
-            let scale = Num.saturate(amount)
+            let scale = Num.clamp(amount, 0, 2)
             let target = Num.clamp(kelvin, ColorTemperature.minKelvin,
                                    ColorTemperature.maxKelvin)
             let fromMired = 1e6 / Swift.max(balanced.kelvin, 1)
             let toMired = 1e6 / Swift.max(target, 1)
-            let mired = fromMired + (toMired - fromMired) * scale
+            let mired = Num.clamp(fromMired + (toMired - fromMired) * scale, 20, 500)
             let toTint = Num.clamp(tint ?? balanced.tint, -300, 300)
             let effectiveTint = balanced.tint + (toTint - balanced.tint) * scale
             let engine = WhiteBalanceEngine(asShotKelvin: balanced.kelvin,
@@ -558,6 +577,32 @@ public enum ReferenceRenderer {
                                             targetTint: effectiveTint, space: space)
             self.matrix = engine.matrix
             self.isIdentity = false
+        }
+
+        /// The absolute spelling of a relative shift: the Kelvin and Tint the Shift
+        /// sliders land the region at, given the balanced neutral. The matrices are the
+        /// same adaptation at every Strength, so the panel's Shift → Kelvin switch moves
+        /// no pixel — except where the Kelvin tint would pass the ±300 hard range, which
+        /// it is clamped to.
+        public static func kelvinEquivalent(temp: Double, tint: Double,
+                                            balanced: WhiteBalanceEngine.Neutral)
+            -> (kelvin: Double, tint: Double) {
+            let t = Num.clamp(temp, -100, 100), g = Num.clamp(tint, -100, 100)
+            let mired = Num.clamp(1e6 / Swift.max(balanced.kelvin, 1) - t * 0.5, 20, 500)
+            return (1e6 / mired, Num.clamp(balanced.tint + g * 1.5, -300, 300))
+        }
+
+        /// The inverse, for Kelvin → Shift. Exact while the Kelvin is within ±50 mired
+        /// and the Tint within ±150 of the balance (as typed, before Strength); past that the
+        /// slider's ±100 ends are the nearest a relative shift can reach, so the switch
+        /// moves the picture there and only there.
+        public static func shiftEquivalent(kelvin: Double, tint: Double?,
+                                           balanced: WhiteBalanceEngine.Neutral)
+            -> (temp: Double, tint: Double) {
+            let from = 1e6 / Swift.max(balanced.kelvin, 1)
+            let to = 1e6 / Swift.max(kelvin, 1)
+            return (Num.clamp((from - to) / 0.5, -100, 100),
+                    Num.clamp(((tint ?? balanced.tint) - balanced.tint) / 1.5, -100, 100))
         }
 
         /// The one place that decides which spelling a mask is using, so the reference
@@ -569,8 +614,9 @@ public enum ReferenceRenderer {
                 return LocalWhiteBalance(kelvin: kelvin, tint: a.kelvinTint,
                                          amount: amount, balanced: balanced, space: space)
             }
-            return LocalWhiteBalance(temp: a.temp * amount, tint: a.tint * amount,
-                                     space: space)
+            return LocalWhiteBalance(temp: Num.clamp(a.temp, -100, 100) * amount,
+                                     tint: Num.clamp(a.tint, -100, 100) * amount,
+                                     balanced: balanced, space: space)
         }
 
         public func apply(_ c: RGB) -> RGB { isIdentity ? c : matrix.apply(c) }

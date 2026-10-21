@@ -171,7 +171,11 @@ final class MaskWhiteBalanceTests: XCTestCase {
 
     // MARK: - The relative spelling is untouched
 
-    func testResolveReturnsTheOldMatrixBitForBitWhenNoKelvinIsSet() {
+    func testResolveReturnsTheRelativeMatrixBitForBitWhenNoKelvinIsSet() {
+        // `balanced` is passed through: the relative shift is measured from the
+        // balanced neutral (WS-51). This test used to build the relative matrix with
+        // no balance at all — the fixed 5500 K anchor — which is the defect
+        // `testARelativeShiftInsideAFullMaskIsTheGlobalRowAtTheShiftedNeutral` pins.
         var a = LocalAdjust()
         a.temp = 55
         a.tint = -30
@@ -180,6 +184,7 @@ final class MaskWhiteBalanceTests: XCTestCase {
                 a, amount: amount, balanced: neutral(4000, 12), space: space)
             let old = ReferenceRenderer.LocalWhiteBalance(temp: 55 * amount,
                                                           tint: -30 * amount,
+                                                          balanced: neutral(4000, 12),
                                                           space: space)
             XCTAssertEqual(resolved.isIdentity, old.isIdentity)
             assertSameMap(resolved.matrix, old.matrix, "at amount \(amount)",
@@ -199,6 +204,69 @@ final class MaskWhiteBalanceTests: XCTestCase {
             a, amount: 1, balanced: balanced, space: space)
         assertSameMap(resolved.matrix, absolute(5600, balanced: balanced).matrix,
                       "the relative shift is not consulted", accuracy: 0)
+    }
+
+    // MARK: - The relative spelling is the global row, shifted (WS-51)
+
+    func testARelativeShiftInsideAFullMaskIsTheGlobalRowAtTheShiftedNeutral() {
+        // Temp ±100 is ±50 mired and Tint ±100 is ±150 of the global Tint scale, both
+        // FROM the balanced neutral. Composed with S6, the local matrix must be the one
+        // adaptation the global row would make at that shifted neutral. With the old
+        // fixed 5500 K / 0 anchor this held only for a photograph balanced at 5500 K / 0;
+        // the corpus's 4700 K files missed by ΔE up to 8 on Tint +100.
+        for (asShot, global) in [(neutral(4711, 0.46), neutral(4711, 0.46)),
+                                 (neutral(3200, -12), neutral(6100, 25)),
+                                 (neutral(9000, 30), neutral(4400, -40))] {
+            let s6 = WhiteBalanceEngine(asShotKelvin: asShot.kelvin, asShotTint: asShot.tint,
+                                        targetKelvin: global.kelvin,
+                                        targetTint: global.tint, space: space).matrix
+            for (temp, tint) in [(100.0, 0.0), (-100, 0), (0, 100), (0, -60), (40, -30)] {
+                let local = ReferenceRenderer.LocalWhiteBalance(temp: temp, tint: tint,
+                                                                balanced: global,
+                                                                space: space).matrix
+                let mired = 1e6 / global.kelvin - temp * 0.5
+                let direct = WhiteBalanceEngine(asShotKelvin: asShot.kelvin,
+                                                asShotTint: asShot.tint,
+                                                targetKelvin: 1e6 / mired,
+                                                targetTint: global.tint + tint * 1.5,
+                                                space: space).matrix
+                assertSameMap(local * s6, direct,
+                              "Temp \(temp) Tint \(tint) over \(global.kelvin) K",
+                              accuracy: 1e-9)
+            }
+        }
+    }
+
+    func testTheShiftAndKelvinSpellingsAreOneEditAtEveryAmount() {
+        // What makes the panel's Shift/Kelvin switch move no pixel.
+        // Strength runs to 200, and both spellings scale past 1 along the same line.
+        // The Kelvin one used to stop at amount 1 (ΔE 3.4 on the switch at 200), and
+        // the Shift one stopped at ±100 AFTER Strength (ΔE 6 at a maxed slider).
+        let balanced = neutral(4300, 18)
+        // A slider at its ±100 end included: that is when Strength gets pushed.
+        let amounts = [0.0, 0.3, 1.0, 1.5, 2.0]
+        for (temp, tint) in [(40.0, -30.0), (-100, 100), (100, -100), (0, 0), (50, 0)] {
+            var relative = LocalAdjust()
+            relative.temp = temp
+            relative.tint = tint
+            let k = ReferenceRenderer.LocalWhiteBalance.kelvinEquivalent(
+                temp: temp, tint: tint, balanced: balanced)
+            var absoluteAdjust = LocalAdjust()
+            absoluteAdjust.kelvin = k.kelvin
+            absoluteAdjust.kelvinTint = k.tint
+            for amount in amounts {
+                let a = ReferenceRenderer.LocalWhiteBalance.resolve(
+                    relative, amount: amount, balanced: balanced, space: space)
+                let b = ReferenceRenderer.LocalWhiteBalance.resolve(
+                    absoluteAdjust, amount: amount, balanced: balanced, space: space)
+                assertSameMap(a.matrix, b.matrix, "\(temp)/\(tint) at \(amount)",
+                              accuracy: 1e-9)
+            }
+            let back = ReferenceRenderer.LocalWhiteBalance.shiftEquivalent(
+                kelvin: k.kelvin, tint: k.tint, balanced: balanced)
+            XCTAssertEqual(back.temp, temp, accuracy: 1e-9)
+            XCTAssertEqual(back.tint, tint, accuracy: 1e-9)
+        }
     }
 
     // MARK: - Through the whole local stage
