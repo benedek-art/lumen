@@ -1,15 +1,15 @@
 {
-  "authority" : 160.90105535735847,
+  "authority" : 179.92422674342026,
   "deadSteps" : 0,
   "frame" : "colourChart",
-  "frontLoading" : 0.7627305619228333,
+  "frontLoading" : 0.7847166558769568,
   "givenBack" : 0,
   "hueRotation" : 0,
   "id" : "bw.purple",
   "isMonotone" : true,
-  "meanSeparation" : 13.402054367021087,
+  "meanSeparation" : 15.264481415003614,
   "panel" : "Black & White",
-  "smallestLiveStep" : 3.0170724075920816,
+  "smallestLiveStep" : 2.8717389797516404,
   "travelHigh" : 100,
   "travelLow" : -100
 }

@@ -19,7 +19,7 @@ import XCTest
 
 final class FilmLabHDRMidGreyTests: XCTestCase {
 
-    private let grey = RGB(gray: DisplayTransform.midGrey)
+    private let grey = RGB(gray: DisplayTransform.sceneMidGrey)
 
     /// Strength 100, so `apply` is the film picture alone with no base mixed in.
     func testTheFilmChainLandsMidGreyOnAbsolutePointOneEightAtEveryDisplayPeak() {
@@ -29,10 +29,12 @@ final class FilmLabHDRMidGreyTests: XCTestCase {
                                       filmExposure: 0, displayWhite: white)
                 let out = chain.apply(grey)
                 for channel in 0..<3 {
-                    XCTAssertEqual(out[channel], DisplayTransform.midGrey, accuracy: 1e-4,
+                    // WS-13: the display target is `displayMidGrey` (0.25), the level the
+                    // display transform the chain blends with puts scene mid-grey on.
+                    XCTAssertEqual(out[channel], DisplayTransform.displayMidGrey, accuracy: 1e-4,
                                    "\(stock.id) at display white \(white): film mid-grey "
-                                       + "must be 0.18 absolute (D8), got \(out[channel]) "
-                                       + "— \(log2(out[channel] / 0.18)) EV off")
+                                       + "must be display mid-grey absolute (D8), got \(out[channel]) "
+                                       + "— \(log2(out[channel] / DisplayTransform.displayMidGrey)) EV off")
                 }
             }
         }

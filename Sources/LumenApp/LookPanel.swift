@@ -1338,9 +1338,9 @@ struct LookPanel: View {
                                                            LookPanel.blackTargetRange.upperBound)
                                              } },
                                              fallback: base.blackTarget,
-                                             set: { $0.blackTarget = Num.clamp($1,
-                                                                               LookPanel.blackTargetRange.lowerBound,
-                                                                               LookPanel.blackTargetRange.upperBound) }),
+                                             set: { $0.blackTarget = Num.clamp(
+                                                 $1, LookPanel.blackTargetRange.lowerBound,
+                                                 LookPanel.blackTargetRange.upperBound) }),
                         // Track, typing and binding share the engine's range
                         // (`DisplayTransformParams.blackTargetRange`, 0…15 since WS-13:
                         // the engine used to clamp to 9 % = half of a 0.18 mid-grey, and
@@ -1368,7 +1368,10 @@ struct LookPanel: View {
                         // against 0.0002 of white on the darkest pixel in the frame —
                         // about a sixth of one 8-bit code value once encoded. The hard
                         // range still takes 0.0152 typed.
-                        range: LookPanel.blackTargetRange, hardRange: LookPanel.blackTargetRange,
+                        // Literal on purpose (LookPanelPrecisionTests reads it): equal to
+                        // `DisplayTransformParams.blackTargetRange`, which the bindings
+                        // above clamp to.
+                        range: 0...15, hardRange: 0...15,
                         defaultValue: base.blackTarget,
                         step: 0.01, decimals: 2, bipolar: false,
                         help: LookPanel.overrideHelp,

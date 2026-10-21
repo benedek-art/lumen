@@ -306,21 +306,22 @@ final class LookRenderPresetTests: XCTestCase {
                            "Linear is supposed to be a pass-through")
         }
 
-        // The same pixels under a RAW look's Neutral: a second tone map.
-        XCTAssertEqual(codeValue(32, preset: "Neutral"), 12.6, accuracy: 0.5,
+        // The same pixels under a RAW look's Neutral: a second tone map. (Re-measured
+        // for WS-13's 0.25 display mid-grey; was 12.6 / 26.7 / 221.7.)
+        XCTAssertEqual(codeValue(32, preset: "Neutral"), 15.1, accuracy: 0.5,
                        "shadows plug")
-        XCTAssertEqual(codeValue(48, preset: "Neutral"), 26.7, accuracy: 0.5)
-        XCTAssertEqual(codeValue(255, preset: "Neutral"), 221.7, accuracy: 0.5,
+        XCTAssertEqual(codeValue(48, preset: "Neutral"), 31.7, accuracy: 0.5)
+        XCTAssertEqual(codeValue(255, preset: "Neutral"), 237.2, accuracy: 0.5,
                        "paper white is no longer white")
 
         // And the other direction, in scene EV above mid-grey: Linear clips where the
         // display transform was still holding detail.
         let neutral = DisplayTransform(RenderParams(preset: "Neutral").resolved())
         let linear = DisplayTransform(RenderParams(preset: "Linear").resolved())
-        let clipEV = log2(1 / DisplayTransform.midGrey)   // +2.4739…
+        let clipEV = log2(1 / DisplayTransform.sceneMidGrey)   // +2.4739…
         XCTAssertEqual(clipEV, 2.474, accuracy: 0.001)
         for ev in [2.5, 3.0, 4.0, 4.9] {
-            let scene = DisplayTransform.midGrey * pow(2, ev)
+            let scene = DisplayTransform.sceneMidGrey * pow(2, ev)
             XCTAssertEqual(linear.tone(scene), 1.0, accuracy: 1e-9,
                            "+\(ev) EV is clipped to display white under Linear")
             XCTAssertLessThan(neutral.tone(scene), 1.0,
@@ -330,7 +331,7 @@ final class LookRenderPresetTests: XCTestCase {
         // The loss is highlight SEPARATION, not brightness: Neutral puts the +5 EV
         // white anchor on display white too, by construction. Everything between +2.47
         // and +5 EV is the range Linear flattens onto that one value.
-        XCTAssertEqual(neutral.tone(DisplayTransform.midGrey * pow(2, 5.0)), 1.0,
+        XCTAssertEqual(neutral.tone(DisplayTransform.sceneMidGrey * pow(2, 5.0)), 1.0,
                        accuracy: 1e-9)
     }
 }

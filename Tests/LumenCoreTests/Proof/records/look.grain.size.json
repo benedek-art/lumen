@@ -1,15 +1,15 @@
 {
-  "authority" : 28.259078834590355,
+  "authority" : 29.34663498970815,
   "deadSteps" : 0,
   "frame" : "grainField",
-  "frontLoading" : 1.1325983681366552,
-  "givenBack" : 14.622912905589004,
+  "frontLoading" : 1.1008390033931232,
+  "givenBack" : 14.360355031912917,
   "hueRotation" : 0,
   "id" : "look.grain.size",
   "isMonotone" : false,
-  "meanSeparation" : 3.760769900506531,
+  "meanSeparation" : 3.5626522520971093,
   "panel" : "Effects",
-  "smallestLiveStep" : 18.184104609880478,
+  "smallestLiveStep" : 19.06850288294426,
   "travelHigh" : 100,
   "travelLow" : 0
 }

@@ -1,14 +1,14 @@
 {
-  "authority" : 251.5441584732811,
+  "authority" : 252.09797311467312,
   "deadSteps" : 0,
   "frame" : "neutralRamp",
-  "frontLoading" : 0.8173808753720793,
+  "frontLoading" : 0.8459036890200545,
   "givenBack" : 0,
   "id" : "tone.exposure",
   "isMonotone" : true,
-  "meanSeparation" : 176.86506704059425,
+  "meanSeparation" : 181.61704992970036,
   "panel" : "Basic",
-  "smallestLiveStep" : 27.115939945172045,
+  "smallestLiveStep" : 30.84308164736987,
   "travelHigh" : 5,
   "travelLow" : -5
 }

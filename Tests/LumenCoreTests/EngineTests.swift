@@ -28,8 +28,9 @@ final class EngineTests: XCTestCase {
             p.blackAnchorEV = -9
             let t = DisplayTransform(p)
 
-            // Mid-grey → 0.18 display-linear, exactly, at every preset.
-            XCTAssertEqual(t.tone(0.18), 0.18, accuracy: 1e-9, preset)
+            // Scene mid-grey → display mid-grey (0.25 display-linear since WS-13),
+            // exactly, at every preset.
+            XCTAssertEqual(t.tone(0.18), DisplayTransform.displayMidGrey, accuracy: 1e-9, preset)
             // The white anchor → display white.
             XCTAssertEqual(t.tone(0.18 * pow(2.0, 5.0)), t.white, accuracy: 1e-9, preset)
             // The black anchor → the black floor.
@@ -112,8 +113,12 @@ final class EngineTests: XCTestCase {
         var hdr = DisplayTransformParams()
         hdr.whiteTarget = 400
         let a = DisplayTransform(sdr), b = DisplayTransform(hdr)
-        XCTAssertEqual(a.tone(0.18), 0.18, accuracy: 1e-9)
-        XCTAssertEqual(b.tone(0.18), 0.18, accuracy: 1e-9)
+        // Display mid-grey is 0.25 since WS-13, still absolute at every peak.
+        XCTAssertEqual(a.tone(0.18), 0.25, accuracy: 1e-9)
+        XCTAssertEqual(b.tone(0.18), 0.25, accuracy: 1e-9)
+        var hdr1600 = DisplayTransformParams()
+        hdr1600.whiteTarget = 1600
+        XCTAssertEqual(DisplayTransform(hdr1600).tone(0.18), 0.25, accuracy: 1e-9)
         XCTAssertEqual(b.white, 4.0, accuracy: 1e-9)
         XCTAssertGreaterThan(b.tone(0.18 * 16), a.tone(0.18 * 16))
         // Raising the peak must not raise the floor — black is a fraction of SDR white,
@@ -801,7 +806,7 @@ final class EngineTests: XCTestCase {
 
             var ev = lo + 0.1
             while ev < hi - 0.1 {
-                let display = transform.tone(DisplayTransform.midGrey * exp2(ev))
+                let display = transform.tone(DisplayTransform.sceneMidGrey * exp2(ev))
                 XCTAssertEqual(histogram.sceneEV(displayLuminance: display), ev,
                                accuracy: 0.05, "round trip failed at \(ev) EV")
                 ev += 0.25

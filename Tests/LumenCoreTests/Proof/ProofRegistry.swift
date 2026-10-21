@@ -1568,7 +1568,11 @@ enum ProofRegistry {
             ControlSpec(
                 id: "render.black", panel: "Display Transform",
                 displayName: "Black target",
-                low: 0, high: 9, neutral: base.blackTarget,
+                // WS-13: the engine's whole range, which is live to 15 now (it was
+                // clamped at 9, half of the old 0.18 display mid-grey).
+                low: DisplayTransformParams.blackTargetRange.lowerBound,
+                high: DisplayTransformParams.blackTargetRange.upperBound,
+                neutral: base.blackTarget,
                 frameName: "neutralRamp", frame: { ProofFrames.neutralRamp() },
                 // Measured 84.61.
                 authorityFloor: 59,

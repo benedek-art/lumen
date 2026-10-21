@@ -1,14 +1,14 @@
 {
-  "authority" : 43.23033167676323,
+  "authority" : 25.351109143000315,
   "deadSteps" : 0,
   "frame" : "neutralRamp",
-  "frontLoading" : 0.9976190251055395,
+  "frontLoading" : 0.9990968090373124,
   "givenBack" : 0,
   "id" : "zones.bright.ev",
   "isMonotone" : true,
-  "meanSeparation" : 8.211058357933387,
+  "meanSeparation" : 4.930922331573142,
   "panel" : "Zones",
-  "smallestLiveStep" : 1.0012561977990515,
+  "smallestLiveStep" : 0.7414194804894407,
   "travelHigh" : 3,
   "travelLow" : -3
 }

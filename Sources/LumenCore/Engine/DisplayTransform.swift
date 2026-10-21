@@ -64,11 +64,26 @@ public struct DisplayTransformParams: Equatable, Sendable {
     /// skies 6–9° toward purple at every exposure (LED blue +33° at 0 EV, Film Base's
     /// +0.09 worse). The sign itself was never the defect, the residue was, and with
     /// the residue gone the finish table sees the same inset it always did.
-    public var rotation: RGB = RGB(0.02, -0.03, -0.04)
+    public var rotation: RGB = RGB(0.02, -0.03, 0.06)
     /// Post-curve purity recovery, 0…1: how much of the inset's ATTENUATION the
     /// outset gives back. 0 keeps the compressed purity, 1 restores it in full. The
     /// rotation is always undone in full, whatever this says.
-    public var purityRestore: Double = 0.4
+    ///
+    /// 1 on the hue-stable presets: the midtones keep each colour's own chromaticity
+    /// exactly, and the ColorChecker renders at about 1.06× its true CIELAB chroma
+    /// (lighter rendering raises C*; the DNG SDK's default rendering measures 1.21×,
+    /// Lumen was 0.92× at 0.4). The inset still does its job — it shapes what the
+    /// per-channel branch does below Hue preservation 100 — it just no longer leaves
+    /// the picture paler than the scene.
+    public var purityRestore: Double = 1.0
+
+    /// How fast the path to white bleaches once it starts (`DisplayTransform.
+    /// bleachAmount`): 1 is linear in shoulder position; above 1 the bleach front-
+    /// loads, 1 − (1 − v)^k. A preset character, like the inset: the steeper presets
+    /// set it so that a +4 EV overexposure renders as white as their per-channel
+    /// shoulder used to make it (Punchy and Film Base measured 0.034 mean OKLCh
+    /// chroma at +4 EV before WS-13; linear left 0.053).
+    public var pathToWhite: Double = 1
 
     /// Scene EV of the white anchor relative to mid-grey (set by Whites).
     public var whiteAnchorEV: Double = 5.0
@@ -90,7 +105,7 @@ public struct DisplayTransformParams: Equatable, Sendable {
         var p = DisplayTransformParams()
         p.contrast = 1.2
         p.skew = 0.25
-        p.purityRestore = 0.3
+        p.purityRestore = 1.0
         return p
     }
 
@@ -99,7 +114,8 @@ public struct DisplayTransformParams: Equatable, Sendable {
         p.contrast = 2.1
         p.skew = -0.15
         p.attenuation = RGB(0.18, 0.22, 0.16)
-        p.purityRestore = 0.55
+        p.purityRestore = 1.0
+        p.pathToWhite = 1.5
         return p
     }
 
@@ -110,7 +126,8 @@ public struct DisplayTransformParams: Equatable, Sendable {
         p.huePreservation = 70
         p.attenuation = RGB(0.22, 0.24, 0.20)
         p.rotation = RGB(0.04, -0.05, 0.09)
-        p.purityRestore = 0.25
+        p.purityRestore = 0.8
+        p.pathToWhite = 1.5
         return p
     }
 
@@ -156,6 +173,11 @@ public struct DisplayTransform: Sendable {
 
     private let insetMatrix: Mat3
     private let outsetMatrix: Mat3
+    /// OKLab of the space this transform renders in: the path to white bleaches at
+    /// constant OKLab hue (`bleachTowardNeutral`).
+    private let oklab: OKLabTransform.Context
+    /// Luminance weights of that space: the path to white is keyed on luminance.
+    private let luminanceWeights: RGB
 
     /// Encoded output anchors: black, white and mid-grey on the shaping axis.
     private let encodedBlack: Double
@@ -213,8 +235,8 @@ public struct DisplayTransform: Sendable {
         self.pivotX = (0 - lo) / (hi - lo)
 
         // Mid-grey lands on `displayMidGrey` (0.25) display-linear in ABSOLUTE terms,
-        // at every display peak. In HDR the extra headroom goes to speculars; diffuse white and
-        // mid-grey stay where they are, which is why an HDR rendition looks like the
+        // at every display peak. In HDR the extra headroom goes to speculars; diffuse
+        // white and mid-grey stay where they are, which is why an HDR rendition looks like the
         // SDR one with the highlights let out rather than like a brighter picture.
         let curve = DisplayTransform.shapingCurve
         let eb = curve.encode(self.black)
@@ -250,10 +272,10 @@ public struct DisplayTransform: Sendable {
         // anchor the shoulder is u^power, whose normalized slope power·u^(power−1)
         // falls to zero only for power > 1; below 1 it grows without bound and the
         // picture accelerates into display white and then stops dead — a clip edge.
-        // a₀ falls as the display peak rises (mid-grey stays at 0.25 absolute, so
-        // pivotY drops on the encoded axis; at the old 0.18 it was 2.08 at 100 %,
-        // 0.82 at 400 %, 0.39 at 1600 %), which broke docs/04's promise that the shoulder does at 400 %
-        // white what it did at 100 %. Low Contrast or strong Skew did the same in
+        // a₀ falls as the display peak rises (mid-grey stays absolute, so pivotY
+        // drops on the encoded axis; with the old 0.18 mid-grey it was 2.08 at 100 %,
+        // 0.82 at 400 %, 0.39 at 1600 %), which broke docs/04's promise that the
+        // shoulder does at 400 % white what it did at 100 %. Low Contrast or strong Skew did the same in
         // SDR, and the old 0.05 power floor that caught the worst of it moved the
         // pivot slope off `contrast`. So λ is capped where the power would fall
         // below `minimumPower`: the power is then exactly 1.5, the pivot slope
@@ -263,11 +285,11 @@ public struct DisplayTransform: Sendable {
         //
         // The slider spans that cap rather than running into it. λ = ±skew/2 met the
         // cap at skew ≈ −0.58 on Neutral's shoulder, so −1…−0.58 rendered one
-        // picture (a dead third of the slider). Each side now scales the skew by its
-        // own reach, min(½, cap): the end of the slider is the end of the effect, the
-        // response is linear and monotone in skew, and skew 0 is λ = 0 exactly. A cap
-        // at or below zero (low contrast, a high HDR peak) still forces λ to the cap,
-        // as before: the power floor wins over the slider there.
+        // picture (a dead third of the slider). The side gaining curvature now scales
+        // the skew by its own reach, min(½, cap), and the side losing it by 1
+        // (`skewLambda`): the response is monotone in skew with no dead range, and
+        // skew 0 is λ = 0 exactly. A cap at or below zero (low contrast, a high HDR
+        // peak) still forces λ to the cap: the power floor wins over the slider.
         let minimumPower = DisplayTransform.minimumPower
         let toeLambda = DisplayTransform.skewLambda(skew,
                                                     cap: Swift.min(aToe / shape * 0.9,
@@ -304,6 +326,8 @@ public struct DisplayTransform: Sendable {
                                                 rotation: p.rotation)
         let compress = inset.matrix(to: space)
         self.insetMatrix = compress
+        self.oklab = OKLabTransform.Context(space: space)
+        self.luminanceWeights = space.luminanceWeights
         // The outset undoes the inset's two parts differently (the AgX outset).
         //   · ROTATION, always in full. `rotated` is the inset with the attenuation
         //     taken out; space → rotated is the exact inverse of the rotation half of
@@ -327,12 +351,16 @@ public struct DisplayTransform: Sendable {
             * unrotate
     }
 
-    /// λ for one side of the curve from the skew that adds curvature to it: the
-    /// whole slider maps onto the reachable λ, so no part of it is dead.
+    /// λ for one side of the curve from the skew that adds curvature to it (positive)
+    /// or removes it (negative). Adding spans min(½, cap), so the whole slider is
+    /// live and the end of the slider is the end of the room; removing spans the full
+    /// −1 (λ = −1 is monotone for every a₀ > 0, see above), which is what gives Skew
+    /// visible authority now that a 0.25 mid-grey leaves Neutral's shoulder only
+    /// 0.245 of adding room (it measured 9.9 code values over its travel at ±½,
+    /// under its proof floor of 12). A cap at or below zero still forces λ to it.
     private static func skewLambda(_ skew: Double, cap: Double) -> Double {
-        guard cap > 0 else { return Swift.max(cap, -1) }
-        if skew >= 0 { return skew * Swift.min(0.5, cap) }
-        return Swift.max(skew * 0.5, -1)
+        if skew > 0, cap > 0 { return skew * Swift.min(0.5, cap) }
+        return Num.clamp(skew, -1, cap)
     }
 
     private static func blend(_ a: Mat3, _ b: Mat3, _ t: Double) -> Mat3 {
@@ -407,7 +435,7 @@ public struct DisplayTransform: Sendable {
         LUT1D(size: size) { y in tone(LumenLog.decode(y)) }
     }
 
-    /// The full per-pixel transform: inset → curve → outset → gamut map.
+    /// The full per-pixel transform: inset → curve → outset → path to white → gamut map.
     public func apply(_ c: RGB, gamut: Gamut.Boundary? = nil) -> RGB {
         if params.linear {
             return RGB(tone(c.r), tone(c.g), tone(c.b))
@@ -415,7 +443,7 @@ public struct DisplayTransform: Sendable {
         let inset = insetMatrix.apply(c)
 
         // Per-channel character: the curve on each channel independently.
-        let perChannel = RGB(tone(inset.r), tone(inset.g), tone(inset.b))
+        let perChannel = outsetMatrix.apply(RGB(tone(inset.r), tone(inset.g), tone(inset.b)))
 
         // Hue-stable: curve the norm, keep the ratios.
         //
@@ -434,25 +462,61 @@ public struct DisplayTransform: Sendable {
         // log below, and testing it instead made the fallback unreachable, so scene
         // black rendered at 0 rather than the black target whenever hue preservation
         // was on (0.3·black at the Film Base preset's 70, black only at 0).
-        let peak = inset.maxComponent
+        //
+        // The ratios are kept in the OUTPUT basis (the colour after the outset, which
+        // for a hue-stable colour commutes with the scalar curve), and the norm is
+        // taken there. Taken on the inset colour, whose peak the inset pulls toward
+        // neutral, the outset re-expanded the curved peak past `level`: a bright
+        // saturated yellow left the transform at 1.07 of white and the gamut map's
+        // knee, which the finish table could not track (no better at 129³ than 65³).
+        let toneBasis = outsetMatrix.apply(inset)
+        let peak = toneBasis.maxComponent
         let norm = Swift.max(peak, 1e-9)
-        let ratio = peak > 1e-9 ? inset * (tone(norm) / norm) : RGB(black, black, black)
+        let level = tone(norm)
+        let ratio = peak > 1e-9 ? toneBasis * (level / norm) : RGB(black, black, black)
         let blackAnchorScene = DisplayTransform.sceneMidGrey * exp2(minEV)
         let aboveBlack = Num.saturate(peak / blackAnchorScene)
 
         // Path to white. Ratios may hold through the midtones, but a display cannot
         // show "brighter than white": above the pivot the only honest rendering of
-        // more light is less chroma, which the per-channel branch does by
-        // construction and the ratio branch never does — without this ramp a +5 EV
-        // overexposure kept 96% of its chroma (the owner's "pastel wash" screenshot).
-        // Quadratic in shoulder position: untouched at the pivot, fully per-channel
-        // at the white anchor.
-        let t = Num.clamp(params.huePreservation, 0, 100) / 100
-        let evX = (log2(norm / DisplayTransform.sceneMidGrey) - minEV) / range
-        let shoulderU = Num.saturate((evX - pivotX) / Swift.max(1 - pivotX, 1e-6))
-        var out = perChannel.mix(ratio, t * (1 - shoulderU * shoulderU) * aboveBlack)
+        // more light is less chroma — without it a +5 EV overexposure kept 96 % of its
+        // chroma (the owner's "pastel wash" screenshot).
+        //
+        // The chroma goes at CONSTANT OKLab HUE: across the shoulder the hue-stable
+        // colour walks in OKLab toward the grey of its own display level
+        // (`bleachAmount`), so it is that grey (white, at the anchor) by the white
+        // anchor. This used to be done by fading the hue-stable branch into the
+        // per-channel one across the shoulder, keyed on the max channel, so a
+        // saturated blue — whose max channel is in the shoulder from about −2 EV —
+        // rendered mostly per-channel and walked +49° through violet and magenta to
+        // pink on its way to white, and pale skies swung 20–38° toward cyan (WS-05
+        // audit F1/F3, WS-13 SPEC § 3b). Interpolating in OKLab, not in RGB, is the
+        // point: a straight line to white in linear RGB still bends a saturated blue
+        // about +20° in hue.
+        //
+        // The bleach is keyed on LUMINANCE, not on the max channel. Keyed on the max
+        // channel, more saturation meant more bleach: a bright orange's red channel
+        // climbed the shoulder as the mixer's Orange Saturation rose, and from +20
+        // the slider handed back a fifth of its own effect (colour chart, 159 → 130
+        // code values). How white a colour turns is a question of how much light it
+        // carries. The hue-stable colour's max channel is held at `level` ≤ white by
+        // the ratio scaling, so a saturated colour that reaches the display's limit
+        // before its luminance reaches the anchor stays at full purity there and
+        // bleaches as its luminance climbs, white at the white anchor.
+        let lum = Swift.max(luminanceWeights.r * toneBasis.r + luminanceWeights.g * toneBasis.g
+                                + luminanceWeights.b * toneBasis.b, 1e-12)
+        let hueStable = bleachTowardNeutral(
+            ratio, level: level,
+            amount: DisplayTransform.bleachAmount(shoulderPosition(lum),
+                                                  power: params.pathToWhite))
+        let shoulderU = shoulderPosition(norm)
 
-        out = outsetMatrix.apply(out)
+        // Per-channel character (Hue preservation below 100) lives in the midtones
+        // and the low shoulder; it hands over to the constant-hue bleach by halfway
+        // up the shoulder, so every setting reaches white along the same path.
+        let t = Num.clamp(params.huePreservation, 0, 100) / 100
+        let keep = t + (1 - t) * Swift.min(1, 2 * shoulderU)
+        var out = perChannel.mix(hueStable, keep * aboveBlack)
         out = RGB(Swift.max(out.r, 0), Swift.max(out.g, 0), Swift.max(out.b, 0))
 
         // Display-gamut mapping is the last colour operation inside S14 —
@@ -463,6 +527,60 @@ public struct DisplayTransform: Sendable {
             out = mapped * white
         }
         return out
+    }
+
+    /// Where the path to white starts, as a shoulder position of the colour's
+    /// luminance: +0.8 EV over mid-grey at the default anchor (+5 EV). Below it a
+    /// hue-stable colour keeps its purity, so the bright ColorChecker patches are not
+    /// paled (onset at the pivot put the chart at 0.85× its true chroma); from it the
+    /// bleach is linear, steep enough that output chroma never rises again from +1 EV
+    /// on the way to white (a ratio colour's OKLab chroma grows with its lightness,
+    /// about as fast as the shoulder's first stop lifts it; at +0.9 EV some saturated
+    /// probes' chroma still climbed past +1 EV).
+    static let bleachOnset: Double = 0.16
+
+    /// Bleach amount at a shoulder position: 0 up to `bleachOnset`, 1 at the anchor,
+    /// 1 − (1 − v)^power between (`pathToWhite`, clamped to 1…4).
+    static func bleachAmount(_ u: Double, power: Double = 1) -> Double {
+        let v = Num.saturate((u - bleachOnset) / (1 - bleachOnset))
+        return 1 - pow(1 - v, Num.clamp(power, 1, 4))
+    }
+
+    /// Position of a scene value on the shoulder: 0 at or below the pivot (mid-grey),
+    /// 1 at the white anchor, linear in EV between.
+    func shoulderPosition(_ x: Double) -> Double {
+        let evX = (log2(Swift.max(x, 1e-12) / DisplayTransform.sceneMidGrey) - minEV) / range
+        return Num.saturate((evX - pivotX) / Swift.max(1 - pivotX, 1e-6))
+    }
+
+    /// Move `c` toward the grey of display level `level` by `amount` (0…1) in OKLab:
+    /// L walks to the grey's L, a and b scale by 1 − amount, so the hue is exactly
+    /// kept and amount 1 IS the grey; the largest channel is held to a straight walk
+    /// between the two ends. amount 0 returns `c` untouched (no round trip).
+    func bleachTowardNeutral(_ c: RGB, level: Double, amount: Double) -> RGB {
+        guard amount > 0 else { return c }
+        if amount >= 1 { return RGB(gray: level) }
+        // Non-negative first: OKLab's cube root is vertical at zero, and a hue-stable
+        // colour carrying a negative channel (a scene value outside the working gamut,
+        // stretched by the outset) drove a cone response through zero inside the
+        // finish table's cells — a 0.31 table error on a bright yellow with negative
+        // blue (flooring L, M, S instead left 0.33). Every cone row of the working
+        // space is positive, so after this clamp L, M and S stay away from zero for
+        // any colour with light in it.
+        let lab = oklab.toLab(RGB(Swift.max(c.r, 0), Swift.max(c.g, 0), Swift.max(c.b, 0)))
+        let greyL = oklab.toLab(RGB(gray: level)).L
+        let keep = 1 - amount
+        let walked = oklab.toRGB(OKLab(L: lab.L + (greyL - lab.L) * amount,
+                                       a: lab.a * keep, b: lab.b * keep))
+        // The largest channel walks linearly from the colour's to the grey's. A
+        // straight OKLab line between the two bulges past both near white (a bright
+        // yellow's red reached 1.07 of white, straight into the gamut map's knee,
+        // and the finish table stopped converging there). A uniform scale of linear
+        // RGB scales L, a and b by one factor, so it keeps the OKLab hue exactly.
+        let source = Swift.max(c.r, c.g, c.b, 0)
+        let target = source + (level - source) * amount
+        let top = walked.maxComponent
+        return top > 1e-12 ? walked * (target / top) : walked
     }
 
     /// The transform a recipe renders through, without building a whole `RenderPlan`.

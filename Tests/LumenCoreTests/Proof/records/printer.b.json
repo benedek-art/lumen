@@ -1,14 +1,14 @@
 {
-  "authority" : 143.2678897244781,
+  "authority" : 157.06070972978432,
   "deadSteps" : 0,
   "frame" : "neutralRamp",
-  "frontLoading" : 0.6502336522854899,
+  "frontLoading" : 0.5906004152107432,
   "givenBack" : 0,
   "id" : "printer.b",
   "isMonotone" : true,
-  "meanSeparation" : 29.965377162944478,
+  "meanSeparation" : 35.718340630262155,
   "panel" : "Printer Lights",
-  "smallestLiveStep" : 6.042653466259992,
+  "smallestLiveStep" : 5.526442298054391,
   "travelHigh" : 24,
   "travelLow" : -24
 }

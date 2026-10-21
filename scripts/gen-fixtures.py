@@ -1896,15 +1896,27 @@ def srgb_decode(x):
 
 SKEW_SHAPE = 2.0
 MINIMUM_POWER = 1.5
+# Display-linear level scene mid-grey (MID_GREY) renders at (DisplayTransform.
+# displayMidGrey, WS-13). Scene and display mid-grey were one constant until then.
+DISPLAY_MID_GREY = 0.25
+BLACK_TARGET_MAX = 15.0   # DisplayTransformParams.blackTargetRange
+
+
+def skew_lambda(sk, cap):
+    # DisplayTransform.skewLambda: the side that adds curvature spans min(1/2, cap),
+    # so no part of the slider is dead; the side that removes it spans the full -1.
+    if sk > 0 and cap > 0:
+        return sk * min(0.5, cap)
+    return min(max(sk, -1), cap)
 
 
 class DisplayTransform:
     def __init__(self, contrast=1.5, skew=0.0, white_target=100.0,
                  black_target=0.0152, white_anchor_ev=5.0, black_anchor_ev=-9.0):
         w = max(white_target, 1) / 100.0
-        b = min(max(black_target, 0), 15) / 100.0
+        b = min(max(black_target, 0), BLACK_TARGET_MAX) / 100.0
         self.white = w
-        self.black = min(b, MID_GREY * 0.5)
+        self.black = b
 
         hi = max(white_anchor_ev, 0.5)
         lo = min(black_anchor_ev, -0.5)
@@ -1912,7 +1924,7 @@ class DisplayTransform:
         self.range = hi - lo
         self.pivot_x = (0 - lo) / (hi - lo)
 
-        eb, ew, ep = srgb_encode(self.black), srgb_encode(w), srgb_encode(MID_GREY)
+        eb, ew, ep = srgb_encode(self.black), srgb_encode(w), srgb_encode(DISPLAY_MID_GREY)
         self.encoded_black, self.encoded_white = eb, ew
         span = max(ew - eb, 1e-6)
         py = min(max((ep - eb) / span, 0.01), 0.99)
@@ -1921,7 +1933,7 @@ class DisplayTransform:
         c = min(max(contrast, 0.1), 10)
         h = 1e-6
         slope_of_decode = max((srgb_decode(ep + h) - srgb_decode(ep - h)) / (2 * h), 1e-9)
-        m = c * MID_GREY * math.log(2.0) * (hi - lo) / (slope_of_decode * span)
+        m = c * DISPLAY_MID_GREY * math.log(2.0) * (hi - lo) / (slope_of_decode * span)
 
         a_toe = m * self.pivot_x / py
         a_shoulder = m * (1 - self.pivot_x) / (1 - py)
@@ -1930,10 +1942,10 @@ class DisplayTransform:
         # shoulder's slope rises into the white anchor (HDR peaks, low Contrast,
         # strong Skew) and the picture clips instead of rolling off. The pivot slope
         # (power + lambda * shape) is unchanged.
-        self.toe_lambda = min(max(sk * 0.5, -1), a_toe / SKEW_SHAPE * 0.9,
-                              (a_toe - MINIMUM_POWER) / SKEW_SHAPE)
-        self.shoulder_lambda = min(max(-sk * 0.5, -1), a_shoulder / SKEW_SHAPE * 0.9,
-                                   (a_shoulder - MINIMUM_POWER) / SKEW_SHAPE)
+        self.toe_lambda = skew_lambda(sk, min(a_toe / SKEW_SHAPE * 0.9,
+                                              (a_toe - MINIMUM_POWER) / SKEW_SHAPE))
+        self.shoulder_lambda = skew_lambda(-sk, min(a_shoulder / SKEW_SHAPE * 0.9,
+                                                    (a_shoulder - MINIMUM_POWER) / SKEW_SHAPE))
         self.toe_power = a_toe - self.toe_lambda * SKEW_SHAPE
         self.shoulder_power = a_shoulder - self.shoulder_lambda * SKEW_SHAPE
 
@@ -1974,14 +1986,15 @@ def gen_display_transform_checks():
         t = DisplayTransform(**kw)
         label = kw or "default"
 
-        # 1. Mid-grey lands on 0.18 display-linear, ABSOLUTELY, at every peak.
+        # 1. Scene mid-grey lands on DISPLAY_MID_GREY (0.25) display-linear,
+        #    ABSOLUTELY, at every peak.
         # 1e-9, not 2e-3: the anchor is a construction, not a tuning, and the Swift
         # asserts it at 1e-9. Six orders of magnitude apart is not a tolerance, it is
         # two different claims — and since the Linux lane is the one that runs today,
         # the loose one was the effective guarantee.
         got = t.tone(MID_GREY)
-        check(abs(got - MID_GREY) < 1e-9,
-              f"{label}: mid-grey landed at {got:.12f}, not 0.18")
+        check(abs(got - DISPLAY_MID_GREY) < 1e-9,
+              f"{label}: mid-grey landed at {got:.12f}, not {DISPLAY_MID_GREY}")
 
         # 2 + 3. The scene anchors land on the display's black and white targets.
         lo_scene = MID_GREY * 2 ** t.min_ev
@@ -3095,8 +3108,8 @@ def gen_tone_checks():
                 ev += 0.05
             # Mid-grey survives the whole chain when nothing asks it to move.
             if contrast == 0 and h == 0 and s == 0 and w == 0 and b == 0:
-                check(abs(dt.tone(MID_GREY * tone.gain(0.0)) - MID_GREY) < 2e-3,
-                      "a default recipe did not land mid-grey on 0.18")
+                check(abs(dt.tone(MID_GREY * tone.gain(0.0)) - DISPLAY_MID_GREY) < 2e-3,
+                      "a default recipe did not land scene mid-grey on display mid-grey")
 
     # --- the sliders must keep doing more, and must not move each other ------
     #
@@ -3842,7 +3855,7 @@ def film_solve_gains(s, white):
     sweep is exact; a transparency's gain is scene-side and the couplers mix after
     it, so the sweeps iterate."""
     grey = [0.18, 0.18, 0.18]
-    target = 0.18 * white
+    target = DISPLAY_MID_GREY * white   # FilmChain.solveGains: DisplayTransform.displayMidGrey
     use_print = s.print_stage is not None
     for _ in range(6):
         for i in range(3):
@@ -3953,7 +3966,7 @@ def gen_film_checks():
             # than by tuning — that is what the gain solve is for.
             anchor = film_render([0.18, 0.18, 0.18], chain, 1.0)
             for i in range(3):
-                check(abs(anchor[i] - 0.18) < 1e-6,
+                check(abs(anchor[i] - DISPLAY_MID_GREY) < 1e-6,
                       f"{name} at push {push} put mid-grey at {anchor[i]:.9f} "
                       f"in channel {i}")
 

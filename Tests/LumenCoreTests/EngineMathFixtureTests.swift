@@ -86,7 +86,7 @@ final class EngineMathFixtureTests: XCTestCase {
             params.blackAnchorEV = double(row, "blackAnchorEV")
             let transform = DisplayTransform(params)
             let ev = double(row, "ev")
-            let scene = DisplayTransform.midGrey * pow(2.0, ev)
+            let scene = DisplayTransform.sceneMidGrey * pow(2.0, ev)
             XCTAssertEqual(transform.tone(scene), double(row, "out"), accuracy: 1e-9,
                            "display transform diverged at \(ev) EV "
                                + "(contrast \(params.contrast), skew \(params.skew), "
