@@ -431,19 +431,22 @@ enum ExactColorTwin {
             let moved = wrapHue(h + q.x * g * hueDelta(blended, h))
             converge = hueDelta(h, moved)
         }
-        // The hue warp, `ColorEngine.hueDisplacement`: one basis per knot.
+        // Uniformity first, then the hue warp at the converged hue
+        // (`ColorEngine.applyMixer`, `ColorEngine.hueDisplacement`).
+        let hc = wrapHue(h + converge)
+        let reach = Float(ColorEngine.hueReachFactor)
         var warp: Float = 0
         for k in 0..<8 {
-            let ck = e(u, 36 + k)
-            let delta = hueDelta(ck, h)
-            let span = delta >= 0 ? wrapHue(e(u, 36 + ((k + 1) & 7)) - ck)
-                                  : wrapHue(ck - e(u, 36 + ((k + 7) & 7)))
-            let s = min(abs(delta) / span, 1)
+            let arc = u[11 + k]
+            let delta = hueDelta(e(u, 36 + k), hc)
+            let core = delta >= 0 ? arc.y : arc.x
+            let fall = delta >= 0 ? reach * (arc.y + arc.w) - arc.y : reach * (arc.x + arc.z) - arc.x
+            let s = min(max((abs(delta) - core) / fall, 0), 1)
             warp += e(u, 76 + 3 * k) * (1 - hueTransfer(s))
         }
         let L = l.x > 0 && lumSum != 0 ? l.x * exp2(lumSum * pow(min(l.x, q.w) / q.y, q.z)) : l.x
         let C = l.y * max(0, 1 + pull) * mixerSatGain(l.y, l.x, h, push)
-        return toRGB(lab(F3(L, C, wrapHue(h + g * warp + converge))), u)
+        return toRGB(lab(F3(L, C, wrapHue(hc + g * warp))), u)
     }
 
     // ---- point: one swatch against the fixed pre-Mixer reference ----
@@ -784,14 +787,15 @@ public enum ExactColorKernelSource {
 
             """
         }
+        let reach = ColorEngine.hueReachFactor
         var warp = ""
         for k in 0..<8 {
-            let next = (k + 1) & 7, prev = (k + 7) & 7
             warp += """
-                    { float ck = \(u(36 + k));
-                      float dl = lumenHueDelta(ck, h);
-                      float span = dl >= 0.0 ? lumenWrap(\(u(36 + next)) - ck) : lumenWrap(ck - \(u(36 + prev)));
-                      float sn = min(abs(dl) / span, 1.0);
+                    { vec4 ar = a\(k);
+                      float dl = lumenHueDelta(\(u(36 + k)), hc);
+                      float core = dl >= 0.0 ? ar.y : ar.x;
+                      float fall = dl >= 0.0 ? \(reach) * (ar.y + ar.w) - ar.y : \(reach) * (ar.x + ar.z) - ar.x;
+                      float sn = min(max((abs(dl) - core) / fall, 0.0), 1.0);
                       warp += \(u(76 + 3 * k)) * (1.0 - lumenHueTransfer(sn)); }
 
             """
@@ -840,11 +844,12 @@ public enum ExactColorKernelSource {
                 float moved = lumenWrap(h + q.x * g * lumenHueDelta(blended, h));
                 converge = lumenHueDelta(h, moved);
             }
+            float hc = lumenWrap(h + converge);
             float warp = 0.0;
         \(warp)
             float L = (l.x > 0.0 && lumSum != 0.0) ? l.x * exp2(lumSum * pow(min(l.x, q.w) / q.y, q.z)) : l.x;
             float C = l.y * max(0.0, 1.0 + pull) * lumenMixerSatGain(l.y, l.x, h, push);
-            vec3 mapped = lumenLab(vec3(L, C, lumenWrap(h + g * warp + converge)));
+            vec3 mapped = lumenLab(vec3(L, C, lumenWrap(hc + g * warp)));
             \(toRGB("mapped", into: "outRGB"))
             return vec4(outRGB, s.a);
         }

@@ -233,35 +233,48 @@ public struct ColorEngine: Sendable {
                        featherBelow: down, featherAbove: up)
     }
 
-    /// The largest Hue move, in degrees, at ±100 on a band whose neighbour in that
-    /// direction is at least `hueRangeDegrees / hueShiftGapFraction` away.
+    /// The largest Hue move, in degrees, at ±100 (SPEC H3: 25–35° at the centre).
     ///
     /// It was 45° — "±100 lands exactly on the adjacent band centre" — and with a 25°
     /// transition that folded the hue circle: 14–20° of input hue on every band came
     /// out in reverse order, a crease on every gradient that crossed a band edge (audit
     /// M1). Lightroom's ±100 is about 30° of HSV, well short of the neighbour.
-    public static let hueRangeDegrees: Double = 30.0
+    public static let hueRangeDegrees: Double = 35.0
     /// The smallest slope of output hue against input hue any Hue setting may produce.
-    /// A recipe that pushes two neighbours toward each other is scaled down as a whole
-    /// until it reaches this floor, so the hue circle is never folded (see
-    /// `resolvedHueShifts`).
+    /// Each band's move is limited so that it alone keeps this slope, and a recipe whose
+    /// moves combine to squeeze some hue further is scaled down as a whole until it
+    /// reaches this floor, so the hue circle is never folded (`resolvedHueShifts`).
     public static let hueMinSlope: Double = 0.25
-    /// The hue warp's hand-over between two knots eases in and out over this fraction
-    /// of the gap at each end (`hueTransfer`), so every knot is a flat point: a band's
-    /// centre region turns as one piece and nothing beyond its neighbours' centres moves.
-    public static let hueRampFraction: Double = 0.15
-    /// A Hue move never covers more than this fraction of the gap toward the neighbour
-    /// it moves toward: the most a single band can move with every slope still at least
-    /// `hueMinSlope`, (1 − 0.25)·(1 − 0.15) = 0.6375. It can never reach that neighbour.
-    public static let hueShiftGapFraction: Double = (1 - hueMinSlope) * (1 - hueRampFraction)
+    /// The hue move's falloff eases in and out over this fraction of its length at each
+    /// end (`hueTransfer`), so it leaves the band's core and arrives at zero with slope 0.
+    public static let hueRampFraction: Double = 0.1
+    /// How far past the band's own reach (core + feather, the Band range ring) its Hue
+    /// move falls off: 1.35 × the reach on each side. A hue move cannot be as narrow as
+    /// a Saturation or Luminance move — turning a hue 30° needs about 40° of hue
+    /// to hand back over without folding — so the ring scales it rather than clipping it:
+    /// a narrower ring moves fewer hues, a wider one more (SPEC R6).
+    public static let hueReachFactor: Double = 1.35
+    /// Head-room under `hueMinSlope` for what the 0.05° grid in `resolvedHueShifts` can
+    /// miss between samples; a single band is limited with the same margin, so it is
+    /// never scaled and ±100 stay equal and opposite.
+    public static let hueSlopeMargin: Double = 0.01
 
-    /// Band `i`'s Hue move at ±100, in degrees: the same both ways, so a move and its
-    /// opposite are equal and opposite on every pixel, and limited by the NARROWER of
-    /// the band's two gaps so neither direction can squeeze its interval below
-    /// `hueMinSlope`.
-    public static func bandHueShiftLimit(_ i: Int) -> Double {
-        Swift.min(hueRangeDegrees,
-                  hueShiftGapFraction * Swift.min(bandGapBelow(i), bandGapAbove(i)))
+    /// The length of band `arc`'s hue falloff below and above, in degrees: from the core
+    /// edge to `hueReachFactor` × (core + feather).
+    public static func hueFalloff(_ arc: BandArc) -> (below: Double, above: Double) {
+        (hueReachFactor * (arc.coreBelow + arc.featherBelow) - arc.coreBelow,
+         hueReachFactor * (arc.coreAbove + arc.featherAbove) - arc.coreAbove)
+    }
+
+    /// Band `arc`'s Hue move at ±100, in degrees: the same both ways, so a move and its
+    /// opposite are equal and opposite on every pixel; capped by `hueRangeDegrees` and
+    /// by the shorter falloff, so that the band alone never squeezes the circle below
+    /// `hueMinSlope` (its steepest falloff slope is 1/(1 − ramp) per falloff length).
+    public static func bandHueShiftLimit(_ arc: BandArc) -> Double {
+        let f = hueFalloff(arc)
+        let peak = 1 / (1 - hueRampFraction)
+        return Swift.min(hueRangeDegrees,
+                         (1 - hueMinSlope - hueSlopeMargin) * Swift.min(f.below, f.above) / peak)
     }
 
     /// The chroma-preserving lightness kernel's constant for POINT COLOUR. The Mixer has
@@ -552,7 +565,7 @@ public struct ColorEngine: Sendable {
         let sanitized: [MixerBand] = Self.sanitizedBands(mixer.bands)
         self.bands = sanitized
         self.arcs = Self.bandArcs(sanitized)
-        let shifts = Self.resolvedHueShifts(sanitized)
+        let shifts = Self.resolvedHueShifts(sanitized, arcs: self.arcs)
         self.hueShifts = shifts
         self.hueIsFlat = shifts.allSatisfy { $0 == 0 }
         self.uniformity = Num.clamp(mixer.uniformity, 0, 100)
@@ -1401,34 +1414,40 @@ public struct ColorEngine: Sendable {
     }
 
     /// Each band's Hue move in degrees, as the recipe's sliders resolve it: slider/100 ×
-    /// `bandHueShiftLimit`, then the
-    /// whole set scaled down together, only if needed, so that no interval between two
-    /// adjacent centres is squeezed below `hueMinSlope` of its width. A single band at
-    /// ±100 never needs the scale; two neighbours pushed hard toward each other do.
-    /// That is what makes the warp monotone for every recipe, not only for the ones a
-    /// test happens to try.
-    public static func resolvedHueShifts(_ bands: [MixerBand]) -> [Double] {
+    /// `bandHueShiftLimit` of the band's own arc, then the whole set scaled down
+    /// together, only if needed, so that the composed warp's slope stays at least
+    /// `hueMinSlope` everywhere. A single band never needs the scale; neighbours pushed
+    /// toward each other can. The slope is linear in the moves, so the scale is exact:
+    /// it is measured on a 0.05° grid of the warp's derivative.
+    public static func resolvedHueShifts(_ bands: [MixerBand], arcs: [BandArc]) -> [Double] {
         var d = [Double](repeating: 0, count: bandCount)
-        for i in 0..<bandCount where i < bands.count {
-            d[i] = Num.clamp(bands[i].hue, -100, 100) / 100 * bandHueShiftLimit(i)
+        var moved = false
+        for i in 0..<bandCount where i < bands.count && i < arcs.count {
+            d[i] = Num.clamp(bands[i].hue, -100, 100) / 100 * bandHueShiftLimit(arcs[i])
+            if d[i] != 0 { moved = true }
         }
-        var scale: Double = 1
-        for k in 0..<bandCount {
-            let closing = d[k] - d[(k + 1) % bandCount]
-            let room = hueShiftGapFraction * bandGapAbove(k)
-            if closing > room { scale = Swift.min(scale, room / closing) }
+        guard moved, d.allSatisfy({ $0.isFinite }) else { return d }
+        var steepest: Double = 0           // most negative d(displacement)/d(hue)
+        let step = 0.05
+        var previous = hueDisplacement(0, shifts: d, arcs: arcs)
+        var h = step
+        while h <= 360 {
+            let next = hueDisplacement(h, shifts: d, arcs: arcs)
+            steepest = Swift.min(steepest, (next - previous) / step)
+            previous = next
+            h += step
         }
-        if scale < 1 {
+        let room = 1 - hueMinSlope - hueSlopeMargin
+        if -steepest > room {
+            let scale = room / -steepest
             for i in 0..<bandCount { d[i] *= scale }
         }
         return d
     }
 
-    /// The hand-over between two adjacent knots, 0 → 1 over t ∈ 0…1, with slope 0 at
-    /// both ends: a quadratic ease over `hueRampFraction` at each end and a straight line
-    /// between (its slope is the most any shape with flat ends needs, 1/(1 − ramp)).
-    /// Symmetric — T(1 − t) = 1 − T(t) — which is what makes the knot bases below a
-    /// partition of unity.
+    /// The falloff of a hue move, 0 → 1 over t ∈ 0…1, with slope 0 at both ends: a
+    /// quadratic ease over `hueRampFraction` at each end and a straight line between (its
+    /// slope, 1/(1 − ramp), is the least any shape with flat ends can have).
     public static func hueTransfer(_ t: Double) -> Double {
         let ramp = hueRampFraction
         let peak = 1 / (1 - ramp)
@@ -1439,31 +1458,32 @@ public struct ColorEngine: Sendable {
 
     /// THE HUE MOVE: a monotone warp of the hue circle, as a displacement in degrees.
     ///
-    /// The band centres are knots, and band k's knot moves by `shifts[k]`. Between two
-    /// knots the displacement hands over from one move to the other through
-    /// `hueTransfer`: D = d_k + (d_k+1 − d_k)·T(t). So output hue against input hue has
-    /// slope 1 + (d_k+1 − d_k)·T′/gap ≥ 1 − (squeeze/gap)/(1 − ramp), and
-    /// `resolvedHueShifts` keeps that at least `hueMinSlope` for every recipe: the
-    /// circle can be stretched and squeezed but never folded. T′ = 0 at every knot, so a
-    /// band's centre turns rigidly, the move reaches exactly to the neighbouring centres
-    /// and not a degree past them.
+    /// Band k turns its whole core by `shifts[k]`, and beyond the core the move falls off
+    /// through `hueTransfer` over `hueFalloff` — the band's own Band range ring scaled by
+    /// `hueReachFactor`, so a narrowed ring narrows which hues move (SPEC R6), exactly as
+    /// it narrows Saturation and Luminance. Output hue against input hue has slope
+    /// 1 + Σ dₖ·Bₖ′, and `bandHueShiftLimit` with `resolvedHueShifts` keep that at least
+    /// `hueMinSlope` for every recipe: the circle can be stretched and squeezed but never
+    /// folded.
     ///
-    /// It replaced `Σ wᵢ·shiftᵢ` over the membership weights. That form put a 45° move
-    /// through a 25° raised-cosine transition, and its slope went to −1.6: 14–20° of
-    /// input hue on every band came out reversed (audit M1). No raised-cosine membership
-    /// narrow enough to give Lightroom-like band selectivity is wide enough to carry a
-    /// 25–30° move without folding, so hue moves hand over across the whole gap between
-    /// centres; the membership weights still shape Saturation, Luminance and Uniformity.
+    /// It replaced `Σ wᵢ·shiftᵢ` over the normalised membership weights. That form put a
+    /// 45° move through a 25° raised-cosine transition, and its slope went to −1.6: 14–20°
+    /// of input hue on every band came out reversed (audit M1). The membership weights'
+    /// transitions are as narrow as Lightroom-like band selectivity needs, which is too
+    /// narrow to carry a 25–35° move, so the hue move falls off over the longer reach.
     ///
-    /// Written as a sum of per-knot bases, 1 − T(distance / gap) on each side of the
-    /// knot (and 0 beyond the neighbouring knot), so the GPU twin evaluates the same
-    /// expression with no interval search.
-    public static func hueDisplacement(_ hue: Double, shifts d: [Double]) -> Double {
+    /// A sum of per-band bases with no interval search, so the GPU twin evaluates the
+    /// same expression.
+    public static func hueDisplacement(_ hue: Double, shifts d: [Double],
+                                       arcs: [BandArc]) -> Double {
         var out: Double = 0
-        for k in 0..<bandCount where d[k] != 0 {
-            let delta = Num.hueDelta(bandHueCentres[k], hue)
-            let span = delta >= 0 ? bandGapAbove(k) : bandGapBelow(k)
-            let s = Swift.min(abs(delta) / span, 1)
+        for k in 0..<bandCount where d[k] != 0 && k < arcs.count {
+            let arc = arcs[k]
+            let delta = Num.hueDelta(arc.centre, hue)
+            let f = hueFalloff(arc)
+            let core = delta >= 0 ? arc.coreAbove : arc.coreBelow
+            let fall = delta >= 0 ? f.above : f.below
+            let s = Num.clamp((abs(delta) - core) / fall, 0, 1)
             out += d[k] * (1 - hueTransfer(s))
         }
         return out
@@ -1543,10 +1563,14 @@ public struct ColorEngine: Sendable {
                                               q: q, beta: 1, weight: gate, axis: .hue)
             converge = Num.hueDelta(lch.h, moved)
         }
-        // The hue warp, gated like every hue-selective move: below the gate a pixel's
-        // hue is noise and must not be rotated.
+        // Uniformity first, then the hue warp evaluated AT THE CONVERGED HUE: the two
+        // moves compose (slope = warp′ · uniformity′, both ≥ 0) instead of adding two
+        // displacements read off the same input hue, which folded the circle when a
+        // band's Hue and Uniformity were both set (WS-31 verify R7). Gated like every
+        // hue-selective move: below the gate a pixel's hue is noise.
+        let converged = Num.wrapHue(lch.h + converge)
         let hueMove: Double = hueIsFlat || gate == 0
-            ? 0 : gate * Self.hueDisplacement(lch.h, shifts: hueShifts)
+            ? 0 : gate * Self.hueDisplacement(converged, shifts: hueShifts, arcs: arcs)
 
         // A pull scales chroma linearly; a push goes through the cone roll-off. The two
         // multiply, so chroma stays monotone in each slider and in the input chroma.
@@ -1555,7 +1579,7 @@ public struct ColorEngine: Sendable {
         // Chroma is carried through the luminance move literally unchanged — invariant
         // #1 — and the move itself is a ratio (see `mixerLightness`).
         let L = Self.mixerLightness(lch.L, stops: lumSum)
-        let h = Num.wrapHue(lch.h + hueMove + converge)
+        let h = Num.wrapHue(converged + hueMove)
         return context.toRGB(OKLCh(L: L, C: lch.C * gC, h: h))
     }
 

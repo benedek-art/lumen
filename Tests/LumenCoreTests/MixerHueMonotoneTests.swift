@@ -145,4 +145,107 @@ final class MixerHueMonotoneTests: XCTestCase {
             }
         }
     }
+
+    // MARK: SPEC R6: the Hue move follows the Band range ring
+
+    private static func ringed(_ band: Int, hue: Double, core: Double, feather: Double) -> ColorEngine {
+        var mixer = Mixer()
+        mixer.bands[band].hue = hue
+        let d = ColorEngine.defaultArc(band)
+        let arc = ColorEngine.BandArc(centre: d.centre, coreBelow: core, coreAbove: core,
+                                      featherBelow: feather, featherAbove: feather)
+        let wire = ColorEngine.wireHandles(for: arc, band: band)
+        mixer.bands[band].core = wire.core
+        mixer.bands[band].feather = wire.feather
+        return ColorEngine(mixer: mixer, pointColors: [], color: ColorAdjust(),
+                           primaries: Primaries(), bw: nil)
+    }
+
+    /// Before WS-31 the Hue move followed the ring through the membership weights; the
+    /// warp must too: a narrowed ring moves fewer hues, a widened one more, and the
+    /// default sits between. Measured as the hue range (input degrees) moved by more
+    /// than 1°, on both engine and twin, for every band.
+    func testTheHueMoveIsScopedByTheBandRangeRing() {
+        func movedSpan(_ e: ColorEngine, twin: Bool) -> Double {
+            let stage = e.exactStage
+            var count = 0
+            for i in 0..<3600 {
+                let h = Double(i) / 10
+                let c = Self.context.toRGB(OKLCh(L: 0.6, C: 0.1, h: h))
+                let out = twin ? stage.apply(c) : e.apply(c)
+                if abs(Num.hueDelta(h, Self.context.toLCh(out).h)) > 1 { count += 1 }
+            }
+            return Double(count) / 10
+        }
+        for band in 0..<8 {
+            for twin in [false, true] {
+                let narrow = movedSpan(Self.ringed(band, hue: 100, core: ColorEngine.bandCoreMinDegrees,
+                                                   feather: ColorEngine.bandFeatherMinDegrees), twin: twin)
+                let normal = movedSpan(Self.engine(band: band, hue: 100), twin: twin)
+                let wide = movedSpan(Self.ringed(band, hue: 100, core: 30, feather: 50), twin: twin)
+                XCTAssertLessThan(narrow, normal - 5, "band \(band): a narrowed ring did not narrow the Hue move")
+                XCTAssertGreaterThan(wide, normal + 5, "band \(band): a widened ring did not widen the Hue move")
+                // And every ring stays monotone.
+                for e in [Self.ringed(band, hue: 100, core: ColorEngine.bandCoreMinDegrees,
+                                      feather: ColorEngine.bandFeatherMinDegrees),
+                          Self.ringed(band, hue: -100, core: 30, feather: 50)] {
+                    let stage = e.exactStage
+                    let r = Self.outputHues(L: 0.6, C: 0.1) { twin ? stage.apply($0) : e.apply($0) }
+                    var worst = Double.infinity
+                    for i in 1..<r.hues.count { worst = Swift.min(worst, (r.hues[i] - r.hues[i - 1]) / Self.step) }
+                    XCTAssertGreaterThanOrEqual(worst, 0.10, "band \(band) ring slope \(worst)")
+                }
+            }
+        }
+    }
+
+    // MARK: SPEC R7: Uniformity with Hue never folds
+
+    /// Uniformity 0/50/100 with every band's Hue at ±100, and with alternating signs
+    /// on all bands. The two moves compose (Uniformity, then the warp at the converged
+    /// hue), so the slope is the warp's (≥ `hueMinSlope`) times Uniformity's own, which
+    /// is ≥ 1 − uniformity/100. At 0 and 50 that keeps every slope ≥ 0.10. At 100,
+    /// Uniformity by itself lands every hue inside a core on one (slope 0, its purpose;
+    /// `AppliedReadoutTests.testUniformity100LandsEveryHueInsideABandOnOne`), so there the
+    /// claim is that nothing folds: slope ≥ 0.
+    func testUniformityCombinedWithHueNeverFolds() {
+        var cases: [(String, Mixer)] = []
+        for uniformity in [0.0, 50, 100] {
+            for band in 0..<8 {
+                for v in [-100.0, 100] {
+                    var m = Mixer()
+                    m.uniformity = uniformity
+                    m.bands[band].hue = v
+                    cases.append(("u\(uniformity) band \(band) \(v)", m))
+                }
+            }
+            for phase in [0, 1] {
+                var m = Mixer()
+                m.uniformity = uniformity
+                for i in 0..<8 { m.bands[i].hue = (i + phase) % 2 == 0 ? 100 : -100 }
+                cases.append(("u\(uniformity) alternating \(phase)", m))
+            }
+        }
+        for (name, mixer) in cases {
+            let e = ColorEngine(mixer: mixer, pointColors: [], color: ColorAdjust(),
+                                primaries: Primaries(), bw: nil)
+            let stage = e.exactStage
+            for twin in [false, true] {
+                // At 100 the flats are exactly flat in Double; the Float32 twin's hue
+                // jitters by ~1e-4° there, which over the 0.05° grid reads as ±0.005.
+                let floor = mixer.uniformity >= 100 ? (twin ? -0.01 : -1e-6) : 0.10
+                for row in [(0.6, 0.06), (0.4, 0.12), (0.8, 0.2)] {
+                    let r = Self.outputHues(L: row.0, C: row.1) { twin ? stage.apply($0) : e.apply($0) }
+                    var worst = Double.infinity
+                    var at = 0.0
+                    for i in 1..<r.hues.count {
+                        let slope = (r.hues[i] - r.hues[i - 1]) / Self.step
+                        if slope < worst { worst = slope; at = Double(i) * Self.step }
+                    }
+                    XCTAssertGreaterThanOrEqual(worst, floor,
+                                                "\(name) \(twin ? "twin" : "engine") row \(row): slope \(worst) at \(at)°")
+                }
+            }
+        }
+    }
 }
