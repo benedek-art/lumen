@@ -1484,14 +1484,10 @@ public struct RenderGraph {
     /// keep the existing Gaussian and its established reference-resolution look.
     private static func applyLocalSoftening(_ image: CIImage, sigma: Double) -> CIImage {
         guard sigma > 0.05 else { return image }
-        if sigma < 1 {
-            let radius = Swift.max(Int(ceil(sigma * 4)), 1)
-            var weights = [CGFloat](repeating: 0, count: 9)
-            for i in -radius...radius {
-                weights[i + 4] = CGFloat(exp(-Double(i * i) / (2 * sigma * sigma)))
-            }
-            let total = weights.reduce(0, +)
-            weights = weights.map { $0 / total }
+        // Below σ 1 the reference's discrete Gaussian (`localSofteningKernel`), whose
+        // variance is σ² at every σ, so a preview softens as much as the export.
+        if let kernel = ReferenceRenderer.localSofteningKernel(sigma: sigma) {
+            let weights = kernel.map { CGFloat($0) }
             let vector = CIVector(values: weights, count: weights.count)
             let horizontal = image.clampedToExtent().applyingFilter(
                 "CIConvolution9Horizontal", parameters: ["inputWeights": vector])

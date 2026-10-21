@@ -157,4 +157,47 @@ final class LocalPresenceTests: XCTestCase {
         let zero = applyFull(image, mask: mask, plan: plan)
         XCTAssertEqual(zero.pixels, image.pixels, "Amount 0 moved a pixel")
     }
+
+    // MARK: Softening is the same blur at every render size
+
+    /// The CPU half of `LocalSofteningScaleTests` (macOS), so a Linux run catches it:
+    /// a frame-denominated softening must take the same share of contrast off a
+    /// scene-scaled pattern at 512 px as at 4096. With a sampled Gaussian below σ 1 the
+    /// 512 px preview kept 0.990 of it at −50 against 0.962 everywhere else.
+    func testSofteningTakesTheSameContrastAtEveryRenderSize() {
+        let plan = RenderPlan(recipe: Recipe(), lutSize: 17)
+        func contrast(_ b: ImageBuffer) -> Double {
+            let v = (b.width / 4..<b.width * 3 / 4).map { b[$0, b.height / 2].r }
+            let m = v.reduce(0, +) / Double(v.count)
+            return sqrt(v.map { ($0 - m) * ($0 - m) }.reduce(0, +) / Double(v.count))
+        }
+        for amount in [-25.0, -50, -100] {
+            var mask = Mask(id: "scale")
+            mask.adjust.sharpness = amount
+            var gains: [Double] = []
+            for width in [512, 1024, 2048, 4096] {
+                let input = ImageBuffer(width: width, height: 16) { u, _ in
+                    RGB(gray: 0.18 + 0.03 * sin(2 * .pi * 64 * u))
+                }
+                let out = ReferenceRenderer.applyLocalAdjust(input, mask: mask,
+                                                              plan: plan, space: .rec2020)
+                gains.append(contrast(out) / contrast(input))
+            }
+            XCTAssertLessThan(gains.max()! - gains.min()!, 0.01,
+                              "Sharpness \(amount): gains \(gains)")
+        }
+    }
+
+    func testTheSubPixelKernelHasTheVarianceItWasAskedFor() throws {
+        for sigma in [0.1, 0.25, 0.5, 0.75, 0.99] {
+            let k = try XCTUnwrap(ReferenceRenderer.localSofteningKernel(sigma: sigma))
+            XCTAssertEqual(k.reduce(0, +), 1, accuracy: 1e-12)
+            let variance = k.enumerated().map { Double(($0.offset - 4) * ($0.offset - 4)) * $0.element }
+                .reduce(0, +)
+            // Exact but for the nine-tap window, which trims 0.5 % off σ² just below 1.
+            XCTAssertEqual(variance, sigma * sigma, accuracy: 0.01 * sigma * sigma)
+        }
+        XCTAssertNil(ReferenceRenderer.localSofteningKernel(sigma: 1))
+        XCTAssertNil(ReferenceRenderer.localSofteningKernel(sigma: 0.05))
+    }
 }

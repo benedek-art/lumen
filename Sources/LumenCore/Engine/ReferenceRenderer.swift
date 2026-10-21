@@ -599,7 +599,11 @@ public enum ReferenceRenderer {
                 let sigma = SpatialOps.frameDenominatedSigma(
                     radius: localSofteningRadius(sharpness),
                     longEdge: Swift.max(out.width, out.height))
-                out = SpatialOps.gaussianBlur(out, sigma: sigma)
+                if let kernel = localSofteningKernel(sigma: sigma) {
+                    out = convolveSeparable(out, kernel: kernel)
+                } else {
+                    out = SpatialOps.gaussianBlur(out, sigma: sigma)
+                }
             }
         }
         return out
@@ -634,6 +638,71 @@ public enum ReferenceRenderer {
     public static func localSofteningRadius(_ sharpness: Double) -> Double {
         guard sharpness.isFinite else { return 0 }
         return Num.clamp(-sharpness / 100, 0, 1).squareRoot() * 2.5
+    }
+
+    /// The nine taps the softening uses below one pixel of σ, or nil at and above it
+    /// (where the ordinary Gaussian takes over on both renderers).
+    ///
+    /// The DISCRETE Gaussian (Lindeberg's scale-space kernel, `e⁻ᵗ·Iₙ(t)`, t = σ²), not
+    /// the sampled one. A sampled Gaussian at sub-pixel σ is narrower than the σ it was
+    /// asked for — at σ 0.35 its outer taps are e⁻⁴ — so the frame-denominated blur
+    /// softened a 512 px preview less than the same blur at 1024 px and up. Measured by
+    /// `LocalSofteningScaleTests` on macOS at −50: contrast gain 0.990 at 512 against
+    /// 0.962 above, a 0.0275 spread over a 0.025 bar, on both renderers. This kernel's
+    /// variance is σ² (exactly, but for the nine-tap window, which trims 0.5 % just
+    /// below σ 1), so the same blur measures the same at every render size (spread
+    /// 0.002 on that fixture), and at σ 1 it meets the sampled Gaussian it hands over to
+    /// within a percent of variance, so the transition does not step.
+    /// Public because `RenderGraph.applyLocalSoftening` feeds these weights to Core
+    /// Image's nine-tap convolution.
+    public static func localSofteningKernel(sigma: Double) -> [Double]? {
+        guard sigma.isFinite, sigma > 0.05, sigma < 1 else { return nil }
+        let t = sigma * sigma
+        // e⁻ᵗ·Iₙ(t) by its power series; at t < 1 twelve terms are exact to f64.
+        func bessel(_ n: Int) -> Double {
+            var term = pow(t / 2, Double(n))
+            for k in 1...Swift.max(n, 1) where n > 0 { term /= Double(k) }
+            var sum = term
+            for m in 1..<12 {
+                term *= (t / 2) * (t / 2) / (Double(m) * Double(m + n))
+                sum += term
+            }
+            return sum * exp(-t)
+        }
+        var kernel = (-4...4).map { bessel(abs($0)) }
+        let total = kernel.reduce(0, +)
+        guard total > 0 else { return nil }
+        kernel = kernel.map { $0 / total }
+        return kernel
+    }
+
+    /// A separable convolution with edge-clamped reads, the CPU twin of Core Image's
+    /// `CIConvolution9Horizontal`/`Vertical` over a `clampedToExtent` image.
+    static func convolveSeparable(_ image: ImageBuffer, kernel: [Double]) -> ImageBuffer {
+        let r = kernel.count / 2
+        let w = image.width
+        let h = image.height
+        var horizontal = image
+        for y in 0..<h {
+            for x in 0..<w {
+                var sum = RGB.zero
+                for (i, weight) in kernel.enumerated() {
+                    sum = sum + image[Swift.min(Swift.max(x + i - r, 0), w - 1), y] * weight
+                }
+                horizontal[x, y] = sum
+            }
+        }
+        var out = horizontal
+        for y in 0..<h {
+            for x in 0..<w {
+                var sum = RGB.zero
+                for (i, weight) in kernel.enumerated() {
+                    sum = sum + horizontal[x, Swift.min(Swift.max(y + i - r, 0), h - 1)] * weight
+                }
+                out[x, y] = sum
+            }
+        }
+        return out
     }
 
     /// A local Temp/Tint nudge. The mask panel's two sliders are RELATIVE — −100…+100
