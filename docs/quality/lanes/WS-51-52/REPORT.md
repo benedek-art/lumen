@@ -11,7 +11,7 @@
 ## Verdict per spec line
 
 Measured with `measure.py` (8-bit sRGB, CIEDE2000) and the release lumen-render at
-c9eab36. Corpus: 6929 A7 IV, 2545 GX85, 1192 X-T10, 3914 X-T4, 1346 5D and 1840 D850, each
+c9eab36. P2 was re-checked on the final commit (2545 at 6200 K: max 0.44). Corpus: 6929 A7 IV, 2545 GX85, 1192 X-T10, 3914 X-T4, 1346 5D and 1840 D850, each
 at its as-shot neutral. 6929 and 2545 were run again with the global row at 6200 K / +15.
 
 | line | measured (worst over all runs) | verdict |
@@ -33,7 +33,7 @@ at its as-shot neutral. 6929 and 2545 were run again with the global row at 6200
 | U1-U3 unit tests | pass | PASS |
 | V1 / V2 | ramps smooth with no ring; "after" ΔE maps flat | PASS (verifier agreed) |
 
-Tests: 3064 tests pass on Linux (release build with `-enable-testing`), 6 skipped, 0 failures.
+Tests: 3064 tests pass on Linux at the final commit (release build with `-enable-testing`), 6 skipped, 0 failures.
 Linux `swift test` does not build as-is, and this predates the lane:
 `Sources/LumenApp/CompareView.swift:326,569` has trailing commas in call arguments, which
 the Swift 6.0.3 parser rejects (from merge #26). For the test run I removed them in a
@@ -50,10 +50,14 @@ local copy and did not commit that.
 2. Added `kelvinEquivalent` and `shiftEquivalent`. `MP.whiteBalanceRows` now uses them, so
    the Shift/Kelvin switch converts the edit into the other unit. It used to reset to the
    bare neutral, which dropped any shift the mask had.
-3. The Kelvin spelling now scales up to amount 2 along the mired line. It used to cap at
-   1, so at Strength 200 the switch moved the picture by ΔE 3.4. It is exact whenever
-   shift × strength stays within ±100. Past that, the Shift slider caps at its ±100 end
-   and Kelvin does not, so the switch can still move pixels there.
+3. Strength past 100 now scales both spellings the same way. The Kelvin spelling used
+   to stop at amount 1, so the switch jumped ΔE 3.4 at Strength 200. The Shift spelling
+   clamped slider × Strength to ±100, so a maxed slider gained nothing past Strength 100.
+   Round 2's half-fix turned that into a ΔE 6 jump, which the second verifier caught.
+   Now the slider is clamped to ±100 first and then scaled. Measured on 6929 for
+   (40,−30), (100,100) and (−100,0) at Strength 30, 100, 150 and 200: switch ΔE 0.00
+   in every case. Remaining edge case: a Kelvin Tint past the ±300 hard range is
+   clamped, so the switch is not exact there.
 4. Tests. `MaskWhiteBalanceTests.testResolveReturnsTheOldMatrixBitForBitWhenNoKelvinIsSet`
    encoded the 5500 K anchor. It was renamed and now passes `balanced`. That is a changed
    expectation, not a loosened one: the anchor is the defect. New tests: two in

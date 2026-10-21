@@ -506,8 +506,13 @@ public enum ReferenceRenderer {
         public init(temp: Double, tint: Double,
                     balanced: WhiteBalanceEngine.Neutral = .reference,
                     space: RGBColorSpace = .rec2020) {
-            let t = Num.clamp(temp, -100, 100)
-            let g = Num.clamp(tint, -100, 100)
+            // ±200, not ±100: `temp`/`tint` arrive already scaled by Strength, which
+            // runs to 200. `resolve` clamps the SLIDER to ±100 before scaling, so a
+            // maxed slider at Strength 200 doubles like every other mask slider and like
+            // the Kelvin spelling; clamping the product here instead made Strength past
+            // 100 do nothing at the slider's end and the Shift/Kelvin switch jump there.
+            let t = Num.clamp(temp, -200, 200)
+            let g = Num.clamp(tint, -200, 200)
             guard t != 0 || g != 0 else {
                 self.matrix = .identity
                 self.isIdentity = true
@@ -553,7 +558,7 @@ public enum ReferenceRenderer {
         /// At `amount` 0 this is exactly the identity: the endpoint IS `balanced`, so
         /// the engine is asked to adapt a neutral to itself. Above 1 (mask Strength
         /// past 100) it extrapolates along the same mired line, as the relative spelling
-        /// and every other mask slider do. It used to stop at 1, so the panel's
+        /// (slider clamped to ±100, then scaled) and every other mask slider do. It used to stop at 1, so the panel's
         /// Shift → Kelvin switch moved the picture by ΔE 3.4 at Strength 200.
         public init(kelvin: Double, tint: Double?, amount: Double,
                     balanced: WhiteBalanceEngine.Neutral,
@@ -575,8 +580,10 @@ public enum ReferenceRenderer {
         }
 
         /// The absolute spelling of a relative shift: the Kelvin and Tint the Shift
-        /// sliders land the region at, given the balanced neutral. Exact — the matrices
-        /// are the same adaptation — so the panel's Shift → Kelvin switch moves no pixel.
+        /// sliders land the region at, given the balanced neutral. The matrices are the
+        /// same adaptation at every Strength, so the panel's Shift → Kelvin switch moves
+        /// no pixel — except where the Kelvin tint would pass the ±300 hard range, which
+        /// it is clamped to.
         public static func kelvinEquivalent(temp: Double, tint: Double,
                                             balanced: WhiteBalanceEngine.Neutral)
             -> (kelvin: Double, tint: Double) {
@@ -586,7 +593,7 @@ public enum ReferenceRenderer {
         }
 
         /// The inverse, for Kelvin → Shift. Exact while the Kelvin is within ±50 mired
-        /// and the Tint within ±150 of the balance (both after Strength); past that the
+        /// and the Tint within ±150 of the balance (as typed, before Strength); past that the
         /// slider's ±100 ends are the nearest a relative shift can reach, so the switch
         /// moves the picture there and only there.
         public static func shiftEquivalent(kelvin: Double, tint: Double?,
@@ -607,7 +614,8 @@ public enum ReferenceRenderer {
                 return LocalWhiteBalance(kelvin: kelvin, tint: a.kelvinTint,
                                          amount: amount, balanced: balanced, space: space)
             }
-            return LocalWhiteBalance(temp: a.temp * amount, tint: a.tint * amount,
+            return LocalWhiteBalance(temp: Num.clamp(a.temp, -100, 100) * amount,
+                                     tint: Num.clamp(a.tint, -100, 100) * amount,
                                      balanced: balanced, space: space)
         }
 
