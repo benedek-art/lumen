@@ -19,10 +19,9 @@
 // docs/06, implemented once rather than per tool.
 //
 // Two anti-halo commitments, both structural rather than tuned:
-//   · Texture and Clarity are difference-of-Gaussians bands gated by a scale-space
-//     structure tensor and range-compressed per coefficient (§ Presence), and positive
-//     Clarity's band-limited result is held to its local range — so a straight edge, a
-//     corner or a soft blob gets no rim (§ applyTexture, § applyClarity).
+//   · Texture and Clarity are difference-of-Gaussians bands of the detail ABOVE a
+//     morphological base (open/close), which keeps every edge, corner and junction —
+//     so none of them gets a rim, whatever its orientation (§ Presence).
 //   · Dehaze neutralizes the estimated airlight cast before inverting the haze model
 //     (§ applyDehaze), which is what stops LR's magenta skies at the algorithm level.
 
@@ -67,55 +66,60 @@ public struct DetailEngine: Sendable {
     // with the GPU twin (`RenderGraph.applyDetailBands`) rather than restated there.
     //
     //   v     = presence log luminance, EV around mid-grey (`presenceEV`, LumenLog's toe)
-    //   v'    = v (Texture); for Clarity v with features narrower than ~0.8·σ1 opened and
-    //           closed away (`clarityPrefilter`), so thin lines and specks are not
-    //           mistaken for mid-scale contrast
-    //   b     = G(σ1)·v' − G(σ2)·v'      the band; σ ∝ the long edge, never rounded
-    //   gate  = 1 − smoothstep(lo, hi, coherence)        scale-space structure tensor of
-    //           (· 1 − smoothstep(0.2, 0.6, strength))   G(σ1)·v': a straight edge closes
-    //                                                    it, isotropic texture does not;
-    //                                                    Clarity also closes on very strong
-    //                                                    structure (junctions of big edges)
-    //   w     = gate / (1 + (b/τ)²)  (· tone weight, Clarity)
-    //   Δ     = k·a·b·w             (Texture both signs; Clarity a > 0)
-    //         = −min(1, |a|·k·w)·b   (Clarity a < 0, k = 0.95: removes up to the whole
-    //                                 band, never past it — no sign flip)
-    //   Clarity a > 0: `G(σ1)·v' + Δ` keeps 12 % of any excursion outside its local
-    //                  range (the overshoot limit — no ring round a soft blob)
+    //   v'    = v (Texture); for Clarity v with features narrower than ~0.8·σ1 removed by
+    //           an alternating open/close (`clarityPrefilter`): thin lines and specks
+    //           are Texture's, not mid-scale contrast
+    //   base  = (open(v') + close(v')) / 2 over a square of radius round(4·σ1)
+    //           (`morphologicalBase`). Opening and closing leave every MONOTONE profile
+    //           where it is — a step, a soft edge, a ramp, a corner of a square — and
+    //           take away what is narrower than the square: texture, strands, pores,
+    //           the mid-scale mottling Clarity is for
+    //   d     = v' − base                    the detail; an isolated edge has none
+    //   b     = G(σ1)·d − G(σ2)·d            the band; σ ∝ the long edge, never rounded
+    //   B     = max(|b|, 2·G(σ2)·|b|)         the local peak of the band
+    //   w     = 1 / (1 + (B/τ)^p)            range compression (· tone weight, Clarity)
+    //   Δ     = k·a·b·w                      (Texture both signs; Clarity a > 0)
+    //         = −min(1, |a|·k·w)·b            (Clarity a < 0: removes up to the whole
+    //                                         band, never past it — no sign flip)
     //   Δ    −= log2(G(2^(γ(v+Δ))) / G(2^(γv))) / γ,  γ = 0.4   local brightness held
     //   out   = RGB · 2^clamp(Δ, ±4)          luma ratio: hue and chroma ratios fixed
     //
-    // There is no image-global statistic anywhere, and every scale is a continuous
-    // fraction of the long edge, so a 1600 px preview applies the same cycles-per-image
-    // band as the 24 MP export (the part above the preview's Nyquist is simply absent).
+    // Why a morphological base and not an edge gate. A halo is the band's response on
+    // the flat side of an ISOLATED step, where the picture has nothing at the band's
+    // scale. The band of `d` has no such response, because the step is all in `base`;
+    // the strokes of hair, a fine grating, weave and pores are narrower than the square
+    // and all in `d`, whatever their orientation or contrast. Round 1 gated on the
+    // orientation of a structure tensor instead, which also shut on a regular grating
+    // and on dense parallel strands at normal contrast (spec S9).
+    //
+    // There is no image-global statistic anywhere. Every Gaussian is a continuous
+    // fraction of the long edge; the morphology squares are whole pixels and so are
+    // rounded (`presenceRadius`), the only rounded quantity, and a one-pixel step of a
+    // square moves neither band: it only decides whether a feature exactly as wide as
+    // the square counts as detail or as base.
 
     /// A presence band: a difference of Gaussians whose response peaks at `centreCPI`
-    /// cycles per image long edge, plus the integration scale of the structure tensor
-    /// that gates it.
+    /// cycles per image long edge, applied to the detail above a morphological base, with
+    /// a range compression on the band's local peak.
     public struct PresenceBand: Sendable, Equatable {
         /// Peak of the band's response, in cycles per image long edge.
         public let centreCPI: Double
         /// σ2 / σ1 of the difference of Gaussians.
         public let ratio: Double
-        /// Structure-tensor integration σ as a multiple of σ2.
-        public let integrationRatio: Double
-        /// The tensor's strength floor η, in EV² (gradients in EV per derivative σ):
-        /// coherence is `(λ1 − λ2) / (λ1 + λ2 + η)`, so a region with no real structure
-        /// reads isotropic. A half-stop step measures λ ≈ 3.5–4.3e-3 at its edge, a
-        /// 0.05 EV grating 3–4e-4.
-        public let coherenceFloor: Double
-        /// Coherence at which the edge gate starts and finishes closing.
-        public let gateLow: Double
-        public let gateHigh: Double
+        /// Radius of the morphological base's square, as a multiple of σ1.
+        public let baseRatio: Double
+        /// τ of the range compression, in EV of the band's local peak.
+        public let rangeEV: Double
+        /// Exponent p of the range compression `1 / (1 + (B/τ)^p)`.
+        public let rangePower: Double
 
-        public init(centreCPI: Double, ratio: Double, integrationRatio: Double,
-                    coherenceFloor: Double, gateLow: Double, gateHigh: Double) {
+        public init(centreCPI: Double, ratio: Double, baseRatio: Double,
+                    rangeEV: Double, rangePower: Double) {
             self.centreCPI = centreCPI
             self.ratio = ratio
-            self.integrationRatio = integrationRatio
-            self.coherenceFloor = coherenceFloor
-            self.gateLow = gateLow
-            self.gateHigh = gateHigh
+            self.baseRatio = baseRatio
+            self.rangeEV = rangeEV
+            self.rangePower = rangePower
         }
 
         /// σ1 · f0 for a DoG with this ratio: the peak of
@@ -128,14 +132,17 @@ public struct DetailEngine: Sendable {
         /// σ1 as a fraction of the long edge.
         public var innerFraction: Double { innerSigmaTimesPeak / centreCPI }
 
-        /// The three blur scales, in pixels of a render whose long edge is `longEdge`.
+        /// The two blur scales, in pixels of a render whose long edge is `longEdge`.
         /// Continuous in the long edge: nothing here is rounded.
-        public func sigmas(longEdge: Int) -> (inner: Double, outer: Double,
-                                              integration: Double) {
+        public func sigmas(longEdge: Int) -> (inner: Double, outer: Double) {
             let l = Double(Swift.max(longEdge, 1))
             let inner = innerFraction * l
-            let outer = inner * ratio
-            return (inner, outer, outer * integrationRatio)
+            return (inner, inner * ratio)
+        }
+
+        /// The morphological base's square radius at this long edge (whole pixels).
+        public func baseRadius(longEdge: Int) -> Int {
+            DetailEngine.presenceRadius(baseRatio * sigmas(longEdge: longEdge).inner)
         }
 
         /// The DoG's analytic response at `cpi` (0 at DC and at infinity), for tests.
@@ -145,69 +152,58 @@ public struct DetailEngine: Sendable {
             return exp(-a) - exp(-a * ratio * ratio)
         }
 
-        /// The edge gate: open on isotropic texture, closed on a coherent edge.
-        public func gate(coherence c: Double) -> Double {
-            1 - Num.smoothstep(gateLow, gateHigh, c)
+        /// The range compression's weight at a band peak `peak` (EV).
+        public func compression(peak: Double) -> Double {
+            1 / (1 + pow(Swift.max(peak, 0) / rangeEV, rangePower))
         }
     }
 
     /// Texture: centred on 750 cycles per image long edge — an 8 px period at 6000 px,
     /// i.e. 2–8 px features on a 24 MP file — one octave between σ1 and σ2, so the
     /// half-power band runs about 375–1500 cpi and leaves both the pixel level (noise)
-    /// and the Clarity band alone. σ1 = 1.22 px at 6000, 0.33 px at 1600.
-    /// η = 1.2e-3 sits between a faint oriented texture (a 0.05 EV grating at the band
-    /// centre, λ ≈ 3.7e-4: coherence 0.24, gate open) and a half-stop step (λ ≈ 4.3e-3
-    /// at its edge: coherence 0.78, gate shut).
-    public static let textureBand = PresenceBand(centreCPI: 750, ratio: 2,
-                                                 integrationRatio: 3,
-                                                 coherenceFloor: 0.0012,
-                                                 gateLow: 0.35, gateHigh: 0.75)
+    /// and the Clarity band alone. σ1 = 1.22 px at 6000, 0.33 px at 1600. The base's
+    /// square is 4·σ1 in radius (5 px at 6000: features up to ~10 px wide are detail).
+    /// τ = 0.25 EV with p = 4: a 0.3 EV strand or grating (band peak ≤ 0.13 EV) keeps
+    /// ≥ 93 % of the gain, a −1.5 EV lash or a 4-stop line next to nothing.
+    public static let textureBand = PresenceBand(centreCPI: 750, ratio: 2, baseRatio: 4,
+                                                 rangeEV: 0.25, rangePower: 4)
     /// Clarity: centred on 60 cpi — a 100 px period at 6000 px, Lightroom's "radius of
     /// tens to about 150 px" — with σ2 = 4·σ1 (9.7 / 38.7 px at 6000), two octaves below
-    /// Texture. η = 8e-4 between a 0.05 EV grating (λ ≈ 3.2e-4) and a half-stop step
-    /// (λ ≈ 3.5e-3).
-    public static let clarityBand = PresenceBand(centreCPI: 60, ratio: 4,
-                                                 integrationRatio: 2,
-                                                 coherenceFloor: 0.0008,
-                                                 gateLow: 0.35, gateHigh: 0.75)
+    /// Texture. The base's square is 4·σ1 (39 px at 6000, 10 px at 1600), so features up
+    /// to about one band period wide are detail. τ = 0.2 EV, p = 2: mottling, clouds and
+    /// foliage masses (band peaks 0.02–0.15 EV) take the slider; a one- or two-stop
+    /// bar of a sign or a glyph, whose band peak is 0.3–1 EV, is held to a rim of a few
+    /// codes (spec H8).
+    public static let clarityBand = PresenceBand(centreCPI: 60, ratio: 4, baseRatio: 4,
+                                                 rangeEV: 0.2, rangePower: 2)
 
-    /// Texture's band gain per unit slider at the two signs. +100 multiplies the band by
-    /// up to 1 + 2.0·0.47 at its centre; −100 removes up to 1.7·0.47 ≈ 80 % of it, below
-    /// 1/peak(band) = 2.12, so no frequency changes sign at any render size.
-    public static let textureGainPositive: Double = 2.0
-    public static let textureGainNegative: Double = 1.7
+    /// Texture's band gain per unit slider at the two signs. −100 removes up to
+    /// 1.9·0.47 ≈ 89 % of the band at its centre, below 1/peak(band) = 2.12, so no
+    /// frequency changes sign at any render size.
+    public static let textureGainPositive: Double = 2.5
+    public static let textureGainNegative: Double = 1.9
     /// Clarity's band gain per unit slider (positive), and the negative side's
-    /// gain: −100 removes `0.95·w` of the band (w ≤ 1), and a mask at Strength 200 up to
-    /// `min(1, 1.9·w)` — never more than the whole band, so nothing can change sign, and
-    /// −100 stays below saturation so a mask's Strength above 100 still responds.
+    /// gain: −100 removes `1.3·w` of the band (capped at all of it), and a mask at
+    /// Strength 200 up to `min(1, 2.6·w)` — never more than the whole band, so nothing
+    /// can change sign, and where w < 0.77 a Strength above 100 still responds.
     public static let clarityGainPositive: Double = 1.95
-    public static let clarityGainNegative: Double = 0.95
-    /// Range compression of each band, in EV: the gain on a coefficient `b` is weighted
-    /// by `1 / (1 + (b/τ)²)`, so `b + k·b/(1+(b/τ)²)` stays monotone in `b` for k < 8 —
-    /// detail can be expanded or compressed, never inverted — and a coefficient several
-    /// stops tall gets almost none of the slider.
-    public static let textureDetailRangeEV: Double = 0.35
-    public static let clarityDetailRangeEV: Double = 0.5
-    /// Clarity's strength gate on √(Jxx + Jyy), in EV per σ1: closes on structure
-    /// stronger than any texture — the corners and junctions of multi-stop edges, where
-    /// two orientations meet and coherence alone reads "isotropic". Real photographs'
-    /// mid-scale structure sits mostly below 0.5.
-    public static let clarityStrengthLowEV: Double = 0.2
-    public static let clarityStrengthHighEV: Double = 0.6
+    public static let clarityGainNegative: Double = 1.3
+    /// Spread of the band's local peak: `B = max(|b|, presencePeakSpread·G(σ2)·|b|)`, so
+    /// the flanks of a strong feature are compressed like the feature itself rather than
+    /// like the weak band values they carry.
+    public static let presencePeakSpread: Double = 2.0
     /// Clarity's prefilter radius as a multiple of σ1: lines and specks narrower than
-    /// about 0.8·σ1 are removed (an opening and a closing, averaged both ways round)
+    /// about 1.6·σ1 are removed (an opening and a closing, averaged both ways round)
     /// before Clarity measures local contrast, so a thin dark line does not read as a
     /// mid-scale dip that darkens its neighbours.
-    public static let clarityPrefilterRatio: Double = 0.4
-    /// Width in EV of Clarity's tone weight, a Gaussian on G(σ2)·v' around mid-grey, so
-    /// the effect fades smoothly toward deep shadows and specular highlights and is
-    /// continuous over tone (no reference levels, no image range).
+    public static let clarityPrefilterRatio: Double = 0.8
+    /// Width in EV of Clarity's tone weight, a Gaussian on the morphological base around
+    /// mid-grey, so the effect fades smoothly toward deep shadows and specular
+    /// highlights and is continuous over tone (no reference levels, no image range).
     public static let clarityMidtoneEV: Double = 8.0
-    /// Positive Clarity's slider shape: the amount `a` enters as `a·(1 + 0.4·a)`. The
-    /// overshoot limit and the brightness hold both bite harder the stronger the boost,
-    /// so a linear law delivered +50 at 0.69 of +100's effect (measured on the 1/f
-    /// probe, spec M3 wants 0.35–0.65); this curve brings it to ≈0.63 and keeps +25 at
-    /// ≈0.36. Negative Clarity is linear in `a` and needs no shaping.
+    /// Positive Clarity's slider shape: the amount `a` enters as `a·(1 + 0.4·a)`, so
+    /// +50 lands near 0.43 and +25 near 0.2 of +100's effect (spec M3: 0.35–0.65 and
+    /// 0.15–0.40). Negative Clarity is linear in `a`.
     public static let clarityPositiveCurvature: Double = 0.4
 
     /// The shaped positive amount (see `clarityPositiveCurvature`); `a` for a ≤ 0.
@@ -215,10 +211,6 @@ public struct DetailEngine: Sendable {
         a > 0 ? a * (1 + clarityPositiveCurvature * a) : a
     }
 
-    /// Positive Clarity's overshoot limit: where `G(σ1)·v' + Δ` leaves the local range
-    /// of `G(σ1)·v'` (a square window of radius round(σ2)) only this fraction of the
-    /// excess survives.
-    public static let clarityOvershootSlope: Double = 0.12
     /// Local brightness: the exponent of the power mean the stage holds, and the
     /// window, as a multiple of σ2. A gain on log detail raises the linear mean
     /// (Jensen) and the display's tone curve turns that into a brighter picture;
@@ -227,8 +219,6 @@ public struct DetailEngine: Sendable {
     /// moved them +0.6 / −0.4 and holding the LINEAR mean overshot to −1.0 / +0.6.
     public static let presenceMeanExponent: Double = 0.4
     public static let presenceMeanWindow: Double = 4.0
-    /// Derivative scale floor for the structure tensor's normalization (px).
-    public static let presenceDerivativeFloor: Double = 0.5
     /// The largest σ the 9-tap discrete Gaussian carries on its own (see `presenceBlur`).
     public static let presenceSmallSigma: Double = 2.0.squareRoot()
 
@@ -268,9 +258,9 @@ public struct DetailEngine: Sendable {
         /// 0 = isotropic mid-frequency texture (pores, noise-adjacent detail);
         /// 1 = a coherent high-contrast edge (eyelashes, jawline, horizon), at the
         /// working-radius scale and with the EV/px strength gate. Texture and Clarity do
-        /// NOT read this one: they build their own scale-space tensor at their own band
-        /// (`presenceStructure`), because a per-pixel strength gate means a different
-        /// contrast at every render size.
+        /// NOT read this one: they separate edges from detail with a morphological base
+        /// at their own band (`presenceBand`), because a per-pixel strength gate means a
+        /// different contrast at every render size.
         public let coherence: Plane
 
         /// The stage input, kept for the lazily-built dehaze primitives.
@@ -400,23 +390,21 @@ public struct DetailEngine: Sendable {
     }
 
     /// Texture: a gain on the 2–8 px@24 MP band (`textureBand`, 375–1500 cycles per
-    /// image long edge), gated by a scale-space structure tensor.
+    /// image long edge) of the detail above a morphological base.
     ///
-    ///   b = G(σ1)·v − G(σ2)·v,   σ1 = 0.153·L/750, σ2 = 2·σ1   (1.22 / 2.45 px at 6000)
-    ///   Δ = k·a · b/(1 + (b/0.35)²) · (1 − smoothstep(0.35, 0.75, coherence))
+    ///   d = v − (open(v) + close(v))/2,   square radius round(4·σ1)
+    ///   b = G(σ1)·d − G(σ2)·d,   σ1 = 0.153·L/750, σ2 = 2·σ1   (1.22 / 2.45 px at 6000)
+    ///   Δ = k·a·b / (1 + (B/0.25)⁴),   B = max(|b|, 2·G(σ2)·|b|)
     ///
-    /// with k = 2.0 for a > 0 and 1.7 for a < 0, then the local-brightness hold.
+    /// with k = 2.5 for a > 0 and 1.9 for a < 0, then the local-brightness hold.
     ///
-    /// The SAME gate serves both signs, for opposite reasons: positive Texture must not
-    /// rim an edge, negative Texture must not soften one. Coherence is measured on
-    /// G(σ1)·v with gradients in EV per σ1 and an integration σ of 3·σ2, so a half-stop
-    /// step is "an edge" at 1600 px and at 6000 px alike — the old gate measured strength
-    /// in EV per PIXEL, which closed on a 2 EV step at a preview size and rimmed it at
-    /// full size. Isotropic texture — pores, weave, foliage — keeps the whole slider.
-    ///
+    /// The base keeps every monotone profile — a step of any height, a soft edge, the
+    /// corner of a square — so positive Texture cannot rim an isolated edge and
+    /// negative Texture cannot soften one; strands, gratings, weave and pores are
+    /// narrower than the square and take the whole slider, whatever their orientation.
     /// Above the render's Nyquist the band simply does not exist, so at a small preview
     /// the visible part of the export's effect is what the preview shows, and −100 can
-    /// never reverse a frequency: k·max(b) = 1.7·0.47 < 1 at every size.
+    /// never reverse a frequency: k·max(b) = 1.9·0.47 < 1 at every size.
     public static func applyTexture(_ image: ImageBuffer, amount: Double,
                                     strength: Double = 1,
                                     decomposition d: Decomposition) -> ImageBuffer {
@@ -424,62 +412,52 @@ public struct DetailEngine: Sendable {
         guard a != 0 else { return image }
         let v = d.presenceLogLuminance()
         let longEdge = Swift.max(d.width, d.height)
-        let s = textureBand.sigmas(longEdge: longEdge)
-        let fine = presenceBlur(v, sigma: s.inner)
-        let coarse = presenceBlur(v, sigma: s.outer)
-        let structure = presenceStructure(fine, derivativeSigma: s.inner,
-                                          integrationSigma: s.integration,
-                                          floor: textureBand.coherenceFloor)
+        let planes = presenceBand(v, band: textureBand, longEdge: longEdge)
         var delta = Plane(width: v.width, height: v.height)
         for i in 0..<delta.values.count {
-            let b = Double(fine.values[i]) - Double(coarse.values[i])
-            delta.values[i] = Float(textureDelta(
-                band: b, coherence: Double(structure.coherence.values[i]), amount: a))
+            delta.values[i] = Float(textureDelta(band: Double(planes.band.values[i]),
+                                                 peak: Double(planes.peak.values[i]),
+                                                 amount: a))
         }
+        let s = textureBand.sigmas(longEdge: longEdge)
         holdLocalBrightness(&delta, v: v, window: presenceMeanWindow * s.outer)
         return applyLumaRatio(image, deltaEV: delta, limit: 4)
     }
 
     /// Texture's per-pixel law, shared by the reference and (spelt out in the kernel
-    /// source) by the GPU: `k·a·b/(1 + (b/τ)²)·gate`.
-    public static func textureDelta(band b: Double, coherence: Double,
-                                    amount a: Double) -> Double {
+    /// source) by the GPU: `k·a·b·w(B)`.
+    public static func textureDelta(band b: Double, peak: Double, amount a: Double) -> Double {
         let k = a > 0 ? textureGainPositive : textureGainNegative
-        let r = b / textureDetailRangeEV
-        return k * a * b / (1 + r * r) * textureBand.gate(coherence: coherence)
+        return k * a * b * textureBand.compression(peak: peak)
     }
 
     // MARK: - Clarity
 
     /// Clarity: local contrast in the 20–160 cpi band (`clarityBand`, a 100 px period
-    /// at 6000 px), edge-aware, continuous over tone.
+    /// at 6000 px) of the mid-scale detail, continuous over tone.
     ///
-    ///   v'   = (close(open(v)) + open(close(v))) / 2, square radius round(0.4·σ1)
-    ///   fine = G(σ1)·v',  base = G(σ2)·v',  σ1 = 0.0968·L/60, σ2 = 4·σ1  (9.7 / 38.7 px)
-    ///   b    = fine − base
-    ///   w    = (1 − smoothstep(0.35, 0.75, coherence)) · (1 − smoothstep(0.2, 0.6, strength))
-    ///          / (1 + (b/0.5)²) · exp(−base² / (2·8²))
-    ///   Δ    = 1.95·a'·b·w,  a' = a(1 + 0.4a)  a > 0, then the overshoot limit (window
-    ///                                        radius round(σ2), 12 % of any excess kept)
-    ///        = −min(1, |a|·0.95·w)·b         a < 0
+    ///   v'   = (close(open(v)) + open(close(v))) / 2, square radius round(0.8·σ1)
+    ///   base = (open(v') + close(v')) / 2,            square radius round(4·σ1)
+    ///   b    = G(σ1)·(v' − base) − G(σ2)·(v' − base),  σ1 = 0.0968·L/60, σ2 = 4·σ1
+    ///                                                  (9.7 / 38.7 px at 6000)
+    ///   w    = exp(−base² / (2·8²)) / (1 + (B/0.2)²),  B = max(|b|, 2·G(σ2)·|b|)
+    ///   Δ    = 1.95·a'·b·w,  a' = a(1 + 0.4a)      a > 0
+    ///        = −min(1, |a|·1.3·w)·b                 a < 0
     ///   then the local-brightness hold.
     ///
-    /// The pixel-level detail `v − fine` is never touched, which is why Clarity leaves
-    /// pores, noise and the Texture band alone; the prefilter keeps thin lines and
-    /// specks out of what Clarity measures; the coherence gate keeps a straight edge of
-    /// any contrast out of the gain and the strength gate the junctions of big ones;
-    /// and the overshoot limit catches a soft blob's ring.
+    /// The pixel-level and Texture-scale detail is never touched — the prefilter takes
+    /// thin lines and specks out of what Clarity measures, and the band starts at σ1 —
+    /// which is why Clarity leaves pores and noise alone. Edges, corners and junctions
+    /// of any contrast stay in the base, so neither sign rims, blurs or marks them; a
+    /// soft blob narrower than the square is detail and gets local contrast, with no
+    /// ring because the band of a smooth bump has none to speak of after compression.
     ///
     /// What this replaced, and why: a local Laplacian sampled at SIX reference levels
-    /// spread over the image's global min..max. On a real photograph those levels were
-    /// 1.3–4.9 EV apart against a 0.7 EV remap, so tones between two levels got no
-    /// effect or the opposite one (a 1.8×/0.6× comb over tone), a single black pixel
-    /// moved every level, the α = 0.3 power remap posterised soft gradients, every level
-    /// down to 2 px was remapped (a high-pass shelf that amplified noise), and the
-    /// pyramid depth was rounded.
-    ///
-    /// Negative values compress the band toward the base: a soft, low-contrast glow
-    /// that leaves edges (gate closed) and fine detail where they were.
+    /// spread over the image's global min..max (a 1.8×/0.6× comb over tone, a single
+    /// black pixel moving every level, posterised soft gradients, a high-pass shelf
+    /// that amplified noise, a rounded pyramid depth); then in round 1 a DoG gated by
+    /// the orientation of a structure tensor, which marked corners and junctions where
+    /// two orientations meet.
     public static func applyClarity(_ image: ImageBuffer, amount: Double,
                                     strength: Double = 1,
                                     decomposition d: Decomposition) -> ImageBuffer {
@@ -489,67 +467,33 @@ public struct DetailEngine: Sendable {
         let longEdge = Swift.max(d.width, d.height)
         let s = clarityBand.sigmas(longEdge: longEdge)
         let prefiltered = clarityPrefilter(v, sigma: s.inner)
-        let fine = presenceBlur(prefiltered, sigma: s.inner)
-        let base = presenceBlur(prefiltered, sigma: s.outer)
-        let structure = presenceStructure(fine, derivativeSigma: s.inner,
-                                          integrationSigma: s.integration,
-                                          floor: clarityBand.coherenceFloor)
-        var low: Plane?
-        var high: Plane?
-        if a > 0 {
-            let r = overshootRadius(s.outer)
-            low = localExtremum(fine, radius: r, maximum: false)
-            high = localExtremum(fine, radius: r, maximum: true)
-        }
+        let planes = presenceBand(prefiltered, band: clarityBand, longEdge: longEdge)
         var delta = Plane(width: v.width, height: v.height)
         for i in 0..<delta.values.count {
-            let f = Double(fine.values[i])
-            let c = Double(base.values[i])
-            var dv = clarityDelta(band: f - c, base: c,
-                                  coherence: Double(structure.coherence.values[i]),
-                                  strength: Double(structure.strength.values[i]),
-                                  amount: a)
-            if let low, let high {
-                dv = overshootLimited(fine: f, delta: dv, low: Double(low.values[i]),
-                                      high: Double(high.values[i]),
-                                      slope: clarityOvershootSlope)
-            }
-            delta.values[i] = Float(dv)
+            delta.values[i] = Float(clarityDelta(band: Double(planes.band.values[i]),
+                                                 peak: Double(planes.peak.values[i]),
+                                                 base: Double(planes.base.values[i]),
+                                                 amount: a))
         }
         holdLocalBrightness(&delta, v: v, window: presenceMeanWindow * s.outer)
         return applyLumaRatio(image, deltaEV: delta, limit: 4)
     }
 
-    /// Clarity's per-pixel law before the overshoot limit.
-    public static func clarityDelta(band b: Double, base: Double, coherence: Double,
-                                    strength: Double, amount a: Double) -> Double {
-        let r = b / clarityDetailRangeEV
+    /// Clarity's per-pixel law.
+    public static func clarityDelta(band b: Double, peak: Double, base: Double,
+                                    amount a: Double) -> Double {
         let tone = exp(-(base * base) / (2 * clarityMidtoneEV * clarityMidtoneEV))
-        let w = clarityBand.gate(coherence: coherence)
-            * (1 - Num.smoothstep(clarityStrengthLowEV, clarityStrengthHighEV, strength))
-            / (1 + r * r) * tone
+        let w = tone * clarityBand.compression(peak: peak)
         if a > 0 { return clarityGainPositive * clarityShapedAmount(a) * b * w }
         let s = Swift.min(1, -a * clarityGainNegative * w)
         return -s * b
     }
 
-    /// The overshoot limit on the band-limited picture: inside [low, high] the delta
-    /// passes, outside it only `slope` of the excess survives. Continuous and monotone
-    /// in `fine + delta`.
-    public static func overshootLimited(fine f: Double, delta: Double, low: Double,
-                                        high: Double, slope: Double) -> Double {
-        var o = f + delta
-        if o > high { o = high + slope * (o - high) }
-        if o < low { o = low + slope * (o - low) }
-        return o - f
-    }
-
-    /// A square window radius from a σ in pixels: rounded, at least 1. The one rounded
-    /// quantity in either control — a min/max window has to be a whole number of
-    /// pixels — and `CIMorphologyRectangle*` gets the same `2r + 1`. It sizes Clarity's
-    /// prefilter and overshoot window; a jump of one pixel there moves neither band.
-    public static func overshootRadius(_ sigma: Double) -> Int {
-        Swift.max(Int(sigma.rounded()), 1)
+    /// A square window radius from a length in pixels: rounded, at least 1. The one
+    /// rounded quantity in either control — a min/max window has to be a whole number
+    /// of pixels — and `CIMorphologyRectangle*` gets the same `2r + 1`.
+    public static func presenceRadius(_ length: Double) -> Int {
+        Swift.max(Int(length.rounded()), 1)
     }
 
     /// Local brightness hold: `Δ −= log2(G(2^(γ(v+Δ))) / G(2^(γv))) / γ`, γ =
@@ -574,9 +518,10 @@ public struct DetailEngine: Sendable {
     }
 
     /// Clarity's prefilter: an opening and a closing over a square of radius
-    /// round(`clarityPrefilterRatio`·σ1), each followed by the other, averaged.
-    static func clarityPrefilter(_ v: Plane, sigma: Double) -> Plane {
-        let r = overshootRadius(clarityPrefilterRatio * sigma)
+    /// round(`clarityPrefilterRatio`·σ1), each followed by the other, averaged. Unlike
+    /// the base's plain average, this removes a thin line or speck completely.
+    public static func clarityPrefilter(_ v: Plane, sigma: Double) -> Plane {
+        let r = presenceRadius(clarityPrefilterRatio * sigma)
         func erode(_ p: Plane) -> Plane { localExtremum(p, radius: r, maximum: false) }
         func dilate(_ p: Plane) -> Plane { localExtremum(p, radius: r, maximum: true) }
         let opened = dilate(erode(v))
@@ -584,6 +529,32 @@ public struct DetailEngine: Sendable {
         let a = erode(dilate(opened))
         let b = dilate(erode(closed))
         return a.zip(b) { 0.5 * ($0 + $1) }
+    }
+
+    /// The morphological base: `(open(v) + close(v)) / 2` over a (2r+1)² square.
+    /// Both leave a monotone profile exactly where it is (a step, a soft edge, a ramp, a
+    /// convex corner), and between them take away anything narrower than the square.
+    public static func morphologicalBase(_ v: Plane, radius r: Int) -> Plane {
+        let eroded = localExtremum(v, radius: r, maximum: false)
+        let dilated = localExtremum(v, radius: r, maximum: true)
+        let opened = localExtremum(eroded, radius: r, maximum: true)
+        let closed = localExtremum(dilated, radius: r, maximum: false)
+        return opened.zip(closed) { 0.5 * ($0 + $1) }
+    }
+
+    /// The planes both controls read: the morphological base of `v`, the band `b` of
+    /// the detail above it, and the band's local peak `B`.
+    public static func presenceBand(_ v: Plane, band: PresenceBand, longEdge: Int)
+        -> (base: Plane, band: Plane, peak: Plane) {
+        let s = band.sigmas(longEdge: longEdge)
+        let base = morphologicalBase(v, radius: band.baseRadius(longEdge: longEdge))
+        let detail = v.zip(base) { $0 - $1 }
+        let fine = presenceBlur(detail, sigma: s.inner)
+        let coarse = presenceBlur(detail, sigma: s.outer)
+        let b = fine.zip(coarse) { $0 - $1 }
+        let spread = presenceBlur(b.map { abs($0) }, sigma: s.outer)
+        let peak = b.zip(spread) { Swift.max(abs($0), presencePeakSpread * $1) }
+        return (base, b, peak)
     }
 
     // MARK: - Presence primitives
@@ -667,50 +638,6 @@ public struct DetailEngine: Sendable {
             }
         }
         return out
-    }
-
-    /// Scale-space structure tensor of an already-smoothed plane (`G(σd)·v`).
-    ///
-    /// Central-difference gradients, scaled by `max(σd, 0.5)` so they read in EV per
-    /// derivative scale rather than per pixel; the products are integrated with
-    /// `presenceBlur(σi)`. `coherence = √((Jxx−Jyy)² + 4Jxy²) / (Jxx + Jyy + floor)` and
-    /// `strength = √(Jxx + Jyy)` in EV.
-    public static func presenceStructure(_ smooth: Plane, derivativeSigma: Double,
-                                         integrationSigma: Double, floor: Double)
-        -> (coherence: Plane, strength: Plane) {
-        let w = smooth.width
-        let h = smooth.height
-        let n = Swift.max(derivativeSigma, presenceDerivativeFloor)
-        var jxx = Plane(width: w, height: h)
-        var jyy = Plane(width: w, height: h)
-        var jxy = Plane(width: w, height: h)
-        for y in 0..<h {
-            for x in 0..<w {
-                let gx = 0.5 * (smooth.clampedSample(x + 1, y)
-                                - smooth.clampedSample(x - 1, y)) * n
-                let gy = 0.5 * (smooth.clampedSample(x, y + 1)
-                                - smooth.clampedSample(x, y - 1)) * n
-                jxx[x, y] = gx * gx
-                jyy[x, y] = gy * gy
-                jxy[x, y] = gx * gy
-            }
-        }
-        let bxx = presenceBlur(jxx, sigma: integrationSigma)
-        let byy = presenceBlur(jyy, sigma: integrationSigma)
-        let bxy = presenceBlur(jxy, sigma: integrationSigma)
-        var coherence = Plane(width: w, height: h)
-        var strength = Plane(width: w, height: h)
-        for i in 0..<coherence.values.count {
-            let a = Double(bxx.values[i])
-            let c = Double(byy.values[i])
-            let b = Double(bxy.values[i])
-            let trace = Swift.max(a + c, 0)
-            let d = a - c
-            let spread = (d * d + 4 * b * b).squareRoot()
-            coherence.values[i] = Float(spread / (trace + floor))
-            strength.values[i] = Float(trace.squareRoot())
-        }
-        return (coherence, strength)
     }
 
     /// Running minimum or maximum over a (2r+1)² square, clamp-to-edge, separable —

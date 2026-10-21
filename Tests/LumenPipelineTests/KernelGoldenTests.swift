@@ -1644,7 +1644,8 @@ final class KernelGoldenTests: XCTestCase {
     /// Negative Texture must smooth isotropic texture harder than it smooths an edge.
     ///
     /// That asymmetry is the entire difference between a skin smoother and a negative
-    /// Clarity, and the coherence gate is what produces it. The shipping kernel had it
+    /// Clarity; since WS-14 the morphological base (`DetailEngine.presenceBand`) is what
+    /// produces it, where a coherence gate did before. The shipping kernel had it
     /// close to backwards: it squared the eigenvalue ratio, which the reference does
     /// not, and it omitted the reference's strength gate, so a smooth low-contrast ramp
     /// — a cheek, a sky — has a tiny gradient pointing consistently one way and read as
@@ -1678,13 +1679,32 @@ final class KernelGoldenTests: XCTestCase {
         }
 
         let texture = meanChange(xs: 4..<20, ys: 4..<28)   // isotropic fine detail
-        let edge = meanChange(xs: 30..<34, ys: 4..<28)     // the coherent edge
+        // The edge itself: the change of the row-averaged profile across it. WS-14:
+        // this was the per-pixel mean over x 30..<34, which on this frame is mostly the
+        // fine texture laid OVER the edge (see `structureTestFrame`). The round-1 gate
+        // shut on the whole 4 px band, texture included; the morphological base keeps
+        // the step and lets the texture riding on it be smoothed like texture anywhere
+        // else, so a per-pixel mean there measured the texture twice (0.0097 against
+        // 0.0096 in the design run) and not the edge. The profile is the edge.
+        func profileChange(xs: Range<Int>, ys: Range<Int>) -> Double {
+            var total = 0.0
+            for x in xs {
+                var a = 0.0, b = 0.0
+                for y in ys {
+                    a += Double(before[x, y].g)
+                    b += Double(after[x, y].g)
+                }
+                total += abs(b - a) / Swift.max(a, 1e-6)
+            }
+            return total / Double(xs.count)
+        }
+        let edge = profileChange(xs: 30..<34, ys: 4..<28)  // the coherent edge
 
         XCTAssertGreaterThan(texture, 1e-5,
                              "negative Texture smoothed nothing, so this proves nothing")
         XCTAssertGreaterThan(texture, edge,
                              "negative Texture moved the edge by \(edge) and the texture "
-                                 + "by \(texture) — the coherence gate is not "
+                                 + "by \(texture) — the base is not "
                                  + "distinguishing them, which is what makes it a skin "
                                  + "smoother rather than a glow")
     }

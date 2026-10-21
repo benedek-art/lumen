@@ -949,22 +949,20 @@ public struct RenderGraph {
     ///
     ///   reference (DetailEngine)               here
     ///   presenceLogLuminance (presenceEV)      `lumenPresenceEV` of `lum`
-    ///   presenceBlur                           `presenceBlur` (same 9 taps, then a Gaussian)
-    ///   clarityPrefilter                       `clarityPrefilter` (CIMorphologyRectangle*)
-    ///   presenceStructure                      `presenceStructure` (tensor products, blur
-    ///                                          σi) + the coherence / strength lines of
-    ///                                          the delta kernels
-    ///   localExtremum                          CIMorphologyRectangleMinimum/Maximum
-    ///   textureDelta / clarityDelta +
-    ///   overshootLimited                       `lumenTextureDelta` / `lumenClarityDelta`
+    ///   clarityPrefilter (Clarity)             `clarityPrefilter` (CIMorphologyRectangle*)
+    ///   morphologicalBase                      `morphology` ×4 (open, close)
+    ///   v' − base                              `lumenPresenceDetail`
+    ///   presenceBlur (σ1, σ2)                  `presenceBlur` (same 9 taps, then a Gaussian)
+    ///   |b|, presenceBlur(σ2)                  `lumenPresenceBandMagnitude` → `presenceBlur`
+    ///   textureDelta / clarityDelta            `lumenTextureDelta` / `lumenClarityDelta`
     ///   holdLocalBrightness + applyLumaRatio   `lumenPresenceMeanWeights` → blur 4σ2 →
     ///                                          `lumenPresenceGain`, then multiply
     ///
-    /// with σ1, σ2, σi from `DetailEngine.textureBand` / `clarityBand` at this render's
-    /// long edge, unrounded (the min/max windows are `2·overshootRadius + 1` on both).
+    /// with σ1, σ2 from `DetailEngine.textureBand` / `clarityBand` at this render's
+    /// long edge, unrounded, and the morphology squares `2·presenceRadius + 1` on both.
     /// Listed differences, all primitive-level: `CIGaussianBlur` is a true Gaussian
     /// where the reference uses three boxes above σ = 8; the intermediates are half
-    /// float (the tensor is stored ×64 for it); morphology is Core Image's.
+    /// float; morphology is Core Image's.
     /// Both read the same pre-Texture `lum`, Texture's gain multiplies first, then
     /// Clarity's, each clamped at ±4 EV on its own. Nothing is built for a slider at 0.
     private static func applyDetailBands(_ image: CIImage, detail d: Detail,
@@ -991,28 +989,39 @@ public struct RenderGraph {
         return out
     }
 
-    /// The tensor products are stored ×64 in the half-float intermediate (and divided
-    /// back out in the delta kernels): a 0.01 EV gradient squared is 1e-4, at the edge
-    /// of half precision's normal range, and the coherence floor η = 2e-4 lives there.
-    /// The reference computes in Float and needs no such factor; coherence is a ratio
-    /// and does not see it.
-    static let presenceTensorScale: Double = 64
+    /// `DetailEngine.presenceBand`: the morphological base's opening and closing, the
+    /// band of the detail above it (fine, coarse) and the spread of |b|.
+    static func presenceBand(_ v: CIImage, band: DetailEngine.PresenceBand,
+                             longEdge: Int)
+        -> (opened: CIImage, closed: CIImage, fine: CIImage, coarse: CIImage,
+            spread: CIImage)? {
+        let s = band.sigmas(longEdge: longEdge)
+        let r = band.baseRadius(longEdge: longEdge)
+        guard let eroded = Self.morphology(v, radius: r, maximum: false),
+              let dilated = Self.morphology(v, radius: r, maximum: true),
+              let opened = Self.morphology(eroded, radius: r, maximum: true),
+              let closed = Self.morphology(dilated, radius: r, maximum: false),
+              let detail = KernelLibrary.apply(KernelLibrary.presenceDetail,
+                                               extent: v.extent, [v, opened, closed]),
+              let fine = Self.presenceBlur(detail, sigma: s.inner),
+              let coarse = Self.presenceBlur(detail, sigma: s.outer),
+              let magnitude = KernelLibrary.apply(KernelLibrary.presenceBandMagnitude,
+                                                  extent: v.extent, [fine, coarse]),
+              let spread = Self.presenceBlur(magnitude, sigma: s.outer)
+        else { return nil }
+        return (opened, closed, fine, coarse, spread)
+    }
 
     /// Texture's gain field (`DetailEngine.applyTexture`).
     static func textureGain(_ ev: CIImage, amount a: Double, longEdge: Int) -> CIImage? {
         let band = DetailEngine.textureBand
         let s = band.sigmas(longEdge: longEdge)
         let k = a > 0 ? DetailEngine.textureGainPositive : DetailEngine.textureGainNegative
-        guard let fine = Self.presenceBlur(ev, sigma: s.inner),
-              let coarse = Self.presenceBlur(ev, sigma: s.outer),
-              let tensor = Self.presenceStructure(fine, derivativeSigma: s.inner,
-                                                  integrationSigma: s.integration),
+        guard let p = Self.presenceBand(ev, band: band, longEdge: longEdge),
               let delta = KernelLibrary.apply(
                 KernelLibrary.textureDelta, extent: ev.extent,
-                [fine, coarse, tensor, Float(a), Float(k),
-                 Float(DetailEngine.textureDetailRangeEV), Float(band.coherenceFloor),
-                 Float(band.gateLow), Float(band.gateHigh),
-                 Float(Self.presenceTensorScale)])
+                [p.fine, p.coarse, p.spread, Float(a), Float(k), Float(band.rangeEV),
+                 Float(band.rangePower), Float(DetailEngine.presencePeakSpread)])
         else { return nil }
         return Self.presenceGain(ev, delta: delta,
                                  window: DetailEngine.presenceMeanWindow * s.outer)
@@ -1022,36 +1031,16 @@ public struct RenderGraph {
     static func clarityGain(_ ev: CIImage, amount a: Double, longEdge: Int) -> CIImage? {
         let band = DetailEngine.clarityBand
         let s = band.sigmas(longEdge: longEdge)
-        guard let prefiltered = Self.clarityPrefilter(ev, sigma: s.inner),
-              let fine = Self.presenceBlur(prefiltered, sigma: s.inner),
-              let coarse = Self.presenceBlur(prefiltered, sigma: s.outer),
-              let tensor = Self.presenceStructure(fine, derivativeSigma: s.inner,
-                                                  integrationSigma: s.integration)
-        else { return nil }
-        // The overshoot limit's local range — positive Clarity only, like the
-        // reference, which builds it only when a > 0. The negative side passes `fine`
-        // twice as placeholders that `limit = 0` multiplies away.
-        var low = fine
-        var high = fine
-        if a > 0 {
-            guard let range = Self.localRange(
-                fine, radius: DetailEngine.overshootRadius(s.outer))
-            else { return nil }
-            low = range.low
-            high = range.high
-        }
         let k = a > 0 ? DetailEngine.clarityGainPositive : DetailEngine.clarityGainNegative
-        guard let delta = KernelLibrary.apply(
-            KernelLibrary.clarityDelta, extent: ev.extent,
-            [fine, coarse, tensor, low, high,
-             Float(DetailEngine.clarityShapedAmount(a)), Float(k),
-             Float(DetailEngine.clarityDetailRangeEV), Float(band.coherenceFloor),
-             Float(band.gateLow), Float(band.gateHigh),
-             Float(DetailEngine.clarityStrengthLowEV),
-             Float(DetailEngine.clarityStrengthHighEV),
-             Float(DetailEngine.clarityMidtoneEV),
-             Float(DetailEngine.clarityOvershootSlope), Float(a > 0 ? 1.0 : 0.0),
-             Float(Self.presenceTensorScale)])
+        guard let prefiltered = Self.clarityPrefilter(ev, sigma: s.inner),
+              let p = Self.presenceBand(prefiltered, band: band, longEdge: longEdge),
+              let delta = KernelLibrary.apply(
+                KernelLibrary.clarityDelta, extent: ev.extent,
+                [p.fine, p.coarse, p.spread, p.opened, p.closed,
+                 Float(DetailEngine.clarityShapedAmount(a)), Float(k),
+                 Float(band.rangeEV), Float(band.rangePower),
+                 Float(DetailEngine.presencePeakSpread),
+                 Float(DetailEngine.clarityMidtoneEV)])
         else { return nil }
         return Self.presenceGain(ev, delta: delta,
                                  window: DetailEngine.presenceMeanWindow * s.outer)
@@ -1066,14 +1055,6 @@ public struct RenderGraph {
         else { return nil }
         return KernelLibrary.apply(KernelLibrary.presenceGain, extent: ev.extent,
                                    [delta, means, g])
-    }
-
-    /// The local minimum and maximum over a (2r+1)² square — `DetailEngine.localExtremum`.
-    static func localRange(_ image: CIImage, radius: Int) -> (low: CIImage, high: CIImage)? {
-        guard let low = Self.morphology(image, radius: radius, maximum: false),
-              let high = Self.morphology(image, radius: radius, maximum: true)
-        else { return nil }
-        return (low, high)
     }
 
     /// One square min or max filter of width 2r + 1, clamp-to-edge.
@@ -1096,7 +1077,7 @@ public struct RenderGraph {
     /// `DetailEngine.clarityPrefilter`: (close(open(v)) + open(close(v))) / 2 over a
     /// square of radius round(`clarityPrefilterRatio`·σ1).
     static func clarityPrefilter(_ ev: CIImage, sigma: Double) -> CIImage? {
-        let r = DetailEngine.overshootRadius(DetailEngine.clarityPrefilterRatio * sigma)
+        let r = DetailEngine.presenceRadius(DetailEngine.clarityPrefilterRatio * sigma)
         func erode(_ i: CIImage?) -> CIImage? {
             i.flatMap { Self.morphology($0, radius: r, maximum: false) }
         }
@@ -1141,32 +1122,6 @@ public struct RenderGraph {
         vertical.weights = weights
         vertical.bias = 0
         return vertical.outputImage?.cropped(to: image.extent)
-    }
-
-    /// `DetailEngine.presenceStructure`: central-difference gradients of the smoothed
-    /// plane (the same ±0.5 taps), the products in EV per derivative σ, integrated by
-    /// `presenceBlur(σi)`. Returns the integrated (Jxx, Jyy, Jxy)·`presenceTensorScale`;
-    /// coherence and strength are formed inside the gain kernels. The vertical
-    /// gradient's sign follows Core Image's bottom-up rows, which only flips Jxy — and
-    /// both coherence and strength read Jxy squared.
-    static func presenceStructure(_ smooth: CIImage, derivativeSigma: Double,
-                                  integrationSigma: Double) -> CIImage? {
-        let horizontal = CIFilter.convolution3X3()
-        horizontal.inputImage = smooth.clampedToExtent()
-        horizontal.weights = CIVector(values: [0, 0, 0, -0.5, 0, 0.5, 0, 0, 0], count: 9)
-        horizontal.bias = 0
-        let vertical = CIFilter.convolution3X3()
-        vertical.inputImage = smooth.clampedToExtent()
-        vertical.weights = CIVector(values: [0, -0.5, 0, 0, 0, 0, 0, 0.5, 0], count: 9)
-        vertical.bias = 0
-        let norm = Swift.max(derivativeSigma, DetailEngine.presenceDerivativeFloor)
-        guard let gx = horizontal.outputImage?.cropped(to: smooth.extent),
-              let gy = vertical.outputImage?.cropped(to: smooth.extent),
-              let products = KernelLibrary.apply(
-                KernelLibrary.presenceTensor, extent: smooth.extent,
-                [gx, gy, Float(norm), Float(Self.presenceTensorScale)])
-        else { return nil }
-        return Self.presenceBlur(products, sigma: integrationSigma)
     }
 
     static func applyDehaze(_ image: CIImage, amount: Double, longEdge: Int) -> CIImage {

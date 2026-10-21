@@ -5,6 +5,11 @@
 // `Decomposition` built at `max(Int(0.02·L), 3)`, then `DetailEngine.apply` — on a
 // synthetic strip whose long edge sets the scales (every presence σ is a fraction of
 // the long edge) and whose short edge keeps it cheap. Amplitudes are read on log2 Y.
+//
+// Spec U11: each test runs in ≤ 5 s and the suite in ≤ 30 s in a debug build. The
+// long-edge-dependent probes keep their long edge (6000 px strips) and carry as few
+// rows as the measurement needs — 8 for the x-only sinusoids — and the slider sweeps
+// reuse one decomposition per frame.
 
 import Foundation
 import XCTest
@@ -94,10 +99,10 @@ final class PresenceBandTests: XCTestCase {
         return field.map { ($0 - mean) * scale }
     }
 
-    /// A log-sinusoid along x on a 32 px strip, and its decomposition.
+    /// A log-sinusoid along x on an 8 px strip, and its decomposition.
     private func sinusoid(longEdge: Int, period: Double,
                           amplitude: Double = 0.05) -> (ImageBuffer, DetailEngine.Decomposition) {
-        let input = grey(longEdge, 32) { x, _ in
+        let input = grey(longEdge, 8) { x, _ in
             0.18 * pow(2.0, amplitude * cos(2 * Double.pi * Double(x) / period))
         }
         return (input, node(input))
@@ -193,8 +198,8 @@ final class PresenceBandTests: XCTestCase {
     // MARK: - U4 (B1/B2): brightness
 
     func testNeitherControlMovesTheMeanBrightness() {
-        let field = pinkLog(1024, 256, std: 0.25, seed: 4)
-        let input = grey(1024, 256) { x, y in 0.18 * pow(2.0, field[x, y]) }
+        let field = pinkLog(1024, 64, std: 0.25, seed: 4)
+        let input = grey(1024, 64) { x, y in 0.18 * pow(2.0, field[x, y]) }
         func encodedMean(_ image: ImageBuffer) -> Double {
             let lum = image.luminancePlane(space: .rec2020)
             var s = 0.0
@@ -216,12 +221,12 @@ final class PresenceBandTests: XCTestCase {
 
     func testCleanStepsGetNoRimAndNoBlur() {
         for stepEV in [0.5, 1.0] {
-            let input = grey(2048, 32) { x, _ in
+            let input = grey(2048, 8) { x, _ in
                 0.18 * pow(2.0, x < 1024 ? -stepEV / 2 : stepEV / 2)
             }
             func profile(_ image: ImageBuffer) -> [Double] {
                 let lum = image.luminancePlane(space: .rec2020)
-                return (0..<2048).map { TransferFunction.srgb.encode(Num.saturate(lum[$0, 16])) }
+                return (0..<2048).map { TransferFunction.srgb.encode(Num.saturate(lum[$0, 4])) }
             }
             let p0 = profile(input)
             let n = node(input)
@@ -251,8 +256,8 @@ final class PresenceBandTests: XCTestCase {
     // MARK: - U6 (Q1, H7): a soft blob stays soft and gets no ring
 
     func testASoftBlobGetsNoPlateauAndNoRing() {
-        let cx = 1024, cy = 128, sigma = 20.0
-        let input = grey(2048, 256) { x, y in
+        let cx = 1024, cy = 84, sigma = 20.0
+        let input = grey(2048, 168) { x, y in
             let r2 = Double((x - cx) * (x - cx) + (y - cy) * (y - cy))
             return 0.18 * pow(2.0, exp(-r2 / (2 * sigma * sigma)))
         }
@@ -278,7 +283,7 @@ final class PresenceBandTests: XCTestCase {
     // MARK: - U7 (Q2, Q3): smooth over tone, no global range dependence
 
     func testClarityIsSmoothOverToneAndIgnoresOneBlackPixel() {
-        let width = 1024, height = 128
+        let width = 1024, height = 64
         // Mid-scale texture (box-smoothed noise, 0.1 EV) on a -5…+3 EV log ramp.
         var noise = LCGNoise(state: 7)
         var raw = Plane(width: width, height: height)
@@ -327,17 +332,17 @@ final class PresenceBandTests: XCTestCase {
     // MARK: - U8 (R1, R4): the preview shows what the export does
 
     func testHalfSizeRenderMatchesTheDownsampledFullSizeRender() {
-        let field = pinkLog(4096, 128, std: 0.25, seed: 8)
-        let big = grey(4096, 128) { x, y in 0.18 * pow(2.0, field[x, y]) }
+        let field = pinkLog(4096, 64, std: 0.25, seed: 8)
+        let big = grey(4096, 64) { x, y in 0.18 * pow(2.0, field[x, y]) }
         // 2x area downsample in linear light.
-        let small = grey(2048, 64) { x, y in
+        let small = grey(2048, 32) { x, y in
             (big[2 * x, 2 * y].g + big[2 * x + 1, 2 * y].g
                 + big[2 * x, 2 * y + 1].g + big[2 * x + 1, 2 * y + 1].g) / 4
         }
         func downsample(_ image: ImageBuffer) -> Plane {
             let l = image.luminancePlane(space: .rec2020)
-            var out = Plane(width: 2048, height: 64)
-            for y in 0..<64 {
+            var out = Plane(width: 2048, height: 32)
+            for y in 0..<32 {
                 for x in 0..<2048 {
                     out[x, y] = (l[2 * x, 2 * y] + l[2 * x + 1, 2 * y]
                                  + l[2 * x, 2 * y + 1] + l[2 * x + 1, 2 * y + 1]) / 4
@@ -354,7 +359,7 @@ final class PresenceBandTests: XCTestCase {
             let smallOut = render(small, texture: t, clarity: c, node: smallNode)
                 .luminancePlane(space: .rec2020)
             var es: [Double] = [], eb: [Double] = []
-            for y in 8..<56 {
+            for y in 4..<28 {
                 for x in 8..<2040 {
                     es.append(log2(smallOut[x, y] / smallId[x, y]))
                     eb.append(log2(bigOut[x, y] / bigId[x, y]))
@@ -379,14 +384,14 @@ final class PresenceBandTests: XCTestCase {
 
     func testPixelNoiseIsNotAmplified() {
         var noise = LCGNoise(state: 9)
-        let input = grey(6000, 64) { _, _ in 0.18 * (1 + 0.04 * noise.gaussian()) }
+        let input = grey(6000, 16) { _, _ in 0.18 * (1 + 0.04 * noise.gaussian()) }
         func pixelLevel(_ image: ImageBuffer) -> Double {
             let l = image.luminancePlane(space: .rec2020).map {
                 TransferFunction.srgb.encode(Num.saturate($0))
             }
             let m = SpatialOps.boxBlur(l, radius: 1)
             var s = 0.0, n = 0.0
-            for y in 4..<60 {
+            for y in 4..<12 {
                 for x in 120..<5880 {
                     let d = l[x, y] - m[x, y]
                     s += d * d
@@ -404,7 +409,7 @@ final class PresenceBandTests: XCTestCase {
     // MARK: - U10 (K1, K3): -Texture smooths pores and keeps a lash
 
     func testNegativeTextureSmoothsPoresAndKeepsALine() {
-        let width = 6000, height = 128
+        let width = 6000, height = 32
         var noise = LCGNoise(state: 10)
         var logField = Plane(width: width, height: height)
         // Pores: σ 1.5 px, −0.25 EV dips, one per ~36 px², away from the line.
@@ -450,5 +455,39 @@ final class PresenceBandTests: XCTestCase {
             return (background - line) / Double(height - 16)
         }
         XCTAssertGreaterThanOrEqual(depth(b) / depth(a), 0.9, "Texture -100 faded the line")
+    }
+
+    // MARK: - U12 (S9): oriented fine detail at normal contrast keeps the slider
+
+    func testOrientedHairLinesKeepTheWholeSlider() {
+        // ±15 % (≈0.2 EV) lines at a 3 px period, all parallel — a perfectly coherent
+        // pattern — on a strip whose long edge puts them inside Texture's band
+        // (2048 / 3 = 683 cycles per image long edge).
+        let width = 2048, height = 24
+        let input = grey(width, height) { _, y in
+            0.30 * (1.0 + 0.15 * sin(Double(y) * Double.pi / 1.5))
+        }
+        let n = node(input)
+        let a = log2Y(input)
+        func gain(_ texture: Double) -> Double {
+            let b = log2Y(render(input, texture: texture, node: n))
+            var ma = 0.0, mb = 0.0, count = 0.0
+            for y in 6..<(height - 6) {
+                for x in 64..<(width - 64) { ma += a[x, y]; mb += b[x, y]; count += 1 }
+            }
+            ma /= count
+            mb /= count
+            var num = 0.0, den = 0.0
+            for y in 6..<(height - 6) {
+                for x in 64..<(width - 64) {
+                    num += (b[x, y] - mb) * (a[x, y] - ma)
+                    den += (a[x, y] - ma) * (a[x, y] - ma)
+                }
+            }
+            return num / Swift.max(den, 1e-12)
+        }
+        let up = gain(100), down = gain(-100)
+        XCTAssertGreaterThanOrEqual(up, 1.4, "Texture +100 on oriented hair lines: \(up)")
+        XCTAssertLessThanOrEqual(down, 0.6, "Texture -100 on oriented hair lines: \(down)")
     }
 }

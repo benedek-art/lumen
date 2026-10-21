@@ -111,80 +111,61 @@ public enum KernelLibrary {
     }
     """
 
-    /// Presence structure tensor products from central-difference gradients (the
-    /// `CIConvolution3X3` taps are ±0.5, so no Sobel /8 here), in EV per derivative σ
-    /// (`norm` = max(σd, 0.5)), packed (Jxx, Jyy, Jxy) and multiplied by `tscale`
-    /// (`RenderGraph.presenceTensorScale`) to keep the products out of half-float's
-    /// subnormal range; the gain kernels divide it back out. The twin of the products
-    /// in `DetailEngine.presenceStructure`.
-    static let presenceTensorSource = """
-    kernel vec4 lumenPresenceTensor(__sample gx, __sample gy, float norm, float tscale) {
-        float x = gx.r * norm;
-        float y = gy.r * norm;
-        return vec4(x * x * tscale, y * y * tscale, x * y * tscale, 1.0);
+    /// The presence detail: `v − (opened + closed)/2`, the picture above its
+    /// morphological base (`DetailEngine.morphologicalBase` / `presenceBand`), where
+    /// `opened` and `closed` are `CIMorphologyRectangle*` passes of `v`.
+    static let presenceDetailSource = """
+    kernel vec4 lumenPresenceDetail(__sample v, __sample opened, __sample closed) {
+        float d = v.r - 0.5 * (opened.r + closed.r);
+        return vec4(d, d, d, 1.0);
+    }
+    """
+
+    /// |b| = |fine − coarse|, which `RenderGraph.presenceBlur(σ2)` spreads into the
+    /// band's local peak (`DetailEngine.presenceBand`).
+    static let presenceBandMagnitudeSource = """
+    kernel vec4 lumenPresenceBandMagnitude(__sample fine, __sample coarse) {
+        float m = abs(fine.r - coarse.r);
+        return vec4(m, m, m, 1.0);
     }
     """
 
     /// Texture's delta — `DetailEngine.textureDelta`, per pixel:
-    ///   b = fine − coarse                            (G(σ1)·v − G(σ2)·v, EV)
-    ///   c = √((Jxx−Jyy)² + 4Jxy²) / (Jxx + Jyy + η)  (`presenceStructure`)
-    ///   Δ = k·a · b/(1 + (b/τ)²) · (1 − smoothstep(lo, hi, c))
+    ///   b = fine − coarse                    (G(σ1)·d − G(σ2)·d, EV)
+    ///   B = max(|b|, K·spread)               (spread = G(σ2)·|b|)
+    ///   Δ = k·a·b / (1 + (B/τ)^p)
     /// Output: Δ in EV.
     static let textureDeltaSource = """
-    kernel vec4 lumenTextureDelta(__sample fine, __sample coarse, __sample tensor,
-                                  float a, float k, float tau, float eta,
-                                  float lo, float hi, float tscale) {
+    kernel vec4 lumenTextureDelta(__sample fine, __sample coarse, __sample spread,
+                                  float a, float k, float tau, float p, float K) {
         float b = fine.r - coarse.r;
-        float jxx = tensor.r / tscale;
-        float jyy = tensor.g / tscale;
-        float jxy = tensor.b / tscale;
-        float trace = max(jxx + jyy, 0.0);
-        float d = jxx - jyy;
-        float c = sqrt(d * d + 4.0 * jxy * jxy) / (trace + eta);
-        float gate = 1.0 - smoothstep(lo, hi, c);
-        float r = b / tau;
-        float e = k * a * b / (1.0 + r * r) * gate;
+        float peak = max(abs(b), K * spread.r);
+        float e = k * a * b / (1.0 + pow(peak / tau, p));
         return vec4(e, e, e, 1.0);
     }
     """
 
-    /// Clarity's delta — `DetailEngine.clarityDelta` and `overshootLimited`:
-    ///   b    = fine − base                  (G(σ1)·v' − G(σ2)·v')
-    ///   w    = (1 − smoothstep(lo, hi, c)) · (1 − smoothstep(slo, shi, √(Jxx+Jyy)))
-    ///          / (1 + (b/τ)²) · exp(−base²/(2·toneEV²))
+    /// Clarity's delta — `DetailEngine.clarityDelta`:
+    ///   b    = fine − coarse                  (G(σ1)·d − G(σ2)·d of the prefiltered v')
+    ///   B    = max(|b|, K·spread)
+    ///   base = (opened + closed)/2           (the morphological base of v')
+    ///   w    = exp(−base²/(2·toneEV²)) / (1 + (B/τ)^p)
     ///   Δ    = k·a·b·w                         (a > 0; `a` arrives already shaped by
     ///                                           `DetailEngine.clarityShapedAmount`)
     ///        = −min(1, −a·k·w)·b               (a < 0)
-    /// then, when `limit` is 1 (a > 0), `fine + Δ` keeps only `slope` of its excursion
-    /// outside [low, high], the local range of `fine`. Output: Δ in EV.
+    /// Output: Δ in EV.
     static let clarityDeltaSource = """
-    kernel vec4 lumenClarityDelta(__sample fine, __sample coarse, __sample tensor,
-                                  __sample low, __sample high,
-                                  float a, float k, float tau, float eta,
-                                  float lo, float hi, float slo, float shi,
-                                  float toneEV, float slope, float limit, float tscale) {
-        float f = fine.r;
-        float base = coarse.r;
-        float b = f - base;
-        float jxx = tensor.r / tscale;
-        float jyy = tensor.g / tscale;
-        float jxy = tensor.b / tscale;
-        float trace = max(jxx + jyy, 0.0);
-        float d = jxx - jyy;
-        float c = sqrt(d * d + 4.0 * jxy * jxy) / (trace + eta);
-        float r = b / tau;
-        float w = (1.0 - smoothstep(lo, hi, c))
-                * (1.0 - smoothstep(slo, shi, sqrt(trace)))
-                / (1.0 + r * r)
-                * exp(-(base * base) / (2.0 * toneEV * toneEV));
+    kernel vec4 lumenClarityDelta(__sample fine, __sample coarse, __sample spread,
+                                  __sample opened, __sample closed,
+                                  float a, float k, float tau, float p, float K,
+                                  float toneEV) {
+        float b = fine.r - coarse.r;
+        float peak = max(abs(b), K * spread.r);
+        float base = 0.5 * (opened.r + closed.r);
+        float w = exp(-(base * base) / (2.0 * toneEV * toneEV)) / (1.0 + pow(peak / tau, p));
         float positive = k * a * b * w;
         float negative = -min(1.0, -a * k * w) * b;
-        float dv = mix(negative, positive, step(0.0, a));
-        float o = f + dv;
-        float over = max(o - high.r, 0.0);
-        float under = min(o - low.r, 0.0);
-        o = o - limit * (1.0 - slope) * (over + under);
-        float e = o - f;
+        float e = mix(negative, positive, step(0.0, a));
         return vec4(e, e, e, 1.0);
     }
     """
@@ -1165,7 +1146,8 @@ public enum KernelLibrary {
     public static let grain = make(grainSource)
     public static let vignette = make(vignetteSource)
     public static let presenceEV = make(presenceEVSource)
-    public static let presenceTensor = make(presenceTensorSource)
+    public static let presenceDetail = make(presenceDetailSource)
+    public static let presenceBandMagnitude = make(presenceBandMagnitudeSource)
     public static let textureDelta = make(textureDeltaSource)
     public static let clarityDelta = make(clarityDeltaSource)
     public static let presenceMeanWeights = make(presenceMeanWeightsSource)
@@ -1247,7 +1229,8 @@ public enum KernelLibrary {
             // defect the comment on `unavailableMaskKernels` below describes.
             ("blendMask", blendMask), ("blendMaskMode", blendMaskMode),
             ("grain", grain), ("vignette", vignette),
-            ("presenceEV", presenceEV), ("presenceTensor", presenceTensor),
+            ("presenceEV", presenceEV), ("presenceDetail", presenceDetail),
+            ("presenceBandMagnitude", presenceBandMagnitude),
             ("textureDelta", textureDelta), ("clarityDelta", clarityDelta),
             ("presenceMeanWeights", presenceMeanWeights), ("presenceGain", presenceGain),
             ("dehaze", dehaze), ("addGlow", addGlow),

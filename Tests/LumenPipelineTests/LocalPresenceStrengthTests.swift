@@ -9,9 +9,18 @@ final class LocalPresenceStrengthTests: XCTestCase {
         .outputColorSpace: NSNull(), .workingFormat: CIFormat.RGBAf])
     private let plan = RenderPlan(recipe: Recipe(), lutSize: 17)
 
+    /// WS-14: Texture and Clarity are bands of the PICTURE (375–1500 and 20–160 cycles
+    /// per image long edge), so the frame has to be large enough for both to exist:
+    /// on the old 128 px frame Texture's band sat far above Nyquist (σ1 = 0.03 px) and
+    /// its honest response to Strength 100 → 200 was ~3e-6, under this test's 1e-5
+    /// bar on both renderers. The frame is 1024 × 48 and carries 2-D ripples in each
+    /// band (2.5 px for Texture, 17 px for Clarity) at the old amplitudes; the bars are
+    /// unchanged.
     private var input: ImageBuffer {
-        ImageBuffer(width: 128, height: 128) { u, v in
-            let value = 0.18 + 0.04 * sin(2 * .pi * 16 * u) * cos(2 * .pi * 11 * v)
+        ImageBuffer(width: 1024, height: 48) { u, v in
+            let x = u * 1024, y = v * 48
+            let value = 0.18 + 0.04 * sin(2 * .pi * x / 2.5) * cos(2 * .pi * y / 2.5)
+                + 0.04 * sin(2 * .pi * x / 17) * cos(2 * .pi * y / 17)
                 + 0.015 * sin(2 * .pi * 3 * u)
             return RGB(value * 0.9, value, value * 1.1)
         }

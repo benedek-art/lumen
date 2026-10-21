@@ -198,7 +198,10 @@ final class ScaleHonestyTests: XCTestCase {
             let b = band.sigmas(longEdge: 5120)
             XCTAssertEqual(b.inner, 2 * a.inner, accuracy: 1e-12)
             XCTAssertEqual(b.outer, 2 * a.outer, accuracy: 1e-12)
-            XCTAssertEqual(b.integration, 2 * a.integration, accuracy: 1e-12)
+            // The morphological base's square is whole pixels (`presenceRadius`), the one
+            // rounded quantity; it follows the long edge to within half a pixel.
+            XCTAssertEqual(Double(band.baseRadius(longEdge: 5120)),
+                           band.baseRatio * b.inner, accuracy: 0.5)
             // The old rung: 3619 and 3621 px rounded to different pyramid depths.
             let below = band.sigmas(longEdge: 3619)
             let above = band.sigmas(longEdge: 3621)

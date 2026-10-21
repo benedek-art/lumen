@@ -317,8 +317,8 @@ final class RobustnessTests: XCTestCase {
         // cycles per image long edge), so on the 24 px toy image both sit above
         // Nyquist — the same reason softening has its own frame. Theirs carries 2.5 px
         // ripples (in Texture's band at 1024 px) and 20 px ones (in Clarity's).
-        // 2-D ripples (x times y): a strong 1-D grating is a run of parallel edges to
-        // the presence edge gate, which rightly leaves it alone.
+        // 2-D ripples (x times y), so the frame also exercises both axes of the
+        // presence stage's morphological base.
         let presenceSource = ImageBuffer(width: 1024, height: 48) { u, v in
             let y = v * 48
             return RGB(gray: 0.18 + 0.03 * sin(2 * .pi * 1024 * u / 2.5) * sin(2 * .pi * y / 2.5)
@@ -2177,44 +2177,57 @@ final class RobustnessTests: XCTestCase {
         }
     }
 
-    /// The gate must cost positive Texture nothing on coherent FINE detail.
+    /// Positive Texture keeps its authority on coherent FINE detail.
     ///
     /// Hair, fabric weave and foliage are coherent, and they are exactly what someone
-    /// reaches for positive Texture to bring up. WS-14 replaced the gate: it is now a
-    /// scale-space structure tensor of G(σ1)·v with a strength floor η in EV per σ1
-    /// (`DetailEngine.textureBand`), so faint oriented detail reads isotropic and a
-    /// half-stop edge reads coherent at every render size. The frame grew from 128 px to
-    /// 2048 px for the reason given on `testPositiveTextureDoesNotRimAHardEdge`, and the
-    /// lines carry the spec's U2 amplitude (a 0.05 EV log-sinusoid, here with a 3 px
-    /// period that sits in the band at 2048 px) rather than ±15 %: a perfectly regular
-    /// grating of 0.2 EV is, to a structure tensor, indistinguishable from a run of
-    /// parallel edges and is now gated like one (BUILD-NOTES, "known limits").
+    /// reaches for positive Texture to bring up. This test held a coherence gate to
+    /// opening on ±15 % (≈0.2 EV) hair lines at a 3 px period; round 1 of WS-14 cut the
+    /// lines to 0.05 EV because its structure-tensor gate shut on them at ±15 % — which
+    /// was the defect, not the test (spec S9 / U12). Restored here to the original
+    /// amplitude and period. WS-14 has no gate any more: edges are kept out of the band
+    /// by a morphological base (`DetailEngine.presenceBand`), and lines narrower than
+    /// its square are detail at any orientation. The frame is 2048 px wide, not 128,
+    /// because Texture is a band of the picture (375–1500 cycles per image long edge)
+    /// and on a 128 px frame it lies above Nyquist; at 2048 px a 3 px period is
+    /// 683 cpi, inside it. The bars are spec U12's: gain ≥ 1.4 at +100, ≤ 0.6 at −100.
     func testPositiveTextureKeepsItsAuthorityOnFineDetail() {
         let width = 2048, height = 64
         let hair = ImageBuffer(width: width, height: height) { _, v in
             let y = v * Double(height)
-            return RGB(gray: 0.30 * pow(2.0, 0.05 * sin(y * 2 * Double.pi / 3)))
+            return RGB(gray: 0.30 * (1.0 + 0.15 * sin(y * Double.pi / 1.5)))
         }
         let d = DetailEngine.Decomposition(image: hair, workingRadius: 40)
 
-        // The gate is a function of coherence alone, so pin the measured separation
-        // that justifies where it opens.
-        let band = DetailEngine.textureBand
-        let s = band.sigmas(longEdge: width)
-        let fine = DetailEngine.presenceBlur(d.presenceLogLuminance(), sigma: s.inner)
-        let coherence = DetailEngine.presenceStructure(
-            fine, derivativeSigma: s.inner, integrationSigma: s.integration,
-            floor: band.coherenceFloor).coherence
-        var worstCoherence = 0.0
-        for y in 8..<(height - 8) {
-            for x in 8..<(width - 8) {
-                worstCoherence = Swift.max(worstCoherence, Num.saturate(coherence[x, y]))
+        // The gain on the lines: regression of log2 Y out onto log2 Y in (one
+        // frequency, so this is the band gain at 683 cpi), away from the borders.
+        func gain(_ out: ImageBuffer) -> Double {
+            var num = 0.0, den = 0.0
+            var meanIn = 0.0, meanOut = 0.0, n = 0.0
+            for y in 8..<(height - 8) {
+                for x in 64..<(width - 64) {
+                    meanIn += log2(hair[x, y].g)
+                    meanOut += log2(out[x, y].g)
+                    n += 1
+                }
             }
+            meanIn /= n
+            meanOut /= n
+            for y in 8..<(height - 8) {
+                for x in 64..<(width - 64) {
+                    let a = log2(hair[x, y].g) - meanIn
+                    num += (log2(out[x, y].g) - meanOut) * a
+                    den += a * a
+                }
+            }
+            return num / Swift.max(den, 1e-12)
         }
-        XCTAssertLessThan(worstCoherence, band.gateLow,
-                          "fine parallel detail reached \(worstCoherence) coherence, at "
-                              + "or above the gate's opening threshold — positive "
-                              + "Texture is now gating the detail it exists to raise")
+        let up = gain(DetailEngine.applyTexture(hair, amount: 100, decomposition: d))
+        let down = gain(DetailEngine.applyTexture(hair, amount: -100, decomposition: d))
+        XCTAssertGreaterThanOrEqual(up, 1.4, "positive Texture at +100 raised ±15 % hair "
+                                        + "lines by only \(up)× — it is gating the "
+                                        + "detail it exists to raise")
+        XCTAssertLessThanOrEqual(down, 0.6, "negative Texture at −100 left \(down) of "
+                                     + "±15 % hair lines")
 
         var previous = 0.0
         for amount in [25.0, 50.0, 100.0] {
