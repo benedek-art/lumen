@@ -514,10 +514,10 @@ enum SliderInventory {
         SliderSpec("Colour", "DetailPanel.swift:623", .developDisclosure, 0...100, step: 1),
         SliderSpec("Detail", "DetailPanel.swift:640", .developDisclosure, 0...100,
                    step: 1, indented: true),
-        SliderSpec("Smoothness", "DetailPanel.swift:651", .developDisclosure, 0...100,
+        SliderSpec("Smoothness", "DetailPanel.swift:649", .developDisclosure, 0...100,
                    step: 1, indented: true),
-        SliderSpec("Hot Pixels", "DetailPanel.swift:645", .developDisclosure, 0...100, step: 1),
-        SliderSpec("Amount", "DetailPanel.swift:681", .developDisclosure, 0...100, step: 1),
+        SliderSpec("Hot Pixels", "DetailPanel.swift:659", .developDisclosure, 0...100, step: 1),
+        SliderSpec("Amount", "DetailPanel.swift:695", .developDisclosure, 0...100, step: 1),
 
         // Effects — vignette, grain, retouch.
         SliderSpec("Amount", "EffectsPanel.swift:131", .developTop, -4...2,
