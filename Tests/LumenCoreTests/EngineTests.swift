@@ -20,7 +20,7 @@ final class EngineTests: XCTestCase {
         // cannot hit the black anchor, and `testLinearPresetIsAStraightScaling` covers
         // it instead.
         let anchored = DisplayTransformParams.presetNames.filter { $0 != "Linear" }
-        XCTAssertEqual(anchored.count, 4, "the preset list changed — is the new one "
+        XCTAssertEqual(anchored.count, 5, "the preset list changed — is the new one "
                            + "anchored, or does it belong with Linear?")
         for preset in anchored {
             var p = DisplayTransformParams.preset(named: preset)

@@ -72,12 +72,42 @@ public struct DisplayTransformParams: Equatable, Sendable {
     /// scene-linear (1.0 = SDR white), clipped at the display peak. Always available,
     /// for inspection and round-tripping — the "show me the data" honesty control.
     public var linear: Bool = false
+    /// The PROFILE's own exposure, in EV, added to the Exposure slider at S6 (like a DNG
+    /// BaselineExposure). 0 for every preset except Camera, whose fitted value carries
+    /// the ~1.2 EV the flat render sat below the camera's own JPEG. Not user-facing: an
+    /// unedited photo on Camera still reads Exposure 0.00.
+    public var baselineEV: Double = 0
 
     public init() {}
 
     // MARK: Presets
 
     public static let neutral = DisplayTransformParams()
+
+    /// THE STARTING LOOK FOR A CAMERA RAW: roughly what the camera's own JPEG and
+    /// Lightroom's "Adobe Color" hand you — more midtone lift, contrast and colour than
+    /// Neutral, whose deliberately flat AgX base made every photo open dull (measured on
+    /// an A7 IV night frame against Apple's render: ~0.7 stop darker, 21% vs 49% midtone
+    /// saturation). Neutral stays as the "Flat" choice. Values fitted to embedded camera
+    /// JPEGs; see the fit note beside them.
+    public static var camera: DisplayTransformParams {
+        if let cameraTuningOverride { return cameraTuningOverride }
+        // Fitted 2026-10-20 to the embedded camera JPEGs of 18 RAWs (A7 IV + GX85,
+        // ISO 100–10000, day/indoor/night soccer): luminance quantiles + per-band
+        // saturation error 34.6 (Neutral) -> 13.5. Brightness was most of it: the flat
+        // render sat ~1.2 EV under the camera on every frame.
+        var p = DisplayTransformParams()
+        p.contrast = 1.6
+        p.skew = 0.7
+        p.whiteAnchorEV = 4.5
+        p.attenuation = RGB(0.07, 0.09, 0.06)
+        p.purityRestore = 0.8
+        p.baselineEV = 0.8
+        return p
+    }
+
+    /// Tuning hook for the camera fit harness only; nil in the app.
+    nonisolated(unsafe) public static var cameraTuningOverride: DisplayTransformParams?
 
     public static var soft: DisplayTransformParams {
         var p = DisplayTransformParams()
@@ -113,10 +143,11 @@ public struct DisplayTransformParams: Equatable, Sendable {
         return p
     }
 
-    public static let presetNames = ["Neutral", "Soft", "Punchy", "Film Base", "Linear"]
+    public static let presetNames = ["Camera", "Neutral", "Soft", "Punchy", "Film Base", "Linear"]
 
     public static func preset(named name: String) -> DisplayTransformParams {
         switch name {
+        case "Camera": return .camera
         case "Soft": return .soft
         case "Punchy": return .punchy
         case "Film Base": return .filmBase

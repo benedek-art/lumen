@@ -88,8 +88,14 @@ extension Recipe {
         var recipe = Recipe()
         if file.isRendered {
             recipe.look.render.preset = LookSubset.linearPresetName
-        } else if let iso = file.iso {
-            recipe.develop.denoise = ISODefaults.startingDenoise(forISO: Double(iso))
+        } else {
+            // A RAW starts on the camera-matched look, not the flat one (Neutral stays
+            // a choice, shown as "Flat"). Only NEW recipes: a saved recipe keeps the
+            // preset it was saved with, so nothing already edited changes.
+            recipe.look.render.preset = "Camera"
+            if let iso = file.iso {
+                recipe.develop.denoise = ISODefaults.startingDenoise(forISO: Double(iso))
+            }
         }
         return recipe
     }
