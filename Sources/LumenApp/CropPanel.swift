@@ -144,14 +144,17 @@ final class CropTool: ObservableObject {
             return
         }
         plate = (photo, image, flipped)
-        if let pending = pendingAuto, pending.photo == photo {
-            pendingAuto = nil
-            pending.run()
-        }
+        guard let pending = pendingAuto else { return }
+        // A press for another photograph is stale the moment this one is on screen.
+        pendingAuto = nil
+        if pending.photo == photo { pending.run() }
     }
 
+    /// The canvas went away (Escape, R, another workspace): its plate and any Auto
+    /// press still waiting for it go too, so nothing fires later unasked.
     func forgetPlate(of photo: URL) {
         if plate?.photo == photo { plate = nil }
+        pendingAuto = nil
     }
 
     // MARK: Keys and buttons that write the framing
