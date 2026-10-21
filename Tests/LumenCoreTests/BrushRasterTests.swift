@@ -8,7 +8,8 @@ import XCTest
 
 final class BrushRasterTests: XCTestCase {
 
-    private let w = 256, h = 160
+    private let w = 256
+    private let h = 160
     /// size 0.16 at a 256 long edge: a 20.48 px radius.
     private let size = 0.16
 

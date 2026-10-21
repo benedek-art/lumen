@@ -65,7 +65,10 @@ public struct BrushStrokeRaster {
 
     /// A rectangle in pixels of the full extent, half-open.
     public struct Rect: Equatable, Sendable {
-        public var x0: Int, y0: Int, x1: Int, y1: Int
+        public var x0: Int
+        public var y0: Int
+        public var x1: Int
+        public var y1: Int
         public var isEmpty: Bool { x1 <= x0 || y1 <= y0 }
         public func union(_ o: Rect) -> Rect {
             if isEmpty { return o }
@@ -450,11 +453,19 @@ public struct BrushStrokeRaster {
     private struct Primitive {
         enum Kind { case slab, disc, joint }
         var kind: Kind
-        var ax: Double, ay: Double      // slab start, or disc/joint centre
-        var ux: Double, uy: Double      // slab direction, or a joint's incoming one (unit)
+        // Slab start, or disc/joint centre.
+        var ax: Double
+        var ay: Double
+        // Slab direction, or a joint's incoming one (unit).
+        var ux: Double
+        var uy: Double
         var length: Double
-        var pa: Double, dp: Double      // pressure at the start, and its change along
-        var vx: Double, vy: Double      // a joint's outgoing direction (unit)
+        // Pressure at the start, and its change along.
+        var pa: Double
+        var dp: Double
+        // A joint's outgoing direction (unit).
+        var vx: Double
+        var vy: Double
         var isSlab: Bool { kind == .slab }
     }
 
