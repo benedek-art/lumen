@@ -480,7 +480,7 @@ enum SliderInventory {
                    indented: true),
         SliderSpec("Variance", "ColorPanel.swift:741", .developTop, -100...100, step: 1),
         // `ColorEngine.bandNames` — Magenta is the widest of the eight.
-        SliderSpec("Magenta", "ColorPanel.swift:997", .developTop, -100...100, step: 1),
+        SliderSpec("Magenta", "ColorPanel.swift:1043", .developTop, -100...100, step: 1),
 
         // Crop.
         SliderSpec("Angle", "CropPanel.swift:488", .developTop, -45...45,
@@ -718,7 +718,7 @@ enum SliderInventory {
                    .developTop, 0...100, step: 1),
         SliderSpec("Luminance", "LumenControls.swift:2378 (mounted by LookPanel's grade wheel)",
                    .developTop, -100...100, step: 1),
-        SliderSpec("", "LumenControls.swift:2441 (MaskPanel.swift:3025)", .maskWheelBar,
+        SliderSpec("", "LumenControls.swift:2450 (MaskPanel.swift:3025)", .maskWheelBar,
                    -1...1, step: 0.01, decimals: 2),
 
         // The Heal tool's bar on the loupe. Size is in pixels of the original file.
