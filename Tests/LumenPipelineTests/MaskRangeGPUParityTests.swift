@@ -162,6 +162,7 @@ final class MaskRangeGPUParityTests: XCTestCase {
     // MARK: - The comparison
 
     func testRangeKernelsMatchTheReference() throws {
+        try XCTSkipUnless(MaskGPU.rangeKindsOnGPU, "range kinds are off the GPU until the kernels follow M4's definition (MaskGPU.rangeKindsOnGPU)")
         try XCTSkipUnless(KernelLibrary.rangeMasksAvailable,
                           "range kernels failed: \(KernelLibrary.unavailableMaskKernels)")
         for size in sizes {
@@ -199,6 +200,7 @@ final class MaskRangeGPUParityTests: XCTestCase {
     /// half-float stage and write half-float alpha in production, so the share test is
     /// repeated there with a 4e-3 threshold (half a code value at 8 bits).
     func testRangeKernelsHoldInHalfFloat() throws {
+        try XCTSkipUnless(MaskGPU.rangeKindsOnGPU, "range kinds are off the GPU until the kernels follow M4's definition (MaskGPU.rangeKindsOnGPU)")
         try XCTSkipUnless(KernelLibrary.rangeMasksAvailable)
         let half = CIContext(options: [.workingColorSpace: NSNull(),
                                        .outputColorSpace: NSNull(),
@@ -230,6 +232,7 @@ final class MaskRangeGPUParityTests: XCTestCase {
     /// A colour-range fixture that selects nothing would pass the comparison above
     /// trivially. Pin that the sampled colours are actually selected.
     func testTheColourFixtureSelectsSomething() throws {
+        try XCTSkipUnless(MaskGPU.rangeKindsOnGPU, "range kinds are off the GPU until the kernels follow M4's definition (MaskGPU.rangeKindsOnGPU)")
         try XCTSkipUnless(KernelLibrary.rangeMasksAvailable)
         let buffer = picture(256, 256)
         let mask = Mask(id: "c", components: [colour(samples(buffer, 3), refine: 50)])
@@ -242,6 +245,7 @@ final class MaskRangeGPUParityTests: XCTestCase {
     // MARK: - Eligibility
 
     func testOnlyPointwiseChainsAndRangeKindsTakeTheGPUPath() throws {
+        try XCTSkipUnless(MaskGPU.rangeKindsOnGPU, "range kinds are off the GPU until the kernels follow M4's definition (MaskGPU.rangeKindsOnGPU)")
         try XCTSkipUnless(KernelLibrary.rangeMasksAvailable)
         let longEdge = 2048
         let plain = Mask(id: "a", components: [band(0.2, 0.6, smooth: 50)])

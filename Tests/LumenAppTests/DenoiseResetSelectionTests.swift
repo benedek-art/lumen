@@ -55,14 +55,19 @@ final class DenoiseResetSelectionTests: XCTestCase {
 
             let a = state.recipe(for: low).develop.denoise.classic
             let b = state.recipe(for: high).develop.denoise.classic
+            // Each frame's own ISO default, read from the table rather than restated:
+            // WS-19 (lane T4) re-derived it — Luminance on a gentler ISO curve, Colour
+            // Smoothness at Lightroom's 50 at every ISO — so the per-ISO half of this
+            // test now rides on Luminance, the default that still differs by ISO.
+            let wantA = ISODefaults.startingDenoise(forISO: 400).classic
             let wantB = ISODefaults.startingDenoise(forISO: 25600).classic
-            XCTAssertEqual(a.luma, 0)
-            XCTAssertEqual(b.luma, 40,
+            XCTAssertNotEqual(wantA.luma, wantB.luma,
+                              "the fixture needs two ISOs whose Luminance defaults differ")
+            XCTAssertEqual(a.luma, wantA.luma, accuracy: 1e-9)
+            XCTAssertEqual(b.luma, wantB.luma, accuracy: 1e-9,
                            "the ISO 25600 frame was reset to the ISO 400 frame's value")
+            XCTAssertEqual(a.colorSmoothness, wantA.colorSmoothness, accuracy: 1e-9)
             XCTAssertEqual(b.colorSmoothness, wantB.colorSmoothness, accuracy: 1e-9)
-            XCTAssertNotEqual(a.colorSmoothness, b.colorSmoothness,
-                              "two ISOs, two smoothness defaults — one number for both "
-                                  + "is the defect")
             XCTAssertFalse(b.lumaUserSet)
         }
     }

@@ -4082,8 +4082,12 @@ struct LumaBandStrip: View {
     /// Where the 0 EV tick sits, and the stops labelled under the strip.
     private static let labels: [Double] = [-8, -4, 0, 4]
 
+    /// The gap between the strip and its stop labels. Not a row pitch — the strip and
+    /// its labels are one control — so not `Lumen.rowGap`.
+    private static let labelGap: CGFloat = 2
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Self.labelGap) {
             Canvas { context, size in
                 let w = size.width, h = size.height
                 let ramp = Gradient(colors: [Color(white: 0.02), Color(white: 0.92)])

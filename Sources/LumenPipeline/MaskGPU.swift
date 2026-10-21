@@ -102,10 +102,22 @@ enum MaskGPU {
     // Blur. Whole-mask invert and Levels are pointwise and run here. Everything else
     // keeps the CPU path exactly as before.
 
+    /// Whether the range kinds (luminance range, luminosity, colour range) take the
+    /// kernels below. OFF since the integration of lane M4 (WS-47/48), which made those
+    /// kinds SPATIAL: `MaskRaster.rangeMeasured` denoises the measurement with a
+    /// noise-adaptive guided pass at `rangeMeasurementRadius` (1 px per 800 of long edge),
+    /// and `lumaRangeValue` centres the shoulders on From/To. These kernels are M9's
+    /// pointwise twin of the definition BEFORE M4, so on the integration branch they
+    /// disagreed with the CPU by up to 0.69 alpha (`MaskRangeGPUParityTests`, macOS CI on
+    /// 421e8bb). Off, every range mask takes the CPU raster again — M4's picture, M9's
+    /// settle-raster cache and cheap-bake rule still in force — until the kernels are
+    /// ported to M4's definition (a follow-up for lanes M9/M4).
+    static let rangeKindsOnGPU = false
+
     /// True when this mask has a GPU form at a render whose long edge is `longEdge`.
     static func isGPUEvaluable(_ mask: Mask, longEdge: Int) -> Bool {
         if isParametric(mask) { return true }
-        guard KernelLibrary.rangeMasksAvailable else { return false }
+        guard rangeKindsOnGPU, KernelLibrary.rangeMasksAvailable else { return false }
         guard !mask.components.isEmpty else { return false }
         let r = mask.refine
         guard MaskRaster.refineRadius(feather: r.feather, longEdge: longEdge) < 1 else {
