@@ -1380,8 +1380,12 @@ public struct ColorEngine: Sendable {
             }()
             h = Self.varianceCompress(value: h, localMean: mu.h, target: s.target.h,
                                       q: s.q, beta: 1.0, weight: weight * gate, axis: .hue)
+            // Gated like hue: converging a near-neutral's chroma toward the swatch's
+            // would GIVE a selected grey colour, at whatever hue its noise points —
+            // and the Float32 path's noise points elsewhere (verifier round 1: a grey
+            // under a skin swatch left at 297° on the CPU, 180° on the twin).
             C = Self.varianceCompress(value: C, localMean: mu.C, target: s.target.C,
-                                      q: s.q, beta: 1.0, weight: weight, axis: .chroma)
+                                      q: s.q, beta: 1.0, weight: weight * gate, axis: .chroma)
             // LIGHTNESS DOES NOT TAKE PART. It did, at half weight, on the theory that
             // a neighbourhood mean would leave the texture alone — but every shipping
             // path runs the flat case, where the "mean" is the pixel itself, so −100
@@ -1458,15 +1462,27 @@ public struct ColorEngine: Sendable {
         // come along at 0.06 under a skin swatch. A neutral has r = 0 and a mixture
         // weight of exactly 0.
         //
-        // The mixture reading fades in below `r = 1` (fully on by 0.85) and is scaled
-        // by the SAMPLE's chroma gate, so it is continuous everywhere, absent for
-        // anything more colourful than the swatch, and absent for a near-neutral
-        // sample, whose "share of its colour" is noise.
+        // The mixture reading is on only below the sample's OKLab chroma (fully by
+        // 0.9 of it) and is scaled by both chroma gates, so it is continuous
+        // everywhere, absent for anything as colourful as the swatch, and absent for a
+        // near-neutral sample or pixel, whose "share of the colour" is noise.
         let tL = dL / s.sigmaL
         let tC = dC / s.sigmaC
         let share = (chi.a * s.chiA + chi.b * s.chiB) * s.chiInverseNorm
-        let g = chromaGate(s.target.C) * (1 - Num.smoothstep(0.85, 1.0, share))
-        let r = Num.clamp(share, 0, 1)
+        // Faded out on OKLAB chroma approaching the sample's, not on the share: there
+        // the absolute reading is already at full along any blend, so the hand-over
+        // cannot dip (fading on the share did — the weight rose by up to 0.05 going AWAY
+        // from the swatch, a light line across every gradient, verifier round 1). And
+        // gated by the PIXEL's chroma, so a near-neutral is never selected on its share
+        // alone: in linear light a pale near-white carries as much chroma as a deep
+        // red, and its hue is noise.
+        let g = chromaGate(s.target.C) * chromaGate(lch.C)
+            * (1 - Num.smoothstep(0.9, 1.0, lch.C / Swift.max(s.target.C, 1e-9)))
+        // More linear chroma than the swatch is not a mixture of it with a neutral — a
+        // brighter, paler colour (2062's cream pollen inside the petal) reads that way.
+        // Folded back down as `1/share`, so it leaves the reading as fast as a blend
+        // enters it, continuously at 1.
+        let r = share > 1 ? 1 / share : Swift.max(share, 0)
         let mL = tL * r
         let ramp = g > 0 ? g * Num.smoothstep(1 - s.sigmaR, 1, r) : 0
         func selection(_ tH: Double) -> Double {

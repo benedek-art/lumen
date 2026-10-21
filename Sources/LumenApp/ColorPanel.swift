@@ -1566,7 +1566,10 @@ struct PointSelectionStrip: View {
                     let w = min(max(weights[r][i], 0), 1)
                     let rect = CGRect(x: CGFloat(i) * cell, y: top,
                                       width: cell + 0.5, height: rowHeight)
-                    context.fill(Path(rect), with: .color(colours[i].opacity(0.16 + 0.84 * w)))
+                    // Squared, so the falloff reads as a falloff and the unselected
+                    // stretch sinks to a ghost: at 0.16 + 0.84·w (the first snapshot)
+                    // the whole strip read as selected.
+                    context.fill(Path(rect), with: .color(colours[i].opacity(0.07 + 0.93 * w * w)))
                 }
                 let x = size.width * CGFloat(ticks[r])
                 var tick = Path()

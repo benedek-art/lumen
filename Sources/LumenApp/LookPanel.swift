@@ -89,8 +89,13 @@ struct LookPanel: View {
     /// Spelled out because the synthesised memberwise initialiser is private the moment
     /// any stored property is, and every `@State` fold above is. Without this,
     /// `LookPanel(only:)` would not be callable from the column that draws it.
-    init(only: WorkspaceSection? = nil) {
+    ///
+    /// `primariesOpen` starts the Primaries fold open. Only the UI snapshot suite passes
+    /// it: its click-to-open could not find the fold's header in the accessibility tree,
+    /// so the six rows were never captured.
+    init(only: WorkspaceSection? = nil, primariesOpen: Bool = false) {
         self.only = only
+        self._primariesExpanded = State(initialValue: primariesOpen)
     }
 
     /// What this panel's own section headers pass for `LumenSectionHeader.topRhythm`,

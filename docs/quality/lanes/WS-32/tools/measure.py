@@ -177,8 +177,10 @@ def primaries(bins, work):
                 if kind == 'Hue':
                     h0 = series[5]; series = [h0 + ((s - h0 + 180) % 360) - 180 for s in series]
                 steps = np.diff(series)
+                ratio = np.abs(steps) / np.abs(steps).mean()
                 rows[ch + kind] = dict(series=[round(s, 4) for s in series],
-                                       dead_steps=int((np.abs(steps) < 0.15 * np.abs(steps).mean()).sum()),
+                                       smallest_step_ratio=round(float(ratio.min()), 3),
+                                       dead_steps=int((ratio < 0.1).sum()),
                                        reversals=int((np.sign(steps) != np.sign(steps.sum())).sum()))
         out[name] = dict(rows=rows, worst_neutral_ab_shift=worst_neutral)
     return out

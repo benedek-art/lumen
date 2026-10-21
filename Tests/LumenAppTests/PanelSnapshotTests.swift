@@ -268,9 +268,9 @@ final class PanelSnapshotTests: XCTestCase {
         await recorder.settle(0.3)
         await recorder.render("panel-grade-grading-primaries-open",
                               "Grade ▸ Grading with Primaries open and its six matrix rows moved",
-                              width: width, press: ["Primaries"]) {
+                              width: width) {
             SnapshotSectionCard(.grading, isModified: recorder.isModified(.grading)) {
-                LookPanel(only: .grading)
+                LookPanel(only: .grading, primariesOpen: true)
             }
         }
         await recorder.render("panel-grade-colour-point-refined",

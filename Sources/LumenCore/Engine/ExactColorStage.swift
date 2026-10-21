@@ -406,8 +406,8 @@ enum ExactColorTwin {
         // Two readings, the more generous wins — `ColorEngine.selectionWeights`.
         let chi = mul(u, 9, mul(u, 0, c))
         let share = (chi.y * m.x + chi.z * m.y) * m.z
-        let gt = gate(t.y) * (1 - smoothstep(0.85, 1, share))
-        let r = min(max(share, 0), 1)
+        let gt = gate(t.y) * gate(l.y) * (1 - smoothstep(0.9, 1, l.y / max(t.y, 1e-9)))
+        let r: Float = share > 1 ? 1 / share : max(share, 0)
         let ma = a * r
         let ramp: Float = gt > 0 ? gt * smoothstep(1 - k.z, 1, r) : 0
         func selection(_ h: Float) -> Float {
@@ -432,7 +432,7 @@ enum ExactColorTwin {
             var mu = lch(toLab(ref, u))
             if !finite(mu) { mu = l }
             h = wrapHue(h + q * (weight * g) * hueDelta(t.z, mu.z))
-            C = C + q * weight * (mu.y - t.y)
+            C = C + q * (weight * g) * (mu.y - t.y)
         }
         h += hueWeight * g * s.z
         C = max(0, C * (1 + weight * s.w / 100))
@@ -785,8 +785,9 @@ public enum ExactColorKernelSource {
         vec3 chiLMS = \(mul(0, "c"));
         vec3 chi = \(mul(9, "chiLMS"));
         float share = (chi.y * mx.x + chi.z * mx.y) * mx.z;
-        float gt = lumenGate(t.y) * (1.0 - lumenSmooth(0.85, 1.0, share));
-        float rr = clamp(share, 0.0, 1.0);
+        float gt = lumenGate(t.y) * lumenGate(l.y)
+            * (1.0 - lumenSmooth(0.9, 1.0, l.y / max(t.y, 1e-9)));
+        float rr = share > 1.0 ? 1.0 / share : max(share, 0.0);
         float ma = ea * rr;
         float ramp = gt > 0.0 ? gt * lumenSmooth(1.0 - k.z, 1.0, rr) : 0.0;
         float d = sqrt(ea * ea + eb * eb + ec * ec);
@@ -814,7 +815,7 @@ public enum ExactColorKernelSource {
             vec3 mu = lumenLCh(\(toLab("rc")));
             if (lumenFinite(mu) == false) { mu = l; }
             h = lumenWrap(h + qq * (weight * g) * lumenHueDelta(t.z, mu.z));
-            C = C + qq * weight * (mu.y - t.y);
+            C = C + qq * (weight * g) * (mu.y - t.y);
         }
         h += hueWeight * g * sg.z;
         C = max(0.0, C * (1.0 + weight * sg.w / 100.0));
