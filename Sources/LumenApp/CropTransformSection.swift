@@ -45,7 +45,7 @@ struct CropTransformSection: View {
 
     /// `initiallyExpanded` exists for the UI snapshot, which draws the fold open.
     init(initiallyExpanded: Bool = false) {
-        _expanded = State(initialValue: initiallyExpanded)
+        _expanded = .init(initialValue: initiallyExpanded)
     }
 
     private var binder: RecipeBinder { RecipeBinder(state: state) }

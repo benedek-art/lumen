@@ -74,7 +74,7 @@ public enum UprightSolver {
     // MARK: - Lines
 
     /// A segment in normalized centred y-up coordinates, with its length as weight.
-    struct Line {
+    struct ImageLine {
         var p: (Double, Double)
         var q: (Double, Double)
         var length: Double { hypot(q.0 - p.0, q.1 - p.1) }
@@ -94,11 +94,11 @@ public enum UprightSolver {
         var midpoint: (Double, Double) { ((p.0 + q.0) / 2, (p.1 + q.1) / 2) }
     }
 
-    static func lines(_ segments: [Upright.Segment], width: Double, height: Double) -> [Line] {
+    static func lines(_ segments: [Upright.Segment], width: Double, height: Double) -> [ImageLine] {
         let long = Swift.max(width, height)
         let sx = width / long, sy = height / long
         return segments.compactMap { s in
-            let l = Line(p: ((s.x0 - 0.5) * sx, (0.5 - s.y0) * sy),
+            let l = ImageLine(p: ((s.x0 - 0.5) * sx, (0.5 - s.y0) * sy),
                          q: ((s.x1 - 0.5) * sx, (0.5 - s.y1) * sy))
             return l.length > 1e-6 ? l : nil
         }
@@ -225,7 +225,7 @@ public enum UprightSolver {
     /// turned on purpose, or the lines are not what they look like.
     static let automaticRollDegrees = 15.0
 
-    static func solveAutomatic(_ mode: Upright.Mode, _ all: [Line]) -> Solution {
+    static func solveAutomatic(_ mode: Upright.Mode, _ all: [ImageLine]) -> Solution {
         var s = Solution()
         let verticals = all.filter { abs(abs($0.angle) - 90) < verticalTolerance }
         let horizontals = all.filter { abs($0.angle) < horizontalTolerance }
@@ -271,7 +271,7 @@ public enum UprightSolver {
         return s
     }
 
-    static func solveGuided(_ guides: [Line]) -> Solution {
+    static func solveGuided(_ guides: [ImageLine]) -> Solution {
         var s = Solution()
         let verticals = guides.filter { abs($0.angle) >= 45 }
         let horizontals = guides.filter { abs($0.angle) < 45 }
@@ -298,7 +298,7 @@ public enum UprightSolver {
     }
 
     /// A line's own direction as a vanishing point at infinity.
-    static func direction(_ l: Line) -> (Double, Double, Double) {
+    static func direction(_ l: ImageLine) -> (Double, Double, Double) {
         (l.q.0 - l.p.0, l.q.1 - l.p.1, 0)
     }
 
@@ -333,7 +333,7 @@ public enum UprightSolver {
     }
 
     /// Length-weighted median deviation from horizontal, as the roll that cancels it.
-    static func levelRoll(_ lines: [Line]) -> Double {
+    static func levelRoll(_ lines: [ImageLine]) -> Double {
         guard !lines.isEmpty else { return 0 }
         let sorted = lines.map { ($0.angle, $0.length) }.sorted { $0.0 < $1.0 }
         let half = sorted.reduce(0) { $0 + $1.1 } / 2
@@ -355,7 +355,7 @@ public enum UprightSolver {
 
     /// Angle between a segment and the direction from its midpoint to a homogeneous
     /// point, in degrees (0…90).
-    static func deviation(_ l: Line, _ v: (Double, Double, Double)) -> Double {
+    static func deviation(_ l: ImageLine, _ v: (Double, Double, Double)) -> Double {
         let m = l.midpoint
         var dir: (Double, Double)
         if abs(v.2) < 1e-12 {
@@ -374,7 +374,7 @@ public enum UprightSolver {
     /// weighted least-squares refinement on the inliers. A vertical vanishing point must
     /// lie above or below the frame (within 35° of the y-axis as seen from the centre),
     /// a horizontal one left or right of it.
-    static func vanishingPoint(_ lines: [Line], nearVertical: Bool) -> Vanishing? {
+    static func vanishingPoint(_ lines: [ImageLine], nearVertical: Bool) -> Vanishing? {
         guard lines.count >= 2 else { return nil }
         let pool = Array(lines.sorted { $0.length > $1.length }.prefix(60))
         let threshold = 1.5
