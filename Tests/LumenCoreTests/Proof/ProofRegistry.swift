@@ -424,18 +424,24 @@ enum ProofRegistry {
     ///
     /// So a re-pin here has to say both halves. Saying only "the frame changed" would
     /// describe a measurement that got wider and hide a control that got fixed.
+    // WS-18: Amount and Radius are swept on a SOFT step (σ 1), because S12 now holds
+    // every pixel to its neighbourhood's range and an ideal step only measures the halo
+    // Detail lets back in; Halo Damping runs at Detail 100, where there is overshoot
+    // for it to take; Masking runs on texture beside a noise ramp, so its whole travel
+    // has something to withhold. Floors re-measured on the new stage and set at ~80 %
+    // of the reading, never under docs/20's 2.9-level visibility bar.
     static let sharpen: [ControlSpec] = [
         ControlSpec(
             id: "sharpen.amount", panel: "Detail", displayName: "Sharpen amount",
             low: 0, high: 150,
-            frameName: "wideStepEdge", frame: { ProofFrames.wideStepEdge() },
-            authorityFloor: 29, mayLeaveRange: false,
+            frameName: "wideSoftStepEdge", frame: { ProofFrames.wideSoftStepEdge() },
+            authorityFloor: SharpenFloors.amount, mayLeaveRange: false,
             apply: { r, v in r.develop.detail.sharpen.amount = v }),
         ControlSpec(
             id: "sharpen.radius", panel: "Detail", displayName: "Sharpen radius",
             low: 0.5, high: 3.0, neutral: 1.0,
-            frameName: "wideStepEdge", frame: { ProofFrames.wideStepEdge() },
-            authorityFloor: 17, mayLeaveRange: false,
+            frameName: "wideSoftStepEdge", frame: { ProofFrames.wideSoftStepEdge() },
+            authorityFloor: SharpenFloors.radius, mayLeaveRange: false,
             apply: { r, v in
                 // Radius does nothing without amount to apply at that radius.
                 r.develop.detail.sharpen.amount = 100
@@ -460,30 +466,42 @@ enum ProofRegistry {
         //
         // Third time this exact mistake has been caught in this repository, twice by
         // this harness against its own author. A control swept on a frame that does not
-        // contain its subject is an INVALID PROBE, not a result (docs/20).
+        // contain its subject is an INVALID PROBE, not a result (docs/20). The fourth:
+        // texture ALONE has no flat area for low Masking to act on (WS-18), hence the
+        // noise ramp beside it.
         ControlSpec(
             id: "sharpen.masking", panel: "Detail", displayName: "Sharpen masking",
             low: 0, high: 100,
-            frameName: "wideFineTexture", frame: { ProofFrames.wideFineTexture() },
-            authorityFloor: 10, mayLeaveRange: false,
+            frameName: "textureAndNoiseRamp", frame: { ProofFrames.textureAndNoiseRamp() },
+            authorityFloor: SharpenFloors.masking, mayLeaveRange: false,
             apply: { r, v in
                 r.develop.detail.sharpen.amount = 100
                 r.develop.detail.sharpen.masking = v
             }),
-        // Suppression measures on the same hard edge Amount rims, with Amount pushed
-        // so there is a halo to suppress — its whole visible effect is taking the
-        // overshoot back down, which is small by nature and still a control.
+        // Damping takes back the bright overshoot Detail lets past the halo bound, so it
+        // is measured at Detail 100 on the hard edge, where that overshoot is largest.
         ControlSpec(
             id: "sharpen.haloSuppression", panel: "Detail",
             displayName: "Halo suppression",
             low: 0, high: 100,
             frameName: "wideStepEdge", frame: { ProofFrames.wideStepEdge() },
-            authorityFloor: 25, mayLeaveRange: false,
+            authorityFloor: SharpenFloors.halo, mayLeaveRange: false,
             apply: { r, v in
                 r.develop.detail.sharpen.amount = 120
+                r.develop.detail.sharpen.detail = 100
                 r.develop.detail.sharpen.haloSuppression = v
             }),
     ]
+
+    /// Re-measured floors for the WS-18 stage (see the note above `sharpen`), each ~80 %
+    /// of the reading it was set from: Amount 22.4, Radius 23.8, Masking 24.5,
+    /// Halo Damping 23.7 levels.
+    enum SharpenFloors {
+        static let amount: Double = 18
+        static let radius: Double = 19
+        static let masking: Double = 19
+        static let halo: Double = 19
+    }
 
     /// The colour mixer: eight bands, three controls each, on the chart.
     ///

@@ -72,14 +72,17 @@ enum CaptureKernels {
     """
 
     /// `CaptureStage.clampedDelta`: the correction scaled by gate × strength, then
-    /// held inside the 3×3 range except at a genuine one- or two-pixel peak or trough.
+    /// held inside the 3×3 range except at a genuine one- or two-pixel peak or trough
+    /// that stands 3–6 noise σ clear of its neighbours.
     /// The four directions are written out rather than looped over an array, which the
     /// kernel language does not reliably accept. Reach 2.
     static let deltaSource = """
     kernel vec4 lumenCaptureDelta(sampler observed, sampler deconvolved, sampler gate,
-                                  float allowance, float lumFloor, float strength) {
+                                  float allowance, float lumFloor, float strength,
+                                  float shot, float read, float sigLo, float sigHi) {
         vec2 p = destCoord();
-        float c = log2(max(sample(observed, samplerTransform(observed, p)).r, lumFloor));
+        float yc = max(sample(observed, samplerTransform(observed, p)).r, lumFloor);
+        float c = log2(yc);
         float mn = c;
         float mx = c;
         float up = 0.0;
@@ -140,7 +143,10 @@ enum CaptureKernels {
                            lumFloor));
         float g = clamp(sample(gate, samplerTransform(gate, p)).r, 0.0, 1.0);
         float wanted = c + (t - c) * g * strength;
-        float d = clamp(wanted, mn - allowance * dn, mx + allowance * up) - c;
+        float sigma = sqrt(max(shot * yc + read, 1e-12)) / (yc * 0.6931471805599453);
+        float wUp = smoothstep(sigLo * sigma, sigHi * sigma, up);
+        float wDn = smoothstep(sigLo * sigma, sigHi * sigma, dn);
+        float d = clamp(wanted, mn - allowance * wDn * dn, mx + allowance * wUp * up) - c;
         return vec4(d, d, d, 1.0);
     }
     """
@@ -294,7 +300,10 @@ extension RenderGraph {
                 CaptureKernels.delta, extent: extent, reach: 2,
                 [RenderGraph.clamped(lum), RenderGraph.clamped(estimate),
                  RenderGraph.clamped(gate), Float(CaptureStage.peakAllowance),
-                 Float(CaptureStage.logFloor), Float(stage.strength)])
+                 Float(CaptureStage.logFloor), Float(stage.strength),
+                 Float(stage.profile.a), Float(stage.profile.b),
+                 Float(CaptureStage.peakSignificanceLow),
+                 Float(CaptureStage.peakSignificanceHigh)])
         else { return nil }
         return KernelLibrary.apply(KernelLibrary.lumaRatio, extent: extent,
                                    [image, delta, Float(CaptureStage.limitEV)])

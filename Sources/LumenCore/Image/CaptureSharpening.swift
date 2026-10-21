@@ -96,17 +96,19 @@ public struct CaptureStage: Sendable, Equatable {
     /// luminance, so in units of the noise σ. Pure noise at the profile's own level
     /// averages 0.88 and peaks at 1.56 (measured, 512² flat field, ISO 100 and 6400
     /// seed profiles alike — the transform makes them the same). Real bodies run
-    /// noisier than the generic seed profile: measured on the G9 ISO 3200 frame's flat
-    /// wall, 1.25–1.75× the profile σ. 2.5 keeps a sensor up to 1.6× noisier than its
-    /// profile shut on a flat field; 4.5 opens fully on texture a few σ strong.
+    /// noisier than the generic seed profile: 1.25–1.75× on the G9 ISO 3200 frame's
+    /// flat wall and 2–4× on its fabric. The first cut (2.5/4.5) opened on that
+    /// fabric and the verifier measured isolated bright specks up ~7× with default
+    /// capture sharpening; 4/7 keeps a sensor ~2.5× noisier than its profile shut, at
+    /// a cost of 0.05 in acutance gain on the ISO 250 A7 IV crop (1.34× → 1.28×).
     ///
     /// Why the gradient is averaged rather than the plane blurred first (which is what
     /// the denoise's edge map does): blurring by σ 1.5 first removes 94 % of a 4 px
     /// grating's amplitude, so the gate never opened on exactly the fine texture
     /// capture sharpening exists for — a blurred 4 px grating took 0 % gain.
     /// Averaging |∇| keeps the texture's energy and still averages the noise down.
-    public static let gateLow: Double = 2.5
-    public static let gateHigh: Double = 4.5
+    public static let gateLow: Double = 4
+    public static let gateHigh: Double = 7
     /// The most the stage may move a pixel, in EV.
     public static let limitEV: Double = 2
     /// Floor under luminance before the log, the same order as RL's own division floor.
@@ -169,7 +171,7 @@ public struct CaptureStage: Sendable, Equatable {
         let deconvolved = Self.richardsonLucy(lum, taps: Self.gaussianTaps(sigma: sigma),
                                               iterations: Self.iterations)
         let gate = gate(luminance: lum)
-        let delta = Self.clampedDelta(observed: lum, deconvolved: deconvolved,
+        let delta = clampedDelta(observed: lum, deconvolved: deconvolved,
                                       gate: gate, strength: strength)
 
         var out = image
@@ -264,22 +266,45 @@ public struct CaptureStage: Sendable, Equatable {
     /// (one side is always the plateau), and a plateau three pixels wide is an edge
     /// pair, as it should be. The two-pixel term is discounted by how far the paired
     /// pixel is from level, so the shoulder of a one-pixel peak does not qualify.
-    static func clampedDelta(observed: Plane, deconvolved: Plane, gate: Plane,
-                             strength: Double) -> Plane {
+    func clampedDelta(observed: Plane, deconvolved: Plane, gate: Plane,
+                      strength: Double) -> Plane {
         let w = observed.width
         let h = observed.height
-        let lo = observed.map { log2(Swift.max($0, logFloor)) }
+        let lo = observed.map { log2(Swift.max($0, Self.logFloor)) }
         var out = Plane(width: w, height: h)
         for y in 0..<h {
             for x in 0..<w {
                 let c = lo[x, y]
-                let bounds = peakBounds(lo, x, y, allowance: peakAllowance)
-                let target = log2(Swift.max(deconvolved[x, y], logFloor))
+                let n = Self.peakExtents(lo, x, y)
+                // A peak earns its allowance only once it stands clear of this ISO's
+                // noise: a one-pixel spike of sensor noise IS a one-pixel peak, and on
+                // the G9 ISO 3200 fabric the unweighted allowance grew isolated bright
+                // specks ~7× (the WS-18 verifier's B1). σ in log2 units at this level.
+                let sigma = noiseLog2Sigma(level: observed[x, y])
+                let wUp = Num.smoothstep(Self.peakSignificanceLow * sigma,
+                                         Self.peakSignificanceHigh * sigma, n.up)
+                let wDown = Num.smoothstep(Self.peakSignificanceLow * sigma,
+                                           Self.peakSignificanceHigh * sigma, n.down)
+                let target = log2(Swift.max(deconvolved[x, y], Self.logFloor))
                 let wanted = c + (target - c) * Num.saturate(gate[x, y]) * strength
-                out[x, y] = Num.clamp(wanted, bounds.lo, bounds.hi) - c
+                out[x, y] = Num.clamp(wanted, n.mn - Self.peakAllowance * wDown * n.down,
+                                      n.mx + Self.peakAllowance * wUp * n.up) - c
             }
         }
         return out
+    }
+
+    /// A peak must stand this many noise σ (of the PROFILE, which real sensors exceed —
+    /// see `gateLow`) above its neighbours before it is extended. 8/16 rather than a
+    /// textbook 3/6 for that reason: at 3/6 the G9 ISO 3200 fabric still grew its
+    /// specks 3×; at 8/16 the fine detail of the ISO 250 A7 IV frame keeps its gain.
+    public static let peakSignificanceLow: Double = 8
+    public static let peakSignificanceHigh: Double = 16
+
+    /// The profile's noise σ at a linear level, in log2 units.
+    func noiseLog2Sigma(level y: Double) -> Double {
+        let v = Swift.max(y, Self.logFloor)
+        return profile.sigma(at: v) / (v * M_LN2)
     }
 
     /// The range a pixel may move to without drawing a halo: the 3×3 [min, max],
@@ -288,6 +313,14 @@ public struct CaptureStage: Sendable, Equatable {
     /// (`SharpenStage`), and written out the same way in both GPU kernels.
     static func peakBounds(_ p: Plane, _ x: Int, _ y: Int,
                            allowance: Double) -> (lo: Double, hi: Double) {
+        let n = peakExtents(p, x, y)
+        return (n.mn - allowance * n.down, n.mx + allowance * n.up)
+    }
+
+    /// The 3×3 [min, max] and how far the pixel stands proud as a one- or two-pixel
+    /// peak (`up`) or trough (`down`) along any of four directions.
+    static func peakExtents(_ p: Plane, _ x: Int, _ y: Int)
+        -> (mn: Double, mx: Double, up: Double, down: Double) {
         let c = p[x, y]
         var mn = c
         var mx = c
@@ -307,6 +340,6 @@ public struct CaptureStage: Sendable, Equatable {
             down = Swift.max(down, Swift.min(a2, b1) - c - abs(a1 - c))
             down = Swift.max(down, Swift.min(a1, b2) - c - abs(b1 - c))
         }
-        return (mn - allowance * down, mx + allowance * up)
+        return (mn, mx, up, down)
     }
 }

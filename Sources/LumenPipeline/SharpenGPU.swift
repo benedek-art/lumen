@@ -13,7 +13,9 @@
 //   image × ratio                       `KernelLibrary.multiply`
 //
 // The old path (log-luminance USM, à-trous fine band, `structureTensor` mask) is gone
-// from the render; its kernels stay compiled because other goldens still read them.
+// from the render. Its `sharpenDelta` kernel is deleted; `RenderGraph.fineDetailBand`
+// and `SpatialOps.fineDetailBand` stay only because KernelGoldenTests and
+// ScaleHonestyTests pin them as operators — nothing in the render calls them.
 
 #if os(macOS)
 

@@ -36,6 +36,7 @@ S4.
 | C7 | no hue shift | per-pixel R/G and B/G unchanged to 1e-5 | `CaptureStageTests.testItCannotShiftHue` |
 | C8 | GPU = CPU | ratio difference < 2e-3 (f32), < 2e-2 (f16) | `CaptureSharpenParityTests` (macOS CI) |
 | C9 | real photos | 6929 crops: acutance proxy (mean |∇| over OFF's top-10 % gradient pixels) up ≥ 10 %; 2348 flat wall std ratio ≤ 1.02 | `measure_capture.py --real` |
+| C11 | high-ISO fabric is not gritted (verifier round 1, B1) | default S4 on the native `2348_jacket` crop (ISO 3200): isolated bright specks (pixels > 25 codes above their 5×5 median) ≤ 1.2× OFF, mean shift ≤ 0.02 EV | speck count on `lumen-render --iso 3200` renders, REPORT |
 | C10 | Radius is live in the app | the capture section has a Radius row bound to `detail.capture.radius`; no panel text claims a measurement | `CaptureSharpenScopeTests`, `LayoutMetricSelfTests` (macOS) |
 
 ## Creative sharpening (S12)

@@ -3,9 +3,10 @@
 // The guard on the sharpening proof frames' SIZE, which is the half of E2-04 that a
 // green suite hid.
 //
-// Sharpening's radius is denominated in the frame — `SpatialOps.frameDenominatedSigma`,
-// `radius × longEdge / 2560` — so the frame a sharpen control is swept on decides
-// whether the stage runs at all. On the 128 px `stepEdge` the five records used, the
+// Sharpening's radius WAS denominated in the frame — `radius × longEdge / 2560` — so the
+// frame a sharpen control was swept on decided whether the stage ran at all (it is in
+// native pixels since WS-18, which removes that coupling; the guard below now reads the
+// stage's own sigma). On the 128 px `stepEdge` the five records used, the
 // whole of Radius's 0.5…3.0 travel scaled to σ = 0.025…0.15, `SpatialOps.gaussianBlur`
 // returned the plane untouched below its own `sigma > 0.05` floor, and every render in
 // the sweep came out byte-identical: authority 0.0000 with 20 dead steps, on controls
@@ -40,10 +41,14 @@ final class SharpeningFrameTests: XCTestCase {
             let frame = spec.frame()
             let longEdge = Swift.max(frame.width, frame.height)
             let travel = radiusTravel(spec)
-            let smallest = SpatialOps.frameDenominatedSigma(radius: travel.low,
-                                                            longEdge: longEdge)
-            let largest = SpatialOps.frameDenominatedSigma(radius: travel.high,
-                                                           longEdge: longEdge)
+            // Radius is native pixels now (WS-18) and a proof frame renders at decode
+            // scale 1, so the frame's size no longer moves the sigma — but the guard
+            // stays, against the stage's own arithmetic, so a future denomination
+            // change cannot shrink the probe silently.
+            let smallest = SharpenStage(ManualSharpen(amount: 100, radius: travel.low),
+                                        decodeScale: 1).sigma
+            let largest = SharpenStage(ManualSharpen(amount: 100, radius: travel.high),
+                                       decodeScale: 1).sigma
 
             // THE ENGINE'S OWN FLOOR, restated rather than called: below `sigma > 0.05`
             // `SpatialOps.gaussianBlur` returns the plane untouched, so the unsharp half

@@ -279,6 +279,44 @@ enum ProofFrames {
         fineTexture(width: width, height: height)
     }
 
+    /// `wideStepEdge` as a lens and a demosaic deliver it: Gaussian σ 1 px. A
+    /// sharpener's subject is BLUR. On an ideal step the only thing a halo-free
+    /// sharpener (S12 since WS-18, which holds every pixel to its neighbourhood's range)
+    /// can add is overshoot, so sweeping Amount there measured the halo and called it
+    /// authority — the old floors (29 on Amount) were set by the rim the stage no
+    /// longer draws.
+    static func wideSoftStepEdge(width: Int = 2048, height: Int = 32) -> ImageBuffer {
+        let sharp = stepEdge(width: width, height: height)
+        let row = Plane(width: width, height: 1) { u, _ in
+            sharp[Swift.min(Int(u * Double(width)), width - 1), 0].g
+        }
+        let soft = SpatialOps.gaussianBlur(row, sigma: 1.0)
+        return ImageBuffer(width: width, height: height) { u, _ in
+            RGB(gray: soft[Swift.min(Int(u * Double(width)), width - 1), 0])
+        }
+    }
+
+    /// `fineTexture` beside a flat field whose noise amplitude ramps from 0 to ±30 % of
+    /// mid-grey. Masking's job is to tell texture from flat and noise; `fineTexture`
+    /// alone has no flat area, so the low end of Masking had nothing to withhold and
+    /// read as dead steps — the invalid probe the Masking entry in ProofRegistry
+    /// already warns about, one level down. The ramp gives every Masking setting a
+    /// band of gradients at its knee: ±6 % left 90…100 dead, because Masking 90's knee
+    /// (0.031/px of √Y) sits above the noisiest pixel. Deterministic noise.
+    static func textureAndNoiseRamp(width: Int = 2048, height: Int = 32) -> ImageBuffer {
+        let texture = fineTexture(width: width / 2, height: height)
+        var state: UInt64 = 0x5EED_0F_A5C
+        return ImageBuffer(width: width, height: height) { u, v in
+            let x = Swift.min(Int(u * Double(width)), width - 1)
+            let y = Swift.min(Int(v * Double(height)), height - 1)
+            if x < width / 2 { return texture[x, y] }
+            state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+            let n = Double(state >> 11) / Double(1 << 53) * 2 - 1
+            let amplitude = 0.30 * Double(x - width / 2) / Double(width / 2)
+            return RGB(gray: midGrey * (1 + amplitude * n))
+        }
+    }
+
     /// A grey ramp at a long edge big enough that a grain plate cell exceeds a pixel —
     /// 4096 px, where the plate scale runs 0.68…2.7 across Grain Size's 0.5…2.0 travel.
     ///

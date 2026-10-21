@@ -97,10 +97,11 @@ struct DetailPanel: View {
             // A comment is not a modifier, and this is how that survived: nothing could
             // fail. `CaptureSharpenScopeTests` now reads this line.
             //
-            // Why it reaches nothing: both the toggle and the Amount row write fields
-            // whose ONLY reader is `AppleRawSource` — the raw decoder — and a rendered
-            // file goes through `RenderedImageSource`, whose whole `decode` reads
-            // nothing out of the recipe but the scale factor. docs/06 §Capture
+            // Why it reaches nothing: the toggle, Amount and Radius feed S4
+            // (`RenderPlan.capture`), and a plan built without a capture ISO has no S4 —
+            // a rendered file goes through `RenderedImageSource`, which reports
+            // `iso: nil` and whose `decode` reads nothing out of the recipe but the
+            // scale factor. docs/06 §Capture
             // Sharpening has said so from the start: "on (raw only)", "off for
             // JPEG/HEIC (already sharpened in camera)". Only the code disagreed.
             //
@@ -145,10 +146,9 @@ struct DetailPanel: View {
     /// (`CaptureStageTests`).
     private var captureToggleHelp: String {
         if isRenderedFile {
-            return "Capture sharpening happens inside the raw decode, which this file "
-                + "does not go through — it was demosaiced and sharpened in the camera, "
-                + "so there is nothing here for this stage to undo. Sharpening below "
-                + "does run on this file."
+            return "Capture sharpening runs only on raw files. This one was demosaiced "
+                + "and sharpened in the camera, so there is nothing here for the stage "
+                + "to undo. Sharpening below does run on this file."
         }
         return "Undoes the softness the lens, the sensor and the demosaic leave, by "
             + "deconvolution right after noise reduction. It never touches flat areas "
@@ -248,10 +248,9 @@ struct DetailPanel: View {
     /// arguments (docs/31 postscript), so branching help stays out of call sites.
     private var captureStateHelp: String {
         if isRenderedFile {
-            return "Capture sharpening is part of the raw decode, which a JPEG, HEIC or "
-                + "TIFF does not go through — so no capture stage runs on this "
-                + "photograph and the switch above is off and disabled. Manual "
-                + "sharpening below does run."
+            return "Capture sharpening runs only on raw files, so no capture stage "
+                + "runs on this JPEG, HEIC or TIFF and the switch above is off and "
+                + "disabled. Manual sharpening below does run."
         }
         if hasCaptureOverride {
             return "Manual — a hand-set Amount or Radius is in use. "
@@ -272,9 +271,8 @@ struct DetailPanel: View {
     /// if the gate above it is ever loosened.
     private var captureAmountHelp: String {
         if isRenderedFile {
-            return "Capture sharpening is part of the raw decode, which this file "
-                + "does not go through — so this changes nothing here. Manual "
-                + "sharpening below does run."
+            return "Capture sharpening runs only on raw files, so this changes nothing "
+                + "here. Manual sharpening below does run."
         }
         return "How much of the deconvolution to apply: 100 restores the default "
             + "radius's blur, lower backs it off, higher pushes past it. Edges stay "

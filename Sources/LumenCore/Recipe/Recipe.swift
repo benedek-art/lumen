@@ -1004,10 +1004,11 @@ public struct Detail: Codable, Equatable, Sendable {
     }
 }
 
-/// Capture sharpening (D24): auto-radius RL deconvolution, on by default for raw.
+/// Capture sharpening (D24): Lumen's RL deconvolution at S4 (`CaptureStage`), on by
+/// default for raw. Rendered files have no S4 whatever this says.
 public struct CaptureSharpen: Codable, Equatable, Sendable {
     public var auto: Bool
-    public var radius: Double?      // manual override; nil = auto-estimated
+    public var radius: Double?      // PSF σ in native pixels; nil = CaptureStage.defaultRadius (0.8)
     /// Manual strength override as a PERCENTAGE, 0…150, matching `ManualSharpen.amount`
     /// and every other amount in the recipe. `nil` = auto, which means 100.
     ///
@@ -1019,7 +1020,7 @@ public struct CaptureSharpen: Codable, Equatable, Sendable {
     /// The largest multiple of the auto strength the control will apply.
     public static let maxStrength: Double = 1.5
 
-    /// What the measured capture-sharpening strength gets multiplied by.
+    /// What the default capture-sharpening strength gets multiplied by.
     ///
     /// Here rather than in the RAW stage because the two branches were inverted there
     /// and nothing could see it: `auto == false` recomputed `100 / 100 == 1` and applied
