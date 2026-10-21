@@ -23,7 +23,7 @@ a 5 x 5 mean). Regions are hand-defined in `regions.py`. Baseline = `claude/insp
 Visual (human):
 - V1 `evidence/cr_2062_crop.png`: the poppy reads solid, no salt-and-pepper inside or around it at 100%.
 - V2 `evidence/cr_8559_sweep.png`: the whole can is selected including its shaded underside; the terracotta pot and the bench are not, at 25/50/75.
-- V3 panel snapshot `panel-masks-colour-range`: sample chips, + / -, Refine slider are legible and fit.
+- V3 the Colour Range editor (chips, + / -, Tolerance) is legible and fits. NOT CAPTURABLE: the snapshot harness cannot open the mask chevron; owner checks by hand.
 
 ## Revisions (made before verification, with the reason)
 

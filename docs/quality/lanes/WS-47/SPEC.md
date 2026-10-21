@@ -20,7 +20,7 @@ fixed -10..+4 axis.
 Visual (human):
 - V1 `evidence/lr_983_sweep.png`: snow selected, sky stays black at Smooth 0/50/100, Smooth only softens the edge inside the band.
 - V2 `evidence/lr_2348_crop.png`: the jacket band edge is a soft region, not salt-and-pepper.
-- V3 panel snapshot `panel-masks-luma-range`: a luminance map strip under From/To shows the band and its falloff on the EV axis.
+- V3 panel snapshot `panel-masks-luma-band-strip`: the luminance map strip (drawn standalone; the harness cannot open the mask chevron that discloses the editor) shows the band and its falloff on the EV axis.
 
 ## Revisions (made before verification, with the reason)
 

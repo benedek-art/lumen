@@ -1269,10 +1269,12 @@ public enum MaskRaster {
 
     /// Box radius of the measurement denoise: 1/800 of the long edge, so the same mask
     /// reads the same part of the frame on screen and in the export (3 px at 2400, 1 px
-    /// at the 1024 px proxy). Below 400 px it rounds to 0 and the filter is off: a frame
-    /// that small is an area-average of the photograph with little noise left, and there
-    /// a 5 × 5 high-pass mistakes fine texture for noise (ScaleHonestyTests' 48-cycle
-    /// modulation is a 6 px period at 300 px).
+    /// at the 1024 px proxy). Below 400 px it rounds to 0 and the filter is off, because
+    /// there a 5 × 5 high-pass mistakes fine texture for noise (ScaleHonestyTests'
+    /// 48-cycle modulation is a 6 px period at 300 px) and the preview's selection would
+    /// stop matching the export's. The cost is real: an ISO 3200 band edge at 390 px
+    /// speckles again (2348: 4,470 specks/MP against 459 at 410 px). Only thumbnails
+    /// rasterize that small.
     static func rangeMeasurementRadius(longEdge: Int) -> Int {
         Int((Double(longEdge) / 800).rounded())
     }
