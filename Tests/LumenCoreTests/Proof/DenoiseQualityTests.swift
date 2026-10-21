@@ -32,6 +32,25 @@ final class DenoiseQualityTests: XCTestCase {
                          profile: profile).apply(frame)
     }
 
+    /// `cleanISO6400` sampled onto an RGGB mosaic and demosaiced, with and without
+    /// per-photosite noise from the engine's own ISO-6400 profile: the clean twin goes
+    /// through the same demosaic, so the residual scores the denoiser and not the
+    /// interpolation.
+    ///
+    /// The two residual-error claims below were scored on `noisyISO6400`, whose noise is
+    /// white per pixel and drawn from its own electron model (1500 e⁻ full well, 3 e⁻
+    /// read). The engine is now calibrated to what real decodes carry — a profile
+    /// measured on the corpus (`NoiseProfile.corpusVarianceScale`) and band noise
+    /// measured on demosaiced frames — so on that frame it reads σ about 1.75× too high
+    /// and the noise as coarser than it is, and over-smooths a frame no camera produces.
+    /// The claims are kept and the bars unchanged; the frame is the kind S3 is given.
+    private func demosaicedISO6400(noisy: Bool) -> ImageBuffer {
+        let clean = ProofFrames.cleanISO6400()
+        return DemosaicedFrames.make({ clean[$0, $1] }, width: clean.width,
+                                     height: clean.height,
+                                     profile: noisy ? profile : nil, seed: 6400)
+    }
+
     // MARK: - The residual-error axis
 
     /// The floor under the whole stage: at maximum, denoise must still be an improvement
@@ -43,8 +62,8 @@ final class DenoiseQualityTests: XCTestCase {
     /// whole slider doing it. On a noisy colour chart at ISO 6400 the shipped ISO default
     /// was over 100%: worse than off.
     func testDenoiseAtMaximumStillBeatsLeavingTheNoiseIn() {
-        let clean = ProofFrames.cleanISO6400()
-        let noisy = ProofFrames.noisyISO6400()
+        let clean = demosaicedISO6400(noisy: false)
+        let noisy = demosaicedISO6400(noisy: true)
         let base = ProofMetrics.rmsAgainst(clean, noisy)
         XCTAssertGreaterThan(base, 3.0, "the proof frame carries no noise to remove")
 
@@ -62,8 +81,8 @@ final class DenoiseQualityTests: XCTestCase {
     /// Measured at 1.730 before the travel was bounded — the last three quarters of both
     /// sliders bought negative quality and nothing in the suite could say so.
     func testTheTopOfTheTravelDoesNotGiveBackWhatTheMiddleWon() {
-        let clean = ProofFrames.cleanISO6400()
-        let noisy = ProofFrames.noisyISO6400()
+        let clean = demosaicedISO6400(noisy: false)
+        let noisy = demosaicedISO6400(noisy: true)
 
         var best = Double.infinity
         var byStep = [(slider: Double, rms: Double)]()
@@ -301,18 +320,39 @@ final class DenoiseQualityTests: XCTestCase {
 
     // MARK: - The bound is on the curve, not on one call site
 
-    /// Both master curves are bounded at the same measured ceiling and anchored so the
-    /// mid travel keeps its authority. Pinning the anchors here means a future edit that
-    /// re-raises the ceiling has to come past a named number rather than a magic one.
+    /// Both master curves are bounded, and anchored so the mid travel keeps its
+    /// authority. Pinning the anchors here means a future edit that re-raises a ceiling
+    /// has to come past a named number rather than a magic one.
+    ///
+    /// The ceiling used to be 2.5 on k itself, in white-noise σ. k is now a scale on
+    /// per-band weights in units of each band's MEASURED noise (`lumaBandWeight`,
+    /// `chromaBandWeight`), so the bound that means what the old one meant — "past
+    /// here a soft threshold keeps almost nothing of a band and every further step is
+    /// paid in texture" — is on the largest luma threshold in band-noise σ: 3σ at
+    /// Luminance 100 (finest band), about 1.9 % of a band kept. Measured on the
+    /// demosaiced ground-truth sims (WS-19 SPEC 19.6), fine-texture retention falls
+    /// 0.975 → 0.794 over the travel in even steps with no dead stretch. Chroma's
+    /// finest band is zeroed by design (it carries no chroma signal), so its bound is
+    /// on the master scale: Colour 100 is (100/25)^0.75 of the default.
     func testBothMasterCurvesAreBoundedAtTheMeasuredCeiling() {
         XCTAssertEqual(ClassicalDenoise.lumaK(100), ClassicalDenoise.lumaMaxK,
                        accuracy: 1e-12)
         XCTAssertEqual(ClassicalDenoise.chromaK(100), ClassicalDenoise.chromaMaxK,
                        accuracy: 1e-12)
-        XCTAssertLessThanOrEqual(ClassicalDenoise.lumaMaxK, 2.5,
-                                 "past 2.5σ a soft threshold keeps under 5% of a band "
-                                     + "and every further step is paid in texture")
-        XCTAssertLessThanOrEqual(ClassicalDenoise.chromaMaxK, 2.5)
+        let largestLumaWeight = ClassicalDenoise.lumaBandWeight.max() ?? 0
+        XCTAssertLessThanOrEqual(ClassicalDenoise.lumaMaxK * largestLumaWeight, 3.0,
+                                 "past 3σ of a band's real noise a soft threshold keeps "
+                                     + "under 2% of it and every further step is paid "
+                                     + "in texture")
+        XCTAssertEqual(ClassicalDenoise.chromaMaxK, pow(4, 0.75), accuracy: 1e-12)
+        // And a bound on what chroma can actually reach where chroma signal lives:
+        // bands 1 and up (2 px and coarser). Band 0 is excluded on purpose — it holds
+        // no chroma signal and is zeroed at every setting. 8σ of a band's real noise
+        // is where the thinnest colour edges the edge map does not protect start to go.
+        let reachable = ClassicalDenoise.chromaBandWeight.dropFirst().max() ?? 0
+        XCTAssertLessThanOrEqual(ClassicalDenoise.chromaMaxK * reachable, 8.0,
+                                 "Colour 100 reaches \(ClassicalDenoise.chromaMaxK * reachable)σ "
+                                     + "in the bands that carry colour detail")
 
         // The anchors are what stop the bound from being a quiet weakening: each master
         // must still reach its stated strength at its stated setting.

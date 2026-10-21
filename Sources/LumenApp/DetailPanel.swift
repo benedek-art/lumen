@@ -629,10 +629,9 @@ struct DetailPanel: View {
                             defaultValue: isoDefault.classic.colorDetail,
                             step: 1, decimals: 0, bipolar: false,
                             indented: true,
-                            help: "Protects thin colour edges.",
+                            help: "Protects colour edges and fine colour texture. "
+                                + "Lower removes more speckle.",
                             onReset: { state.resetDenoise(.colorDetail) })
-                // The one row here with a cost worth naming, so it is named on the
-                // row rather than in a paragraph four rows below it.
                 LumenSlider(title: "Smoothness",
                             value: binder.value(\.develop.denoise.classic.colorSmoothness,
                                                 "denoise.classic.colorSmoothness"),
@@ -640,19 +639,18 @@ struct DetailPanel: View {
                             defaultValue: isoDefault.classic.colorSmoothness,
                             step: 1, decimals: 0, bipolar: false,
                             indented: true,
-                            help: "Reaches the large blotches. Its guided pass follows "
-                                + "luminance, so it softens a boundary that is pure "
-                                + "colour.",
+                            help: "Shifts colour smoothing toward the large blotches. "
+                                + "Higher evens out more of them.",
                             onReset: { state.resetDenoise(.colorSmoothness) })
                 LumenSlider(title: "Hot Pixels",
                             value: binder.value(\.develop.denoise.classic.hotPixels,
                                                 "denoise.classic.hotPixels"),
                             range: 0...100, hardRange: nil, defaultValue: 0,
                             step: 1, decimals: 0, bipolar: false,
-                            help: "Replaces lone pixels sitting far off their "
-                                + "neighbours — the stuck bright or dark specks long "
-                                + "exposures and high ISO leave. Raise it until they "
-                                + "vanish; it only ever touches extremes.")
+                            help: "Removes stuck sensor pixels: single-colour specks "
+                                + "and pinpoints sharper than any lens draws. Stars "
+                                + "and highlights are left alone. Raise it until the "
+                                + "specks vanish.")
             }
         case .ai:
             VStack(alignment: .leading, spacing: Lumen.rowGap) {

@@ -582,17 +582,21 @@ final class EngineIntegrationTests: XCTestCase {
         // hypothetical here: `aiAmountAnchors` IS deliberately flat over part of its
         // range, so flattening `luminanceAnchors` the same way is a plausible edit this
         // would have waved through.
-        XCTAssertGreaterThan(high.chroma, low.chroma)
         XCTAssertGreaterThan(high.luma, low.luma)
+        // Colour is the exception, on purpose (WS-21): flat at Lightroom's 25, because
+        // its thresholds are already denominated in the profile's band noise, which
+        // rises with ISO — a climbing slider counted the gain twice.
+        XCTAssertEqual(high.chroma, 25, accuracy: 1e-12)
+        XCTAssertEqual(low.chroma, 25, accuracy: 1e-12)
 
-        // And the worked example the anchors state: the curve is linear in log2(ISO)
-        // between (400, 0) and (6400, 25), so ISO 3200 sits three quarters of the way
-        // along at 18.75. A number, not a direction.
-        XCTAssertEqual(ISODefaults.luminance(forISO: 3200), 18.75, accuracy: 0.01)
+        // And a worked example on the anchors: the curve is linear in log2(ISO)
+        // between (1600, 11) and (6400, 16), so ISO 3200 sits halfway along at 13.5.
+        // A number, not a direction.
+        XCTAssertEqual(ISODefaults.luminance(forISO: 3200), 13.5, accuracy: 0.01)
         // Below the first anchor and above the last, the curve holds rather than
         // extrapolating into nonsense.
         XCTAssertEqual(ISODefaults.luminance(forISO: 100), 0, accuracy: 1e-9)
-        XCTAssertEqual(ISODefaults.luminance(forISO: 102400), 40, accuracy: 1e-9)
+        XCTAssertEqual(ISODefaults.luminance(forISO: 102400), 25, accuracy: 1e-9)
     }
 
     private func standardDeviation(_ plane: Plane) -> Double {
