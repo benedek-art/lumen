@@ -327,6 +327,9 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "NSHostingController", "ModifierFlags", "OK", "NSHapticFeedbackManager",
     "NSLeftArrowFunctionKey", "NSRightArrowFunctionKey", "NSUpArrowFunctionKey",
     "NSDownArrowFunctionKey", "NSDeleteFunctionKey",
+    # The offscreen capture in `PanelSnapshotTests` (the `ui-snapshots` lane).
+    "NSAppearance", "NSColorSpace", "ImageRenderer", "CGGradient", "CFArray",
+    "NSValue", "NSSelectorFromString",
     # SwiftUI
     # `Font` arrived with `LumenType`, the app's type scale — `Font.system(size:weight:)`
     # is the only way to build one, so the ramp cannot be declared without it.
