@@ -26,7 +26,7 @@ asks `NEEDS.md`. Builder, auditor and verifier were separate agents; two verify 
 | S9 | Fast strokes gap-free; 2-event flick at Flow 30 ripple | peak 1.0; flick painted 0.995 | peak 1.0; flick 0.300, ripple 0.000 | PASS |
 | S10 | Auto Mask outline trace: leak ≤ 3 %, coverage ≥ 0.85 | leak 14.0 / 15.0 / 15.5 % (Auto Mask on); off 27 % | leak 5.3 / 13.4 / 4.3 % (lemon / apple / can); beyond 3 px of the object 2.9 / 8.0 / 1.1 %; coverage 0.93 / 0.91 / 0.93 | **FAIL** (threshold miss, see below) |
 | S11 | Auto Mask crossing the edge: mass beyond ≤ 3 % | 41.5 / 35.2 / 40.2 % | 0.0 / 0.0 / 2.3 % | PASS |
-| S12 | Per-stroke cost, size 0.08, 2400 px: ≥5× plain, ≥10× Auto Mask | 73.5 ms / 522 ms | 7.5 ms (9.8×) / 102 ms (5.1×) | plain PASS, **Auto Mask FAIL** |
+| S12 | Per-stroke cost, size 0.08, 2400 px: ≥5× plain, ≥10× Auto Mask | 73.5 ms / 522 ms | 7.5 ms (9.8×) / 102 ms (5.1×); verifier, shorter stroke: 9.8× / 6.8× | plain PASS, **Auto Mask FAIL** |
 | S13 | Point-by-point (live) = whole stroke | n/a | max diff ≤ 1e-6 | PASS |
 | S14 | Identities (empty, Flow 0, Density 0, NaN points) | exact | exact | PASS |
 | S15 | Resolution independence (BrushResolutionTests) | pass | pass | PASS |
@@ -91,4 +91,25 @@ picture fingerprint (any tone edit). The plane upload is unchanged.
 
 ## Verification and CI
 
-(see below)
+Three verify rounds (fresh agent each time, spec + diff only):
+
+- Round 1 (f4ec381) FAIL: S10 and S12 Auto Mask misses; D1 my hand-written animation broke
+  `DesignSystemTests.testEverythingAnimatesThroughTheThreeMotions`; D5 live layer drawn over the
+  cursor; D7 Catmull-Rom flattening up to 1.7 px off on S-shaped segments; D4 LoupeView never
+  passes `picture:` (NEEDS.md #1). Fixed D1, D5, a first pass at D7.
+- Round 2 (41b2e63) FAIL: D1, D5 confirmed fixed; D7 still 1.06–1.26 px. Fixed by doubling the
+  subdivision until every sub-chord is measured within 0.2 px.
+- Round 3 (ccad0bb): D7 fixed (worst 0.141 px; feather-0 render vs true curve max 1.0 → 0.19),
+  no cost regression, nothing broke under fuzzing (±1e300 coordinates, 20k-point jitter, cusps).
+  All 3056 LumenCoreTests pass (ControlProofTests skipped as in CI). **Lane verdict: FAIL on the
+  two declared threshold misses, S10 and S12 Auto Mask. BLOCKED on those per the brief; no
+  in-lane defect is open.**
+
+Left as is, noted by round 3: the flatness loop runs before the 400k work guard, so a
+pathological 100k-point jitter is slower (121 → 469 ms) with identical output; `strokes
+--metrics` throws on ±1e300 input (stroke length is infinite, JSON cannot encode it).
+
+`check-swift-surface.py` fails on base 84bcd7c in four sections (LumenRender Metrics/RecipeKeys/
+main, AppState labels, LumenType Font); this branch adds nothing to them.
+
+CI on ccad0bb: see the final line below.
