@@ -112,6 +112,31 @@ final class ZonalToneTests: XCTestCase {
         }
     }
 
+    /// Whites never reaches mid-grey, whatever the white anchor. Its windows are placed
+    /// relative to the anchor, so on an anchor below +3.8 EV the +100 shelf's start
+    /// fell under 0 and Whites moved mid-grey (0.19 stops at +100 on a +3 EV anchor) —
+    /// outside the upper limiter's sweep, which starts at 0 (WS-05 VERIFY §4).
+    /// `ToneEngine.upperShelf` holds every Whites window at or above 0 EV.
+    func testWhitesNeverReachesMidGreyAtAnyWhiteAnchor() {
+        for anchor in [1.0, 2.5, 3.0, 3.5, 5.0] {
+            for whites in [-100.0, -50, 50, 100] {
+                for contrast in [-100.0, 0, 100] {
+                    let e = ToneEngine(tone: Tone(contrast: contrast, whites: whites),
+                                       baseWhiteAnchorEV: anchor)
+                    for t in [-3.0, -1.0, -0.01, 0.0] {
+                        let whitesPart = e.zonalStops(t)
+                        XCTAssertEqual(whitesPart, 0, accuracy: 0,
+                                       "Whites \(whites) moved \(t) EV by \(whitesPart) "
+                                           + "stops on a \(anchor) EV anchor")
+                    }
+                }
+                // And with Contrast 0 the whole response at mid-grey is the identity.
+                let flat = ToneEngine(tone: Tone(whites: whites), baseWhiteAnchorEV: anchor)
+                XCTAssertEqual(flat.stops(at: 0), 0, accuracy: 0)
+            }
+        }
+    }
+
     /// Highlights −100 still recovers two stops past the default clip point (R1), with
     /// its 0 … +5 EV shelf.
     func testHighlightsStillRecoversTwoStopsPastWhite() {

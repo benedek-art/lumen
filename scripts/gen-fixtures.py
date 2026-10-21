@@ -2758,8 +2758,10 @@ SHADOW_PEAK = 3.5 / 9
 SHADOW_TAPER_START = 3.15 / 9
 SHADOW_TAPER_END = 4.15 / 9
 SHADOW_TAPER_DEPTH = 0.95
-# Whites +100: one shelf from 2.4 to 0.4 EV under the white anchor. Whites -100: a hold
-# under it and a recovery shelf over it, off Contrast's flattest shoulder band.
+# Whites +100: one shelf from 3.8 to 0.6 EV under the white anchor. Whites -100: a hold
+# from 3.8 to 1.8 EV under it and a recovery shelf from 1.2 under to 1.6 over it, off
+# Contrast's flattest shoulder band. Every Whites window is held at or above 0 EV
+# (ToneEngine.upperShelf), so a low anchor cannot reach mid-grey.
 WHITE_SHELF_START_BELOW_ANCHOR_EV = 3.8
 WHITE_SHELF_END_BELOW_ANCHOR_EV = 0.6
 WHITE_HOLD_EV = 0.9
@@ -2767,6 +2769,13 @@ WHITE_HOLD_END_BELOW_ANCHOR_EV = 1.8
 WHITE_RECOVERY_EV = 1.0
 WHITE_RECOVERY_START_BELOW_ANCHOR_EV = 1.2
 WHITE_RECOVERY_END_ABOVE_ANCHOR_EV = 1.6
+MIN_UPPER_SHELF_WIDTH_EV = 0.5      # ToneEngine.minimumUpperShelfWidthEV
+
+
+def upper_shelf(start, end, t):
+    """Mirror of ToneEngine.upperShelf: never reaches t <= 0."""
+    lower = max(start, 0.0)
+    return smoothstep(lower, max(end, lower + MIN_UPPER_SHELF_WIDTH_EV), t)
 BLACK_SHELF_START = 0.15
 BLACK_SHELF_END = 0.62
 WHITE_TONE_EV = 1.2
@@ -2985,16 +2994,16 @@ class ToneEngine:
 
     def white_weight(self, t):
         hi = self.white_anchor_ev
-        return smoothstep(hi - WHITE_SHELF_START_BELOW_ANCHOR_EV,
-                          hi - WHITE_SHELF_END_BELOW_ANCHOR_EV, t)
+        return upper_shelf(hi - WHITE_SHELF_START_BELOW_ANCHOR_EV,
+                           hi - WHITE_SHELF_END_BELOW_ANCHOR_EV, t)
 
     def white_recovery_stops(self, t):
         hi = self.white_anchor_ev
-        return (WHITE_HOLD_EV * smoothstep(hi - WHITE_SHELF_START_BELOW_ANCHOR_EV,
-                                           hi - WHITE_HOLD_END_BELOW_ANCHOR_EV, t)
-                + WHITE_RECOVERY_EV * smoothstep(hi - WHITE_RECOVERY_START_BELOW_ANCHOR_EV,
-                                                 hi + WHITE_RECOVERY_END_ABOVE_ANCHOR_EV,
-                                                 t))
+        return (WHITE_HOLD_EV * upper_shelf(hi - WHITE_SHELF_START_BELOW_ANCHOR_EV,
+                                            hi - WHITE_HOLD_END_BELOW_ANCHOR_EV, t)
+                + WHITE_RECOVERY_EV * upper_shelf(hi - WHITE_RECOVERY_START_BELOW_ANCHOR_EV,
+                                                  hi + WHITE_RECOVERY_END_ABOVE_ANCHOR_EV,
+                                                  t))
 
     def white_window(self, t):
         """Stops per unit of Whites: the clip-point shelf up, hold + recovery down."""

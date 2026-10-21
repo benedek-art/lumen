@@ -138,6 +138,14 @@ public struct ToneEngine: Sendable {
     ///     family keeps every border between a shadow and a brighter neighbour at 95 %
     ///     of its contrast (S3) while also lifting those frames that far — BUILD-NOTES.md
     ///     has the trade measured.
+    ///   · the cost, stated: on a frame shot dark, whose midtones sit where another
+    ///     frame's black point does, the taper takes the lift with it. On 7881 (R5 II, a
+    ///     low-key still life with its median at code 18) Shadows +100 opens the shadows
+    ///     by 14.3 codes against 27.3 at base (0.52x); 2062 keeps 0.97x, 1840 0.63x. The
+    ///     curve sees only `t`, so it cannot tell that cloth from 6929's darkest leaf gap
+    ///     at the same EV: starting the taper at −3.6 EV gives 7881 0.66x and lifts 6929's
+    ///     1st percentile 20.4 codes (S1 ≤ 8); at −3.8 EV, 0.72x and 21.1. On such a frame
+    ///     Exposure comes first, as it would for any zonal control keyed to scene EV.
     public static let shadowLiftRangeEV: Double = 1.5
     public static let shadowPeak: Double = 3.5 / 9
     public static let shadowTaperStart: Double = 3.15 / 9
@@ -622,19 +630,43 @@ public struct ToneEngine: Sendable {
     /// +2.5 EV of a +5 EV anchor) and a hue control nobody asked for (file header).
     public func whiteWeight(_ t: Double) -> Double {
         let hi = whiteAnchorEV
-        return Num.smoothstep(hi - Self.whiteShelfStartBelowAnchorEV,
-                              hi - Self.whiteShelfEndBelowAnchorEV, t)
+        return Self.upperShelf(from: hi - Self.whiteShelfStartBelowAnchorEV,
+                               to: hi - Self.whiteShelfEndBelowAnchorEV, t)
     }
 
     /// Whites −100's window, in stops at full deflection: a small shelf under white
     /// and the recovery shelf over it — see `whiteRecoveryEV` for why it is two.
     public func whiteRecoveryStops(_ t: Double) -> Double {
         let hi = whiteAnchorEV
-        return Self.whiteHoldEV * Num.smoothstep(hi - Self.whiteShelfStartBelowAnchorEV,
-                                                 hi - Self.whiteHoldEndBelowAnchorEV, t)
-            + Self.whiteRecoveryEV * Num.smoothstep(hi - Self.whiteRecoveryStartBelowAnchorEV,
-                                                    hi + Self.whiteRecoveryEndAboveAnchorEV, t)
+        return Self.whiteHoldEV * Self.upperShelf(from: hi - Self.whiteShelfStartBelowAnchorEV,
+                                                  to: hi - Self.whiteHoldEndBelowAnchorEV, t)
+            + Self.whiteRecoveryEV
+            * Self.upperShelf(from: hi - Self.whiteRecoveryStartBelowAnchorEV,
+                              to: hi + Self.whiteRecoveryEndAboveAnchorEV, t)
     }
+
+    /// A smoothstep for the upper half that can never reach mid-grey.
+    ///
+    /// The Whites windows are placed relative to the white anchor, and the anchor is
+    /// not always the factory +5 EV: a mask's engine takes the global one, and a lower
+    /// default is on the table (WS-13's +3 EV). Below an anchor of +3.8 EV the +100
+    /// shelf's start, anchor − 3.8, falls under 0, and Whites then moved mid-grey —
+    /// 0.19 stops at +100 and −0.32 at −100 on a +3 EV anchor — where the upper
+    /// limiter sweep, which starts at 0, could not see it (WS-05 VERIFY §4). So the
+    /// start is held at 0 or above, and the end at least half a stop past it; the
+    /// window then keeps the disjoint-support fact `solveZonalLimits` rests on: zero
+    /// for every `t ≤ 0`, exactly. On the factory anchor neither clamp is active.
+    static func upperShelf(from start: Double, to end: Double, _ t: Double) -> Double {
+        let lower = Swift.max(start, 0)
+        let upper = Swift.max(end, lower + Self.minimumUpperShelfWidthEV)
+        return Num.smoothstep(lower, upper, t)
+    }
+
+    /// The narrowest a clamped upper shelf may get (`upperShelf`). Half a stop keeps a
+    /// full-deflection Whites shelf's slope at 1.5 x 1.2 / 0.5 = 3.6 stops per stop at
+    /// worst — steep, but it can only happen on an anchor under +1.1 EV, and the
+    /// limiter eases a falling one like any other window.
+    static let minimumUpperShelfWidthEV: Double = 0.5
 
     /// Stops per unit of applied Whites: the clip-point shelf when pushing, the hold and
     /// recovery shelves when pulling.

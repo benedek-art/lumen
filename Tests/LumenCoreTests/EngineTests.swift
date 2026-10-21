@@ -364,7 +364,7 @@ final class EngineTests: XCTestCase {
     /// The anchor move is kept — it is what defines the endpoint — and the shelves give
     /// them authority. Both now measure 14–38 code values, in the same band as
     /// Highlights and Shadows.
-    func testWhitesAndBlacksMoveBothTheAnchorsAndTheCurve() {
+    func testWhitesMovesTheClipPointByGainAndBlacksMovesItsAnchor() {
         let neutral = ToneEngine()
         let bright = ToneEngine(tone: Tone(whites: 100, blacks: 100))
         XCTAssertEqual(bright.whiteAnchorEV, neutral.whiteAnchorEV)

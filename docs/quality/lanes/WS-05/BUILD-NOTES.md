@@ -8,7 +8,8 @@ Builder, round 2. Two commits, neither pushed:
    what ToneEngine needs for it. It moves tests owned by other lanes; §7 lists them.
 
 Round 1 (one commit with both) was replaced because the anchor move left WS-08/WS-09
-tests red on the lane branch.
+tests red on the lane branch. Round 3 answers the verifier's report (`VERIFY.md`,
+committed unchanged); §8 says what changed and what did not.
 
 Paths (`S` = `/tmp/claude-0/-home-user-lumen/2f222e11-8f88-5b13-8463-7c67916d787d/scratchpad/spec`,
 `P` = `/tmp/claude-0/-home-user-lumen/2f222e11-8f88-5b13-8463-7c67916d787d/scratchpad`):
@@ -117,12 +118,14 @@ repeats the conflict for the anchor branch.
 - **T1** `swift build --target LumenCore --target LumenRender` (Swift 6.0.3): clean. The
   only warnings are pre-existing Sendable warnings in `Ingest/VerifiedCopy.swift`.
 - **T2** `swift test --parallel --filter LumenCoreTests --skip ControlProofTests` (Swift
-  6.1.2, `--scratch-path .build612`): **3051 tests (3044 + 7 new), 0 failures.**
+  6.1.2, `--scratch-path .build612`): **3052 tests (3044 + 8 new), 0 failures** (round 3;
+  3051 in round 2, before the low-anchor test).
 - **T3** `swift test -c release --filter ControlProofTests`: see §5.
 
 ## 4. Tests (T4): added, and changed with the invariant kept
 
-Added `Tests/LumenCoreTests/ZonalToneTests.swift`, 7 tests:
+Added `Tests/LumenCoreTests/ZonalToneTests.swift`, 8 tests (the low-anchor guard test is
+round 3's, §8):
 - S1/S5: Shadows +100 at −4 EV is under 0.25 x the quarter tones; below −5 EV it is under
   Blacks +100 and under 0.1 EV; −6 EV renders ≤ 4 codes.
 - Shadows: −100 is the 2 EV shelf, +100 the tapered lift.
@@ -140,7 +143,7 @@ invariant; none is loosened:
 
 | test | change | invariant still asserted |
 |---|---|---|
-| EngineTests `testWhitesAndBlacksMoveBothTheAnchorsAndTheCurve` | white anchor now asserted EQUAL; clip point asserted to move by gain both ways (C0 − 1 reaches white at +100, C0 + 1.5 goes under at −100); Blacks still moves its anchor | Whites/Blacks have authority, mid-grey untouched |
+| EngineTests `testWhitesAndBlacksMoveBothTheAnchorsAndTheCurve`, renamed in round 3 to `testWhitesMovesTheClipPointByGainAndBlacksMovesItsAnchor` | white anchor now asserted EQUAL; clip point asserted to move by gain both ways (C0 − 1 reaches white at +100, C0 + 1.5 goes under at −100); Blacks still moves its anchor | Whites/Blacks have authority, mid-grey untouched |
 | EngineTests `testWhitesBrightensThroughTheTransform` | compares rendered tone through the (now identical) transform with each engine's gain; asserts params equal | Whites +100 brightens a highlight |
 | EngineTests `testTheEndShelvesOverlapTheZonalOnesAsTheCommentSays` | new shelf numbers (+1.2 … +4.4 EV; Highlights 0.145 / 0.960 there) | the comment's geometry is held as numbers |
 | EngineTests `testAPivotPastTheWhiteAnchorStillCannotPushAPixelPastIt`, ColourAccuracyTests `testContrastKeepsTheWhiteAnchorFixedWhenWhitesPullsItBelowThePivot` | the anchors 4.0 / 3.8 / 3.5 EV that Whites +67/+80/+100 used to make are now passed as `baseWhiteAnchorEV` (how a mask engine sees a lowered global anchor) | same anchors, same pivots: Contrast pins the anchor and never pushes past it |
@@ -179,3 +182,57 @@ Every other control's record is unchanged:
 +100), `v2_whites_top_steps_before_after.png`, `v3_hue_wheel_whites_before_after.png`
 (sw and swx at exposure +2: after-Whites +100 no longer washes the wheel out),
 `v3_sky_probe_whites_before_after.png`. The four `before_*` files are the audit's.
+
+## 8. Round 3: the verifier's items
+
+Verifier verdict on round 2 (`a015a5b`): FAIL on A1, A2, S3, HA1 (and two HA3 cells), with
+the gates, M3, monotonicity (5,625 combinations), GPU route and T4 all confirmed. Its five
+builder items, and what this round did:
+
+1. **Whites reached mid-grey on low anchors** (latent: 0.19 stops at +100 on a +3 EV base
+   anchor, outside the upper limiter's sweep). Fixed: every Whites window goes through
+   `ToneEngine.upperShelf`, which holds its start at ≥ 0 EV and its width at ≥ 0.5 EV,
+   so the window is exactly 0 for every t ≤ 0 and `solveZonalLimits`' disjoint-support
+   fact holds on any anchor. Mirrored in `gen-fixtures.py` (`upper_shelf`). On the +5
+   anchor neither clamp is active, so no pixel and no fixture changed. New test
+   `ZonalToneTests.testWhitesNeverReachesMidGreyAtAnyWhiteAnchor`: anchors 1.0, 2.5, 3.0,
+   3.5, 5.0 x Whites ±50/±100 x Contrast −100/0/100, zonal stops exactly 0 at −3, −1,
+   −0.01 and 0 EV.
+2. **Stale comment** in `gen-fixtures.py` (said 2.4/0.4 beside 3.8/0.6): fixed.
+3. **Dark-frame authority (7881).** Measured, Shadows 0 → +100, shadow-pixel mean lift as a
+   ratio of base, with S1/S2/S4/S6 (`$P/dark.sh`, `$P/dark.py`; renders `$P/dark/`):
+
+   | lift: taper start…end, depth (height 1.5, peak −3.5) | S1 6929/4213 (≤8) | S2 | S4 | S6 1840/2348 | 7881 | 2062 | 1840 | 3582 | 1192 |
+   |---|---|---|---|---|---|---|---|---|---|
+   | **−3.15…−4.15, 0.95 (shipped)** | 7.6 / 7.2 | 20.5 / 29.8 | 1.17 / 1.25 | 19.6 / 20.8 | **0.52** | 0.97 | 0.63 | 0.85 | 0.77 |
+   | −3.15…−4.15, 0.70 | **10.5** / 10.0 | same | 1.12 / 1.20 | 21.1 / 21.9 | 0.58 | 0.98 | 0.68 | 0.86 | 0.80 |
+   | −3.6…−4.6, 0.95 | **20.4** / 20.1 | same | 1.04 / 1.09 | 24.7 / 24.0 | 0.66 | 0.99 | 0.79 | 0.90 | 0.85 |
+   | −3.8…−5.0, 0.90 | **21.1** / 21.1 | same | 1.00 / 1.07 | 25.9 / 25.0 | 0.72 | 1.00 | 0.83 | 0.91 | 0.87 |
+
+   Nothing beats the shipped shape on S1, and the S1 cost is steep: every 0.05 of 7881's
+   ratio costs about 6 codes of black-point lift on 6929/4213. The reason is structural.
+   7881's cloth (median code 18, p25 code 9) sits at −3.5…−4.5 EV, which is exactly
+   where 6929's and 4213's 1st percentile sits (−3.9 EV). The lift is a function of `t`
+   alone, so it cannot open the one and hold the other. Even giving up S1 entirely
+   (taper from −3.8) returns 7881 to 0.72x only, because base's 27.3 codes on 7881 were
+   largely the veil this lane removes. An image-adaptive taper would need scene
+   statistics inside the tone curve. In this engine those belong to Auto Tone (WS-09), and
+   that would make the slider's meaning depend on the frame. So the shipped shape stays.
+   The ToneEngine comment now says plainly that on a low-key frame Exposure comes first.
+   S6 holds on the spec's darkest frames (1840 19.6 ≥ 18.7, 2348 20.8 ≥ 17.4). 2062, the
+   high-ISO dark frame, keeps 0.97x.
+4. **Renamed** `testWhitesAndBlacksMoveBothTheAnchorsAndTheCurve` →
+   `testWhitesMovesTheClipPointByGainAndBlacksMovesItsAnchor`.
+5. The anchor-branch items are in §7.
+
+**Deltas against round 2 on the lane branch: none.** `measure.py` prints the same 32 lines
+byte for byte (`$P/measure_lane3.txt` against `$P/measure_lane1.txt`). Still 28/32; still
+FAIL: A1/A2 (anchor branch), S3 (metric mixes interior texture, up 1.5-2.4x, with border
+steps; VERIFY §2 agrees), HA1 two cells and HA3 two cells (VERIFY §3: trades it accepts,
+and one HA3 cell measures silhouetted branches, not halo).
+
+Gates on the lane branch, round 3: T1 clean; T2 **3052 / 0 failures** (3044 + 8 new);
+T3 see below.
+T3 (release): **6 tests, 0 failures** (`$P/t3_lane3.log`); authority / floor unchanged from
+round 2: highlights 55.84 / 35, shadows 47.97 / 30, whites 35.34 / 30, blacks 23.27 / 15,
+contrast 68.38 / 55. No committed record moves.
