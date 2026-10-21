@@ -2005,8 +2005,8 @@ struct MaskPanel: View {
         case .ready:
             badge = c.model ?? (c.kind == .aiSky ? "ON DEVICE" : "VISION")
             text = c.kind == .aiSky
-                ? "Found on this Mac from colour, smoothness and position, with its "
-                    + "edge snapped to the photograph at 2048 px."
+                ? "Found on this Mac, with no download, and its edge snapped to the "
+                    + "photograph at 2048 px."
                 : "Computed on this Mac by Apple's Vision framework, with its edge "
                     + "snapped to the photograph at 2048 px."
         case .working:

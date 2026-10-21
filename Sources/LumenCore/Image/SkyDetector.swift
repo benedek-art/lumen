@@ -199,6 +199,19 @@ public enum SkyDetector {
             let id = Int32(regions.count)
             var members: [Int] = [x0]
             label[x0] = id
+            // A floor on every member, not only on the region's mean: smooth defocus
+            // blur lets neighbour-to-neighbour steps walk from a bright top edge down
+            // to near-black (1346: a dark olive bokeh background taken top to bottom,
+            // verifier round 2). Sky is never near-black in a neutral render of a
+            // daylight frame, and it does not darken by more than this below the row
+            // it started on.
+            let floor = L[x0] - 0.2
+            // Absolute floors: a clear blue sky can be dark in a neutral render (983
+            // is OKLab L ~0.35 at the top), anything grey, green or warm that dark is
+            // not sky.
+            func bright(_ j: Int) -> Bool {
+                L[j] >= floor && L[j] >= (B[j] < -0.03 ? 0.3 : 0.4)
+            }
             var head = 0
             while head < members.count {
                 let i = members[head]; head += 1
@@ -207,7 +220,7 @@ public enum SkyDetector {
                     let xx = x + dx, yy = y + dy
                     guard xx >= 0, xx < w, yy >= 0, yy < h else { continue }
                     let j = yy * w + xx
-                    guard label[j] < 0, smooth(j) else { continue }
+                    guard label[j] < 0, smooth(j), bright(j) else { continue }
                     let dL = L[j] - L[i], da = A[j] - A[i], db = B[j] - B[i]
                     guard (dL * dL + da * da + db * db).squareRoot() < growStep else { continue }
                     label[j] = id
@@ -232,6 +245,12 @@ public enum SkyDetector {
             let k = Double(members.count)
             let mL = sL / k, mA = sA / k, mB = sB / k
             let chroma = (mA * mA + mB * mB).squareRoot()
+            // One sky, not a bright patch and a dark one joined by a smooth band: a
+            // real sky's lightness gradient spreads about 0.09; 1346's white pole plus
+            // dark bokeh spread far more and passed on the mean alone.
+            var vL = 0.0
+            for i in members { vL += (Double(L[i]) - mL) * (Double(L[i]) - mL) }
+            guard (vL / k).squareRoot() < 0.13 else { continue }
             // Relative brightness, OR plainly bright: a snowfield or a beach can fill
             // half the frame and push the median above the sky (verifier round 1:
             // sky over 50% snow returned nothing). The region already had to be
@@ -461,6 +480,8 @@ public enum SkyDetector {
         do {
             var visited = [Bool](repeating: false, count: n)
             let limit = Int(0.03 * Double(n))
+            let speck = Swift.max(2, Int(0.0005 * Double(n)))
+            let cloudFloor = seedMeanL(seed, L) - 0.05
             for start in 0..<n where decided[start] < 0.5 && !visited[start] {
                 var members = [start]
                 visited[start] = true
@@ -479,7 +500,20 @@ public enum SkyDetector {
                         members.append(j)
                     }
                 }
-                if !touchesEdge && members.count <= limit {
+                guard !touchesEdge, members.count <= limit else { continue }
+                // Only CLOUD-LIKE holes (bright, low chroma), or specks too small to
+                // matter (a bird, a contrail segment). A balloon, a kite, a paraglider
+                // is an object the photographer will want left out of a Sky
+                // adjustment (verifier round 2: all were swallowed). The moon is bright
+                // and grey, and is filled with the clouds: stated in REPORT.
+                var sL = 0.0, sC = 0.0
+                for i in members {
+                    sL += Double(L[i])
+                    sC += Double((A[i] * A[i] + B[i] * B[i]).squareRoot())
+                }
+                let size = Double(members.count)
+                let cloudLike = sL / size > cloudFloor && sC / size < 0.08
+                if cloudLike || members.count <= speck {
                     for i in members { decided[i] = 1 }
                 }
             }

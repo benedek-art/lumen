@@ -73,8 +73,9 @@ public final class SkyModel: @unchecked Sendable {
         case notAModel
     }
 
-    /// Download a `.mlmodel` (or zipped-free `.mlpackage` file URL) from `source`,
-    /// verify its SHA-256, compile it and install it at `installedURL`.
+    /// Download a single-file `.mlmodel` from `source`, verify its SHA-256, compile it
+    /// and install it at `installedURL`. (An `.mlpackage` is a directory and cannot
+    /// travel as one download; `convert_sky_model.py` writes `.mlmodel` for this.)
     ///
     /// Nothing calls this on its own: there is no default URL, by design (see the file
     /// header). A settings row the owner adds, once they have hosted a cleared model,
@@ -105,6 +106,12 @@ public final class SkyModel: @unchecked Sendable {
         } else {
             try FileManager.default.moveItem(at: compiled, to: target)
         }
+        forgetLoaded()
+    }
+
+    /// Drop the loaded model so the next `loaded()` reads the new install. Synchronous
+    /// on purpose: `NSLock` must not be taken across an `await`.
+    private func forgetLoaded() {
         lock.lock()
         cached = nil
         triedLoad = false
