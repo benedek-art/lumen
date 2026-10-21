@@ -124,7 +124,8 @@ public final class PipelineRenderer {
 
     /// Rasters kept across frames so a draft can run S11 without paying
     /// `MaskRaster.combine` per mouse event. See the type's header for the contract.
-    private let maskRasters = MaskRasterCache()
+    private let maskRasters = MaskRasterCache(
+        synchronousBakeBudget: MaskRasterCache.interactiveSynchronousBakeBudget)
 
     /// The CIImage last built over each mask's draft raster, so a frame handed the SAME
     /// held plane (an exact hit, or a stale serve of `previous.plane`) does not copy it
@@ -1707,9 +1708,32 @@ public final class PipelineRenderer {
             // so a drag that kept every key paid for a picture on every event and used
             // none of them (twice per event with the EDR preview's second graph). One
             // box per graph: every mask in the stack shares one readback, as before.
+            //
+            // ONLY FOR THE MASKS THE GPU DOES NOT TAKE (lane M9). A range mask on the GPU
+            // path samples `gpuStage` below at the frame's own resolution, so it is not a
+            // reason to build this one, nor to spell the picture fingerprint into keys.
+            let eligible = plan.masks.filter {
+                MaskGPU.isGPUEvaluable($0, longEdge: Int(long))
+            }
+            // The stage input the GPU range kernels sample: the same `localStageInput`
+            // graph, over the decode's own extent, never read back. Built only when an
+            // eligible mask reads the picture; if it cannot be built, `alpha` declines
+            // those masks and they go back to the CPU path below.
+            let gpuStage: CIImage? = eligible.contains(where: MaskGPU.readsPicture)
+                ? gpuMaskStage(decoded: decoded, plan: plan, strokeSets: strokeSets) : nil
+            // The GPU alphas FIRST, so a mask the GPU path declines after all (a kernel
+            // that will not apply) is a CPU mask when the CPU stage is decided, and
+            // never rasterizes against a missing picture.
+            var gpuAlphas: [String: CIImage] = [:]
+            for mask in eligible {
+                if let gpu = MaskGPU.alpha(for: mask, extent: extent, source: gpuStage) {
+                    gpuAlphas[mask.id] = gpu
+                }
+            }
+            let cpuMasks = plan.masks.filter { gpuAlphas[$0.id] == nil }
             let source = maskStage(decoded: decoded, plan: plan,
                                    width: width, height: height, extent: extent,
-                                   strokeSets: strokeSets)
+                                   strokeSets: strokeSets, masks: cpuMasks)
 
             // Everything the raster reads goes into the key, or the cache lies —
             // PlanTableCache's rule, applied to planes. The source image is keyed by
@@ -1797,7 +1821,7 @@ public final class PipelineRenderer {
                 // so it never enters the raster cache, never misses it, and can never
                 // be served one gesture stale. That staleness IS the tail the owner
                 // reported dragging a radial (docs/35 §5.1).
-                if let gpu = MaskGPU.alpha(for: mask, extent: extent) {
+                if let gpu = gpuAlphas[mask.id] {
                     graph.maskImages[mask.id] = gpu
                     continue
                 }
@@ -1976,6 +2000,18 @@ public final class PipelineRenderer {
         let width = Swift.max(Int(extent.width * fit), 8)
         let height = Swift.max(Int(extent.height * fit), 8)
 
+        // THE GPU ROUTE FIRST (lane M9). The overlay refreshes while the photographer
+        // drags a range mask's own sliders, and the CPU raster of a colour range at the
+        // proxy is ~75 ms on the measuring container; the same alpha from `MaskGPU` is one
+        // pass and a 2.8 MB readback. Same numbers within `MaskRangeGPUParityTests`'
+        // tolerance, same top-down plane.
+        if MaskGPU.isGPUEvaluable(mask, longEdge: Swift.max(width, height)),
+           let plane = gpuMaskAlpha(mask, decoded: decoded, plan: plan,
+                                    width: width, height: height, extent: extent,
+                                    strokeSets: strokeSets) {
+            return plane
+        }
+
         let stage = maskSource(decoded: decoded, plan: plan, width: width,
                                height: height, extent: extent, strokeSets: strokeSets,
                                masks: [mask])
@@ -1988,6 +2024,36 @@ public final class PipelineRenderer {
                                   // rather than an empty one.
                                   aiMattes: mattes[source.url]?.planes ?? [:],
                                   masks: plan.allMasks)
+    }
+
+    /// `MaskGPU`'s alpha for one mask at `width`×`height`, read back as a plane. Nil
+    /// when the GPU path declines it, so the caller rasterizes on the CPU instead.
+    private func gpuMaskAlpha(_ mask: Mask, decoded: CIImage, plan: RenderPlan,
+                              width: Int, height: Int, extent: CGRect,
+                              strokeSets: [String: BrushStrokeSet]) -> Plane? {
+        let bounds = CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
+        let small = decoded
+            .transformed(by: CGAffineTransform(
+                translationX: -extent.origin.x, y: -extent.origin.y))
+            .transformed(by: CGAffineTransform(
+                scaleX: CGFloat(width) / Swift.max(extent.width, 1),
+                y: CGFloat(height) / Swift.max(extent.height, 1)))
+            .cropped(to: bounds)
+        let stage = MaskGPU.readsPicture(mask)
+            ? gpuMaskStage(decoded: small, plan: plan, strokeSets: strokeSets) : nil
+        guard let alpha = MaskGPU.alpha(for: mask, extent: bounds, source: stage)
+        else { return nil }
+        // RGBAf and the red channel, the readback every mask parity test uses, rather
+        // than trusting how a single-channel destination reduces four channels.
+        var rgba = [Float](repeating: 0, count: width * height * 4)
+        rgba.withUnsafeMutableBytes { raw in
+            guard let base = raw.baseAddress else { return }
+            context.render(alpha, toBitmap: base, rowBytes: width * 16,
+                           bounds: bounds, format: .RGBAf, colorSpace: nil)
+        }
+        var plane = Plane(width: width, height: height)
+        for i in 0..<(width * height) { plane.values[i] = rgba[i * 4] }
+        return plane
     }
 
     /// The local-stage input, at mask-raster resolution, as an `ImageBuffer`.
@@ -2043,6 +2109,27 @@ public final class PipelineRenderer {
         guard bounds.width >= 1, bounds.height >= 1,
               bounds.width.isFinite, bounds.height.isFinite else { return nil }
         return LazyStageBuffer(image: staged, context: context)
+    }
+
+    /// The stage input at the decode's own extent, for `MaskGPU`'s range kernels.
+    ///
+    /// `maskStage`'s graph without the downscale and without the readback: a range mask
+    /// on the GPU is a pointwise function of this image, evaluated at the resolution the
+    /// frame renders at, so there is no raster to size and nothing to copy to the CPU.
+    /// The same `maskSource` options and heal strokes, so a band selects from the same
+    /// picture the CPU path and `ReferenceRenderer` select from.
+    func gpuMaskStage(decoded: CIImage, plan: RenderPlan,
+                      strokeSets: [String: BrushStrokeSet]) -> CIImage? {
+        let extent = decoded.extent
+        guard extent.width >= 1, extent.height >= 1,
+              extent.width.isFinite, extent.height.isFinite else { return nil }
+        let staged = RenderGraph(healStrokesOf: plan.recipe, strokeSets: strokeSets)
+            .localStageInput(
+                decoded, plan: plan,
+                options: RenderGraph.Options(
+                    longEdge: Int(Swift.max(extent.width, extent.height)),
+                    maskSource: true))
+        return staged.cropped(to: extent)
     }
 
     /// Whether rasterizing THIS mask reads the picture — `maskSource`'s `needsPicture`,

@@ -308,6 +308,10 @@ final class MaskReferencePipelineTests: XCTestCase {
         r.develop.denoise.mode = .off
         var banded = Mask(id: "banded", components: [band()])
         banded.adjust.exposure = 1
+        // A plain band takes `MaskGPU`'s range path since lane M9 and never reads the
+        // picture back at all. An Edge shift is not pointwise, so this band keeps the
+        // CPU raster path this test is about.
+        banded.refine.edge = 10
         r.masks = [banded]
         let held = PipelineRenderer()
         let before = try pixels(held, source, r)
@@ -438,8 +442,8 @@ final class MaskReferencePipelineTests: XCTestCase {
     }
 
     /// A gain-map export's HDR rendition takes the SDR rendition's mask images
-    /// (`SharedMaskImages`). Above the 1024 proxy `MaskRasterCache` retains nothing, so
-    /// before this the second rendition rasterized every CPU mask again at full size.
+    /// (`SharedMaskImages`). Before that box the second rendition rasterized every CPU
+    /// mask again at full size.
     /// The shared HDR pixels must be exactly the HDR rendition built on its own, and
     /// that comparison must be able to fail: a different band changes them.
     func testGainMapRenditionsRasterizeEachMaskOnceAndMatchAColdHDR() throws {
@@ -450,6 +454,9 @@ final class MaskReferencePipelineTests: XCTestCase {
             c.hi = hi
             var mask = Mask(id: "band", components: [c])
             mask.adjust.exposure = 1
+            // Edge is not pointwise, so this band stays on the CPU raster path whose
+            // sharing this test pins (a plain band is `MaskGPU`'s since lane M9).
+            mask.refine.edge = 10
             var r = Recipe()
             r.develop.denoise.mode = .off
             r.masks = [mask]
@@ -463,12 +470,17 @@ final class MaskReferencePipelineTests: XCTestCase {
         let renderer = PipelineRenderer()
         let shared = PipelineRenderer.SharedMaskImages()
         let bakes = MaskRasterCache.currentStats.bakes
+        let hits = MaskRasterCache.currentStats.hits
         let sdr = try renderer.exportedImage(source: source, recipe: r, using: gainMap,
                                              sharedMasks: shared)
         let hdr = try renderer.exportedHDRImage(source: source, recipe: r, using: gainMap,
                                                 sharedMasks: shared)
         XCTAssertEqual(MaskRasterCache.currentStats.bakes - bakes, 1,
                        "one CPU mask, two renditions: one full-size bake")
+        // The settle rung holds this 1152 px raster since lane M9, so a broken box
+        // would still bake once and HIT the second time. The box means no lookup.
+        XCTAssertEqual(MaskRasterCache.currentStats.hits - hits, 0,
+                       "the HDR rendition looked the raster up instead of taking the box")
         XCTAssertNotNil(shared.images?["band"], "the SDR rendition must fill the box")
 
         let coldSDR = try PipelineRenderer().exportedImage(source: source, recipe: r,
