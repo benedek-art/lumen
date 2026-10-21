@@ -1,53 +1,58 @@
 // ZoneFlatteningTests.swift
 //
-// Astra AI-07: the Zones panel has no limiter of its own. Its only guard is the forward
+// Astra AI-07: the Zones panel had no limiter of its own. Its only guard was the forward
 // clamp in `ToneEngine.bakeGainLUT`, which keeps the response monotone by rendering a
 // whole band of input tones as one output value — and nothing measured how wide that
 // band is, so nothing could tell the photographer. `zoneFlattening` is that measurement.
-// These tests pin what it reports on the audit's own trigger, and that it reports
-// nothing where the six tone sliders' solved limits already keep the clamp idle.
+//
+// WS-08 gave the register its own limiter (`ToneEngine.appliedZoneEV`), so on its own it
+// no longer reaches the clamp: Darks +2 and +4, the audit's trigger, now report nothing.
+// The clamp is still the backstop for the register combined with Contrast or the six
+// sliders, which the ease does not see, so the measurement is pinned on Contrast −100
+// with Darks +3: Contrast −100 runs the tones below mid-grey at 0.4 stops per stop and
+// the eased Darks seam takes 0.75 of that away.
 
 import XCTest
 @testable import LumenCore
 
 final class ZoneFlatteningTests: XCTestCase {
 
-    private func darks(_ ev: Double) -> ToneEngine {
+    private func darks(_ ev: Double, contrast: Double = 0) -> ToneEngine {
         var zones = Zones()
         zones.dark.ev = ev
-        return ToneEngine(zones: zones)
+        return ToneEngine(tone: Tone(contrast: contrast), zones: zones)
     }
 
     func testAnUntouchedToneStackFlattensNothing() {
         XCTAssertNil(ToneEngine().zoneFlattening())
     }
 
-    /// The audit's trigger: default pivots, Darks alone. Measured on Linux against the
+    /// The audit's trigger, default pivots and Darks alone, no longer reaches the clamp;
+    /// a recipe that still does is measured instead. Measured on Linux against the
     /// 1024-sample bake the renderer uses.
     func testDarksAloneFlattensTheBandTheAuditMeasured() throws {
-        let expected: [(ev: Double, low: Double, high: Double, worst: Double)] = [
-            (2, -3.531, -1.795, 0.421),
-            (4, -3.765, 0.082, 2.204),
-        ]
-        for e in expected {
-            let f = try XCTUnwrap(darks(e.ev).zoneFlattening(),
-                                  "Darks +\(e.ev) EV flattens part of the response and "
-                                      + "zoneFlattening reported nothing")
-            XCTAssertEqual(f.lowEV, e.low, accuracy: 0.002, "Darks +\(e.ev): low end")
-            XCTAssertEqual(f.highEV, e.high, accuracy: 0.002, "Darks +\(e.ev): high end")
-            XCTAssertEqual(f.worstEV, e.worst, accuracy: 0.002, "Darks +\(e.ev): worst")
-            XCTAssertGreaterThan(f.fraction, 0)
-        }
-        // And it grows with the request — the panel's warning should too.
-        let two = try XCTUnwrap(darks(2).zoneFlattening())
-        let four = try XCTUnwrap(darks(4).zoneFlattening())
-        XCTAssertGreaterThan(four.widthEV, two.widthEV)
+        // Darks +2 EV flattened −3.53…−1.80 EV and +4 EV −3.77…+0.08 EV before the ease.
+        XCTAssertNil(darks(2).zoneFlattening(), "Darks +2 EV alone reached the clamp")
+        XCTAssertNil(darks(4).zoneFlattening(), "Darks +4 EV alone reached the clamp")
+
+        let f = try XCTUnwrap(darks(3, contrast: -100).zoneFlattening(),
+                              "Contrast −100 with Darks +3 flattens part of the response "
+                                  + "and zoneFlattening reported nothing")
+        XCTAssertEqual(f.lowEV, -3.179, accuracy: 0.002, "low end")
+        XCTAssertEqual(f.highEV, 2.217, accuracy: 0.002, "high end")
+        XCTAssertEqual(f.worstEV, 0.402, accuracy: 0.002, "worst")
+        XCTAssertGreaterThan(f.fraction, 0)
     }
 
     /// The report describes the table the renderer bakes, not a parallel computation:
     /// inside the flattened band every baked sample renders the same output tone.
+    ///
+    /// Darks +0.95 rather than +3: at +3 the Darks excess spills up the axis and the
+    /// clamp fires in two places, which the report merges into one span (audit Z-10,
+    /// WS-07's) that is not flat end to end. +0.95 is inside one seam's limit, so it
+    /// flattens one band.
     func testTheReportedBandIsFlatInTheBakedTable() throws {
-        let engine = darks(4)
+        let engine = darks(0.95, contrast: -100)
         let f = try XCTUnwrap(engine.zoneFlattening())
         let lut = engine.bakeGainLUT()
         var outputs: [Double] = []

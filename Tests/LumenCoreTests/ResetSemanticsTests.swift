@@ -53,7 +53,6 @@ final class ResetSemanticsTests: XCTestCase {
         recipe.develop.tone = Tone(exposure: 1.25, contrast: 40, contrastPivot: -0.5,
                                    highlights: -60, shadows: 35, whites: 12, blacks: -8)
         recipe.develop.zones.mid.ev = 0.4
-        recipe.develop.zones.bright.sat = -20
         recipe.develop.curve.point = [[0, 0], [0.5, 0.62], [1, 1]]
         recipe.develop.curve.preserveLuminance = false
         recipe.develop.color = ColorAdjust(vibrance: -10, saturation: 22,

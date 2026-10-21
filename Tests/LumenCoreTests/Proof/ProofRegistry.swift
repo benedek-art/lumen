@@ -885,10 +885,19 @@ enum ProofRegistry {
         // measure lower than the old placements did — that is the transform being
         // honest about highlights, not the controls going dead, and their floors are
         // re-anchored at 70% of the new measurements like everyone else's.
+        //
+        // **WS-08 re-measured them.** The register now keeps the response monotone by
+        // delivering a zone's request at its own pivot and spilling the excess past each
+        // seam's limit into the untouched neighbours (`ToneEngine.appliedZoneEV`), where
+        // it used to apply the request regardless and posterize the band it inverted.
+        // Measured, the ramp's peak separation went dark 75.52 → 87.80, shadow
+        // 163.97 → 174.99, mid 194.19 → 214.17, light 129.34 → 192.68, bright
+        // 43.23 → 110.16 — Brights' spill reaches down into tones the ramp shows — and
+        // global, a flat trim, still measures 215.25. Floors at 70% of these.
         let bands: [(String, String, WritableKeyPath<Zones, ZoneAdjust>, Double)] = [
-            ("dark", "Dark", \.dark, 52), ("shadow", "Shadow", \.shadow, 114),
-            ("mid", "Mid", \.mid, 135), ("light", "Light", \.light, 90),
-            ("bright", "Bright", \.bright, 30), ("global", "Global", \.global, 150),
+            ("dark", "Dark", \.dark, 61), ("shadow", "Shadow", \.shadow, 122),
+            ("mid", "Mid", \.mid, 149), ("light", "Light", \.light, 134),
+            ("bright", "Bright", \.bright, 77), ("global", "Global", \.global, 150),
         ]
         var out: [ControlSpec] = bands.map { id, name, path, floor in
             ControlSpec(
@@ -901,28 +910,37 @@ enum ProofRegistry {
         // The five pivots. A pivot with every zone at zero moves a boundary between two
         // identical zones and does nothing at all — the same companion problem the
         // contrast pivot has, and the same answer: give it something to be the boundary
-        // OF. The alternating ±2 EV pattern puts a four-stop seam at every one of the
-        // five pivots at once, so one companion serves all five and no pivot is measured
-        // through a boundary its neighbours happened not to make visible.
+        // OF. The alternating pattern puts a seam at every one of the five pivots at
+        // once, so one companion serves all five and no pivot is measured through a
+        // boundary its neighbours happened not to make visible.
+        //
+        // ±0.375 EV, a 0.75 EV seam (WS-08). It was ±2, a four-stop seam, and five
+        // touched zones that far apart are a conflict the register now eases
+        // (`ToneEngine.appliedZoneEV`), so every pivot would be measured through the
+        // ease rather than through itself. 0.75 EV sits inside the exact range.
         func alternatingZones(_ r: inout Recipe) {
-            r.develop.zones.dark.ev = 2
-            r.develop.zones.shadow.ev = -2
-            r.develop.zones.mid.ev = 2
-            r.develop.zones.light.ev = -2
-            r.develop.zones.bright.ev = 2
+            r.develop.zones.dark.ev = 0.375
+            r.develop.zones.shadow.ev = -0.375
+            r.develop.zones.mid.ev = 0.375
+            r.develop.zones.light.ev = -0.375
+            r.develop.zones.bright.ev = 0.375
         }
-        // Each pivot's travel, clamped against its neighbours by `ZonesPanel.movePivot`
-        // with a minimum gap of 0.02 — the same reasoning as the grading pivots above.
-        // Floors at 70% of each pivot's own measurement at the EV-derived defaults
-        // (proof #6): 12.61, 94.45, 155.59, 37.18, 44.30. The upper two dropped hard —
-        // their boundaries moved up into the display shoulder, where a seam between
-        // two zones is compressed like everything else — and the dark pivot RECOVERED
-        // for the same reason the dark zone did: its boundary now lives where the
-        // display still has code values to move.
+        // Each pivot's travel, inside its neighbours ± `Zones.minimumPivotGap` (a stop),
+        // which is where `Zones.movingPivot` lets a drag put it. It was clamped at a
+        // 0.02 gap and the shadow/mid/light/bright travels ran past their neighbours.
+        // Floors at 70% of each pivot's own measurement. At proof #6, with the ±2 EV
+        // companion and the wider travels, they were 12.61, 94.45, 155.59, 37.18, 44.30;
+        // WS-08's ±0.375 EV companion and one-stop travels measure 2.04, 24.21, 23.76,
+        // 19.90, 12.42. A quarter of the seam over a third of the travel: smaller
+        // numbers measuring the same thing. At the default gaps each seam is un-eased;
+        // a pivot dragged to within a stop of a neighbour shrinks that seam's limit
+        // below 0.75 EV, and the conflict cap then holds the pair at it — which is the
+        // register doing its job at the end of the travel. Dark stays weakest because
+        // its boundary is in the display toe.
         let travels: [(Int, String, Double, Double, Double)] = [
-            (0, "Dark", 0, 0.23, 8), (1, "Shadow", 0.10, 0.48, 66),
-            (2, "Mid", 0.27, 0.73, 108), (3, "Light", 0.52, 0.90, 26),
-            (4, "Bright", 0.77, 1.0, 31),
+            (0, "Dark", 0, 0.23, 1), (1, "Shadow", 0.43, 0.57, 16),
+            (2, "Mid", 0.58, 0.71, 16), (3, "Light", 0.72, 0.85, 13),
+            (4, "Bright", 0.86, 1.0, 8),
         ]
         for (index, name, lo, hi, floor) in travels {
             out.append(ControlSpec(
@@ -931,13 +949,12 @@ enum ProofRegistry {
                 low: lo, high: hi, neutral: Zones.defaultPivots[index],
                 frameName: "neutralRamp", frame: { ProofFrames.neutralRamp() },
                 authorityFloor: floor,
-                // A pivot moves WHERE its zone acts, so sweeping one walks that zone
-                // across the tonal axis and eventually past the region being measured,
-                // after which the picture returns toward neutral. Only the Light pivot
-                // travels far enough on this ramp for that to register. Re-pinned at
-                // proof #6's measurement (was 16.250 at the old defaults): the reversal
-                // SHRANK with the EV-derived pivots, which is the fix direction.
-                declaredReversal: index == 3 ? 5.158 : nil,
+                // A pivot moves WHERE its zone acts, so sweeping one far enough walks
+                // that zone past the region being measured, after which the picture
+                // returns toward neutral. The Light pivot did, and declared 5.158 of it;
+                // inside its neighbours ± a stop (WS-08) none travels that far and every
+                // one measures monotone with nothing given back.
+                declaredReversal: nil,
                 apply: { r, v in
                     alternatingZones(&r)
                     var pivots = Zones.defaultPivots

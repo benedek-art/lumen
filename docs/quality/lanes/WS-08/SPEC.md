@@ -22,6 +22,14 @@ inverts once an adjacent-zone difference passes 4/π ≈ 1.27 EV, and WS-07's fo
 bands (audit Z-1: Darks +3 renders −3.75…−0.85 EV as one grey). The fix eases the EVs before they reach the curve,
 the way `solveZonalLimits` does for the six sliders. The clamp then never fires on a Zones-only recipe.
 
+*Amended by lead, round 2: the round-1 ease scaled a lone zone's request, so Darks +3 applied +0.954 and the slider travel past
+~0.76 EV added ~0.2 EV — a dead range LANE-BRIEF §4 forbids.* **Spill rule.** With `L_i = 0.75 · 2 · gap_i / π`
+(the gap in EV; 0.955 EV at the default pivots), a request is HONOURED at its own pivot. When a seam's drop exceeds
+`L_i` and the downhill neighbour is untouched (requested 0), that neighbour moves by exactly `drop − L_i`, and on
+outward: Darks +3 → Shadows +2.05 → Midtones +1.09 → Lights +0.14 at the default pivots, and the mirror for negative
+requests (Brights −3 pulls Lights/Midtones/Shadows down). Only where two TOUCHED zones disagree by more than the seams
+between them can carry is a request held back, by the round-1 scaling/soft-knee ease over that span.
+
 Grids. **G5** = {−3, −1.5, 0, 1.5, 3}^5 at the default pivots, with global ∈ {0, 3}. **G3** = {−3, 0, 3}^5 on each of:
 four min-gap pivot sets (one adjacent pair at exactly 1 EV, the others default); `[0, 1/14, 2/14, 3/14, 4/14]`; and 50
 seeded random ascending sets with every gap ≥ 1 EV. All lines below are in new
@@ -34,30 +42,55 @@ seeded random ascending sets with every gap ≥ 1 EV. All lines below are in new
   at any knot the builder adds.
 - **Z1.3** `testNoOvershootAndPeaksAtThePivot`. On each interval [T_i, T_i+1], `zonePanelStops` lies within
   `[min(a_i, a_i+1), max(a_i, a_i+1)] ± 1e-9`. Below T0 it equals a_0 and above T4 it equals a_4, plus global, ± 1e-9.
-  This keeps "a zone acts most at its own pivot". Existing tests `RobustnessTests.testEachZoneMovesItsOwnPivotAndNoOther`,
-  `testMovingAPivotMovesWhereTheZoneActs` and `testTheGlobalZoneTrimIsFlat` stay unchanged and pass.
+  This keeps "a zone acts most at its own pivot". Existing tests `testMovingAPivotMovesWhereTheZoneActs` and
+  `testTheGlobalZoneTrimIsFlat` stay unchanged and pass. *Amended by lead, round 2: `RobustnessTests.testEachZoneMovesItsOwnPivotAndNoOther`
+  keeps +1 EV and its own-pivot assertion; the next pivot up the axis now carries 1 − L = 0.045 EV, which is what is
+  true under the spill rule, and the test says so.*
 - **Z1.4** `testSmallMovesAreExact`. For a single zone with |ev| ≤ 0.75 at the default pivots, `a = ev` exactly. At its
-  own pivot `zonePanelStops` = ev ± 1e-9, and at the other pivots 0 ± 1e-9. This matches `easedScale`'s knee:
-  0.8 × the 0.955 EV floor limit of a raised cosine across a 2 EV gap.
+  own pivot `zonePanelStops` = ev ± 1e-9, and at the other pivots 0 ± 1e-9. *Amended by lead, round 2: under the spill rule nothing spills
+  below |ev| = L = 0.955 EV; the 0.75 cases are kept.*
 - **Z1.5** `testSmallMovesMatchTodaysResponse`. For a single zone at |ev| ≤ 0.5 at the default pivots,
   `max_t |new − ZoneWeights.exposureStops(old axis)| ≤ 0.02 EV` over [−12, +8]. A photographer's existing small zone
   edits must not visibly move.
-- **Z1.6** `testTheEaseNeverGoesDead`. For each zone alone at the default pivots and v ∈ [−3, 2.75] in 0.25 steps,
-  `y(T_z)` at v+0.25 is greater than `y(T_z)` at v by more than 1e-4 EV. Also sign(a) = sign(v) and |a| ≤ |v|.
-  Beyond about 1 EV a lone zone gains little; that is the price of the floor, and Z1.7 says so on screen.
+- **Z1.6** `testTheEaseNeverGoesDead`. *Amended by lead, round 2 (no dead range).* For each zone alone at the default pivots and
+  v ∈ [−3, 2.75] in 0.25 steps, `(y(T_z) at v+0.25 − y(T_z) at v) / 0.25 ≥ 0.99`, and the zone's applied value is v
+  (± 1e-12): a lone zone is delivered in full at its own pivot over the whole slider.
+- **Z1.6b** `testALoneZoneSpillsItsExcessIntoItsNeighbours`. *Amended by lead, round 2.* Darks +3 at the default pivots gives
+  `zonePanelStops` at the five pivots = 3, 3 − L, 3 − 2L, 3 − 3L, 0 (± 0.01 EV; L = 0.955), i.e. Shadows +2.045,
+  Midtones +1.090, Lights +0.135 (± 0.001). Brights −3 is the mirror.
 - **Z1.7** `testTheEaseIsReported`. New `AppliedReadout.zoneEasing(tone:zones:) -> [ZoneEased]`, one entry per zone with
   `|requested − applied| > 0.005 EV`, each holding the zone name, requested and applied. It is empty for Z1.4's cases.
-  For Darks +3 it has exactly one entry, Darks, with applied < 3. ZonesPanel shows the applied value as a caption
-  under the eased slider ([macOS-CI], Z8 snapshot).
+  *Amended by lead, round 2:* for Darks +3 it has exactly three entries, Shadows, Midtones and Lights, each carried from Darks and captioned
+  in photographer words ("+2.05 EV carried from Darks"); Darks itself has none. For Darks +3 with Midtones −3 (a
+  conflict) Darks and Midtones each have an entry naming the other ("Applied +0.95 of +3.00 EV (conflicts with
+  Midtones)"), with |applied| < 3. ZonesPanel shows the caption under the row that moved ([macOS-CI], Z8 snapshot).
 - **Z1.8** `testEasingIsLocal`. Darks +3 with Lights +0.5 leaves Lights applied at 0.5 ± 1e-9. Mid −3 with Brights +1
-  leaves Brights at 1 ± 1e-9. A zone separated from the conflict by an untouched zone is never scaled.
+  leaves Brights at 1 ± 1e-9. A zone separated from the conflict by an untouched zone is never scaled. *Amended by lead, round 2: a lone
+  zone is never scaled (Mid −3 there applies −3 ± 1e-12).* *Amended by lead, round 2b: a touched pair the spill can
+  reconcile is delivered EXACTLY — Darks +3 with Lights +0.5 applies Darks 3 ± 1e-12 and Lights 0.5. The cap applies
+  only to an infeasible span (sum of its seam limits < its drop), starting at that capacity, so applied is
+  continuous and non-decreasing in the slider across the transition:
+  `testTheConflictCapIsContinuousAndMonotone` (Darks 0…3 against Lights +0.5 and against Midtones −1, 0.01 steps:
+  exact while feasible, span drop = capacity ± 1e-9 after, no step > 0.01, never falling).*
+- **Z1.8b** `testAConflictIsEasedAndKeepsTheFloor`. *Amended by lead, round 2.* Darks +3 with Midtones −3: both held back (|applied| < 3),
+  the untouched Shadows between their applied values, slope ≥ 0.25 − 1e-9 over [−12, +8].
 - **Z1.9** `testTheClampNeverFiresOnAZonesOnlyRecipe`. `ToneEngine.zoneFlattening()` is nil for all of G5. It is read
   only; it is WS-07's function.
 - **Z1.10** Pipeline confirmation on the CPU reference: `BIN=… python3 tools/ramp_check.py /tmp/claude-0/ws08-after`.
-  This renders `grey_ramp.lfi` at native 2800 px for 9 Zones recipes plus default. Pass for every recipe:
-  `minRatio ≥ 0.10` (slope against the default render where it exceeds 2 codes/EV), `negSpanEV ≤ 0.05` (that is the
-  default's own value), `flatEV ≤ 0.05`, and `maxKink ≤ 0.5` (change of slope ratio over 0.1 EV). Today: Darks +3
-  −0.29 / 1.17 / 0.70 / 4.50; Darks +3 & Mid −3 −0.29 / 1.95 / 1.19 / 4.50; Mid +3 −0.04 / 0.96 / 1.59 / 2.89.
+  This renders `grey_ramp.lfi` at native 2800 px for 9 Zones recipes plus default. *Amended by lead, round 2: the display-code
+  `minRatio`/`negSpanEV`/`maxKink` metric is replaced by the EV-domain measure
+  `python3 tools/ramp_ev_kink.py /tmp/claude-0/ws08-after` (it inverts the default render to read back the tone the
+  pipeline rendered). Reason: a plain Exposure +0.95 fails the display-code metric (maxKink 3.13, negSpanEV 0.07), so
+  it measures the display toe, not the zones.* Pass for every recipe: `maxKinkEV ≤ 0.5` (change of du/dt over
+  0.1 EV) and `minSlope ≥ 0.10` from `ramp_ev_kink.py`, and `flatEV ≤ 0.05` from `ramp_check.py`. *Amended by lead,
+  round 2b: a ±3 EV bump across a 2 EV gap has an irreducible rising-side kink; the defect the line targets is the
+  falling side. So `kinkFall ≤ 0.5` (windows where du/dt < 1: spilled or eased seams), and on rising seams
+  (`kinkRise`, du/dt > 1: the request itself) `≤` the base build's value on the same recipe. flatEV is measured in the
+  EV domain: `ramp_ev_kink.py` slope ≥ 0.10 over the whole span (no EV-domain flat run). Mid −3's display-code
+  flatEV (0.24 from `ramp_check.py`) is recorded as a display-toe effect — its spilled seams run at the 0.25 floor,
+  under 1 code/EV in the toe — not a zone defect.* Today (EV
+  domain): Darks +3 −0.12 / 0.94; Mid −3 −0.12 / 2.59; Shadows +3 / Mid −3 / Lights +3 −0.11 / 4.86 (min slope /
+  kink).
   Evidence: before/after `ramp-transfer-*.png` and the R5 4694 100 % crop at Darks 0 / +1.25 / +3.
 - **Z1.11** CPU/GPU stay one definition. Code review: the diff touches nothing under `Sources/LumenPipeline` or the
   kernel registry. Both paths consume the LUT baked from `ToneEngine.stops` (RR.applyTone:242 `plan.toneGainLUT`;

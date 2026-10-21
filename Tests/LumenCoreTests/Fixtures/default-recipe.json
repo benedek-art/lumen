@@ -191,49 +191,19 @@
   },
   "zones": {
    "bright": {
-    "ev": 0,
-    "falloff": 0.5,
-    "sat": 0,
-    "wheel": [
-     0,
-     0
-    ]
+    "ev": 0
    },
    "dark": {
-    "ev": 0,
-    "falloff": 0.5,
-    "sat": 0,
-    "wheel": [
-     0,
-     0
-    ]
+    "ev": 0
    },
    "global": {
-    "ev": 0,
-    "falloff": 0.5,
-    "sat": 0,
-    "wheel": [
-     0,
-     0
-    ]
+    "ev": 0
    },
    "light": {
-    "ev": 0,
-    "falloff": 0.5,
-    "sat": 0,
-    "wheel": [
-     0,
-     0
-    ]
+    "ev": 0
    },
    "mid": {
-    "ev": 0,
-    "falloff": 0.5,
-    "sat": 0,
-    "wheel": [
-     0,
-     0
-    ]
+    "ev": 0
    },
    "pivots": [
     0.35714285714285715,
@@ -243,13 +213,7 @@
     0.9285714285714286
    ],
    "shadow": {
-    "ev": 0,
-    "falloff": 0.5,
-    "sat": 0,
-    "wheel": [
-     0,
-     0
-    ]
+    "ev": 0
    }
   }
  },

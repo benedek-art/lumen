@@ -20,7 +20,7 @@ import XCTest
 
 final class AppliedReadoutTests: XCTestCase {
 
-    // MARK: - Zones (AI-07)
+    // MARK: - Zones (AI-07, WS-08)
 
     private func darks(_ ev: Double) -> Zones {
         var zones = Zones()
@@ -28,54 +28,98 @@ final class AppliedReadoutTests: XCTestCase {
         return zones
     }
 
+    /// The Zones recipe that still reaches the bake's clamp once the register eases
+    /// itself (WS-08): Darks alone never does, Contrast −100 underneath it does.
+    private func deepContrast() -> Tone { Tone(contrast: -100) }
+
     func testAnUntouchedRegisterShowsNothing() {
         XCTAssertNil(AppliedReadout.zoneFlattening(tone: Tone(), zones: Zones()))
-        // Below the clamp's onset the register renders what it asks for, and says so by
-        // saying nothing. Darks alone first flattens between +1.25 and +1.5 EV.
+        XCTAssertEqual(AppliedReadout.zoneEasing(tone: Tone(), zones: Zones()), [])
+        // Inside the ease's knee the register renders what it asks for and says nothing.
+        XCTAssertEqual(AppliedReadout.zoneEasing(tone: Tone(), zones: darks(0.75)), [])
+        // And on its own it never reaches the clamp, however far it is pushed: Darks +4
+        // used to flatten 3.85 EV of input.
         XCTAssertNil(AppliedReadout.zoneFlattening(tone: Tone(), zones: darks(1.25)))
+        XCTAssertNil(AppliedReadout.zoneFlattening(tone: Tone(), zones: darks(4)))
+    }
+
+    /// Darks +3 is delivered in full and its untouched neighbours carry the excess; the
+    /// readout names each carried row with the amount the render applies — the engine's
+    /// own numbers, not a parallel computation. A conflict between two touched zones is
+    /// named on both rows.
+    ///
+    /// SUBSTITUTION: make `zoneEasing(tone:zones:)` return `[]` and the unwrap fails.
+    func testAnEasedZoneIsNamedWithTheAmountTheRenderApplies() throws {
+        let zones = darks(3)
+        let applied = ToneEngine(tone: Tone(), zones: zones).appliedZoneEV
+        let eased = AppliedReadout.zoneEasing(tone: Tone(), zones: zones)
+        let shadows = try XCTUnwrap(eased.first, "Darks +3 spills \(applied[1]) EV into "
+                                    + "Shadows and the panel's readout said nothing")
+        XCTAssertEqual(eased.map(\.name), ["Shadows", "Midtones", "Lights"])
+        XCTAssertEqual(applied[0], 3)
+        XCTAssertEqual(shadows.requested, 0)
+        XCTAssertEqual(shadows.applied, applied[1])
+        XCTAssertEqual(eased.map(\.caption), ["+2.05 EV carried from Darks",
+                                              "+1.09 EV carried from Darks",
+                                              "+0.14 EV carried from Darks"])
+
+        var conflict = darks(3)
+        conflict.mid.ev = -3
+        let held = AppliedReadout.zoneEasing(tone: Tone(), zones: conflict)
+        let darksRow = try XCTUnwrap(held.first { $0.name == "Darks" })
+        XCTAssertEqual(darksRow.caption, "Applied \(AppliedReadout.ev(darksRow.applied)) of "
+                           + "+3.00 EV (conflicts with Midtones)")
+        XCTAssertEqual(AppliedReadout.zoneNames,
+                       ["Darks", "Shadows", "Midtones", "Lights", "Brights"])
     }
 
     /// The readout IS the engine's report — not a parallel computation that could drift
-    /// from the bake — placed on the strip through the engine's own axis.
+    /// from the bake — placed on the strip through the register's own axis.
     ///
     /// SUBSTITUTION: make `zoneFlattening(tone:zones:)` return nil and the unwrap of the
     /// readout fails here, as do the two tests below that unwrap it.
-    func testDarksPlusFourIsNamedInEVAndPlacedOnTheStrip() throws {
-        let zones = darks(4)
-        let engine = ToneEngine(tone: Tone(), zones: zones)
+    func testAClampedBandIsNamedInEVAndPlacedOnTheStrip() throws {
+        let zones = darks(3)
+        let engine = ToneEngine(tone: deepContrast(), zones: zones)
         let report = try XCTUnwrap(engine.zoneFlattening())
-        let readout = try XCTUnwrap(AppliedReadout.zoneFlattening(tone: Tone(), zones: zones),
-                                    "Darks +4 EV flattens 3.85 EV of input and the "
-                                        + "panel's readout said nothing")
+        let readout = try XCTUnwrap(AppliedReadout.zoneFlattening(tone: deepContrast(),
+                                                                  zones: zones),
+                                    "Contrast −100 with Darks +3 flattens 5.40 EV of "
+                                        + "input and the panel's readout said nothing")
         XCTAssertEqual(readout.flattening, report)
-        XCTAssertEqual(readout.lowX, engine.normalizedAxis(report.lowEV))
-        XCTAssertEqual(readout.highX, engine.normalizedAxis(report.highEV))
+        XCTAssertEqual(readout.lowX, ToneEngine.zoneAxis(report.lowEV))
+        XCTAssertEqual(readout.highX, ToneEngine.zoneAxis(report.highEV))
         XCTAssertLessThan(readout.lowX, readout.highX)
-        // The audit's own numbers, as the photographer reads them.
-        XCTAssertTrue(readout.caption.contains("\u{2212}3.77…+0.08 EV"), readout.caption)
-        XCTAssertTrue(readout.caption.contains("2.20 EV"), readout.caption)
+        // Measured, as the photographer reads it.
+        XCTAssertTrue(readout.caption.contains("\u{2212}3.18…+2.22 EV"), readout.caption)
+        XCTAssertTrue(readout.caption.contains("0.40 EV"), readout.caption)
     }
 
-    /// The strip's x axis is `normalizedAxis` at the LIVE anchors, and Whites and Blacks
-    /// move them. A readout placed through the default anchors would mark the wrong
-    /// tones the moment either slider moved.
+    /// INVERTED BY WS-08 (Z3). This asserted that the mark followed the LIVE anchors,
+    /// which was right while the zones themselves did: the register now sits on fixed
+    /// stops (`ToneEngine.zoneAxis`), so do its pivots and its strip, and a mark placed
+    /// through the live anchors would slide off the tones it names the moment Whites or
+    /// Blacks moved.
     func testThePlacementFollowsTheAnchorsWhitesAndBlacksMove() throws {
-        let zones = darks(4)
-        let plain = try XCTUnwrap(AppliedReadout.zoneFlattening(tone: Tone(), zones: zones))
-        let moved = Tone(whites: -60, blacks: 60)
+        let zones = darks(3)
+        let moved = Tone(contrast: -100, whites: -60, blacks: 60)
         let engine = ToneEngine(tone: moved, zones: zones)
         let report = try XCTUnwrap(engine.zoneFlattening())
         let readout = try XCTUnwrap(AppliedReadout.zoneFlattening(tone: moved, zones: zones))
-        XCTAssertEqual(readout.lowX, engine.normalizedAxis(report.lowEV))
-        XCTAssertEqual(readout.highX, engine.normalizedAxis(report.highEV))
-        XCTAssertNotEqual(readout.lowX, plain.lowX, accuracy: 1e-3)
+        XCTAssertEqual(readout.lowX, ToneEngine.zoneAxis(report.lowEV))
+        XCTAssertEqual(readout.highX, ToneEngine.zoneAxis(report.highEV))
+        XCTAssertNotEqual(readout.lowX, engine.normalizedAxis(report.lowEV), accuracy: 1e-3,
+                          "the mark is placed through the live anchors")
     }
 
-    /// A wider request flattens a wider band, and the readout grows with it.
+    /// A deeper conflict flattens a wider band, and the readout grows with it. The zone
+    /// request is eased, so it is Contrast that deepens it now.
     func testTheMarkGrowsWithTheRequest() throws {
-        let two = try XCTUnwrap(AppliedReadout.zoneFlattening(tone: Tone(), zones: darks(2)))
-        let four = try XCTUnwrap(AppliedReadout.zoneFlattening(tone: Tone(), zones: darks(4)))
-        XCTAssertGreaterThan(four.highX - four.lowX, two.highX - two.lowX)
+        let some = try XCTUnwrap(AppliedReadout.zoneFlattening(tone: Tone(contrast: -80),
+                                                               zones: darks(3)))
+        let more = try XCTUnwrap(AppliedReadout.zoneFlattening(tone: deepContrast(),
+                                                               zones: darks(3)))
+        XCTAssertGreaterThan(more.highX - more.lowX, some.highX - some.lowX)
     }
 
     /// The panel asks for the readout with the recipe's own tone stack, hands the band to
@@ -95,6 +139,13 @@ final class AppliedReadoutTests: XCTestCase {
                       "the flattened band is not handed to the strip")
         XCTAssertTrue(rows.contains("if let flattened { Text(flattened.caption)"),
                       "the flattened band is not named under the strip")
+        // WS-08 Z1.7: an eased zone shows the applied amount under its own row.
+        XCTAssertTrue(rows.contains("AppliedReadout.zoneEasing(tone: recipe.develop.tone, "
+                                    + "zones: zones)"),
+                      "the Zones panel no longer asks the engine what it eased")
+        XCTAssertTrue(rows.contains("if let eased = easing.first(where: { $0.name == zone.name }) "
+                                    + "{ Text(eased.caption)"),
+                      "an eased zone is not captioned under its row")
 
         let strip = try Scan.between("struct ZonePivotStrip: View {", "private func handle(",
                                      in: source)

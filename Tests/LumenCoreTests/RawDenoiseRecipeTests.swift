@@ -16,7 +16,10 @@ final class RawDenoiseRecipeTests: XCTestCase {
     private static let defaultCanonical = #"{"pipelineVersion":2}"#
     private static let defaultFingerprint = "xxh64:fd50cceee634dfb4"
     private static let defaultDenoiseInput = "xxh64:d730b5c38ab52508"
-    private static let defaultFullTreeDigest = "68b478a3b73cfdea"
+    // Moved once, deliberately, by WS-08 Z7: the full tree lost `ZoneAdjust`'s never-read
+    // wheel / sat / falloff (was 68b478a3b73cfdea). The sparse form and both fingerprints
+    // above did not move.
+    private static let defaultFullTreeDigest = "7121a0e06775a66f"
     private static let editedCanonical =
         #"{"develop":{"denoise":{"amount":65,"mode":"ai","model":"nafnet/2.1"},"#
         + #""raw":{"temp":5600}},"pipelineVersion":2}"#

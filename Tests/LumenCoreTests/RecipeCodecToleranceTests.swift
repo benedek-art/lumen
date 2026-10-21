@@ -353,8 +353,9 @@ final class RecipeCodecToleranceTests: XCTestCase {
         XCTAssertEqual(mix.bands[0], 10)
         XCTAssertEqual(mix.bands[7], 0)
 
+        // `wheel` is a removed key (WS-08 Z7): a short one still decodes, to the default.
         let zone = try JSONDecoder().decode(ZoneAdjust.self, from: Data(#"{"wheel":[1]}"#.utf8))
-        XCTAssertEqual(zone.wheel, [1, 0])
+        XCTAssertEqual(zone, ZoneAdjust())
 
         let swatch = try JSONDecoder().decode(
             PointColor.self, from: Data(#"{"sample":[0.5]}"#.utf8))
@@ -384,10 +385,11 @@ final class RecipeCodecToleranceTests: XCTestCase {
         XCTAssertEqual(jumbled.pivots, [0.2, 0.35, 0.5, 0.65, 0.8])
 
         // Coincident pivots are a division by zero in the crossfade: pushed apart by the
-        // panel's own gap, so the strip and the picture agree.
+        // panel's own gap, so the strip and the picture agree. That gap is a stop now
+        // (`Zones.minimumPivotGap`, WS-08 Z4); it was 0.02 of the axis.
         let touching = try JSONDecoder().decode(
             Zones.self, from: Data(#"{"pivots":[0.3,0.3,0.5,0.7,0.9]}"#.utf8))
-        XCTAssertEqual(touching.pivots[1], 0.32, accuracy: 1e-12)
+        XCTAssertEqual(touching.pivots[1], 0.3 + Zones.minimumPivotGap, accuracy: 1e-12)
         XCTAssertTrue(zip(touching.pivots, touching.pivots.dropFirst()).allSatisfy { $0 < $1 })
 
         // Identity on what this app writes: an ascending list round-trips untouched.
@@ -493,7 +495,8 @@ final class RecipeCodecToleranceTests: XCTestCase {
                 brilliance: ColorBalanceAxis(global: 9, shadows: 10, mid: 11, high: 12)))
 
         func zone(_ ev: Double) -> ZoneAdjust {
-            ZoneAdjust(ev: ev, wheel: [ev / 10, -ev / 10], sat: ev * 2, falloff: 0.4)
+            // `ev` only: wheel / sat / falloff were never rendered and are gone (WS-08 Z7).
+            ZoneAdjust(ev: ev)
         }
 
         // Each sub-expression is bound separately, and that is not a style choice.

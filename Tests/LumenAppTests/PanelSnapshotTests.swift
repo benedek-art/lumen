@@ -294,6 +294,36 @@ final class PanelSnapshotTests: XCTestCase {
             SnapshotPickIndicator(image: sample, container: viewer,
                                   sourceLongEdge: { drawn in drawn })
         }
+
+        // The Zones register on its own card (WS-08 Z8). Drawn directly rather than
+        // through BasicPanel's fold, whose `zonesExpanded` is private state the
+        // harness cannot open (`panel-develop-tone-zones-open` shows it closed).
+        state.activeMaskID = nil
+        await recorder.render("panel-develop-zones-default",
+                              "Develop ▸ Tone ▸ Zones register, every zone at zero",
+                              width: width) {
+            SnapshotSectionCard(.tone, isModified: recorder.isModified(.tone)) {
+                ZonesPanel(showsSectionHeader: false)
+            }
+        }
+        // Darks +3 is delivered at its pivot and carries into the zones above it (their
+        // rows say so), and the Shadows pivot sits at −2.75 EV instead of −2.
+        state.updateRecipe(label: "Snapshot zones") { recipe in
+            recipe.develop.zones.dark.ev = 3
+            recipe.develop.zones.pivots = Zones.movingPivot(
+                1, to: (-2.75 - ToneEngine.defaultBlackAnchorEV)
+                    / (ToneEngine.defaultWhiteAnchorEV - ToneEngine.defaultBlackAnchorEV),
+                in: recipe.develop.zones.pivots)
+        }
+        await recorder.settle(0.3)
+        await recorder.render("panel-develop-zones-darks3-pivot",
+                              "Develop ▸ Tone ▸ Zones register, Darks +3 (carried upward) and the "
+                                  + "Shadows pivot at −2.75 EV",
+                              width: width) {
+            SnapshotSectionCard(.tone, isModified: recorder.isModified(.tone)) {
+                ZonesPanel(showsSectionHeader: false)
+            }
+        }
     }
 
     // MARK: - The whole window, against a scanned folder
