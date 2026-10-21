@@ -1516,15 +1516,13 @@ enum ProofRegistry {
         ControlSpec(
             // Irregularity (`GrainField`): fewer, mixed-size grains and clumps toward 100.
             // The control `FilmGrain` does not have, and the one docs/27's "measured
-            // twice" disposition could not have been describing. Monotone since WS-40
-            // kept the grain cells fixed across Roughness (one pattern morphing, not a
-            // new one per step).
+            // twice" disposition could not have been describing. WS-40 keeps the grain
+            // cells fixed across Roughness (one pattern morphing, not a new one per step).
             id: "look.grain.roughness", panel: "Effects", displayName: "Grain roughness",
             low: 0, high: 100, neutral: 50,
             frameName: "grainField", frame: { ProofFrames.grainField() },
-            // Measured 12.37, monotone, nothing given back — and that it IS monotone
-            // where Size is not is the evidence that Size's reversal is the boundary
-            // rather than the harness: same frame, same field, same sweep length.
+            // Measured 72.7 since WS-40, with 0.03 given back (the record's
+            // `isMonotone` is false on that 0.04% wobble, not on a real reversal).
             authorityFloor: 8,
             apply: { r, v in
                 r.look.grain = CreativeGrain(amount: 100, roughness: v)
