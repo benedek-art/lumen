@@ -65,7 +65,7 @@ final class GrainSpecTests: XCTestCase {
     /// The 1/e correlation length, mean of x and y — `grain_metrics.py`'s `cl`.
     private static func correlationLength(_ v: [Float], _ w: Int, _ h: Int) -> Double {
         func along(_ x: Bool) -> Double {
-            let t = 1 / M_E
+            let t = exp(-1.0)
             var prev = 1.0
             for lag in 1..<64 {
                 let r = x ? acf(v, w, h, lag, 0) : acf(v, w, h, 0, lag)
@@ -233,8 +233,9 @@ final class GrainSpecTests: XCTestCase {
                 let mean = s.reduce(0, +) / Double(s.count)
                 XCTAssertEqual(mean, 0.5, accuracy: 0.01)
                 // neighbours: right, down, both diagonals
-                var right = [Double](), rightB = [Double](), down = [Double](),
-                    downB = [Double](), diag = [Double](), diagB = [Double]()
+                var right = [Double](), rightB = [Double]()
+                var down = [Double](), downB = [Double]()
+                var diag = [Double](), diagB = [Double]()
                 for y in 0..<(n - 1) {
                     for x in 0..<(n - 1) {
                         right.append(s[y * n + x]); rightB.append(s[y * n + x + 1])

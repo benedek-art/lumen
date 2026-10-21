@@ -145,3 +145,12 @@ The old tests encoded the plate design, so replacing them was expected. Nothing 
 - **Strength is a taste call.** Tri-X at 100 is 16 codes (31 at push +2), and stocks are generally stronger than before because they share `densityScale` with the creative grain.
 - **Deep shadows.** Grain in the deepest blacks (codes 0-16) is faint, 0.5-0.9 codes against 3.5 in the midtones. That is the density envelope working as film does, but some users may want more there.
 - **No Lightroom exports.** The amplitude and size targets are sourced estimates. Exporting the two grain presets in `docs/quality/lightroom-reference` from Lightroom would settle them.
+
+## CI
+
+On `7e6c807` (the kernel commit), **GPU parity passed.** That run includes `testTheGrainFieldGeneratorIsTheReferenceField` and `testGrainMatchesTheReferenceRenderer` at < 1e-3, so spec line 12 is **PASS**. The proof sweep also passed.
+
+On `ab4149a`, every CI job passed except `fixtures-linux`:
+- Passed: build-macos, test-fast, engine-linux, app-bundle, UI layout and the proof sweep.
+- `fixtures-linux` failed in its Swift-surface checker on two things in `GrainSpecTests`: a multi-line `var` list the checker cannot scope, and `M_E`, which it does not know. Both are fixed in the final commit.
+- The checker's remaining findings were already on the base branch (in `RecipeKeys`, `Metrics`, `main.swift`, `AppState`, `PanelLayout` and `LumenType`), in files this lane does not touch.
