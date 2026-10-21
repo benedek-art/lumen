@@ -268,6 +268,35 @@ final class PanelSnapshotTests: XCTestCase {
                 CropTransformSection(initiallyExpanded: true)
             }
         }
+
+        // Curve editor states (lane T2), last so no earlier entry sees this curve: the
+        // sample frame's histogram behind the graph, a Point S-curve, a red channel
+        // curve with a green one ghosted under it, and the parametric tab with values.
+        let curveHistogram: Histogram? = AppState.buffer(from: sample, targetLongEdge: 512)
+            .map { Histogram.compute($0, bins: 256) }
+        state.updateRecipe(label: "Snapshot curves") { recipe in
+            recipe.develop.curve.point = [[0, 0], [0.25, 0.18], [0.5, 0.5], [0.75, 0.84], [1, 1]]
+            recipe.develop.curve.r = [[0, 0], [0.5, 0.58], [1, 1]]
+            recipe.develop.curve.g = [[0, 0], [0.5, 0.46], [1, 1]]
+            recipe.develop.curve.parametric.highlights = -30
+            recipe.develop.curve.parametric.shadows = 25
+        }
+        await recorder.settle(0.3)
+        let curveStates: [(name: String, channel: CurveEditorView.CurveChannel, caption: String)] = [
+            ("panel-develop-curve-point", .point,
+             "Develop ▸ Curve, Point tab: S-curve over the sample frame's histogram"),
+            ("panel-develop-curve-red", .red,
+             "Develop ▸ Curve, R tab: red lift, green curve ghosted, red channel histogram"),
+            ("panel-develop-curve-param-values", .parametric,
+             "Develop ▸ Curve, Param tab: Highlights −30, Shadows +25 with the histogram"),
+        ]
+        for entry in curveStates {
+            await recorder.render(entry.name, entry.caption, width: width) {
+                SnapshotSectionCard(.curve, isModified: true) {
+                    CurveEditorView(histogram: curveHistogram, initialChannel: entry.channel)
+                }
+            }
+        }
     }
 
     // MARK: - Range masks (WS-47/48): the Brightness Range luminance-map strip

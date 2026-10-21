@@ -115,9 +115,11 @@ struct CurveEditorView: View {
     /// next surface that mounts this editor, which is the one this change is really for.
     /// `nil` is still a legitimate thing to pass (nothing rendered yet); what is no longer
     /// possible is passing it by accident.
-    init(histogram: Histogram?, target: Target = .global) {
+    init(histogram: Histogram?, target: Target = .global,
+         initialChannel: CurveChannel = .parametric) {
         self.histogram = histogram
         self.target = target
+        self._channel = SwiftUI.State(initialValue: initialChannel)
     }
 
     /// The six curves, in the order the panel shows them.
@@ -151,6 +153,10 @@ struct CurveEditorView: View {
             }
         }
 
+        /// R, G or B: the three tabs whose curve, backdrop and frame take the channel's
+        /// colour, so which one is being edited is legible from the graph itself.
+        var isColourChannel: Bool { self == .red || self == .green || self == .blue }
+
         var tint: Color {
             switch self {
             case .red: return Color(red: 0.90, green: 0.28, blue: 0.28)
@@ -168,8 +174,19 @@ struct CurveEditorView: View {
     /// The gesture-in-flight signal every slider fires (docs/23 audit queue item 5):
     /// a curve-point drag writes the recipe per event and paid per-event persistence.
     @Environment(\.sliderGestureChanged) private var sliderGestureChanged
-    /// Set when the press was an ⌥-click delete: the rest of that drag does nothing.
+    /// Set when the press was consumed (a double-click delete, a split reset): the rest
+    /// of that drag does nothing.
     @State private var dragConsumed: Bool = false
+    /// The point drag in progress: where the point and the pointer were, and the gain.
+    /// The point follows the pointer's DISPLACEMENT, so grabbing it off-centre does not
+    /// snap it, and ⌥ mid-drag switches to fine adjust without a jump.
+    @State private var dragAnchor: CurveEditing.DragAnchor? = nil
+    /// An ⌥-press on a point is a delete only if it is released where it was pressed;
+    /// the moment it travels it is a fine-adjust drag instead (`endDrag` decides).
+    @State private var pendingOptionDelete: Bool = false
+    /// Where the last single press took hold of a point, so the second click of a
+    /// double-click deletes that point and no other.
+    @State private var firstClickPoint: [Double]? = nil
     @State private var hoverLocation: CGPoint? = nil
     @State private var plotSize: CGSize = CGSize(width: 1, height: 1)
     /// Which region slider the pointer is on, and which one a drag is holding.
@@ -189,10 +206,16 @@ struct CurveEditorView: View {
     @State private var stackMemo = CurveStackMemo()
 
     private static let sampleCount: Int = 128
-    /// The press radius, in the plot's own points. The drawn dot is radius 3, so the
-    /// target is more than twice the ink — stated apart on purpose, and converted to
-    /// `CurveEditing`'s fractions at the one place that knows the plot's size.
-    private static let hitRadius: CGFloat = 8
+    /// The press radius, in the plot's own points. The drawn dot is radius 4 (5.5 when
+    /// it is the one under the pointer), so the target is two and a half times the ink —
+    /// stated apart on purpose, and converted to `CurveEditing`'s fractions at the one
+    /// place that knows the plot's size. Lightroom's is about the same; at 8 with a
+    /// 3 pt dot, a point at a corner of the graph was a 6 pt target on a trackpad.
+    private static let hitRadius: CGFloat = 10
+    private static let pointRadius: CGFloat = 4
+    private static let activePointRadius: CGFloat = 5.5
+    /// How far an ⌥-press may wander, in points, and still be the click that deletes.
+    private static let clickSlop: CGFloat = 2
     /// Deep enough for a 10-point triangle to sit under the plot without touching it.
     private static let railHeight: CGFloat = 12
     /// The four regions in the order the maths reads them — dark to light, which is
@@ -335,9 +358,12 @@ struct CurveEditorView: View {
     private var plot: some View {
         GeometryReader { geometry in
             let size: CGSize = geometry.size
-            let backdrop: [Double] = histogram?.normalized(.luma) ?? []
+            let backdrop: [Double] = backdropHeights
             let samples: [Double] = curveSamples
+            let ghosts: [(samples: [Double], tint: Color)] = ghostCurves
             let controls: [[Double]] = channel == .parametric ? [] : plottedPoints
+            let active: Int? = channel == .parametric
+                ? nil : (dragPointIndex ?? nearestPointIndex(to: hoverLocation, size: size))
             let regions: [ParametricRegion] = channel == .parametric
                 ? CurveEditorView.regions(splits: currentSplits) : []
             let highlight: Int? = channel == .parametric ? highlightRegion : nil
@@ -347,8 +373,11 @@ struct CurveEditorView: View {
                 Canvas { context, canvasSize in
                     CurveEditorView.draw(context: &context, size: canvasSize,
                                          backdrop: backdrop, samples: samples,
-                                         controls: controls, regions: regions,
-                                         highlight: highlight, tint: tint)
+                                         ghosts: ghosts,
+                                         controls: controls, active: active,
+                                         regions: regions,
+                                         highlight: highlight, tint: tint,
+                                         isChannel: channel.isColourChannel)
                 }
             }
             .contentShape(Rectangle())
@@ -395,8 +424,9 @@ struct CurveEditorView: View {
                 + "curve's slope above a floor — so these four cannot posterize, invert, "
                 + "or move black or white."
         }
-        return "Click to add a point, drag to move it, ⌥-click or right-click to delete "
-            + "it. Dragging a point out of the graph deletes it."
+        return "Click to add a point on the curve and drag to move it; hold ⌥ while "
+            + "dragging for fine adjustment. Double-click, ⌥-click or right-click a point "
+            + "to delete it, or drag it out of the graph."
     }
 
     /// The three splits, on a rail of their own under the plot.
@@ -537,10 +567,14 @@ struct CurveEditorView: View {
     // MARK: Readout
 
     private var readoutLine: some View {
-        HStack(spacing: 6) {
+        // The idle readout is the active curve's name; on a colour channel it is
+        // written in that channel's colour, the same tint as the trace.
+        let ink: Color = channel.isColourChannel && !readoutIsLive
+            ? channel.tint : Lumen.secondaryText
+        return HStack(spacing: 6) {
             Text(readoutText)
                 .font(.lumenCaptionNumeric)
-                .foregroundStyle(Lumen.secondaryText)
+                .foregroundStyle(ink)
                 .lineLimit(1)
             Spacer(minLength: 4)
             if channel != .parametric {
@@ -618,6 +652,13 @@ struct CurveEditorView: View {
     /// drag happened to be dead on the trace, and undefined the moment the pointer left
     /// the plot. So the one number a photographer places a point BY was never actually
     /// shown while the point was being placed.
+    /// Whether the readout is showing numbers (a drag or a hover) rather than the
+    /// curve's name.
+    private var readoutIsLive: Bool {
+        dragPointIndex != nil || dragSplitIndex != nil
+            || (hoverLocation != nil && plotSize.width > 1 && plotSize.height > 1)
+    }
+
     private var readoutText: String {
         if channel != .parametric, let index = dragPointIndex {
             let points: [[Double]] = plottedPoints
@@ -669,6 +710,7 @@ struct CurveEditorView: View {
             if let caption = AppliedReadout.parametricEasingCaption(appliedScale: stack.parametricAppliedScale) {
                 DevelopNote(caption)
             }
+            preserveLuminanceRow
         }
     }
 
@@ -705,14 +747,31 @@ struct CurveEditorView: View {
     /// before the hand lets go — so the drag wins.
     private var highlightRegion: Int? { dragRegion ?? hoverRegion }
 
+    /// The row under the graph on the five point-curve tabs.
+    ///
+    /// Preserve Luminance is offered on the Param and Point tabs ONLY, because the master
+    /// curve is the only one it governs (`CurveStack.apply`). It used to sit under R, G,
+    /// B and Luma as well, where flipping it changed nothing about the curve on screen and
+    /// everything about a different one — the luma curve is luminance-only by
+    /// definition, and an RGB channel curve is per-channel by definition.
+    @ViewBuilder
     private var pointControls: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            LumenToggleRow(title: "Preserve Luminance",
-                           isOn: curveFlag(\.preserveLuminance,
-                                           keyPrefix + "preserveLuminance"),
-                           help: "Curve the luminance and carry the chroma ratios, so a "
-                               + "contrast curve is not also a saturation boost (D10).")
+        if channel == .point {
+            VStack(alignment: .leading, spacing: 2) {
+                preserveLuminanceRow
+            }
         }
+    }
+
+    /// The one switch over the master curve, so it sits under both tabs that draw it.
+    private var preserveLuminanceRow: some View {
+        LumenToggleRow(title: "Preserve Luminance",
+                       isOn: curveFlag(\.preserveLuminance,
+                                       keyPrefix + "preserveLuminance"),
+                       help: "On: the Param and Point curves move brightness only, and "
+                           + "colours keep their saturation and hue. Off: the curve runs "
+                           + "on R, G and B separately, so a contrast curve also adds "
+                           + "saturation, as in Lightroom.")
     }
 
     // MARK: Curve evaluation
@@ -749,6 +808,62 @@ struct CurveEditorView: View {
             case .luma: y = curve.lumaCurve(x)
             }
             out[i] = CurveEditing.clamp01(y)
+        }
+        return out
+    }
+
+    /// The histogram behind the graph, on THIS curve's input axis (`CurveBackdrop`).
+    ///
+    /// The frame's histogram is the picture as delivered — the curve's output — and it
+    /// used to be drawn as it came, under an x axis that is the curve's input: a strong
+    /// S-curve showed the midtone hump wider than the tones the hand was choosing
+    /// between, and the backdrop slid under a point while it was dragged. Pulled back
+    /// through the stages from this curve's input onwards, the bins describe the tones
+    /// the curve is acting on and stay put while it changes.
+    ///
+    /// The R, G and B tabs draw their own channel, which is the input those curves
+    /// actually see; Param, Point and Luma draw luma.
+    private var backdropHeights: [Double] {
+        guard let histogram else { return [] }
+        let curve: CurveStack = stack
+        let source: Histogram.Channel
+        let stage: CurveStack.BackdropStage
+        switch channel {
+        case .parametric, .point: source = .luma; stage = .master
+        case .luma: source = .luma; stage = .luma
+        case .red: source = .red; stage = .channel(0)
+        case .green: source = .green; stage = .channel(1)
+        case .blue: source = .blue; stage = .channel(2)
+        }
+        let counts: [Double] = histogram.channelCounts(source).map { Double($0) }
+        guard curve.isIdentity == false else { return CurveBackdrop.normalized(counts) }
+        let weights: RGB = RGBColorSpace.rec2020.luminanceWeights
+        let input: [Double] = CurveBackdrop.inputCounts(counts) {
+            curve.neutralTail($0, from: stage, weights: weights)
+        }
+        return CurveBackdrop.normalized(input)
+    }
+
+    /// On an RGB tab, the other two channel curves, faint, when they are not the
+    /// identity — a colour grade is three curves read together, and editing one blind
+    /// to the other two is how a cast gets doubled.
+    private var ghostCurves: [(samples: [Double], tint: Color)] {
+        guard channel.isColourChannel else { return [] }
+        let curve: CurveStack = stack
+        let set: CurveSet = curveSet
+        let others: [(CurveChannel, Int, [[Double]]?)] = [
+            (.red, 0, set.r), (.green, 1, set.g), (.blue, 2, set.b),
+        ]
+        var out: [(samples: [Double], tint: Color)] = []
+        for (other, index, points) in others where other != channel {
+            guard let points, !CurveEditing.isIdentity(CurveEditing.sanitized(points))
+            else { continue }
+            let n: Int = CurveEditorView.sampleCount
+            let samples: [Double] = (0..<n).map {
+                CurveEditing.clamp01(curve.channelCurve(Double($0) / Double(n - 1),
+                                                        channel: index))
+            }
+            out.append((samples: samples, tint: other.tint))
         }
         return out
     }
@@ -879,6 +994,8 @@ struct CurveEditorView: View {
         dragConsumed = false
         dragPointIndex = nil
         dragSplitIndex = nil
+        dragAnchor = nil
+        pendingOptionDelete = false
         splitGrabOffset = 0
         sliderGestureChanged(false)
     }
@@ -889,29 +1006,70 @@ struct CurveEditorView: View {
             beginSplitDrag(at: location, size: size)
             return
         }
-        let points: [[Double]] = currentPoints
+        let pointerX: Double = Double(location.x / size.width)
+        let pointerY: Double = 1 - Double(location.y / size.height)
+        let fine: Bool = NSEvent.modifierFlags.contains(.option)
         if let hit = nearestPointIndex(to: location, size: size) {
-            if NSEvent.modifierFlags.contains(.option) {
-                deletePoint(at: hit)
+            // Double-click deletes, which is Lightroom's gesture and the one a hand
+            // tries first. Read at press for the same reason as the split rail's
+            // double-click: a minimumDistance-0 drag claims every press, so a tap
+            // gesture behind it never fires. The first click of the pair has already
+            // grabbed the point without moving it, so the pair is one deletion.
+            let plotted: [[Double]] = plottedPoints
+            guard plotted.indices.contains(hit), plotted[hit].count >= 2 else {
                 dragConsumed = true
                 return
             }
+            if (NSApp.currentEvent?.clickCount ?? 1) >= 2 {
+                // Only the point the FIRST click took: when that click was an ⌥-click
+                // it has already deleted its point, and the second must not go on to
+                // take a neighbour that happens to be within reach.
+                if firstClickPoint == plotted[hit] { deletePoint(at: hit) }
+                dragConsumed = true
+                return
+            }
+            firstClickPoint = plotted[hit]
             dragPointIndex = hit
+            pendingOptionDelete = fine
+            dragAnchor = CurveEditing.DragAnchor(pointX: plotted[hit][0], pointY: plotted[hit][1],
+                                                 pointerX: pointerX, pointerY: pointerY,
+                                                 fine: fine)
             return
         }
-        // A click on empty graph adds a point and keeps dragging it, which is the same
-        // gesture as placing one and adjusting it in one motion — so the placement and
-        // the adjustment share a gesture epoch and stay ONE undo step. The placement
-        // itself carries no key: its index can be the previous placement's (see
-        // `CurveEditing.placementCoalescingKey`).
-        let x: Double = storedX(CurveEditing.clamp01(Double(location.x / size.width)))
-        let y: Double = CurveEditing.clamp01(1 - Double(location.y / size.height))
-        let updated: [[Double]] = CurveEditing.sanitized(
-            CurveStack.settingPoint(points, x: x, y: y))
-        let placed: Int? = CurveEditing.nearestIndexByX(updated, x: x)
-        commitPoints(updated, key: CurveEditing.placementCoalescingKey,
-                     label: CurveEditing.placementLabel)
-        dragPointIndex = placed
+        // A click on empty graph adds a point ON THE CURVE at the pointer's x and keeps
+        // hold of it, so the press never moves the picture and the drag that follows
+        // does (`CurveEditing.placing`). Placement and adjustment share a gesture epoch
+        // and stay ONE undo step. The placement itself carries no key: its index can be
+        // the previous placement's (see `CurveEditing.placementCoalescingKey`).
+        // The second click of a double-click that found no point (an ⌥-click has just
+        // deleted it, or the first click missed) must not put a new one there.
+        if (NSApp.currentEvent?.clickCount ?? 1) >= 2 {
+            dragConsumed = true
+            return
+        }
+        firstClickPoint = nil
+        let plotX: Double = CurveEditing.clamp01(pointerX)
+        let curveY: Double = CurveEditing.clamp01(evaluate(plotX))
+        let points: [[Double]] = currentPoints
+        let placed = CurveEditing.placing(points, x: storedX(plotX), curveY: curveY)
+        dragPointIndex = placed.index
+        if placed.points != points {
+            commitPoints(placed.points, key: CurveEditing.placementCoalescingKey,
+                         label: CurveEditing.placementLabel)
+            dragAnchor = CurveEditing.DragAnchor(pointX: plotX, pointY: curveY,
+                                                 pointerX: pointerX, pointerY: pointerY,
+                                                 fine: fine)
+        } else {
+            // The press landed beside an existing point and took hold of it: anchor at
+            // THAT point, or the first drag event would move it to the press's height.
+            let plotted: [[Double]] = plottedPoints
+            guard plotted.indices.contains(placed.index), plotted[placed.index].count >= 2
+            else { dragConsumed = true; return }
+            dragAnchor = CurveEditing.DragAnchor(pointX: plotted[placed.index][0],
+                                                 pointY: plotted[placed.index][1],
+                                                 pointerX: pointerX, pointerY: pointerY,
+                                                 fine: fine)
+        }
     }
 
     /// Take hold of the split under the press, or — on the second click of a
@@ -954,8 +1112,6 @@ struct CurveEditorView: View {
 
     private func updateDrag(to location: CGPoint, size: CGSize) {
         guard size.width > 1, size.height > 1 else { return }
-        let plotX: Double = CurveEditing.clamp01(Double(location.x / size.width))
-        let y: Double = CurveEditing.clamp01(1 - Double(location.y / size.height))
 
         if channel == .parametric {
             guard let index = dragSplitIndex else { return }
@@ -963,24 +1119,43 @@ struct CurveEditorView: View {
             return
         }
 
-        guard let index = dragPointIndex else { return }
+        guard let index = dragPointIndex, var anchor = dragAnchor else { return }
         let points: [[Double]] = currentPoints
         guard points.indices.contains(index) else { return }
-        let x: Double = storedX(plotX)
+        let fine: Bool = NSEvent.modifierFlags.contains(.option)
+        let target = anchor.follow(pointerX: Double(location.x / size.width),
+                                     pointerY: 1 - Double(location.y / size.height),
+                                     fine: fine)
+        dragAnchor = anchor
+        if pendingOptionDelete {
+            // Still a click until it travels; then it is a fine-adjust drag.
+            guard anchor.travel * Double(size.width) > Double(CurveEditorView.clickSlop)
+            else { return }
+            pendingOptionDelete = false
+        }
+        let x: Double = storedX(CurveEditing.clamp01(target.x))
         // `moved` clamps x inside the neighbours' window, so the array stays strictly
         // increasing and the index this drag is holding stays the point the hand grabbed.
-        commitPoints(CurveEditing.moved(points, index: index, toX: x, toY: y),
+        commitPoints(CurveEditing.moved(points, index: index, toX: x, toY: target.y),
                      key: pointKey(index))
     }
 
-    /// Releasing well outside the graph deletes the point (docs/04 §7, from ART).
+    /// Releasing well outside the graph deletes the point (docs/04 §7, from ART), and an
+    /// ⌥-press released where it was pressed deletes it too.
     ///
     /// It cannot take an anchor with it: `deletePoint` refuses those, so pulling the
     /// black point down and left — which is a thing photographers do to a curve on
-    /// purpose — leaves it where the drag last put it instead of removing it.
+    /// purpose — leaves it where the drag last put it instead of removing it. Not in
+    /// fine mode either: there the point is a tenth of the pointer's travel behind it,
+    /// and a pointer that wandered off the graph says nothing about where the point is.
     private func endDrag(at location: CGPoint, size: CGSize) {
         guard channel != .parametric, let index = dragPointIndex else { return }
         guard size.width > 1, size.height > 1 else { return }
+        if pendingOptionDelete {
+            deletePoint(at: index)
+            return
+        }
+        guard dragAnchor?.fine != true else { return }
         let escaped: Bool = CurveEditing.escapes(
             x: Double(location.x / size.width),
             y: Double(location.y / size.height),
@@ -1069,10 +1244,13 @@ struct CurveEditorView: View {
                              size: CGSize,
                              backdrop: [Double],
                              samples: [Double],
+                             ghosts: [(samples: [Double], tint: Color)],
                              controls: [[Double]],
+                             active: Int?,
                              regions: [ParametricRegion],
                              highlight: Int?,
-                             tint: Color) {
+                             tint: Color,
+                             isChannel: Bool) {
         guard size.width > 1, size.height > 1 else { return }
 
         // The frame's luminance histogram, underneath everything: the curve is judged
@@ -1099,7 +1277,16 @@ struct CurveEditorView: View {
             }
             path.addLine(to: CGPoint(x: size.width, y: size.height))
             path.closeSubpath()
-            context.fill(path, with: .color(Lumen.fillColor.opacity(0.18)))
+            // A colour channel's backdrop takes the channel's colour: it IS that
+            // channel's histogram, and it is the largest area of the active-channel
+            // colour on the graph.
+            //
+            // 0.18 on the plot's near-black read as nothing in the snapshots: the hump
+            // a point is placed against has to be visible at a glance, so the fill is
+            // stronger and the top edge is drawn, which is what the eye follows.
+            let ink: Color = isChannel ? tint : Lumen.fillColor
+            context.fill(path, with: .color(ink.opacity(0.28)))
+            context.stroke(path, with: .color(ink.opacity(0.45)), lineWidth: 0.75)
         }
 
         // THE FOUR REGIONS, NAMED, BEHIND THE CURVE. Four sliders called Highlights,
@@ -1144,18 +1331,22 @@ struct CurveEditorView: View {
             context.stroke(edge, with: .color(Lumen.accent.opacity(0.45)), lineWidth: 1)
         }
 
-        // Quarter grid and the identity diagonal.
+        // Quarter grid, with the eighths fainter between — Lightroom's quarters are
+        // what a hand reads positions by, and the eighths are what makes "a little
+        // above the three-quarter tone" a place rather than a guess.
         var grid = Path()
-        var line: Int = 1
-        while line < 4 {
-            let t: CGFloat = CGFloat(line) / 4
-            grid.move(to: CGPoint(x: size.width * t, y: 0))
-            grid.addLine(to: CGPoint(x: size.width * t, y: size.height))
-            grid.move(to: CGPoint(x: 0, y: size.height * t))
-            grid.addLine(to: CGPoint(x: size.width, y: size.height * t))
-            line += 1
+        var fineGrid = Path()
+        for line in 1..<8 {
+            let t: CGFloat = CGFloat(line) / 8
+            var lines = Path()
+            lines.move(to: CGPoint(x: size.width * t, y: 0))
+            lines.addLine(to: CGPoint(x: size.width * t, y: size.height))
+            lines.move(to: CGPoint(x: 0, y: size.height * t))
+            lines.addLine(to: CGPoint(x: size.width, y: size.height * t))
+            if line % 2 == 0 { grid.addPath(lines) } else { fineGrid.addPath(lines) }
         }
-        context.stroke(grid, with: .color(Lumen.separator.opacity(0.45)), lineWidth: 0.5)
+        context.stroke(fineGrid, with: .color(Lumen.separator.opacity(0.18)), lineWidth: 0.5)
+        context.stroke(grid, with: .color(Lumen.separator.opacity(0.55)), lineWidth: 0.5)
 
         var diagonal = Path()
         diagonal.move(to: CGPoint(x: 0, y: size.height))
@@ -1188,6 +1379,21 @@ struct CurveEditorView: View {
             }
         }
 
+        // The other colour channels' curves, faint, under the active one.
+        for ghost in ghosts where ghost.samples.count > 1 {
+            var path = Path()
+            for i in 0..<ghost.samples.count {
+                let x: CGFloat = size.width * CGFloat(i) / CGFloat(ghost.samples.count - 1)
+                let y: CGFloat = size.height - CGFloat(clamp01(ghost.samples[i])) * size.height
+                if i == 0 {
+                    path.move(to: CGPoint(x: x, y: y))
+                } else {
+                    path.addLine(to: CGPoint(x: x, y: y))
+                }
+            }
+            context.stroke(path, with: .color(ghost.tint.opacity(0.4)), lineWidth: 1)
+        }
+
         // The curve itself.
         if samples.count > 1 {
             var path = Path()
@@ -1203,13 +1409,25 @@ struct CurveEditorView: View {
             context.stroke(path, with: .color(tint), lineWidth: 1.5)
         }
 
-        // Control points last, so they are never hidden by the trace they define.
-        for point in controls where point.count >= 2 {
+        // Control points last, so they are never hidden by the trace they define. The
+        // one under the pointer (or in the hand) is larger and filled: before a press,
+        // that is the answer to "which point will this click take"; during a drag, it
+        // is the point the readout is reporting.
+        for (index, point) in controls.enumerated() where point.count >= 2 {
             let cx: CGFloat = size.width * CGFloat(clamp01(point[0]))
             let cy: CGFloat = size.height - CGFloat(clamp01(point[1])) * size.height
-            let rect = CGRect(x: cx - 3, y: cy - 3, width: 6, height: 6)
-            context.fill(Path(ellipseIn: rect), with: .color(Lumen.panelBackground))
-            context.stroke(Path(ellipseIn: rect), with: .color(tint), lineWidth: 1.5)
+            let lit: Bool = index == active
+            let r: CGFloat = lit ? activePointRadius : pointRadius
+            let rect = CGRect(x: cx - r, y: cy - r, width: r * 2, height: r * 2)
+            context.fill(Path(ellipseIn: rect), with: .color(lit ? tint : Lumen.panelBackground))
+            context.stroke(Path(ellipseIn: rect), with: .color(lit ? Lumen.panelBackground : tint),
+                           lineWidth: lit ? 1 : 1.5)
+        }
+
+        // The active colour channel frames the graph in its colour.
+        if isChannel {
+            context.stroke(Path(CGRect(origin: .zero, size: size).insetBy(dx: 0.75, dy: 0.75)),
+                           with: .color(tint.opacity(0.7)), lineWidth: 1.5)
         }
     }
 
