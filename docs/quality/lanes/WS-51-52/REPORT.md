@@ -33,11 +33,16 @@ at its as-shot neutral. 6929 and 2545 were run again with the global row at 6200
 | U1-U3 unit tests | pass | PASS |
 | V1 / V2 | ramps smooth with no ring; "after" ΔE maps flat | PASS (verifier agreed) |
 
-Tests: 3064 tests pass on Linux at the final commit (release build with `-enable-testing`), 6 skipped, 0 failures.
+Tests: 3064 tests pass on Linux at 03d6a21 (release build with `-enable-testing`), 6 skipped, 0 failures.
 Linux `swift test` does not build as-is, and this predates the lane:
 `Sources/LumenApp/CompareView.swift:326,569` has trailing commas in call arguments, which
 the Swift 6.0.3 parser rejects (from merge #26). For the test run I removed them in a
 local copy and did not commit that.
+
+Verifier: round 1 FAIL (switch jumped at Strength > 100, harness gaps, and F1/F3/F4).
+Round 2 FAIL (the half-fix made a maxed slider jump ΔE 6). Round 3 PASS: switch ΔE
+0.00 in 36 cases on 6929 and 1192, P1-P5 hold on 2545, no NaN at 2000 K, 50000 K or
+tint ±300. F1/F3/F4 stay BLOCKED on other lanes (NEEDS.md).
 
 ## What changed and why
 
