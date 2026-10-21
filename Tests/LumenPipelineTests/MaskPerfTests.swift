@@ -270,6 +270,11 @@ final class MaskPerfTests: XCTestCase {
                             allowStale: false) { large }
         }
         XCTAssertLessThanOrEqual(cache.settledBytes, MaskRasterCache.settleResidencyBudget)
+        // The newest 4096-class raster is held: asking again does not bake.
+        _ = cache.plane(maskID: "big7", key: "k", identity: "photo", allowStale: false) {
+            XCTFail("the newest 4096×2731 settle raster was not held")
+            return large
+        }
         XCTAssertGreaterThan(cache.settledBytes, 0)
 
         // Above the interactive ceiling is a delivery, and it is never held.

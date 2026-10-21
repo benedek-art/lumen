@@ -195,7 +195,7 @@ enum MaskGPU {
     // MARK: - The reference's numbers
     //
     // `MaskRaster`'s constants, restated on this side so the shaders carry none. They are
-    // private there; `MaskGPUParityTests` is what keeps the two copies one.
+    // private there; `MaskRangeGPUParityTests` is what keeps the two copies one.
 
     /// The fixed EV axis every channel-reading selection is denominated on.
     static let evMin: Double = -10

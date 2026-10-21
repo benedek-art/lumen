@@ -31,7 +31,7 @@ Per frame, before this lane:
   - Only the masks the GPU path declined build the CPU stage and keys.
   - `renderMaskAlpha` takes the GPU route too.
 - `MaskRasterCache.swift`:
-  - New settle rung: one raster per mask up to the 4096 ceiling, under a 192 MB byte budget. Exports are still not held.
+  - New settle rung: one raster per mask up to the 4096 ceiling, under a 192 MB byte budget. Rasters above the 4096 ceiling (large exports) are not held.
   - Injected synchronous-bake budget (8 ms in the renderer): a draft miss on a mask whose last draft bake fit the budget bakes in line instead of serving stale.
 
 ## Spec verdicts

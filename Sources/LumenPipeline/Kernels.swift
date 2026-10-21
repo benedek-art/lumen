@@ -1514,7 +1514,7 @@ public enum ColorCube {
 // core. All three are pointwise functions of the stage input, so they belong here,
 // evaluated on the pixels the frame renders anyway. `MaskRaster.lumaRangePlane`,
 // `luminosityPlane`, `colorRangePlane` and `levels` stay the definition;
-// `MaskGPUParityTests.testRangeKernelsMatchTheReference` holds these to them.
+// `MaskRangeGPUParityTests.testRangeKernelsMatchTheReference` holds these to them.
 //
 // Every constant arrives as an argument computed in `MaskGPU`, so the shader carries no
 // policy. Smoothsteps are written out rather than called: GLSL leaves `smoothstep`
