@@ -1076,152 +1076,166 @@ public struct RenderGraph {
         return out
     }
 
+    /// The GPU twin of `DetailEngine.applyDehaze`: the same proxy fields, computed by the
+    /// SAME LumenCore function on a CPU readback of a proxy, and the same per-pixel
+    /// formulas in `KernelLibrary.dehaze`.
+    ///
+    /// Before WS-15 the two paths disagreed in five places (AUDIT §13): the airlight
+    /// rule and its resolution, the guide radius (`options.longEdge` against the image's
+    /// own size), the missing sky guard, and the negative branch's distance. All of them
+    /// now come from one definition: the airlight is
+    /// `DetailEngine.dehazeAirlightEstimate` on a `dehazeProxyLongEdge` proxy — the size
+    /// the reference measures on — and every radius is a fraction of that proxy.
+    /// The proxy here is a Lanczos reduction where the reference area-averages; both are
+    /// antialiasing filters of a 10–25× reduction, so the fields agree to a fraction of
+    /// a proxy pixel.
+    ///
+    /// `longEdge` is unused: every size the stage needs is the image's own.
     static func applyDehaze(_ image: CIImage, amount: Double, longEdge: Int) -> CIImage {
         let strength = Num.clamp(amount / 100.0, -1, 1)
         guard strength != 0 else { return image }
-        // The reference sizes the dark-channel window off `min(width, height) / 100`.
-        // This used the LONG edge, which on a 3:2 frame is a window half again as wide
-        // as the one the transmission is defined against.
-        let shortEdge = Swift.min(image.extent.width, image.extent.height)
-        let radius = Swift.max(Int(shortEdge / 100), 3)
+        let extent = image.extent
+        guard extent.width >= 1, extent.height >= 1,
+              extent.width.isFinite, extent.height.isFinite else { return image }
+        let width = Int(extent.width.rounded()), height = Int(extent.height.rounded())
 
-        // Dark channel via the stock minimum morphology, then the guided filter
-        // refines the transmission so edges survive.
-        let minimum = CIFilter.morphologyRectangleMinimum()
-        minimum.inputImage = image.clampedToExtent()
-        minimum.width = Float(radius * 2 + 1)
-        minimum.height = Float(radius * 2 + 1)
-        guard let darkRGB = minimum.outputImage?.cropped(to: image.extent) else {
-            return image
-        }
-        guard let dark = Self.channelMinimum(darkRGB) else { return image }
-
-        // Airlight: the BRIGHTEST region of the dark channel, which is He et al.'s
-        // definition and what `SpatialOps.estimateAirlight(topFraction: 0.001)` does on
-        // the reference path.
-        //
-        // This used to be the dark channel's MEAN. The comment was right that a frame
-        // average is wrong and switching to the dark channel helped, but a mean of the
-        // dark channel is still roughly half the true airlight — and it divides the
-        // transmission, so `t = 1 − w·dark/A` collapsed. With the floor at 0.1 the
-        // recombination was then free to amplify by 10×: Dehaze +20 pushed part of the
-        // frame above scene white, and +50 put a fifth of it on the clamp. The
-        // reference renders the same recipe with no clipping at all.
-        //
-        // Taking the maximum of the PROXY rather than of the full-resolution plane is
-        // what keeps this robust: each proxy pixel is already the mean of a block, so a
-        // single hot pixel cannot define the airlight. Measured on a proxy and frozen
-        // for the render, which is also what the proxy-field rule requires for tiled
-        // export (docs/14 §6.3).
-        // He et al.'s definition, which the reference implements: the airlight is the
-        // colour of the SOURCE IMAGE where the dark channel is brightest — not the dark
-        // channel's own maximum.
-        //
-        // Taking the dark channel's maximum returns a GREY, because the dark channel is
-        // a per-pixel channel minimum and `CIMinimumComponent` emits greyscale. So the
-        // neutralisation gains below came out (1,1,1) on every frame, and the step the
-        // dehaze kernel calls load-bearing — "the veil is white-balanced away, which is
-        // what stops magenta skies at the algorithm level" — was an identity multiply.
-        // Negative Dehaze was worse: it blends toward the airlight, so it painted GREY
-        // fog. Measured against the reference on a hazy scene, a sky pixel lost 0.16
-        // scene-linear in blue, about a fifth of it, and desaturated instead of hazing.
-        //
-        // The masked mean comes out of one area average: the kernel zeroes everything
-        // below the threshold and carries the selection in alpha, so sum(rgb)/N divided
-        // by sum(alpha)/N is the mean over the selected pixels alone. Both come from the
-        // same readback; reading rgb and alpha separately rendered the identical pixel
-        // twice, and each render re-pulls the whole upstream frame.
-        let proxy = Self.scaledToProxy(dark)
-        let imageProxy = Self.scaledToProxy(image)
-        let brightest = Self.maximumColor(proxy)?.maxComponent ?? 0.8
-        var airlight = RGB(gray: 0.8)
-        if let masked = KernelLibrary.apply(
-            KernelLibrary.thresholdMask, extent: imageProxy.extent,
-            [imageProxy, proxy, Float(brightest * 0.99)]),
-           let stats = Self.averageColorAndAlpha(masked), stats.alpha > 1e-6 {
-            airlight = RGB(stats.rgb.r / stats.alpha, stats.rgb.g / stats.alpha,
-                           stats.rgb.b / stats.alpha)
-        }
-        // t = 1 − ω·darkChannel(I / A), refined. Three things here were not the
-        // reference's, and together they were putting scene-linear pixels below zero.
-        //
-        // 1. The dark channel has to come off the image NORMALISED BY THE AIRLIGHT, per
-        //    channel — `Decomposition.transmission()` divides `c` by `a` componentwise
-        //    before taking the minimum. This divided by the airlight's scalar MEAN
-        //    instead, which is a different number in every channel whenever the veil
-        //    has a colour, and a veil that has no colour needs no dehaze worth the name.
-        //    Measured on a synthetic scene under a blue-cyan airlight (0.55, 0.68,
-        //    0.85), the transmission came out 0.060 too high on average and 0.149 at
-        //    worst — and since the recombination divides by it, that pushed 9.2% of
-        //    recovered pixels NEGATIVE where the reference produces none at all.
-        //    Normalising per channel reproduces the reference exactly: 0.000000 mean
-        //    absolute difference across the frame.
-        //
-        // 2. The dark channel is `saturate`d before use, so `t` cannot leave [0.05, 1].
-        //    Without it a negative dark channel — legal, scene-referred data arrives
-        //    here after stages that can undershoot — gives t > 1, and `(I − A)/t + A`
-        //    with t above one ADDS haze.
-        //
-        // 3. The refinement guides with log luminance at the reference's radius and ε,
-        //    not with the dark channel at a quarter the ε. Guiding by the dark channel
-        //    means the transmission inherits the edges of a minimum-filtered plane,
-        //    which is exactly the blocky structure the guided filter is there to remove.
-        let normalized = Self.applyMatrix(
-            image, Mat3.diagonal(RGB(1 / Swift.max(airlight.r, 1e-5),
-                                     1 / Swift.max(airlight.g, 1e-5),
-                                     1 / Swift.max(airlight.b, 1e-5))))
-        let normalMinimum = CIFilter.morphologyRectangleMinimum()
-        normalMinimum.inputImage = normalized.clampedToExtent()
-        normalMinimum.width = Float(radius * 2 + 1)
-        normalMinimum.height = Float(radius * 2 + 1)
-        guard let normalDarkRGB = normalMinimum.outputImage?.cropped(to: image.extent),
-              let normalDark = Self.channelMinimum(normalDarkRGB),
-              let clampedDark = Self.clamped(normalDark, low: 0, high: 1)
+        // The guide both renderers upsample against: floored, LumenLog-encoded
+        // luminance — `DetailEngine.dehazeGuidePlane` on the reference.
+        guard let guide = Self.logLuminance(image) else { return image }
+        // The pivot every pixel turns about: `DetailEngine.dehazePivotPlane`, a
+        // self-guided filter of the same guide, decoded to linear.
+        let pivotRadius = Swift.max(1, Int((DetailEngine.dehazePivotReach
+            * Double(Swift.max(width, height))).rounded()))
+        guard let pivotLog = Self.guidedSelfFilter(
+                guide, radius: pivotRadius,
+                epsilon: DetailEngine.dehazePivotEpsilonEV / (LumenLog.range * LumenLog.range)),
+              let pivot = KernelLibrary.apply(KernelLibrary.logDecode, extent: extent,
+                                              [pivotLog])
         else { return image }
-
-        let scaled = Self.applyMatrix(clampedDark,
-                                      Mat3.diagonal(RGB(gray: -DetailEngine.dehazeOmega)))
-        let biased = Self.addConstant(scaled, 1.0)
-
-        // The reference guides with `logLuminance`, in EV, and regularises at ε = 0.02.
-        // This plane is `LumenLog`-encoded, so its variance is smaller by `range²` and
-        // the ε that means the same thing is smaller by the same factor. Written as the
-        // division rather than as 3.47e-5, because the number is a consequence.
-        let guideRadius = Swift.max(Swift.max(Int(Double(longEdge) * 0.02), 3), 8)
-        let refined: CIImage
-        if let guide = Self.logLuminance(image),
-           let filtered = Self.crossGuidedFilter(
-            input: biased, guide: guide, radius: guideRadius,
-            epsilon: 0.02 / (LumenLog.range * LumenLog.range)),
-           let bounded = Self.clamped(filtered, low: 0.02, high: 1.0) {
-            refined = bounded
-        } else {
-            refined = Self.clamped(biased, low: 0.02, high: 1.0) ?? biased
+        let size = DetailEngine.dehazeProxySize(width: width, height: height)
+        guard let squared = KernelLibrary.apply(KernelLibrary.square, extent: extent, [guide]),
+              let proxy = Self.dehazeProxy(image, width: size.width, height: size.height),
+              let guideProxy = Self.dehazeProxy(guide, width: size.width, height: size.height),
+              let squareProxy = Self.dehazeProxy(squared, width: size.width, height: size.height)
+        else { return image }
+        var proxyGuide = Plane(width: size.width, height: size.height)
+        var proxySquare = Plane(width: size.width, height: size.height)
+        for y in 0..<size.height {
+            for x in 0..<size.width {
+                proxyGuide[x, y] = guideProxy[x, y].r
+                proxySquare[x, y] = squareProxy[x, y].r
+            }
         }
+        let air = DetailEngine.dehazeAirlightEstimate(proxy)
+        let field = DetailEngine.dehazeField(proxy: proxy, guide: proxyGuide,
+                                             guideSquare: proxySquare, airlight: air)
+        // The four proxy neighbours of every pixel, for the joint-bilateral upsampling
+        // `DetailEngine.dehazeUpsample` does on the reference: fields (V, P, flat) and
+        // the proxy guide, each as four nearest-sampled, half-texel-shifted upsamples.
+        // V and P travel as logarithms (the reference blends them in log space).
+        let logVeil = field.veil.map { log(Swift.max($0, 1e-6)) }
+        let logWhite = field.white.map { log(Swift.max($0, 1e-6)) }
+        guard let fields = Self.dehazeNeighbours(logVeil, logWhite, field.flat,
+                                                 extent: extent),
+              let guides = Self.dehazeNeighbours(field.proxyGuide, field.purity,
+                                                 field.purity, extent: extent)
+        else { return image }
+        let pitch = CIVector(x: extent.minX, y: extent.minY,
+                             z: extent.width / CGFloat(field.veil.width),
+                             w: extent.height / CGFloat(field.veil.height))
 
-        // The same base transmission floor the reference uses. The reference ALSO lifts
-        // it per pixel toward 0.9 where the frame is bright and flat — its sky guard —
-        // which needs the gradient and log-luminance planes the kernel is not given, so
-        // that part stays reference-only and is listed in BUILDING.md.
-        let distance = Num.clamp(DetailEngine.dehazeDistance, 0, 100) / 100
-        let floorT = Num.mix(0.55, 0.05, distance)
-
-        // Neutralization gains: after multiplying by these the veil is grey at
-        // `airLuma`, which is what lets a single luminance ratio carry the whole
-        // recombination without touching the colour.
         let weights = RGBColorSpace.rec2020.luminanceWeights
-        let airLuma = Swift.max(RGBColorSpace.rec2020.luminance(airlight), 1e-5)
-        let gain = RGB(airLuma / Swift.max(airlight.r, 1e-5),
-                       airLuma / Swift.max(airlight.g, 1e-5),
-                       airLuma / Swift.max(airlight.b, 1e-5))
-
+        let tint = DetailEngine.dehazeVeilTint(field.airlight)
+        let toLMS = OKLabTransform.working.rgbToLMS.m
+        let toRGB = OKLabTransform.working.lmsToRGB.m
+        let labL = OKLabTransform.lmsToLab.m[0]
+        func row(_ r: [Double]) -> CIVector { CIVector(x: r[0], y: r[1], z: r[2]) }
         return KernelLibrary.apply(
-            KernelLibrary.dehaze, extent: image.extent,
-            [image, refined,
-             CIVector(x: gain.r, y: gain.g, z: gain.b),
+            KernelLibrary.dehaze, extent: extent,
+            [image, guide, pivot, fields[0], fields[1], fields[2], fields[3],
+             guides[0], guides[1], guides[2], guides[3],
+             pitch, Float(DetailEngine.dehazeUpsampleRangeScale),
              CIVector(x: weights.r, y: weights.g, z: weights.b),
-             CIVector(x: airlight.r, y: airlight.g, z: airlight.b),
-             Float(airLuma), Float(floorT), Float(strength)]) ?? image
+             Float(strength), Float(field.airLuma),
+             // Positive: ω, strength, the exponent cap and the sky guard; the black
+             // floor; chroma.
+             CIVector(x: DetailEngine.dehazeOmega, y: DetailEngine.dehazeStrength,
+                      z: DetailEngine.dehazeMaxGamma, w: DetailEngine.dehazeSkyGuard),
+             CIVector(x: DetailEngine.dehazeToeFloor, y: DetailEngine.dehazeHighlightShare,
+                      z: DetailEngine.dehazeToeReach, w: field.blackReference),
+             CIVector(x: DetailEngine.dehazeChromaGain, y: DetailEngine.dehazeChromaMax,
+                      z: DetailEngine.dehazeChromaGateLo, w: DetailEngine.dehazeChromaGateHi),
+             // The sky term (both branches) and the negative branch's distance.
+             CIVector(x: DetailEngine.dehazeSkyBrightLo, y: DetailEngine.dehazeSkyBrightHi),
+             CIVector(x: DetailEngine.dehazeVeilNearStart, y: DetailEngine.dehazeVeilNearEnd,
+                      z: DetailEngine.dehazeVeilNearWeight, w: DetailEngine.dehazeVeilMax),
+             Float(field.veilReference), Float(DetailEngine.dehazeVeilChromaBlend),
+             Float(DetailEngine.dehazeVeilLift),
+             CIVector(x: tint.r, y: tint.g, z: tint.b),
+             CIVector(x: extent.minX, y: extent.minY, z: extent.width, w: extent.height),
+             Float(DetailEngine.dehazeMaxBrighten), Float(DetailEngine.dehazeShadowShare),
+             Float(DetailEngine.dehazeDetailFloor), Float(DetailEngine.dehazeDetailSoftness),
+             Float(DetailEngine.dehazeDetailRelease),
+             CIVector(x: DetailEngine.dehazeChromaSatLo, y: DetailEngine.dehazeChromaSatHi),
+             Float(DetailEngine.dehazeVeilLevel),
+             row(toLMS[0]), row(toLMS[1]), row(toLMS[2]),
+             row(toRGB[0]), row(toRGB[1]), row(toRGB[2]), row(labL)]) ?? image
+    }
+
+    /// Read `image` back as a `width`×`height` proxy (top row first, like `ImageBuffer`).
+    /// Clamped before the reduction so the border is not averaged with transparency.
+    static func dehazeProxy(_ image: CIImage, width: Int, height: Int) -> ImageBuffer? {
+        let e = image.extent
+        let atOrigin = image.transformed(by: CGAffineTransform(translationX: -e.minX,
+                                                               y: -e.minY))
+        let target = CGRect(x: 0, y: 0, width: width, height: height)
+        let reduced: CIImage
+        if width == Int(e.width.rounded()) && height == Int(e.height.rounded()) {
+            reduced = atOrigin
+        } else {
+            let filter = CIFilter.lanczosScaleTransform()
+            filter.inputImage = atOrigin.clampedToExtent()
+            let sy = Double(height) / Double(e.height)
+            let sx = Double(width) / Double(e.width)
+            filter.scale = Float(sy)
+            filter.aspectRatio = Float(sx / sy)
+            guard let out = filter.outputImage else { return nil }
+            reduced = out
+        }
+        return PipelineRenderer.buffer(from: reduced.cropped(to: target),
+                                       context: statisticsContext)
+    }
+
+    /// Three proxy planes as one RGB image, upsampled over `extent` four times with
+    /// nearest sampling and half-texel shifts, border repeated: at pixel centre `X`,
+    /// image `i + 2j` holds the proxy texel `(⌊qx⌋ + i, ⌊qy⌋ + j)` with
+    /// `q = (X − origin)/pitch − ½` — the four samples `DetailEngine.dehazeUpsample`
+    /// weights on the reference (rows counted bottom-up here, which selects the same
+    /// pair of rows with the fractional weight mirrored).
+    static func dehazeNeighbours(_ r: Plane, _ g: Plane, _ b: Plane,
+                                 extent: CGRect) -> [CIImage]? {
+        let w = r.width, h = r.height
+        guard w > 0, h > 0, g.width == w, b.width == w, g.height == h, b.height == h
+        else { return nil }
+        var texels = [Float](repeating: 1, count: w * h * 4)
+        for i in 0..<(w * h) {
+            texels[i * 4] = r.values[i]
+            texels[i * 4 + 1] = g.values[i]
+            texels[i * 4 + 2] = b.values[i]
+        }
+        let data = texels.withUnsafeBufferPointer { Data(buffer: $0) }
+        let small = CIImage(bitmapData: data, bytesPerRow: w * 16,
+                            size: CGSize(width: w, height: h), format: .RGBAf, colorSpace: nil)
+            .clampedToExtent().samplingNearest()
+        let sx = extent.width / CGFloat(w), sy = extent.height / CGFloat(h)
+        let scaled = small.transformed(by: CGAffineTransform(scaleX: sx, y: sy))
+        let offsets: [(i: Int, j: Int)] = [(0, 0), (1, 0), (0, 1), (1, 1)]
+        return offsets.map { offset -> CIImage in
+            scaled.transformed(by: CGAffineTransform(
+                translationX: extent.minX + (0.5 - CGFloat(offset.i)) * sx,
+                y: extent.minY + (0.5 - CGFloat(offset.j)) * sy))
+                .cropped(to: extent)
+        }
     }
 
     // MARK: - S11 local

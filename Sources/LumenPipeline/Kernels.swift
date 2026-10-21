@@ -119,58 +119,136 @@ public enum KernelLibrary {
     }
     """
 
-    /// Dehaze recombination, in the colour-stable form the reference uses.
+    /// Dehaze, the per-pixel half of `DetailEngine.applyDehaze`, formula for formula.
     ///
-    /// The old kernel did `I' = (I − A)/max(t, t0) + A` per channel, which is a
-    /// different scale factor for each channel and therefore a hue rotation — exactly
-    /// the magenta sky docs/06 claims is "impossible by construction". It was
-    /// impossible only on `ReferenceRenderer`, which renders no user pixels; every
-    /// preview and every export took the per-channel form.
+    /// `guide` is the floored LumenLog luminance. `f00…f11` are the four proxy
+    /// neighbours' fields (log V, log P, flatness) and `g00…g11` their guide (.r) and
+    /// purity (.g); the fields are the joint-bilateral blend — bilinear weight times
+    /// `exp(−Δguide²·rangeScale)·purity + 1e-6` — exactly `DetailEngine.dehazeUpsample`.
     ///
-    /// This scales the colour by a single LUMINANCE ratio, so channel ratios survive
-    /// untouched and a recovered sky comes back the colour it was.
+    /// Positive: `ln(J/P) = γ·ln(Y/P)` with γ from the haze model's slope at the region,
+    /// capped and eased by the sky guard on bright flats; a floor near the frame's black;
+    /// OKLab chroma scaled at fixed hue in cube-root LMS. Negative: `Y·(A/Y)^c` with
+    /// `c` from `distant = max(haze, sky) · nearW`, chroma eased toward the veil tint.
     ///
-    /// Two guards carried over from the reference, both load-bearing. `trust` is
-    /// RELATIVE, not absolute: shadow noise after white balance makes triples like
-    /// (−0.02, +0.009, −0.01) whose luminance cancels while the channels do not, and
-    /// scaling those by a luminance ratio turns them into saturated speckles that
-    /// flicker with the noise — while a saturated blue carries only six percent of its
-    /// peak channel as luminance and must still dehaze fully. And `ratio` is clamped,
-    /// because y1 is a fixed negative number as y0 approaches zero, so the ratio
-    /// diverges and its sign flips across zero.
-    ///
-    /// Branchless, like every other kernel here: `positive` selects, and the unselected
-    /// branch collapses to the identity on its own because its own amount term is zero.
-    ///
-    /// Still missing versus the reference: the sky guard, which lifts the transmission
-    /// floor toward 0.9 where the frame is bright and flat. It needs the gradient and
-    /// log-luminance planes this kernel is not given. Tracked in BUILDING.md.
+    /// Branchless like every other kernel here: both branches are evaluated and
+    /// `step(0, amount)` selects; each is kept finite when its own amount is zero, so the
+    /// unselected one cannot leak a NaN through the mix.
     static let dehazeSource = """
-    kernel vec4 lumenDehaze(__sample image, __sample transmission, vec3 gain,
-                            vec3 lumaWeights, vec3 airlight, float airLuma,
-                            float floorT, float amount) {
+    kernel vec4 lumenDehaze(__sample image, __sample guide, __sample pivotSample,
+                            __sample f00, __sample f10, __sample f01, __sample f11,
+                            __sample g00, __sample g10, __sample g01, __sample g11,
+                            vec4 pitch, float rangeScale,
+                            vec3 lumaWeights, float amount, float airLuma,
+                            vec4 positiveParams, vec4 floorParams, vec4 chromaParams,
+                            vec2 skyBright, vec4 nearParams, float reference,
+                            float veilBlend, float veilLift, vec3 veilTint, vec4 frame,
+                            float maxBrighten, float shadowShare, float detailFloor,
+                            float detailSoftness, float detailRelease,
+                            vec2 chromaSat, float veilLevel,
+                            vec3 toLMS0, vec3 toLMS1, vec3 toLMS2,
+                            vec3 toRGB0, vec3 toRGB1, vec3 toRGB2, vec3 labL) {
         vec3 c = image.rgb;
-        float raw = transmission.r;
-        float t = max(raw, floorT);
+        float y = dot(c, lumaWeights);
+        float g = guide.r;
+        vec2 q = (destCoord() - pitch.xy) / pitch.zw - 0.5;
+        vec2 fr = fract(q);
+        float d00 = g - g00.r, d10 = g - g10.r, d01 = g - g01.r, d11 = g - g11.r;
+        float w00 = (1.0 - fr.x) * (1.0 - fr.y) * (exp(-d00 * d00 * rangeScale) * g00.g + 1e-6);
+        float w10 = fr.x * (1.0 - fr.y) * (exp(-d10 * d10 * rangeScale) * g10.g + 1e-6);
+        float w01 = (1.0 - fr.x) * fr.y * (exp(-d01 * d01 * rangeScale) * g01.g + 1e-6);
+        float w11 = fr.x * fr.y * (exp(-d11 * d11 * rangeScale) * g11.g + 1e-6);
+        vec3 fields = (w00 * f00.rgb + w10 * f10.rgb + w01 * f01.rgb + w11 * f11.rgb)
+            / (w00 + w10 + w01 + w11);
+        float veil = exp(fields.r);
+        float white = exp(fields.g);
+        float flatness = clamp(fields.b, 0.0, 1.0);
+        float p = max(white, 1e-6);
+        float pv = max(pivotSample.r, 1e-6);
+        float bright = smoothstep(skyBright.x, skyBright.y, y / airLuma);
+        float sky = flatness * bright;
 
-        vec3 neutral = c * gain;
-        float y0 = dot(neutral, lumaWeights);
-        float y1 = (y0 - airLuma) / t + airLuma;
-        float magnitude = max(abs(c.r), max(abs(c.g), abs(c.b)));
-        float trust = smoothstep(0.01, 0.05, abs(y0) / max(magnitude, 1e-8));
-        float live = step(1e-9, abs(y0));
-        float denominator = mix(1.0, y0, live);
-        float ratio = clamp(y1 / denominator, 0.05, 20.0);
-        float k = mix(1.0, mix(1.0, ratio, trust), max(amount, 0.0));
+        // Positive: the exponent from the region fields (veil over the surface's level,
+        // the sky guard easing it on bright flats), applied about the pixel's pivot.
+        float a = max(amount, 0.0);
+        float omega = positiveParams.x;
+        float vv = clamp(veil, 0.0, p * omega);
+        float slope = p / max(p - vv, 1e-9);
+        float capped = min(max(slope, 1.0), positiveParams.z) - 1.0;
+        float gamma = 1.0 + a * positiveParams.y * capped * (1.0 - positiveParams.w * sky);
+        float yp = max(y, pv * 1e-6);
+        float below = 1.0 - step(pv, yp);
+        float x = log(yp / pv);
+        float u = x / detailFloor;
+        float rise = x * (1.0 - exp(-u * u));
+        float release = x / detailRelease;
+        float curve = mix(rise * exp(-release * release),
+                          rise / (1.0 + max(x, 0.0) / detailSoftness), step(0.0, x));
+        float r = exp((gamma - 1.0) * mix(floorParams.y, shadowShare, below) * curve);
+        float f = 1.0 - a * (1.0 - floorParams.x);
+        float j0 = yp * r;
+        float reach = floorParams.z * floorParams.w;
+        float jf = (1.0 - (1.0 - f) * smoothstep(0.0, reach, yp)) * min(yp, reach);
+        float jj = max(j0, jf);
+        float k = min(jj / yp, 1.0 + a * (maxBrighten - 1.0));
+        float chroma = min(1.0 + chromaParams.x * (gamma - 1.0), 1.0 + a * (chromaParams.y - 1.0));
+        float hiC = max(c.r, max(c.g, c.b));
+        float satC = clamp((hiC - max(min(c.r, min(c.g, c.b)), 0.0)) / max(hiC, 1e-12), 0.0, 1.0)
+            * step(1e-12, hiC);
+        float gate = smoothstep(chromaParams.z, chromaParams.w, y / airLuma)
+            * (1.0 - smoothstep(chromaSat.x, chromaSat.y, satC));
+        float s = 1.0 + (chroma - 1.0) * gate;
         vec3 lifted = c * k;
+        vec3 lms = vec3(dot(toLMS0, lifted), dot(toLMS1, lifted), dot(toLMS2, lifted));
+        vec3 root = sign(lms) * pow(abs(lms), vec3(1.0 / 3.0));
+        float l = dot(labL, root);
+        vec3 qp = vec3(l) + s * (root - vec3(l));
+        vec3 cubed = qp * qp * qp;
+        vec3 moved = vec3(dot(toRGB0, cubed), dot(toRGB1, cubed), dot(toRGB2, cubed));
+        // Hold luminance, not OKLab L (a ratio multiply keeps the hue).
+        float y0 = dot(lifted, lumaWeights);
+        float y1 = dot(moved, lumaWeights);
+        float keep = step(1e-30, y0) * step(1e-30, y1);
+        vec3 scaled = moved * mix(1.0, y0 / max(y1, 1e-30), keep);
+        // Gamut-safe: a channel the chroma move would push below zero (from a colour
+        // that was not below zero) limits the blend toward the moved colour.
+        vec3 crossing = step(scaled, vec3(0.0)) * step(vec3(0.0), lifted)
+            * (1.0 - step(lifted, scaled));
+        vec3 room = lifted / max(lifted - scaled, vec3(1e-12));
+        vec3 share = mix(vec3(1.0), clamp(room, 0.0, 1.0), crossing);
+        float w = min(share.r, min(share.g, share.b));
+        vec3 recovered = mix(lifted, scaled, w);
 
-        // Adding haze: more of it the FURTHER away the pixel reads, and low
-        // transmission is what "far" looks like without a depth map.
-        float distant = clamp(1.0 - raw, 0.0, 1.0);
-        float s = clamp(-min(amount, 0.0) * distant * 0.9, 0.0, 1.0);
-        vec3 hazed = mix(c, airlight, s);
+        // Negative: contrast compressed about the pivot, a lift toward the veil level,
+        // chroma eased toward the veil tint.
+        float an = max(-amount, 0.0);
+        float haze = clamp(clamp(veil / p, 0.0, 1.0) / reference, 0.0, 1.0);
+        float rowV = 1.0 - (destCoord().y - frame.y) / frame.w;
+        float nearW = 1.0 - (1.0 - nearParams.z) * smoothstep(nearParams.x, nearParams.y, rowV);
+        float distant = max(haze, sky) * nearW;
+        float compress = an * nearParams.w * distant;
+        float m = exp(compress * (mix(floorParams.y, 1.0, below) * log(pv / yp)
+                                  + veilLift * max(log(veilLevel * airLuma / pv), 0.0)));
+        vec3 veiled = c * m;
+        float t = compress * veilBlend;
+        vec3 lmsN = vec3(dot(toLMS0, veiled), dot(toLMS1, veiled), dot(toLMS2, veiled));
+        vec3 rootN = sign(lmsN) * pow(abs(lmsN), vec3(1.0 / 3.0));
+        float lN = dot(labL, rootN);
+        vec3 qn = vec3(lN) + (rootN - vec3(lN)) * (1.0 - t) + veilTint * t;
+        vec3 cubedN = qn * qn * qn;
+        vec3 tintedN = vec3(dot(toRGB0, cubedN), dot(toRGB1, cubedN), dot(toRGB2, cubedN));
+        float yv0 = dot(veiled, lumaWeights);
+        float yv1 = dot(tintedN, lumaWeights);
+        float keepN = step(1e-30, yv0) * step(1e-30, yv1);
+        vec3 movedN = tintedN * mix(1.0, yv0 / max(yv1, 1e-30), keepN);
+        vec3 crossingN = step(movedN, vec3(0.0)) * step(vec3(0.0), veiled)
+            * (1.0 - step(veiled, movedN));
+        vec3 roomN = veiled / max(veiled - movedN, vec3(1e-12));
+        vec3 shareN = mix(vec3(1.0), clamp(roomN, 0.0, 1.0), crossingN);
+        float wN = min(shareN.r, min(shareN.g, shareN.b));
+        vec3 hazed = mix(veiled, movedN, wN);
 
-        return vec4(mix(hazed, lifted, step(0.0, amount)), image.a);
+        return vec4(mix(hazed, recovered, step(0.0, amount)), image.a);
     }
     """
 
