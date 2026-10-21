@@ -135,3 +135,12 @@ Each command is prefixed `python3 $S/sheet.py`.
 4. **Roundness > 0 on a 1:1 crop is a dead range by geometry**, because the crop-aspect ellipse is already a circle. Line 12 tests for a no-op there instead of liveness.
 5. **CP thresholds (lines 17-18) are design targets** to be met at S13 in scene-linear before the DRT. If the DRT's own hue behaviour at dark levels makes ≤ 3°/4° unreachable, REPORT.md must give the measured worst value, and the floor is "never worse than HP + 0.5°", not silence.
 6. `lumen-render` gains no geometry stage (GEO-17 owns it). Line 22 measures the crop on the uncropped CPU output, which is exactly what the reference renders.
+
+## Amendment A1 (lane lead, after verifier round 1; reason and evidence in VERIFY.md)
+
+Round 1 measured, in float with no 8-bit rounding, that CP and PO change the SCENE hue by 0.00° and that the remaining display hue shift on skin (tan_TR −8.5° at −2) is the finish/display transform responding to a lower lightness. That transform belongs to another lane, and a stage that changes only lightness cannot get under it. The absolute display-hue thresholds in 17 and 19 measured that transform, not the vignette. They are replaced. Nothing else in 17-19 changes, and line 18 keeps all its thresholds because its misses were implementation faults.
+
+- **17 (hue part), replaced:** (a) scene-linear hue change for CP is ≤ 0.1° in every box (unit test); (b) in FLOAT display (no 8-bit rounding), |dh_CP| ≤ |dh_HP| + 0.5° in every listed box; (c) cl inside [0.90, 1.15], or within ±0.02 of HP's cl in the same box where HP itself is outside that range. The 8-bit |dh| numbers are reported, not gated.
+- **19 (hue part), replaced:** (a) scene-linear hue change for PO is ≤ 0.1°; (b) in FLOAT display, |dh_PO| ≤ |dh_HP'| + 1.0°, where HP' is HP at the Amount that gives the same corner L within ±0.03 (a lightness-matched comparison, because PO lands at a different L by design).
+- **New 29:** feather 0 is anti-aliased on every crop aspect: the 10-90 % edge is ≥ 1.0 output px measured along the gradient on crops of 1:1, 3:2, 6:1 and 1:6, with no stair-steps (aa_rms ≤ 0.15 px).
+- **New 30:** Feather has no jump at the low end: the transition-width step per unit of feather over 0…10 is ≤ 3× the median step over 10…100.
