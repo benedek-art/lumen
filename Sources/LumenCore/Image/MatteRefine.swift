@@ -123,7 +123,7 @@ public enum MatteRefine {
     /// Variance regularization in the guide's units (display-encoded [0, 1]). Small, so a
     /// faint edge (hair against a similar wall) still steers the fit; large enough that
     /// sensor noise in a flat sky does not.
-    public static let defaultEpsilon: Double = 1e-3
+    public static let defaultEpsilon: Double = 3e-4
     /// Fast-guided-filter subsampling. Coefficients are smooth by construction; 4 keeps
     /// a 2048 px refine well under a second on one core.
     public static let defaultSubsample = 4
@@ -149,8 +149,21 @@ public enum MatteRefine {
                                       epsilon: Double = defaultEpsilon,
                                       subsample: Int = defaultSubsample) -> Plane {
         let W = guide.width, H = guide.height
-        let p = (matte.width == W && matte.height == H)
-            ? matte : matte.resized(width: W, height: H)
+        // A non-finite sample would poison every window sum downstream of it (the
+        // integral images carry it to the bottom-right of the frame). Zero it here,
+        // once, in both inputs.
+        var clean = matte
+        for i in 0..<clean.values.count where !clean.values[i].isFinite {
+            clean.values[i] = 0
+        }
+        var guide = guide
+        for i in 0..<guide.r.count {
+            if !guide.r[i].isFinite { guide.r[i] = 0 }
+            if !guide.g[i].isFinite { guide.g[i] = 0 }
+            if !guide.b[i].isFinite { guide.b[i] = 0 }
+        }
+        let p = (clean.width == W && clean.height == H)
+            ? clean : clean.resized(width: W, height: H)
 
         let native = Double(nativeLongEdge ?? Swift.max(matte.width, matte.height))
         let stretch = Double(Swift.max(W, H)) / Swift.max(native, 1)
@@ -169,12 +182,34 @@ public enum MatteRefine {
         // pixels. This is the guided filter's original matting use (a binary mask in,
         // hair-level alpha out): the decision says which side each pixel is on, the
         // small window restores the partial alpha wherever the picture itself is
-        // mixed: hair, twigs, a defocused rim. The decision is a smoothstep, not a
-        // threshold, so a matte the model was genuinely unsure about stays soft.
+        // mixed: hair, twigs, a defocused rim.
+        //
+        // ONLY WHERE THERE IS AN EDGE to decide. The push is weighted by the located
+        // matte's local spread: across a subject boundary it is large and the push is
+        // full; over a region the model was uniformly unsure about (a veil, motion
+        // blur) or along a faint strand it is small and the located value stands.
+        // Pushing everywhere crushed a constant 0.3 to 0.03 and erased the outer three
+        // quarters of every strand of the synthetic hair (verifier round 1).
+        let rSpread = Swift.max(1, Int(rLocate.rounded()))
+        let mean = boxMean(located.values, W, H, rSpread)
+        var squares = located.values
+        for i in 0..<squares.count { squares[i] *= squares[i] }
+        let meanSq = boxMean(squares, W, H, rSpread)
         var decided = located
         for i in 0..<decided.values.count {
-            let t = Swift.min(Swift.max((located.values[i] - 0.25) / 0.5, 0), 1)
-            decided.values[i] = t * t * (3 - 2 * t)
+            let v = located.values[i]
+            let t = Swift.min(Swift.max((v - 0.25) / 0.5, 0), 1)
+            let pushed = t * t * (3 - 2 * t)
+            let spread = Swift.max(meanSq[i] - mean[i] * mean[i], 0).squareRoot()
+            let e = Swift.min(Swift.max((spread - 0.03) / 0.09, 0), 1)
+            let weight = e * e * (3 - 2 * e)
+            // A toe under 0.12: the faint wash a coarse model leaves between strands
+            // (0.05-0.08 on the synthetic fan) reads as a grey veil once an
+            // adjustment is pushed through it. A genuinely soft region sits well
+            // above it and is untouched.
+            let toe: Float = 0.12
+            let kept = v < toe ? v * (v / toe) * (v / toe) : v
+            decided.values[i] = kept + (pushed - kept) * weight
         }
         let rFeather = Swift.max(1.5, Double(Swift.max(W, H)) * featherFraction)
         var out = guidedFilter(decided, guide: guide, radius: rFeather,

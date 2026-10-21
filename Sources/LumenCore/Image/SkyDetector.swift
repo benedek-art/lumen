@@ -51,8 +51,15 @@ public enum SkyDetector {
         public var alpha: [Double]
         public var beta: [Double]
         public var sigma: [Double]
-        /// The lowest sky row the seed reached, as a fraction of the frame height.
-        public var horizon: Double
+        /// The lowest sky row the seed reached, as a fraction of the frame height,
+        /// per working-size column (smoothed over a neighbourhood of columns).
+        public var horizon: [Double]
+
+        /// The horizon under column `x` of a frame `width` wide.
+        func horizon(atColumn x: Int, width: Int) -> Double {
+            guard !horizon.isEmpty, width > 0 else { return 0 }
+            return horizon[Swift.min(horizon.count - 1, x * horizon.count / width)]
+        }
 
         /// Colour likelihood of an sRGB-encoded pixel at normalized height `y`.
         func colour(_ lab: (Float, Float, Float), y: Double, widen: Double = 1) -> Double {
@@ -100,18 +107,22 @@ public enum SkyDetector {
         for y in 0..<H {
             for x in 0..<W {
                 let i = y * W + x
-                let dx = abs(luma[Swift.min(x + 1, W - 1) + y * W] - luma[Swift.max(x - 1, 0) + y * W])
-                let dy = abs(luma[x + Swift.min(y + 1, H - 1) * W] - luma[x + Swift.max(y - 1, 0) * W])
+                let dx = abs(luma[Swift.min(x + 1, W - 1) + y * W]
+                             - luma[Swift.max(x - 1, 0) + y * W])
+                let dy = abs(luma[x + Swift.min(y + 1, H - 1) * W]
+                             - luma[x + Swift.max(y - 1, 0) * W])
                 edge[i] = dx + dy > 0.06 ? 1 : 0
             }
         }
         let density = MatteRefine.boxMean(edge, W, H, r * 4)
-        let lastRow = Swift.min(Int(model.horizon * Double(H)), H)
-        guard lastRow > 0 else { return }
+        let lastRows = (0..<W).map {
+            Swift.min(Int(model.horizon(atColumn: $0, width: W) * Double(H)), H)
+        }
+        guard let deepest = lastRows.max(), deepest > 0 else { return }
         var raw = [Float](repeating: 0, count: W * H)
-        for y in 0..<lastRow {
+        for y in 0..<deepest {
             let yn = Double(y) / Double(H)
-            for x in 0..<W {
+            for x in 0..<W where y < lastRows[x] {
                 let i = y * W + x
                 guard density[i] > 0.4 else { continue }
                 guard luma[i] > localMean[i] else { continue }
@@ -130,9 +141,14 @@ public enum SkyDetector {
         // roof reflecting the sky is a line one or two pixels wide that matches the
         // sky's colour and is brighter than its surroundings, and it is not sky
         // (measured on 983: every lantern edge came out outlined without this).
-        let support = MatteRefine.boxMean(raw.map { $0 > 0 ? 1 : 0 }, W, H, 2)
+        let keyed = raw.map { $0 > 0 ? Float(1) : 0 }
+        let support = MatteRefine.boxMean(keyed, W, H, 2)
+        // And sky through a canopy comes in CLUSTERS: a canopy with sky behind it is
+        // gaps over a wide area. A lone keyed blob in a window of stonework — lichen,
+        // a pane of a rose window, a pale spire cap on 7301 — is not.
+        let cluster = MatteRefine.boxMean(keyed, W, H, r * 12)
         var core = [Float](repeating: 0, count: W * H)
-        for i in 0..<raw.count where support[i] >= 0.5 { core[i] = 1 }
+        for i in 0..<raw.count where support[i] >= 0.5 && cluster[i] >= 0.06 { core[i] = 1 }
         let near = MatteRefine.boxMean(core, W, H, 2)
         for i in 0..<raw.count where raw[i] > 0 && near[i] > 0 {
             if raw[i] > out.values[i] { out.values[i] = raw[i] }
@@ -216,9 +232,15 @@ public enum SkyDetector {
             let k = Double(members.count)
             let mL = sL / k, mA = sA / k, mB = sB / k
             let chroma = (mA * mA + mB * mB).squareRoot()
+            // Relative brightness, OR plainly bright: a snowfield or a beach can fill
+            // half the frame and push the median above the sky (verifier round 1:
+            // sky over 50% snow returned nothing). The region already had to be
+            // smooth and reach the top edge; a blue one needs no brightness test
+            // beyond not being night.
             let lifted = mL >= Double(frameUpper) || mL > Double(frameMedian) + 0.05
+                || mL > 0.72
             let bright = lifted && mL > 0.3 && chroma < 0.12  // overcast, haze, cloud
-            let blue = mB < -0.025 && mL > 0.3 && mL > Double(frameMedian)  // clear sky
+            let blue = mB < -0.025 && mL > 0.3                 // clear sky
             let warm = lifted && mL > 0.45 && chroma < 0.2     // sunset, golden haze
             guard bright || blue || warm else { continue }
             candidates.append(Candidate(members: members, mL: mL, mA: mA, mB: mB))
@@ -240,6 +262,77 @@ public enum SkyDetector {
             }
         }
         guard seedCount > 0 else { return nil }
+
+        // 3b. Clouds. Select Sky includes the clouds, and the seed stops at them: a
+        //     cloud carries soft texture the seed's smoothness test refuses, and its
+        //     grey or white is not the clear sky's colour, so the colour model below
+        //     will not find it either. Grow on from the seed through bright,
+        //     low-chroma pixels with a looser smoothness and step, stopping at the
+        //     hard texture of anything solid. (7301: the cloudy lower sky beside the
+        //     spire was cut off at 52% of the frame height.)
+        var cloud = [Bool](repeating: false, count: n)
+        do {
+            let seedL = seedMeanL(seed, L)
+            var queue: [Int] = []
+            queue.reserveCapacity(seedCount)
+            for i in 0..<n where seed[i] { queue.append(i) }
+            var head = 0
+            while head < queue.count {
+                let i = queue[head]; head += 1
+                let x = i % w, y = i / w
+                for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                    let xx = x + dx, yy = y + dy
+                    guard xx >= 0, xx < w, yy >= 0, yy < h else { continue }
+                    let j = yy * w + xx
+                    guard !seed[j], !cloud[j], texture[j] < smoothTau * 2.5 else { continue }
+                    let chroma = (A[j] * A[j] + B[j] * B[j]).squareRoot()
+                    guard chroma < 0.1, Double(L[j]) > Swift.max(0.35, seedL - 0.05)
+                    else { continue }
+                    let dL = L[j] - L[i], da = A[j] - A[i], db = B[j] - B[i]
+                    guard (dL * dL + da * da + db * db).squareRoot() < growStep * 2
+                    else { continue }
+                    cloud[j] = true
+                    queue.append(j)
+                }
+            }
+            // Under a CLEAR BLUE sky a cloud is surrounded by blue. A bright region
+            // that touches the blue only along one edge and is otherwise bordered by
+            // trees, buildings or the frame is a snowfield or a sunlit facade (983's
+            // defocused mountain), so under a blue seed each cloud component must have
+            // most of its border on the seed. An overcast or pale seed (7301) is cloud
+            // itself, and its lower cloud is bordered by the land by nature.
+            if seedMeanB(seed, B) < -0.05 {
+                var visited = [Bool](repeating: false, count: n)
+                for start in 0..<n where cloud[start] && !visited[start] {
+                    var members = [start]
+                    visited[start] = true
+                    var onSeed = 0, offSeed = 0
+                    var k = 0
+                    while k < members.count {
+                        let i = members[k]; k += 1
+                        let x = i % w, y = i / w
+                        for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                            let xx = x + dx, yy = y + dy
+                            guard xx >= 0, xx < w, yy >= 0, yy < h else {
+                                offSeed += 1
+                                continue
+                            }
+                            let j = yy * w + xx
+                            if cloud[j] {
+                                if !visited[j] { visited[j] = true; members.append(j) }
+                            } else if seed[j] {
+                                onSeed += 1
+                            } else {
+                                offSeed += 1
+                            }
+                        }
+                    }
+                    if Double(onSeed) < 0.6 * Double(onSeed + offSeed) {
+                        for i in members { cloud[i] = false }
+                    }
+                }
+            }
+        }
 
         // 4. Colour model: c(y) = α + β·y per channel, least squares over the seed.
         var sy = 0.0, syy = 0.0
@@ -271,9 +364,28 @@ public enum SkyDetector {
         }
         let floors = [0.035, 0.015, 0.015]
         let sigma = (0..<3).map { Swift.max((sse[$0] / m).squareRoot() * 2, floors[$0]) }
+        // The horizon PER COLUMN: the lowest seed row within a neighbourhood of
+        // columns. One frame-wide horizon (the 98th percentile of seed rows) drew a
+        // straight line across open sky wherever the sky reached lower in a narrow
+        // strip than across the rest of the frame — 7301, the church, cut at 52%
+        // with the sky running to 75% beside the spire. Columns with no seed nearby
+        // take the frame-wide value, which is what governs islands there.
         seedRows.sort()
-        let horizon = Double(seedRows[Swift.min(seedRows.count - 1,
-                                                Int(Double(seedRows.count) * 0.98))])
+        let global = Double(seedRows[Swift.min(seedRows.count - 1,
+                                               Int(Double(seedRows.count) * 0.98))])
+        var lowest = [Int](repeating: -1, count: w)
+        for i in 0..<n where seed[i] || cloud[i] {
+            lowest[i % w] = Swift.max(lowest[i % w], i / w)
+        }
+        let span = Swift.max(2, w / 24)
+        var horizonCol = [Double](repeating: global, count: w)
+        for x in 0..<w {
+            var m = -1
+            for xx in Swift.max(0, x - span)...Swift.min(w - 1, x + span) {
+                m = Swift.max(m, lowest[xx])
+            }
+            if m >= 0 { horizonCol[x] = Double(m) }
+        }
         let fade = Swift.max(0.04 * Double(h), 2)
 
         var prob = Plane(width: w, height: h)
@@ -292,10 +404,11 @@ public enum SkyDetector {
             // leaves around it from every pixel inside it.
             let t = Double(grad[i]) / Double(smoothTau * 3)
             let smoothness = exp(-t * t)
-            let below = Double(y) - horizon
+            let below = Double(y) - horizonCol[i % w]
             let position = below <= 0 ? 1 : exp(-(below / fade) * (below / fade))
             var p = colour * smoothness.squareRoot() * position
             if seed[i] { p = Swift.max(p, Swift.min(1, colour * 1.5 + 0.5)) }
+            if cloud[i] { p = Swift.max(p, 0.9) }
             prob.values[i] = Float(p)
         }
 
@@ -310,12 +423,13 @@ public enum SkyDetector {
             var head = 0
             var touchesSeed = false
             var peak: Float = 0
-            var rowSum = 0.0
+            var rowSum = 0.0, colSum = 0.0
             while head < members.count {
                 let i = members[head]; head += 1
-                if seed[i] { touchesSeed = true }
+                if seed[i] || cloud[i] { touchesSeed = true }
                 peak = Swift.max(peak, prob.values[i])
                 rowSum += Double(i / w)
+                colSum += Double(i % w)
                 let x = i % w, y = i / w
                 for dy in -1...1 {
                     for dx in -1...1 {
@@ -329,7 +443,8 @@ public enum SkyDetector {
                 }
             }
             let meanRow = rowSum / Double(members.count)
-            if touchesSeed || (peak > strong && meanRow <= horizon) {
+            let meanCol = Int(colSum / Double(members.count))
+            if touchesSeed || (peak > strong && meanRow <= horizonCol[meanCol]) {
                 for i in members { keep[i] = true }
             }
         }
@@ -337,6 +452,37 @@ public enum SkyDetector {
         for i in 0..<n {
             let p = keep[i] ? prob.values[i] : 0
             decided[i] = Float(smoothstep(0.2, 0.7, Double(p)))
+        }
+        // Holes. A region the sky surrounds on every side — it touches no edge of the
+        // frame — and that is small is part of the sky: a cumulus whose white is not
+        // the blue's colour and whose edge is too steep for growth to cross, a bird,
+        // a contrail. A tree crown, a spire, a lantern or a snow slope connects to the
+        // land or to a frame edge and is never a hole.
+        do {
+            var visited = [Bool](repeating: false, count: n)
+            let limit = Int(0.03 * Double(n))
+            for start in 0..<n where decided[start] < 0.5 && !visited[start] {
+                var members = [start]
+                visited[start] = true
+                var touchesEdge = false
+                var k = 0
+                while k < members.count {
+                    let i = members[k]; k += 1
+                    let x = i % w, y = i / w
+                    if x == 0 || y == 0 || x == w - 1 || y == h - 1 { touchesEdge = true }
+                    for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                        let xx = x + dx, yy = y + dy
+                        guard xx >= 0, xx < w, yy >= 0, yy < h else { continue }
+                        let j = yy * w + xx
+                        guard !visited[j], decided[j] < 0.5 else { continue }
+                        visited[j] = true
+                        members.append(j)
+                    }
+                }
+                if !touchesEdge && members.count <= limit {
+                    for i in members { decided[i] = 1 }
+                }
+            }
         }
         // Push the transition OUT by a working pixel, then soften it over one more.
         // The smoothness term rejects every sky pixel whose Sobel window touches the
@@ -358,7 +504,15 @@ public enum SkyDetector {
         }
         prob.values = MatteRefine.boxMean(grown, w, h, 1)
         return (prob, Model(alpha: alpha, beta: beta, sigma: sigma,
-                            horizon: (horizon + 1) / Double(h)))
+                            horizon: horizonCol.map { ($0 + 1) / Double(h) }))
+    }
+
+    static func seedMeanB(_ seed: [Bool], _ B: [Float]) -> Double { seedMeanL(seed, B) }
+
+    static func seedMeanL(_ seed: [Bool], _ L: [Float]) -> Double {
+        var s = 0.0, k = 0.0
+        for i in 0..<seed.count where seed[i] { s += Double(L[i]); k += 1 }
+        return k > 0 ? s / k : 0
     }
 
     static func smoothstep(_ e0: Double, _ e1: Double, _ x: Double) -> Double {

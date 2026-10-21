@@ -3327,9 +3327,10 @@ struct MaskPanel: View {
     static let drawnKinds: [MaskKind] = [.brush, .linear, .radial, .polygon]
 
     /// Depth Range is deliberately not in this list, and there is no `modelKinds` list
-    /// any more. Between them they named the four kinds the picker can no longer offer:
-    /// nothing estimates depth, nothing reads embedded depth, and no Core ML model is
-    /// bundled, so all four rasterize to an empty plane. The kinds themselves stay in
+    /// any more. Between them they named the kinds the picker could not offer: nothing
+    /// estimates depth, nothing reads embedded depth, and no Core ML model is bundled,
+    /// so those rasterize to an empty plane (Sky has since gained an on-device matte,
+    /// `SkyDetector`, and is offered with Vision's kinds). The kinds themselves stay in
     /// `MaskKind` — the wire format carries them and a foreign recipe may hold one —
     /// and their editors still open. What is gone is the offer.
     static let rangeKinds: [MaskKind] = [.lumaRange, .luminosity, .colorRange,

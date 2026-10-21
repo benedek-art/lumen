@@ -42,13 +42,31 @@ box-downsampled 8x and bilinearly upsampled (what the old path delivered).
 | S8 | No sky (indoor texture, dark frame, bright white wall at bottom) | nil, or coverage < 1% | `testNoSkyMeansNothing` |
 | S9 | Blue object low in frame (blue car / water not connected to top) not selected | < 5% of it | `testBlueObjectBelowHorizonIsNotSky` |
 | S10 | Detector + refinement on a 2048 px guide | < 1.5 s release on the Linux box | `testSkyCost` |
-| S11 | Picker offers Sky; Object, Landscape, Depth stay unoffered; Sky's provider is on-device | exact | `testSkyIsOfferedTheRestAreNot` (LumenCoreTests over `MaskKind.matteProvider`) |
+| S11 | Picker offers Sky; Object, Landscape, Depth stay unoffered; Sky's provider is on-device | exact | `testSkyIsOfferedTheRestAreNot` (provider, Linux) + `MaskPanelTests.testTheThreeKindsWithNoModelAreNotOnThePickerBoard` (picker, macOS) |
+| S12 | 2048 matte into a 1024 draft raster keeps a 1 px strand's coverage | within 2%, strand > 0.4 on every row | `MattePlaneFitTests.testShrinkingKeepsThinStrandCoverage` |
+
+### Added after verifier round 1 (FAIL)
+
+| # | claim | threshold | measured by |
+|---|---|---|---|
+| S2b | Realistic edge: low contrast (0.08), wavy, 3 px anti-aliased in the guide | 10-90 width <= 4.5 px and <= 0.5x bilinear | `testRefinedEdgeIsNarrowOnARealisticEdge` |
+| S13 | A uniformly soft matte (0.3, 0.6) is not crushed | mean within 0.02 | `testSoftMatteIsNotCrushed` |
+| S14 | Hair strands 15-70 px from the disc keep alpha | >= 1.5x the model's own (bilinear) strand alpha, for a 1/8 and a 1/4 resolution model | `testHairTipsSurvive` |
+| S15 | A NaN in the matte or guide stays local | output finite; pixels > 40 px away change < 1e-5 | `testNaNIsContained` |
+| S16 | Sky over a bright foreground (snow, sand, 50% of frame) | IoU >= 0.90 | `SkyDetectorTests.testSkyOverBrightForeground` |
+| S17 | Sky reaching lower in a narrow strip is not cut by a frame-wide horizon | IoU >= 0.90, lower strip >= 0.90 | `testNarrowSkyStripIsNotCut` |
+| S18 | Clouds inside a blue sky are sky; a snow slope rising into it is not | clouds >= 0.9, snow < 0.1 | `testCloudsAreSkySnowSlopeIsNot` |
+
+Round-1 notes kept honest: S2's perfect step flatters the filter, so S2b is the line that
+matters. S8 puts the wall at the bottom; a bright smooth ceiling or wall touching the TOP
+is a known false positive (3582), recorded in REPORT, not claimed.
 
 ## Visual claims (human judges)
 
-- V1. `evidence/sky-corpus.png`: on 983, 1840, 3437, 4213, 2545, the sky alpha follows
-  the real skyline, includes sky seen through foliage where it is visible at 1024 px,
-  and does not take buildings, water or white walls.
+- V1. `evidence/sky-corpus.png`: on 983, 1840, 3437, 4213, 2545 (plus 7301, 6001, 3582
+  added in round 2), the sky alpha follows the real skyline, includes clouds, and does not
+  take buildings, water or snow. Sky behind dense fine branches (2545, 3437) is partial;
+  a smooth interior wall touching the top (3582) is taken. Both are stated limits.
 - V2. `evidence/refine-crop.png`: 100% crop of the synthetic hair fan. Old matte is a
   blur; refined matte resolves individual strands with no light ring outside.
 - V3. On macOS (owner): Subject on a portrait against a busy background, exported at

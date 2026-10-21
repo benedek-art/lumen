@@ -142,6 +142,121 @@ final class SkyDetectorTests: XCTestCase {
         XCTAssertLessThan(taken, 0.05)
     }
 
+    // S16: sky over a bright foreground (snow, sand) that fills half the frame and
+    // lifts the median above the sky.
+    func testSkyOverBrightForeground() throws {
+        let w = 768, h = 512
+        for (name, sky, ground) in [
+            ("snow", (Float(0.45), Float(0.62), Float(0.90)),
+             (Float(0.93), Float(0.94), Float(0.96))),
+            ("sand", (Float(0.45), Float(0.62), Float(0.90)),
+             (Float(0.90), Float(0.82), Float(0.66))),
+            ("deep blue over snow", (Float(0.20), Float(0.40), Float(0.85)),
+             (Float(0.93), Float(0.94), Float(0.96))),
+        ] {
+            var r = [Float](repeating: 0, count: w * h), g = r, b = r
+            var truth = [Bool](repeating: false, count: w * h)
+            for y in 0..<h {
+                for x in 0..<w {
+                    let i = y * w + x, fy = Double(y) / Double(h)
+                    let n = Self.noise(x, y) * 0.005
+                    if fy < 0.40 {
+                        truth[i] = true
+                        r[i] = sky.0 + n; g[i] = sky.1 + n; b[i] = sky.2 + n
+                    } else if fy < 0.50 {
+                        let t = Self.noise(x / 2, y / 2, 3) * 0.15
+                        r[i] = 0.15 + t; g[i] = 0.2 + t; b[i] = 0.12 + t
+                    } else {
+                        r[i] = ground.0 + n; g[i] = ground.1 + n; b[i] = ground.2 + n
+                    }
+                }
+            }
+            let p = try XCTUnwrap(SkyDetector.detect(
+                guide: MatteGuide(width: w, height: h, r: r, g: g, b: b)), name)
+            let iou = Self.iou(p, truth)
+            print("S16 \(name) IoU \(iou)")
+            XCTAssertGreaterThanOrEqual(iou, 0.90, name)
+        }
+    }
+
+    // S17: sky that reaches lower in one strip than elsewhere is not cut by a
+    // frame-wide horizon (7301). A dark building fills the left 70% from 30% down;
+    // the sky on the right runs to 75%.
+    func testNarrowSkyStripIsNotCut() throws {
+        let w = 512, h = 768
+        var r = [Float](repeating: 0, count: w * h), g = r, b = r
+        var truth = [Bool](repeating: false, count: w * h)
+        for y in 0..<h {
+            for x in 0..<w {
+                let i = y * w + x, fy = Double(y) / Double(h), fx = Double(x) / Double(w)
+                let n = Self.noise(x, y) * 0.004
+                let building = fx < 0.7 && fy > 0.30
+                if !building && fy < 0.75 {
+                    truth[i] = true
+                    r[i] = 0.95 + n; g[i] = 0.95 + n; b[i] = 0.96 + n
+                } else {
+                    let t = Self.noise(x / 2, y / 2, 5) * 0.12
+                    r[i] = 0.40 + t; g[i] = 0.40 + t; b[i] = 0.38 + t
+                }
+            }
+        }
+        let p = try XCTUnwrap(SkyDetector.detect(
+            guide: MatteGuide(width: w, height: h, r: r, g: g, b: b)))
+        var strip = [Bool](repeating: false, count: w * h)
+        for y in Int(0.45 * Double(h))..<Int(0.72 * Double(h)) {
+            for x in Int(0.75 * Double(w))..<w { strip[y * w + x] = true }
+        }
+        let iou = Self.iou(p, truth), lower = Self.fraction(p, strip)
+        print("S17 IoU \(iou) lower strip \(lower)")
+        XCTAssertGreaterThanOrEqual(iou, 0.90)
+        XCTAssertGreaterThanOrEqual(lower, 0.90)
+    }
+
+    // S18: clouds inside a blue sky are sky; a snow slope rising into the blue from
+    // the land is not.
+    func testCloudsAreSkySnowSlopeIsNot() throws {
+        let w = 768, h = 512
+        var r = [Float](repeating: 0, count: w * h), g = r, b = r
+        var clouds = [Bool](repeating: false, count: w * h)
+        var snow = clouds
+        for y in 0..<h {
+            for x in 0..<w {
+                let i = y * w + x, fx = Double(x) / Double(w), fy = Double(y) / Double(h)
+                let n = Self.noise(x, y) * 0.005
+                let t = Float(fy / 0.6)
+                // Sky over the top 60%, two soft textured cumulus inside it.
+                var cr = 0.30 + 0.30 * t, cg = 0.48 + 0.25 * t, cb = 0.88 + 0.06 * t
+                for (cx, cy, rx, ry) in [(0.25, 0.22, 0.12, 0.07), (0.62, 0.15, 0.10, 0.06)] {
+                    let d = pow((fx - cx) / rx, 2) + pow((fy - cy) / ry, 2)
+                    if d < 1 {
+                        let k = Float(Swift.min(1, (1 - d) * 3))
+                        let puff = Self.noise(x / 3, y / 3, 17) * 0.02
+                        cr += (0.93 + puff - cr) * k; cg += (0.94 + puff - cg) * k
+                        cb += (0.96 + puff - cb) * k
+                        if k > 0.5 { clouds[i] = true }
+                    }
+                }
+                // A snow slope rising from the right into the sky.
+                let slope = 0.6 - 0.45 * Swift.max(0, (fx - 0.78) / 0.22)
+                if fy >= 0.6 {
+                    let tex = Self.noise(x / 2, y / 2, 3) * 0.14
+                    r[i] = 0.25 + tex; g[i] = 0.3 + tex; b[i] = 0.18 + tex
+                } else if fx > 0.78 && fy > slope {
+                    snow[i] = true
+                    r[i] = 0.92 + n; g[i] = 0.93 + n; b[i] = 0.95 + n
+                } else {
+                    r[i] = cr + n; g[i] = cg + n; b[i] = cb + n
+                }
+            }
+        }
+        let p = try XCTUnwrap(SkyDetector.detect(
+            guide: MatteGuide(width: w, height: h, r: r, g: g, b: b)))
+        let inCloud = Self.fraction(p, clouds), onSnow = Self.fraction(p, snow)
+        print("S18 cloud taken \(inCloud) snow taken \(onSnow)")
+        XCTAssertGreaterThanOrEqual(inCloud, 0.9)
+        XCTAssertLessThan(onSnow, 0.1)
+    }
+
     // S10
     func testSkyCost() {
         let s = Self.scene()

@@ -16,6 +16,7 @@
 //   · one multi-array output, either
 //       [1, C, H, W] / [C, H, W] class logits with C >= 3, sky at channel `skyChannel`
 //       (2 in ADE20K's 150-class order: wall, building, sky, …), softmaxed here; or
+//       [1, 2, H, W] two-class logits, not-sky then sky, softmaxed; or
 //       [1, 1, H, W] / [H, W] sky probability or logit (logits are sigmoided when any
 //       value falls outside [0, 1]).
 //
@@ -29,6 +30,7 @@ import CoreML
 import CryptoKit
 import Foundation
 import LumenCore
+import Vision
 
 public final class SkyModel: @unchecked Sendable {
 
@@ -116,8 +118,13 @@ public final class SkyModel: @unchecked Sendable {
         guard let (inputName, input) = description.inputDescriptionsByName
             .first(where: { $0.value.type == .image }),
               let constraint = input.imageConstraint else { return nil }
+        // Scale to fill, explicitly: the answer is laid over the WHOLE frame, so the
+        // model must see the whole frame (a centre crop would misalign every edge).
+        let options: [MLFeatureValue.ImageOption: Any] = [
+            .cropAndScale: VNImageCropAndScaleOption.scaleFill.rawValue,
+        ]
         guard let value = try? MLFeatureValue(cgImage: image, constraint: constraint,
-                                              options: nil),
+                                              options: options),
               let provider = try? MLDictionaryFeatureProvider(
                   dictionary: [inputName: value]),
               let result = try? model.prediction(from: provider) else { return nil }
@@ -128,7 +135,9 @@ public final class SkyModel: @unchecked Sendable {
         return plane(from: array)
     }
 
-    /// Decode either output layout into a sky probability plane.
+    /// Decode any of the output layouts into a sky probability plane. Reads the
+    /// storage through `withUnsafeBytes`, which locks a pixel-buffer-backed array for
+    /// the duration (a bare `dataPointer` does not), and honours the strides.
     static func plane(from array: MLMultiArray) -> Plane? {
         let shape = array.shape.map(\.intValue)
         let strides = array.strides.map(\.intValue)
@@ -138,51 +147,61 @@ public final class SkyModel: @unchecked Sendable {
         guard h > 0, w > 0, channels >= 1 else { return nil }
         let sy = strides[strides.count - 2], sx = strides[strides.count - 1]
         let sc = shape.count >= 3 ? strides[strides.count - 3] : 0
-
-        let read: (Int) -> Float
-        switch array.dataType {
-        case .float32:
-            let p = array.dataPointer.assumingMemoryBound(to: Float.self)
-            read = { p[$0] }
-        case .double:
-            let p = array.dataPointer.assumingMemoryBound(to: Double.self)
-            read = { Float(p[$0]) }
-        case .float16:
-            let p = array.dataPointer.assumingMemoryBound(to: UInt16.self)
-            read = { halfToFloat(p[$0]) }
+        let sky: Int
+        switch channels {
+        case 1: sky = 0
+        case 2: sky = 1
         default:
-            return nil
-        }
-
-        var out = Plane(width: w, height: h)
-        if channels >= 3 {
             guard skyChannel < channels else { return nil }
-            for y in 0..<h {
-                for x in 0..<w {
-                    let base = y * sy + x * sx
-                    var peak = -Float.infinity
-                    for c in 0..<channels { peak = Swift.max(peak, read(base + c * sc)) }
-                    var sum: Float = 0
-                    for c in 0..<channels { sum += expf(read(base + c * sc) - peak) }
-                    out.values[y * w + x] = expf(read(base + skyChannel * sc) - peak) / sum
-                }
-            }
-        } else {
-            var outside = false
-            for y in 0..<h {
-                for x in 0..<w {
-                    let v = read(y * sy + x * sx)
-                    if v < 0 || v > 1 { outside = true }
-                    out.values[y * w + x] = v
-                }
-            }
-            if outside {
-                for i in 0..<out.values.count {
-                    out.values[i] = 1 / (1 + expf(-out.values[i]))
-                }
-            }
+            sky = skyChannel
         }
-        return out
+        let dataType = array.dataType
+        guard dataType == .float32 || dataType == .double || dataType == .float16
+        else { return nil }
+
+        return array.withUnsafeBytes { raw -> Plane? in
+            let read: (Int) -> Float
+            switch dataType {
+            case .float32:
+                let p = raw.bindMemory(to: Float.self)
+                read = { p[$0] }
+            case .double:
+                let p = raw.bindMemory(to: Double.self)
+                read = { Float(p[$0]) }
+            default:
+                let p = raw.bindMemory(to: UInt16.self)
+                read = { halfToFloat(p[$0]) }
+            }
+            var out = Plane(width: w, height: h)
+            if channels >= 2 {
+                for y in 0..<h {
+                    for x in 0..<w {
+                        let base = y * sy + x * sx
+                        var peak = -Float.infinity
+                        for c in 0..<channels { peak = Swift.max(peak, read(base + c * sc)) }
+                        var sum: Float = 0
+                        for c in 0..<channels { sum += expf(read(base + c * sc) - peak) }
+                        out.values[y * w + x] = expf(read(base + sky * sc) - peak) / sum
+                    }
+                }
+            } else {
+                var outside = false
+                for y in 0..<h {
+                    for x in 0..<w {
+                        let v = read(y * sy + x * sx)
+                        if v < 0 || v > 1 { outside = true }
+                        out.values[y * w + x] = v
+                    }
+                }
+                if outside {
+                    for i in 0..<out.values.count {
+                        out.values[i] = 1 / (1 + expf(-out.values[i]))
+                    }
+                }
+            }
+            for i in 0..<out.values.count where !out.values[i].isFinite { out.values[i] = 0 }
+            return out
+        }
     }
 
     /// IEEE 754 binary16 → binary32, without the `Float16` type (unavailable on

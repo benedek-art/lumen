@@ -195,6 +195,103 @@ final class MatteRefineTests: XCTestCase {
         XCTAssertTrue(q.values.allSatisfy { $0.isFinite && $0 >= 0 && $0 <= 1 })
     }
 
+    // S2b: the realistic edge. Low contrast (subject 0.08 from background), a wavy
+    // boundary, and a 3 px anti-aliased edge in the guide itself — the case S2's
+    // perfect step flatters (verifier round 1).
+    func testRefinedEdgeIsNarrowOnARealisticEdge() {
+        let W = Self.W, H = Self.H
+        var t = Plane(width: W, height: H)
+        var r = [Float](repeating: 0, count: W * H), g = r, b = r
+        for y in 0..<H {
+            for x in 0..<W {
+                let i = y * W + x
+                let e = 203.5 + 6 * sin(Double(y) / 17)
+                let a = Float(Swift.min(Swift.max((Double(x) + 0.5 - e) / 3 + 0.5, 0), 1))
+                t.values[i] = a > 0.5 ? 1 : 0
+                let n = Self.noise(x, y) * 0.03, tex = Self.noise(x / 3, y / 3, 7) * 0.06
+                r[i] = a * 0.50 + (1 - a) * (0.42 + tex) + n
+                g[i] = a * 0.48 + (1 - a) * (0.44 + tex) + n
+                b[i] = a * 0.45 + (1 - a) * (0.50 + tex) + n
+            }
+        }
+        let guide = MatteGuide(width: W, height: H, r: r, g: g, b: b)
+        let c = Self.coarse(t)
+        let q = MatteRefine.guidedUpsample(matte: c, guide: guide, nativeLongEdge: W / 8)
+        func width(_ p: Plane) -> Double {
+            var total = 0
+            for y in 100..<300 {
+                for x in 0..<W where p.values[y * W + x] > 0.1 && p.values[y * W + x] < 0.9 {
+                    total += 1
+                }
+            }
+            return Double(total) / 200
+        }
+        print("S2b 10-90 width bilinear \(width(c)) refined \(width(q))")
+        XCTAssertLessThanOrEqual(width(q), 4.5)
+        XCTAssertLessThanOrEqual(width(q), width(c) * 0.5)
+    }
+
+    // S13: a matte the model was uniformly unsure about stays what it was.
+    func testSoftMatteIsNotCrushed() {
+        let g = Self.guide(for: Self.truth())
+        for level in [0.3, 0.6] {
+            let q = MatteRefine.guidedUpsample(
+                matte: Plane(width: 64, height: 48, fill: level), guide: g)
+            let mean = Double(q.values.reduce(0, +)) / Double(q.values.count)
+            print("S13 constant \(level) -> mean \(mean)")
+            XCTAssertEqual(mean, level, accuracy: 0.02)
+        }
+    }
+
+    // S14: hair strands keep their length. Mean alpha on the truth's strand pixels
+    // 15-70 px out from the disc, for a model at 1/8 of the picture (a strand is 12%
+    // of one model pixel: information-limited) and at 1/4 (nearer Vision's own
+    // resolution against a 2048 px guide).
+    func testHairTipsSurvive() {
+        let t = Self.truth(), disc = Self.truth(hair: false)
+        let g = Self.guide(for: t)
+        let near = MatteRefine.boxMean(disc.values, Self.W, Self.H, 15)
+        for factor in [8, 4] {
+            let c = Self.coarse(t, factor: factor)
+            let q = MatteRefine.guidedUpsample(matte: c, guide: g,
+                                               nativeLongEdge: Self.W / factor)
+            var s = 0.0, k = 0.0, old = 0.0
+            for i in 0..<t.values.count where t.values[i] > 0.5 && near[i] == 0 {
+                s += Double(q.values[i]); old += Double(c.values[i]); k += 1
+            }
+            print("S14 1/\(factor) model: strand tip alpha refined \(s / k) bilinear \(old / k)")
+            XCTAssertGreaterThanOrEqual(s / k, (old / k) * 1.5, "1/\(factor)")
+        }
+    }
+
+    // S15: a NaN stays local and never reaches the output.
+    func testNaNIsContained() {
+        let t = Self.truth(hair: false)
+        let g = Self.guide(for: t)
+        let c = Self.coarse(t)
+        let clean = MatteRefine.guidedUpsample(matte: c, guide: g, nativeLongEdge: Self.W / 8)
+        var poisoned = c
+        poisoned.values[100 * Self.W + 100] = .nan
+        var pg = g
+        pg.r[50 * Self.W + 300] = .nan
+        let q = MatteRefine.guidedUpsample(matte: poisoned, guide: pg,
+                                           nativeLongEdge: Self.W / 8)
+        XCTAssertTrue(q.values.allSatisfy { $0.isFinite && $0 >= 0 && $0 <= 1 })
+        var worst: Float = 0
+        for y in 0..<Self.H {
+            for x in 0..<Self.W {
+                let far = abs(x - 100) > 40 || abs(y - 100) > 40
+                let farG = abs(x - 300) > 40 || abs(y - 50) > 40
+                if far && farG {
+                    let i = y * Self.W + x
+                    worst = Swift.max(worst, abs(q.values[i] - clean.values[i]))
+                }
+            }
+        }
+        print("S15 worst change away from the NaNs \(worst)")
+        XCTAssertLessThan(worst, 1e-5)
+    }
+
     // V2 evidence: writes the hair-fan crop when LUMEN_WS49_EVIDENCE is set.
     func testWriteRefineEvidence() throws {
         guard let dir = ProcessInfo.processInfo.environment["LUMEN_WS49_EVIDENCE"] else {
