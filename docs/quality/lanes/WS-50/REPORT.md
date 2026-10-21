@@ -94,7 +94,7 @@ Expand ±50 on a real colour-range mask in the loupe (are the octagon tiles acce
 
 ## Process
 
-Auditor and builder were the same agent (audit numbers are the "before" columns above). The verifier was a separate agent that saw only the spec and the diff. Round 1: FAIL. Expand was not monotone within 2 px of the frame, because the octagon's four chained passes clipped at the border (0.31 → 0.14 → 0.03 → 0.20 over Edge 17…19 on 983). It also flagged faint-speckle growth, the V3 wording and R9. Fix: pad by r with a replicated border before the passes, plus `testExpandIsMonotoneAtTheFrameBorder` from the verifier's reproduction. Faint-speckle growth went to the owner, V3 was reworded, and R9 is reported as failing as written.
+Auditor and builder were the same agent (audit numbers are the "before" columns above). The verifier was a separate agent that saw only the spec and the diff. Round 1: FAIL. Expand was not monotone within 2 px of the frame, because the octagon's four chained passes clipped at the border (0.31 → 0.14 → 0.03 → 0.20 over Edge 17…19 on 983). It also flagged faint-speckle growth, the V3 wording and R9. Fix: pad by r with a replicated border before the passes, plus `testExpandIsMonotoneAtTheFrameBorder` from the verifier's reproduction. Faint-speckle growth went to the owner, V3 was reworded, and R9 is reported as failing as written. Round 2 (`c2b438a`): **PASS**. Worst wrong-way step 0 on six corpus masks (8559 colour, 983 LiU, 6929 colour and luma, 2545 sky and luma) at every integer Edge, border included. 6e-8 (float rounding) over 2,107 fine steps on synthetic speckle. Nesting brute-forced to r = 60, 157 targeted tests green. Expand alone 0.1–0.2 s vs 0.45 s on base. Six reruns bit-identical.
 
 ## Evidence
 
