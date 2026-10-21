@@ -48,7 +48,8 @@ SUB-COMMANDS
       Cut a size x size crop at the same position from each image (100% pixels, or
       nearest-neighbour zoom) and tile them with labels. Saved as PNG; if over 400 KB it
       is re-saved with an adaptive 256-colour palette. --diff BASE adds, per image, a
-      crop of 128 + gain*(image - BASE) so the grain itself is visible.
+      crop of 128 + gain*(image - BASE) so the grain itself is visible. An item written
+      LABEL=PATH|BASEPATH uses its own base (e.g. a film stock at grain 0).
 
 Example
   B=$(swift build -c release --show-bin-path)/lumen-render
@@ -296,11 +297,13 @@ def cmd_sheet(a):
     items = []
     for s in a.items:
         lab, _, p = s.partition("=")
-        items.append((lab, p))
-    base = load_rgb(a.diff) if a.diff else None
+        p, _, own_base = p.partition("|")
+        items.append((lab, p, own_base))
+    shared_base = load_rgb(a.diff) if a.diff else None
     tiles = []
-    for lab, p in items:
+    for lab, p, own_base in items:
         im = load_rgb(p)
+        base = load_rgb(own_base) if own_base else shared_base
         h, w = im.shape[:2]
         S = a.size
         if a.pos == "center":
