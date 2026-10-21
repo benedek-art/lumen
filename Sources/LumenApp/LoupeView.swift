@@ -168,6 +168,7 @@ final class LoupeViewport: ObservableObject {
         // AND `pan = .zero` — with nothing on screen moving either time. A gesture that
         // has run out of room is exactly when the hand keeps going.
         guard clamped != zoom else { return }
+        if spaceHeld { spaceUsed = true }
         // THE HUD COULD NOT SEE A ZOOM, which is why "the zoom is slow" has been an
         // adjective for three rounds. `noteInput` was called from exactly one place —
         // the recipe-edit path's `touchedPixels` — so the instrument built to answer
@@ -208,6 +209,55 @@ final class LoupeViewport: ObservableObject {
 
     @MainActor
     func toggleZoom() { toggleZoom(at: lastCursor) }
+
+    // MARK: Space as the hand
+
+    /// True between a Space press made while ZOOMED and its release. Not published:
+    /// nothing draws it, and only the keymap and `panTo` read it.
+    private(set) var spaceHeld = false
+    /// Set by any pan OR zoom while `spaceHeld`, so the release knows the press was a
+    /// hand rather than a tap. A wheel zoom during the hold counts: releasing must not
+    /// then undo it.
+    private var spaceUsed = false
+
+    /// Space pressed in the loupe. At fit it zooms to 1:1 under the cursor at once,
+    /// so press-and-drag is Lightroom's space-drag: in at the point, then the drag
+    /// pans. ZOOMED it does nothing yet, because Space held while zoomed is the hand
+    /// every Adobe user reaches for to pan — it used to toggle on the press, so the
+    /// picture snapped to Fit the instant a photographer went to move it, and the drag
+    /// that followed had nothing to pan. The release decides (`spaceUp`).
+    @MainActor
+    func spaceDown() {
+        guard !spaceHeld else { return }
+        if ZoomLadder.isFit(zoom) {
+            toggleZoom()
+            return
+        }
+        spaceHeld = true
+        spaceUsed = false
+    }
+
+    /// Forget an open hold without acting on it: the photo or the view changed under
+    /// it, or the grid peek's release is the one that owns this Space.
+    @MainActor
+    func cancelSpaceHold() {
+        spaceHeld = false
+        spaceUsed = false
+    }
+
+    /// Space released. A tap while zoomed goes back to Fit, as before; a hold that
+    /// panned or zoomed leaves the zoom where it is. An explicit fit, not a toggle: a
+    /// blind toggle sent a picture that was already at fit to 1:1. Returns whether a
+    /// zoomed hold was open, so the keymap claims exactly the releases it started.
+    @MainActor
+    @discardableResult
+    func spaceUp() -> Bool {
+        guard spaceHeld else { return false }
+        let used = spaceUsed
+        cancelSpaceHold()
+        if !used && !ZoomLadder.isFit(zoom) { fit() }
+        return true
+    }
 
     /// Walks fit → 1:1 → 2:1 → fit.
     @MainActor
@@ -262,6 +312,7 @@ final class LoupeViewport: ObservableObject {
     func panTo(x: CGFloat, y: CGFloat, container: CGSize, drawn: CGSize) {
         let clamped = LoupeGeometry.clampPan(CGSize(width: x, height: y),
                                              container: container, drawn: drawn)
+        if spaceHeld { spaceUsed = true }
         guard clamped != pan else { return }
         LatencyHUD.shared.noteInput()
         pan = clamped
@@ -302,6 +353,7 @@ final class LoupeViewport: ObservableObject {
         // and where every other zoom source in the app already goes. `ZoomLadder`'s own
         // header is the story of what two ladders cost this project.
         setZoom(LoupeZoom.fit, at: nil)
+        cancelSpaceHold()
         lastCursor = nil
     }
 }
@@ -313,6 +365,28 @@ final class LoupeViewport: ObservableObject {
 /// container or a zero-pixel image must produce a harmless number, never a NaN that
 /// propagates into a frame.
 enum LoupeGeometry {
+
+    /// The matte around a fitted picture, in points per side. It was zero: at Fit the
+    /// photograph ran flush into the sources sidebar and the develop column, so its
+    /// edges read as the panels' edges, and arming the crop tool (which always kept
+    /// 24 pt) shrank the frame and made it jump. Lightroom and Capture One both keep a
+    /// neutral margin round a fitted picture; this is that margin, and the crop canvas
+    /// reads the same number.
+    static let fitMatte: CGFloat = 24
+
+    /// The area a FITTED picture is fitted into: the viewer less `fitMatte` a side,
+    /// never below 64 pt (or the container itself, if that is smaller), so a tiny pane
+    /// still shows a picture rather than a matte. Zoomed layouts use the whole
+    /// container: a 1:1 view pans edge to edge.
+    static func fitArea(_ container: CGSize) -> CGSize {
+        // Named `matted`, not `inset`: `check-swift-surface.py` resolves labels by name
+        // across the target, and a local `inset(_:)` made `Rectangle().inset(by:)`
+        // in ViewerOverlays read as a label mismatch.
+        func matted(_ v: CGFloat) -> CGFloat {
+            Swift.max(v - fitMatte * 2, Swift.min(v, 64))
+        }
+        return CGSize(width: matted(container.width), height: matted(container.height))
+    }
 
     /// Ratio that fits `image` inside `container`, in image-pixels per device-pixel.
     static func fitRatio(imageWidth: Int, imageHeight: Int,
@@ -1972,7 +2046,7 @@ struct LoupeView: View {
             // everything" — and this button is the app's only way to look at a mask.
             // The sampler goes in too: four of the six modes redraw the UNMASKED
             // pixels (grey, black or white), which needs the picture.
-            if state.soloMaskOverlay != nil, let alpha = state.maskOverlayAlpha {
+            if shownMaskOverlay != nil, let alpha = state.maskOverlayAlpha {
                 MaskOverlayView(alpha: alpha, sampler: sampler,
                                 geometry: recipe.develop.geometry,
                                 sourceSize: sourceFrameSize
@@ -2152,7 +2226,9 @@ struct LoupeView: View {
     /// container inset by this much per side, so the picture is never flush against the
     /// panel or the window edge and the corner brackets — which overhang the rectangle
     /// by construction — always have somewhere to be drawn.
-    private static let cropInset: CGFloat = 24
+    /// The same matte the fitted loupe keeps (`LoupeGeometry.fitMatte`), so arming the
+    /// tool does not shrink the picture by 24 pt a side and make it jump.
+    private static let cropInset: CGFloat = LoupeGeometry.fitMatte
 
     /// The canvas while the crop tool is armed: the FULL frame — rendered with its flip
     /// but with the straighten angle and the crop left off (`renderRecipe`) — turned by
@@ -2498,8 +2574,19 @@ struct LoupeView: View {
         return effectiveRenderedLongEdge(cg) >= (model.displayFullLongEdge ?? Int.max)
     }
 
+    /// The mask overlay the loupe draws: `soloMaskOverlay`, but only while masking.
+    ///
+    /// Leaving masking by Esc (`PanelLayout.setMasking(false)`) left a pinned or
+    /// persistent overlay set, so the red wash and its "MASK · Sun" badge stayed on the
+    /// loupe in Develop with no mask editor to explain or remove them — the lane's own
+    /// 1:1 snapshot caught it. Every way back in (M, O, the rail) puts it back, because
+    /// the state underneath is untouched.
+    private var shownMaskOverlay: String? {
+        panel.layout.isMasking ? state.soloMaskOverlay : nil
+    }
+
     private var soloMaskName: String? {
-        guard let id = state.soloMaskOverlay else { return nil }
+        guard let id = shownMaskOverlay else { return nil }
         if let named = recipe.masks.first(where: { $0.id == id }), !named.name.isEmpty {
             return named.name
         }
@@ -2522,7 +2609,8 @@ struct LoupeView: View {
                 renderedLongEdge: Swift.max(image.width, image.height))
         }
         return LoupeGeometry.fitRatio(imageWidth: image.width, imageHeight: image.height,
-                                      container: container, displayScale: displayScale)
+                                      container: LoupeGeometry.fitArea(container),
+                                      displayScale: displayScale)
     }
 
     private func effectiveRatio(image: CGImage, container: CGSize) -> Double {
@@ -2667,7 +2755,7 @@ struct LoupeView: View {
         return ContinuousZoom.fitZoom(
             proxyFitRatio: LoupeGeometry.fitRatio(imageWidth: w,
                                                   imageHeight: h,
-                                                  container: container,
+                                                  container: LoupeGeometry.fitArea(container),
                                                   displayScale: displayScale),
             proxyLongEdge: Swift.max(w, h),
             zoomedFullLongEdge: zoomedFullBasis)
@@ -2879,7 +2967,7 @@ struct LoupeView: View {
         layoutZoom > 0
             && !cropArmed
             && state.clippingOverlay == nil
-            && state.soloMaskOverlay == nil
+            && shownMaskOverlay == nil
             && !healVisualizing
             && !panel.layout.isMasking
             && !needsBeforeRender
@@ -2925,7 +3013,8 @@ struct LoupeView: View {
                                             ?? Swift.max(w, h),
                                         renderedLongEdge: Swift.max(w, h))
             : LoupeGeometry.fitRatio(imageWidth: w, imageHeight: h,
-                                     container: container, displayScale: displayScale)
+                                     container: LoupeGeometry.fitArea(container),
+                                     displayScale: displayScale)
         return LoupeGeometry.drawnSize(imageWidth: w, imageHeight: h,
                                        ratio: ratio, displayScale: displayScale)
     }
@@ -2969,7 +3058,7 @@ struct LoupeView: View {
         guard !cropArmed else { return false }
         return (viewport.showReadout && cursor != nil)
             || state.clippingOverlay != nil
-            || state.soloMaskOverlay != nil
+            || shownMaskOverlay != nil
             // Peaking reads the sampler exactly as the other two overlays do, and
             // without this line it is wired and dead: `canvas` binds `let sampler`,
             // the binding fails, `FocusPeakingOverlayView` is never built, and ⇧F

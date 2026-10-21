@@ -176,7 +176,7 @@ final class KeyDispatcher {
         // it was allowed for: flag, move to the next frame, flag again. The comment above
         // was describing the second case and the code was permitting both.
         // A forced press advances too, so its repeat is navigation for the same reason.
-        if event.isARepeat && !"[]".contains(key) {
+        if event.isARepeat && !"[] ".contains(key) {
             guard CullAdvance.allowsRepeat(key: key, autoAdvance: state.autoAdvance,
                                            forced: forced) else { return false }
         }
@@ -432,13 +432,29 @@ final class KeyDispatcher {
         // `where` on a multi-pattern case binds to the LAST pattern only — `case "z",
         // "-", "=", "+" where cond:` guards `+` and nothing else, which compiles and is
         // wrong. `-` outside the loupe is already the purple label, above.
+        //
+        // COMPARE ZOOMS TOO, through its own synced viewport. Z, − and + returned false
+        // there, so the one view built for checking focus across two frames could only
+        // be zoomed by clicking a pane; Lightroom's Z works in Compare.
         case "z":
+            if state.viewMode == .compare {
+                CompareSync.shared.toggleZoom(at: nil)
+                return true
+            }
             guard state.viewMode == .loupe else { return false }
             LoupeViewport.shared.toggleZoom()
         case "-":
+            if state.viewMode == .compare {
+                CompareSync.shared.zoomOut()
+                return true
+            }
             guard state.viewMode == .loupe else { return false }
             LoupeViewport.shared.zoomOut()
         case "=", "+":
+            if state.viewMode == .compare {
+                CompareSync.shared.zoomIn()
+                return true
+            }
             guard state.viewMode == .loupe else { return false }
             LoupeViewport.shared.zoomIn()
 
@@ -482,6 +498,9 @@ final class KeyDispatcher {
         case " ":
             // Hold space for the loupe from the grid; release returns you to it.
             if holdActive == nil && state.viewMode == .grid {
+                // A hand left open by a release this monitor never saw (⌘-Tab away
+                // with Space down) must not claim the peek's release.
+                LoupeViewport.shared.cancelSpaceHold()
                 holdActive = " "
                 state.showLoupe()
                 return true
@@ -493,7 +512,24 @@ final class KeyDispatcher {
             // while a click zoomed where you pointed — on the key whose own
             // documentation says "centred on the cursor". Exactly the bug the comment
             // above claims was fixed for Z, reintroduced one case later.
-            LoupeViewport.shared.toggleZoom()
+            //
+            // A REPEAT IS THE HOLD, not a new press. Repeats used to fall back to the
+            // system, which beeps for an unclaimed key, once per repeat, for as long
+            // as Space was held — the whole of a space-drag.
+            if event.isARepeat {
+                return holdActive == " " || state.viewMode == .loupe
+                    || state.viewMode == .compare
+            }
+            // Compare has its own synced zoom; the loupe's was being toggled behind it,
+            // unseen, and the next E opened the loupe at 1:1.
+            if state.viewMode == .compare {
+                CompareSync.shared.toggleZoom(at: nil)
+                return true
+            }
+            guard state.viewMode == .loupe else { return false }
+            // Pressed, not toggled: zoomed, Space is the hand and the release decides
+            // (`LoupeViewport.spaceDown`).
+            LoupeViewport.shared.spaceDown()
 
         default:
             return false
@@ -528,6 +564,17 @@ final class KeyDispatcher {
                                                  isKeyDown: false,
                                                  holdActive: holdActive.map { String($0) }),
                          state: state)
+        }
+
+        // The loupe's Space hand: a tap while zoomed fits, a hold that panned stays.
+        // The grid peek's release wins (it is checked below), and outside the loupe
+        // an open hand is dropped rather than toggling a zoom nobody can see.
+        if key == " ", holdActive != " " {
+            if state.viewMode == .loupe {
+                if LoupeViewport.shared.spaceUp() { return true }
+            } else {
+                LoupeViewport.shared.cancelSpaceHold()
+            }
         }
 
         guard holdActive == key else { return false }

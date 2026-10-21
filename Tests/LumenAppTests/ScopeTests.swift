@@ -141,8 +141,9 @@ final class ScopeTests: XCTestCase {
 
     // MARK: - Overflow: the disclosure and the caption
 
-    /// The provenance note is a full-width caption row, so it gets the whole content
-    /// width — but it is generated text and every branch of it has to fit.
+    /// The provenance note is a caption along the floor of the histogram's well, so it
+    /// gets the whole content width less its capsule's 5 pt a side — but it is generated
+    /// text and every branch of it has to fit.
     func testEveryProvenanceNoteFitsTheColumnAtItsMinimumWidth() {
         var notes: [String] = [ScopeReadout.Provenance.noteWidestCase]
         for frame in [ScopeReadout.Provenance.Frame.viewerFrame, .commissionedRender] {
@@ -162,9 +163,9 @@ final class ScopeTests: XCTestCase {
         XCTAssertFalse(notes.isEmpty, "the disclosure has to have something to say")
         for note in Set(notes) {
             let width = TextMetric.width(note, LayoutFont.caption)
-            XCTAssertLessThanOrEqual(width, ScopeChain.contentWidth,
+            XCTAssertLessThanOrEqual(width, ScopeChain.contentWidth - 10,
                                      "\"\(note)\" is \(width) pt of "
-                                     + "\(ScopeChain.contentWidth)")
+                                     + "\(ScopeChain.contentWidth - 10)")
         }
     }
 

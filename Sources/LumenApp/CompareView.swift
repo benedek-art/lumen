@@ -39,6 +39,10 @@ enum CompareLayout: String, CaseIterable, Identifiable, Sendable {
 /// so both panes move together whatever their pixel dimensions.
 final class CompareSync: ObservableObject {
 
+    /// One per window, like `LoupeViewport`, so the keymap's Z, − and + reach the
+    /// panes. It was a `@StateObject` inside `CompareView`, which no key could name.
+    static let shared = CompareSync()
+
     /// 0 = fit, otherwise a ratio of image pixels to device pixels.
     @Published var zoom: Double = 0
     /// The point of the picture held at the centre of each pane, in unit coordinates
@@ -66,6 +70,14 @@ final class CompareSync: ObservableObject {
     func toggleZoom(at unitPoint: CGPoint?) {
         setZoom(ZoomLadder.toggleTarget(from: zoom), at: unitPoint)
     }
+
+    /// The loupe's ladder, about the synced centre.
+    func zoomIn() { setZoom(ZoomLadder.zoomInTarget(from: zoom), at: nil) }
+
+    func zoomOut() {
+        guard !ZoomLadder.isFit(zoom) else { return }
+        setZoom(ZoomLadder.zoomOutTarget(from: zoom), at: nil)
+    }
 }
 
 // MARK: - Compare
@@ -80,7 +92,10 @@ struct CompareView: View {
     /// so `C` and `N` reach the same view without the shell having to know which.
     var layout: CompareLayout?
 
-    @StateObject private var sync: CompareSync = CompareSync()
+    /// Shared so the keymap can zoom it; `ContentView` resets it to fit each time the
+    /// mode changes to Compare, which is what the per-view `@StateObject` it replaced
+    /// did.
+    @ObservedObject private var sync: CompareSync = CompareSync.shared
 
     private var effectiveLayout: CompareLayout {
         if let layout { return layout }
@@ -341,8 +356,10 @@ private struct ComparePane: View {
                     ?? Swift.max(cg.width, cg.height),
                 renderedLongEdge: Swift.max(cg.width, cg.height))
         }
+        // The loupe's matte, so two fitted frames never touch across the divider.
         return LoupeGeometry.fitRatio(imageWidth: cg.width, imageHeight: cg.height,
-                                      container: container, displayScale: displayScale)
+                                      container: LoupeGeometry.fitArea(container),
+                                      displayScale: displayScale)
     }
 
     /// Pan that puts the shared centre point at the centre of this pane, clamped so the
