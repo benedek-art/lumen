@@ -2960,13 +2960,21 @@ class ToneEngine:
             rise = sum(a * ev * wt(t) for _, a, ev, wt, f in live if not f)
             return fall, rise
 
+        # ToneEngine.sweepStep: finer when Contrast's reach on this side is short.
+        step = MONOTONE_STEP_EV
+        if self.contrast != 0:
+            hi, lo = self.white_anchor_ev, self.black_anchor_ev
+            pivot = min(max(self.pivot, max(-4.0, lo)), min(4.0, hi))
+            reach = (hi - pivot) if half == "upper" else (pivot - lo)
+            step = min(MONOTONE_STEP_EV, max(reach / 50, 0.01))
+
         t = t0
         p_fall, p_rise = parts(t)
         p_fixed = contrast_mapped(t, self.contrast, self.pivot,
                                   self.white_anchor_ev, self.black_anchor_ev)
         limit = SEARCH_CEILING
         while t < t1:
-            t = min(t + MONOTONE_STEP_EV, t1)
+            t = min(t + step, t1)
             fall, rise = parts(t)
             fixed = contrast_mapped(t, self.contrast, self.pivot,
                                     self.white_anchor_ev, self.black_anchor_ev)

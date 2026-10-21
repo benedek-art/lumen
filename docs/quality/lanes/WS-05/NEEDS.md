@@ -382,8 +382,10 @@ branch, `tone.whites` 45.61 / 30, `tone.blacks` 23.27 / 15 unchanged, `tone.cont
 | WS-33 | `primaries.bHue` hands back 18.1 | | 12.6 |
 | WS-40 | `look.grain.size` hands back 18.9 | | 15.4 |
 
-And `testTheCommittedRecordsStillDescribeWhatTheEngineDoes`: **127 committed records
-move** (every control measured on a frame with tones above mid-grey). They are NOT
+And `testTheCommittedRecordsStillDescribeWhatTheEngineDoes`: **132 committed records
+move** (every control measured on a frame with tones above mid-grey). Round 2 listed 127:
+the parser that extracted the ids took only lower-case prefixes and dropped the five
+`pointColor.*` records (VERIFY §7); they are in the table now. They are NOT
 re-recorded here; that is the integrator's sign-off on the global look change (the test
 prints every new record). By owner:
 
@@ -410,3 +412,11 @@ prints every new record). By owner:
 | WS-41 | 1 | `look.vignette` |
 | WS-40 | 3 | `look.grain.amount`, `look.grain.size`, `look.grain.roughness` |
 | WS-13 | 3 | `render.contrast`, `render.skew`, `render.hue` |
+| WS-32 | 5 | `pointColor.hue`, `pointColor.saturation`, `pointColor.luminance`, `pointColor.range`, `pointColor.variance` |
+
+Why the `pointColor.*` records move: Point Colour is measured on the ColorChecker frame
+around patch 15 (moderate red, `ProofRegistry.pointColour`) and reports its effect in
+display code values. Those patches and their neighbours sit above mid-grey, where the +3 EV
+anchor's shoulder is steeper, so the same shift in the colour stage moves more codes:
+authority 128.48 → 135.21 for Hue, and the four others likewise. Nothing about Point Colour
+changed. No Point Colour floor fails. Owner: WS-32 (Point Colour, global).

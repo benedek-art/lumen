@@ -501,7 +501,7 @@ public struct ToneEngine: Sendable {
     /// One half's limit. Called on the unit engine, which holds the REQUESTED amounts,
     /// so `falling` and `rising` here are the contributions at scale 1.
     func zonalLimit(from start: Double, to end: Double, upper: Bool) -> Double {
-        let step = Self.monotoneStepEV
+        let step = sweepStep(upper: upper)
         var t = start
         var parts = zonalParts(t, upper: upper)
         var fixed = contrastMapped(t)
@@ -523,6 +523,25 @@ public struct ToneEngine: Sendable {
             fixed = nextFixed
         }
         return limit < Self.searchCeiling ? limit * (1 - Self.secantMargin) : limit
+    }
+
+    /// The sweep step for one half: `monotoneStepEV`, or finer when Contrast's reach on
+    /// that side is short.
+    ///
+    /// Contrast's shoulder spans the reach from the pivot to the anchor, so its
+    /// curvature grows as the reach shrinks. On the +3 EV anchor with the pivot at +2 the
+    /// white-side reach is 1 EV, a 0.05 EV step is 5 % of it, and the secant missed the
+    /// shoulder's bend by more than `secantMargin` covers: Contrast +100 with Highlights
+    /// and Whites at −100 left 0.2 % of the bake (2.80 … 2.83 EV) up to 1.8e-4 EV flat
+    /// under the forward clamp, 25 settings of a 5,625-setting grid (WS-05 VERIFY §7).
+    /// Fifty steps per reach keeps the secant's share of the shoulder what it is on the
+    /// default reach; the floor bounds the cost at 500 steps over a half.
+    func sweepStep(upper: Bool) -> Double {
+        guard tone.contrast != 0 else { return Self.monotoneStepEV }
+        let pivot = Num.clamp(tone.contrastPivot, Swift.max(-4, blackAnchorEV),
+                              Swift.min(4, whiteAnchorEV))
+        let reach = upper ? whiteAnchorEV - pivot : pivot - blackAnchorEV
+        return Swift.min(Self.monotoneStepEV, Swift.max(reach / 50, 0.01))
     }
 
     /// One half's zonal contribution, split by whether the window runs downhill.

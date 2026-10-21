@@ -227,14 +227,15 @@ lies in zone 9.
 ### Gates on the anchor branch
 
 - **T1** clean (same pre-existing warnings only).
-- **T2** 3052 tests (3044 + 8 new), **2 failures, both owned elsewhere**:
+- **T2** 3053 tests (3044 + 9 new; 3052 in round 2), **2 failures, both owned elsewhere**:
   `EngineTests.testAutoRecoversABlownSkyThroughTheRealMeasurement` (WS-09, NEEDS N10:
   Auto's absolute +3.0 EV recovery threshold cannot be reached; reading 2.929) and
   `RobustnessTests.testEachZoneMovesItsOwnPivotAndNoOther` (WS-08, N11: the default
   Bright pivot lands at 1.083, past the axis; Bright +1 moves its pivot 0.50). Both pass
   on the lane branch and on base. Their invariants are right, so they are left failing.
 - **T3** 6 tests, 8 failures (base 0, lane 0); none a floor of the four tone controls or
-  Contrast; 127 committed records move. NEEDS N15 has the full list by owning lane.
+  Contrast; 132 committed records move (round 2 said 127; see round 3 below). NEEDS N15
+  has the full list by owning lane.
 
 ### Tests and fixtures this commit moves, with the owning lane
 
@@ -274,6 +275,35 @@ Mid-tones do not move (median identical on every frame); the top ~1.5 stops open
 white. The sheet is a 256-colour PNG (octree + k-means, Floyd-Steinberg) to stay under
 400 KB at 380 px per image; the measurements above are from the full renders in
 `$P/owner/`.
+
+### Round 3 on the anchor branch
+
+Rebased onto the round-3 lane commit (the Whites guard is inactive on this anchor too:
+the +100 shelf starts at +0.6 EV). Four changes:
+- **Contrast's sweep step follows its reach** (`ToneEngine.sweepStep`, mirrored in
+  `gen-fixtures.py`). On this anchor, with the pivot at +2, Contrast's white-side reach is
+  1 EV, and a 0.05 EV sweep step missed the shoulder's bend. The verifier's 25 forward-clamp
+  firings were all Contrast +100, pivot 2, Highlights and Whites at −100 (any S, B):
+  0.2 % of the bake at +2.80 … +2.83 EV, up to 1.8e-4 EV flat. The step is now
+  reach / 50 (0.01 … 0.05 EV). Over the same 5,625-setting grid
+  (H/S/W/B ±100/±50/0 x Contrast −100/0/+100 x pivot −2/0/+2) the clamp fires
+  **0** times (`$P/bh`, `BH`). It changes nothing at the default pivot, so no measured
+  line and no fixture moved.
+- **Highlights halos.** HA1 h−100 29 / 6.9 and h+100 25 / 5.0 here, against 25 / 5.0 and
+  17 / 4.0 at base and on the lane branch. Highlights' gain is identical on both branches.
+  The growth is the +3 anchor's steeper display curve where the probe's bright plateaus sit
+  (NEEDS N14), so it travels with A1, not with the shelf.
+- **NEEDS N15** now lists all 132 moved records. The five `pointColor.*` records were
+  missing because round 2's id parser dropped mixed-case ids. They move because Point
+  Colour is measured in display codes on chart patches above mid-grey (authority up
+  3.5-10 %, nothing fails). Owner WS-32.
+- `gen-fixtures.py`'s Whites comment states the +3-anchor constants.
+
+Measured again: `measure.py` (ASHIFT −2) prints the same 32 lines byte for byte as round 2
+(`$P/measure_anchor3.txt`, 27/32). T1 clean. T2 3053 tests, the same 2 cross-lane
+failures. T3: the same 8 failures and the same 132 records (`$P/t3_anchor3.log`). Floors
+of our controls unchanged: highlights 59.57, shadows 47.97, whites 45.61, blacks 23.27,
+contrast 64.93.
 
 ## 8. Round 3: the verifier's items
 
