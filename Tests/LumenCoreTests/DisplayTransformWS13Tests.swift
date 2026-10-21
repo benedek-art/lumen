@@ -1,7 +1,8 @@
 // DisplayTransformWS13Tests.swift
 // The measurable lines of docs/quality/lanes/WS-13/SPEC.md, on the exact transform
 // (`DisplayTransform.apply` / `tone`, no table, no 8-bit encode):
-//   · scene mid-grey renders at display 0.25 on every curved preset, at every peak (1.1, 1.7)
+//   · scene mid-grey renders at display mid-grey on every curved preset, at every peak
+//     (the split constants; 1.1's lift to 0.25 is deferred to WS-05's white anchor)
 //   · a +3 EV white anchor puts sensor white near white and still rolls off (2.1, 2.2)
 //   · the outset undoes the inset rotation, so skies and LED blue keep their hue (3.1, 3.2)
 //   · the path to white keeps hue: blues and a full hue ring, chroma falling to white (3.6-3.9)
@@ -47,20 +48,18 @@ final class DisplayTransformWS13Tests: XCTestCase {
 
     // MARK: 1. Density
 
-    func testSceneMidGreyLandsOnDisplayPointTwoFiveAtEveryPeak() {
+    func testSceneMidGreyLandsOnDisplayMidGreyAtEveryPeak() {
         XCTAssertEqual(DisplayTransform.sceneMidGrey, 0.18)
-        XCTAssertEqual(DisplayTransform.displayMidGrey, 0.25)
+        let display = DisplayTransform.displayMidGrey
         for preset in curved {
             for peak in [100.0, 400, 1600] {
                 let t = transform(preset) { $0.whiteTarget = peak }
-                XCTAssertEqual(t.tone(0.18), 0.25, accuracy: 1e-9, "\(preset) at \(peak) %")
+                XCTAssertEqual(t.tone(0.18), display, accuracy: 1e-9, "\(preset) at \(peak) %")
                 let grey = t.apply(RGB(gray: 0.18))
                 for i in 0..<3 {
-                    XCTAssertEqual(grey[i], 0.25, accuracy: 1e-9, "\(preset) at \(peak) %, channel \(i)")
+                    XCTAssertEqual(grey[i], display, accuracy: 1e-9, "\(preset) at \(peak) %, channel \(i)")
                 }
             }
-            // Code 137 in an sRGB encode: SPEC 1.1's 136…138.
-            XCTAssertEqual(code(transform(preset).tone(0.18)), 137, accuracy: 1, preset)
         }
         // Linear is the escape hatch, not a curved preset: identity, untouched.
         XCTAssertEqual(transform("Linear").tone(0.18), 0.18, accuracy: 1e-12)
@@ -96,6 +95,7 @@ final class DisplayTransformWS13Tests: XCTestCase {
         let t = transform("Neutral") {
             $0.attenuation = RGB(0, 0, 0)
             $0.purityRestore = 1
+            $0.chromaGain = 1   // isolate the matrices from the constant-hue gain
         }
         for c in [srgb8(74, 127, 192, luminance: 0.09), srgb8(20, 30, 255, luminance: 0.02),
                   srgb8(200, 60, 40, luminance: 0.06), srgb8(60, 160, 70, luminance: 0.08)] {
@@ -358,13 +358,14 @@ final class DisplayTransformWS13Tests: XCTestCase {
 
     func testEveryBlackTargetInTheRangeIsLive() {
         let range = DisplayTransformParams.blackTargetRange
-        XCTAssertEqual(range, 0...15)
+        XCTAssertEqual(range.upperBound, DisplayTransform.displayMidGrey * 50, accuracy: 1e-12)
         var seen: [Double] = []
         for v in Int(range.lowerBound)...Int(range.upperBound) {
             let t = transform("Neutral") { $0.blackTarget = Double(v) }
             XCTAssertEqual(t.black, Double(v) / 100, accuracy: 1e-12, "black target \(v)")
             XCTAssertEqual(t.tone(0.18 * exp2(-9)), t.black, accuracy: 1e-9)
-            XCTAssertEqual(t.tone(0.18), 0.25, accuracy: 1e-9, "black target \(v) moved mid-grey")
+            XCTAssertEqual(t.tone(0.18), DisplayTransform.displayMidGrey, accuracy: 1e-9,
+                           "black target \(v) moved mid-grey")
             XCTAssertNil(t.firstNonMonotonicX(), "black target \(v)")
             XCTAssertFalse(seen.contains(t.black))
             seen.append(t.black)

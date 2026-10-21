@@ -7,7 +7,7 @@
 // The two-power construction only keeps that promise while the shoulder's exponent
 // stays above 1: with s = u^p, the normalized slope near the anchor is p·u^(p−1),
 // which tends to 0 for p > 1 and grows without bound for p < 1. The exponent is
-// m·(1−pivotX)/(1−pivotY), and in HDR pivotY falls (mid-grey stays at 0.25 (0.18 before WS-13) absolute
+// m·(1−pivotX)/(1−pivotY), and in HDR pivotY falls (mid-grey stays at 0.18 absolute
 // while the encoded peak rises), so at 400% it measured 0.82 and at 1600% 0.39: the
 // slope ROSE into the anchor (log-log 0.68 at +4 EV, 1.26 at +4.99 EV at 400%) and
 // then stopped dead at the white target — a clip edge in every HDR rendition. Low
@@ -103,17 +103,16 @@ final class DisplayTransformShoulderRolloffTests: XCTestCase {
     private static func legacyTone(_ p: DisplayTransformParams, _ x: Double) -> Double {
         let curve = DisplayTransform.shapingCurve
         let w = max(p.whiteTarget, 1) / 100
-        // WS-13: display mid-grey 0.25 (was 0.18) and black's range is live to 15 %.
-        let black = Num.clamp(p.blackTarget, 0, 15) / 100
+        let black = min(Num.clamp(p.blackTarget, 0, 15) / 100, 0.09)
         let hi = max(p.whiteAnchorEV, 0.5), lo = min(p.blackAnchorEV, -0.5)
         let px = -lo / (hi - lo)
-        let eb = curve.encode(black), ew = curve.encode(w), ep = curve.encode(0.25)
+        let eb = curve.encode(black), ew = curve.encode(w), ep = curve.encode(0.18)
         let span = max(ew - eb, 1e-6)
         let py = Num.clamp((ep - eb) / span, 0.01, 0.99)
         let c = Num.clamp(p.contrast, 0.1, 10)
         let h = 1e-6
         let sd = max((curve.decode(ep + h) - curve.decode(ep - h)) / (2 * h), 1e-9)
-        let m = c * 0.25 * log(2.0) * (hi - lo) / (sd * span)
+        let m = c * 0.18 * log(2.0) * (hi - lo) / (sd * span)
         let aT = m * px / py, aS = m * (1 - px) / (1 - py)
         let sk = Num.clamp(p.skew, -1, 1)
         // WS-13's skew mapping: the side gaining curvature takes skew·min(½, room),

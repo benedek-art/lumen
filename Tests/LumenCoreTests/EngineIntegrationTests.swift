@@ -972,9 +972,7 @@ final class EngineIntegrationTests: XCTestCase {
             // `solveGains` anchors each channel inside 1e-6; 1e-4 leaves the LUT-free
             // `apply` room and nothing else.
             for (i, name) in ["red", "green", "blue"].enumerated() {
-                // Display mid-grey, the level the transform the chain blends with uses
-                // (0.25 since WS-13).
-                XCTAssertEqual(out[i], DisplayTransform.displayMidGrey, accuracy: 1e-4,
+                XCTAssertEqual(out[i], 0.18, accuracy: 1e-4,
                                "\(stock.name) did not anchor mid-grey in \(name): \(out)")
             }
         }
@@ -1703,9 +1701,8 @@ final class EngineIntegrationTests: XCTestCase {
         let plan = RenderPlan(recipe: Recipe())
 
         // Mid-grey → mid-grey, exactly. This is a construction, not a tuning.
-        // Scene 0.18 → display 0.25 (WS-13's display mid-grey).
-        XCTAssertEqual(plan.exactColor(RGB(gray: 0.18)).g, DisplayTransform.displayMidGrey,
-                       accuracy: 1e-6, "mid-grey did not land on mid-grey")
+        XCTAssertEqual(plan.exactColor(RGB(gray: 0.18)).g, 0.18, accuracy: 1e-6,
+                       "mid-grey did not land on mid-grey")
 
         // Scene white — mid-grey + 5 stops, the default white anchor — reaches display
         // white. An identity renderer would return 5.76 here.

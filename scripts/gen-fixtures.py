@@ -1898,8 +1898,8 @@ SKEW_SHAPE = 2.0
 MINIMUM_POWER = 1.5
 # Display-linear level scene mid-grey (MID_GREY) renders at (DisplayTransform.
 # displayMidGrey, WS-13). Scene and display mid-grey were one constant until then.
-DISPLAY_MID_GREY = 0.25
-BLACK_TARGET_MAX = 15.0   # DisplayTransformParams.blackTargetRange
+DISPLAY_MID_GREY = 0.18
+BLACK_TARGET_MAX = DISPLAY_MID_GREY * 50   # DisplayTransformParams.blackTargetRange
 
 
 def skew_lambda(sk, cap):
@@ -3108,8 +3108,8 @@ def gen_tone_checks():
                 ev += 0.05
             # Mid-grey survives the whole chain when nothing asks it to move.
             if contrast == 0 and h == 0 and s == 0 and w == 0 and b == 0:
-                check(abs(dt.tone(MID_GREY * tone.gain(0.0)) - DISPLAY_MID_GREY) < 2e-3,
-                      "a default recipe did not land scene mid-grey on display mid-grey")
+                check(abs(dt.tone(MID_GREY * tone.gain(0.0)) - MID_GREY) < 2e-3,
+                      "a default recipe did not land mid-grey on 0.18")
 
     # --- the sliders must keep doing more, and must not move each other ------
     #
@@ -3855,7 +3855,7 @@ def film_solve_gains(s, white):
     sweep is exact; a transparency's gain is scene-side and the couplers mix after
     it, so the sweeps iterate."""
     grey = [0.18, 0.18, 0.18]
-    target = DISPLAY_MID_GREY * white   # FilmChain.solveGains: DisplayTransform.displayMidGrey
+    target = 0.18 * white
     use_print = s.print_stage is not None
     for _ in range(6):
         for i in range(3):
@@ -3966,7 +3966,7 @@ def gen_film_checks():
             # than by tuning — that is what the gain solve is for.
             anchor = film_render([0.18, 0.18, 0.18], chain, 1.0)
             for i in range(3):
-                check(abs(anchor[i] - DISPLAY_MID_GREY) < 1e-6,
+                check(abs(anchor[i] - 0.18) < 1e-6,
                       f"{name} at push {push} put mid-grey at {anchor[i]:.9f} "
                       f"in channel {i}")
 

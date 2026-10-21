@@ -1,18 +1,18 @@
 {
-  "authority" : 23.209312814779906,
+  "authority" : 33.63242243704477,
   "deadSteps" : 0,
   "frame" : "wideStepEdge",
-  "frontLoading" : 0.4228784920252516,
+  "frontLoading" : 0.4723758860653144,
   "givenBack" : 0,
   "hueRotation" : 0,
   "id" : "sharpen.haloSuppression",
   "isMonotone" : true,
-  "meanSeparation" : 0.011332672272841739,
+  "meanSeparation" : 0.016422081268088248,
   "overshoot" : 0,
   "overshootAbove" : 0,
   "overshootBelow" : 0,
   "panel" : "Detail",
-  "smallestLiveStep" : 0.7226844019216117,
+  "smallestLiveStep" : 1.2646528884153554,
   "travelHigh" : 100,
   "travelLow" : 0
 }

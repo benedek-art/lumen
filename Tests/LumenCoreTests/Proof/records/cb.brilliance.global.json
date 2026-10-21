@@ -3,13 +3,13 @@
   "deadSteps" : 0,
   "frame" : "tonalColourWedge",
   "frontLoading" : 1,
-  "givenBack" : 0,
-  "hueRotation" : 0.7446154328221724,
+  "givenBack" : 0.0050577170271424166,
+  "hueRotation" : 4.877734158082163,
   "id" : "cb.brilliance.global",
-  "isMonotone" : true,
-  "meanSeparation" : 145.31345655472464,
+  "isMonotone" : false,
+  "meanSeparation" : 139.19904432314033,
   "panel" : "Colour Balance",
-  "smallestLiveStep" : 14.038686628557514,
+  "smallestLiveStep" : 14.860889898688484,
   "travelHigh" : 100,
   "travelLow" : -100
 }

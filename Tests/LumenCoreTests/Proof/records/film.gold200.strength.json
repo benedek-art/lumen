@@ -1,15 +1,15 @@
 {
-  "authority" : 87.72922526475698,
+  "authority" : 101.11319267538593,
   "deadSteps" : 0,
   "frame" : "tonalColourWedge",
-  "frontLoading" : 0.6012828581905774,
+  "frontLoading" : 0.4843414332659409,
   "givenBack" : 0,
-  "hueRotation" : 63.83454765361817,
+  "hueRotation" : 63.466137625627255,
   "id" : "film.gold200.strength",
   "isMonotone" : true,
-  "meanSeparation" : 10.948991575338773,
+  "meanSeparation" : 10.582131213143084,
   "panel" : "Film Lab",
-  "smallestLiveStep" : 4.1320616265324475,
+  "smallestLiveStep" : 4.259658544402043,
   "travelHigh" : 100,
   "travelLow" : 0
 }

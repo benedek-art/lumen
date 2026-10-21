@@ -1,15 +1,15 @@
 {
-  "authority" : 166.98098904948225,
+  "authority" : 161.28561260352404,
   "deadSteps" : 0,
   "frame" : "tonalColourWedge",
-  "frontLoading" : 0.7005238402019296,
+  "frontLoading" : 0.677869095896275,
   "givenBack" : 0,
-  "hueRotation" : 0.7472175037728448,
+  "hueRotation" : 3.65457015016419,
   "id" : "cb.brilliance.mid",
   "isMonotone" : true,
-  "meanSeparation" : 31.139675228988114,
+  "meanSeparation" : 28.395430432948046,
   "panel" : "Colour Balance",
-  "smallestLiveStep" : 0.08277836006270434,
+  "smallestLiveStep" : 0.07707089634696729,
   "travelHigh" : 100,
   "travelLow" : -100
 }

@@ -10,7 +10,7 @@
 //
 // Construction (all four constraints hold by construction, not by clamping):
 //   · scene mid-grey (`sceneMidGrey`, 0.18) lands exactly on the display's mid-grey
-//     target (`displayMidGrey`, 0.25 display-linear, absolute at every display peak)
+//     target (`displayMidGrey`, display-linear, absolute at every display peak)
 //   · the scene black anchor lands exactly on the display black target
 //   · the scene white anchor lands exactly on the display white target
 //   · the log-log slope at mid-grey equals `contrast`, independent of `skew`
@@ -43,12 +43,12 @@ public struct DisplayTransformParams: Equatable, Sendable {
     public var blackTarget: Double = 0.0152
 
     /// The one range of `blackTarget`, in % of SDR white: the engine clamps to it,
-    /// `lumen-render keys` advertises it and the Look panel's row spans it. Its top,
-    /// 15 % (0.15 display-linear), sits at 60 % of display mid-grey (0.25), so the
-    /// pivot keeps room above the floor and every value in the range renders
-    /// differently (the old 0…15 key range was clamped to 9 % = 0.18·0.5 inside the
-    /// engine, a dead third of the advertised travel).
-    public static let blackTargetRange: ClosedRange<Double> = 0...15
+    /// `lumen-render keys` advertises it and the Look panel's row spans it. Its top is
+    /// half of display mid-grey (9 % at 0.18), which keeps the pivot room above the
+    /// floor. The key range used to say 0…15 while the engine clamped at 9, so a third
+    /// of the advertised travel rendered one picture. (The Look panel's literal
+    /// `0...9` has to move with it if `displayMidGrey` ever does.)
+    public static let blackTargetRange: ClosedRange<Double> = 0...(DisplayTransform.displayMidGrey * 50)
 
     /// Primaries inset: purity reduction before the curve (0…0.99 per channel).
     public var attenuation: RGB = RGB(0.14, 0.18, 0.12)
@@ -69,21 +69,32 @@ public struct DisplayTransformParams: Equatable, Sendable {
     /// outset gives back. 0 keeps the compressed purity, 1 restores it in full. The
     /// rotation is always undone in full, whatever this says.
     ///
-    /// 1 on the hue-stable presets: the midtones keep each colour's own chromaticity
-    /// exactly, and the ColorChecker renders at about 1.06× its true CIELAB chroma
-    /// (lighter rendering raises C*; the DNG SDK's default rendering measures 1.21×,
-    /// Lumen was 0.92× at 0.4). The inset still does its job — it shapes what the
-    /// per-channel branch does below Hue preservation 100 — it just no longer leaves
-    /// the picture paler than the scene.
-    public var purityRestore: Double = 1.0
+    /// 0.4 on every curved preset. A higher restore gives purity back along the inset's
+    /// primaries to EVERY colour, saturated ones included, and those are where the
+    /// grading controls' reversals live: at 1.0 Zone blending handed back 16–17 code
+    /// values against its pinned 13.78 (14.47 with tolerance). Chroma for the
+    /// moderate colours a scene is made of comes from `chromaGain` instead, which
+    /// tapers off before the gamut edge.
+    public var purityRestore: Double = 0.4
 
     /// How fast the path to white bleaches once it starts (`DisplayTransform.
     /// bleachAmount`): 1 is linear in shoulder position; above 1 the bleach front-
-    /// loads, 1 − (1 − v)^k. A preset character, like the inset: the steeper presets
+    /// loads, 1 − (1 − v)^k, and lands on white with zero slope. A preset character, like the inset: the steeper presets
     /// set it so that a +4 EV overexposure renders as white as their per-channel
     /// shoulder used to make it (Punchy and Film Base measured 0.034 mean OKLCh
-    /// chroma at +4 EV before WS-13; linear left 0.053).
-    public var pathToWhite: Double = 1
+    /// chroma at +4 EV before WS-13; linear left 0.053). 1.2 by default: linear left
+    /// a saturated magenta's chroma still rising just after the onset.
+    public var pathToWhite: Double = 1.2
+
+    /// OKLab chroma gain on the hue-stable branch, at constant hue (1…2). A per-channel
+    /// curve of this contrast adds purity as a side effect, with its hue twist; hue
+    /// preservation keeps the hue and so has to add the purity back on purpose. The
+    /// gain is this value on low-chroma colours and tapers toward 1 past OKLab C 0.12
+    /// (`DisplayTransform.chromaGainKnee`), so a ColorChecker gets it and a colour
+    /// already at the gamut edge does not. Neutral's 1.5 renders the ColorChecker at
+    /// about 1.12× its true CIELAB chroma (Lumen was 0.92×; the DNG SDK's default
+    /// rendering measures 1.21×). The presets order it Soft < Neutral < Punchy.
+    public var chromaGain: Double = 1.5
 
     /// Scene EV of the white anchor relative to mid-grey (set by Whites).
     public var whiteAnchorEV: Double = 5.0
@@ -105,7 +116,7 @@ public struct DisplayTransformParams: Equatable, Sendable {
         var p = DisplayTransformParams()
         p.contrast = 1.2
         p.skew = 0.25
-        p.purityRestore = 1.0
+        p.chromaGain = 1.4
         return p
     }
 
@@ -114,8 +125,12 @@ public struct DisplayTransformParams: Equatable, Sendable {
         p.contrast = 2.1
         p.skew = -0.15
         p.attenuation = RGB(0.18, 0.22, 0.16)
-        p.purityRestore = 1.0
         p.pathToWhite = 1.5
+        // Punchy's wider inset leaves more of its toward-white compression in the
+        // picture at 0.4, which bends a saturated blue's OKLab hue (5.8°); 0.6 holds
+        // it under 5°.
+        p.purityRestore = 0.6
+        p.chromaGain = 1.55
         return p
     }
 
@@ -126,7 +141,7 @@ public struct DisplayTransformParams: Equatable, Sendable {
         p.huePreservation = 70
         p.attenuation = RGB(0.22, 0.24, 0.20)
         p.rotation = RGB(0.04, -0.05, 0.09)
-        p.purityRestore = 0.8
+        p.chromaGain = 1.45
         p.pathToWhite = 1.5
         return p
     }
@@ -198,16 +213,16 @@ public struct DisplayTransform: Sendable {
     /// zonal axis `t = log2(lum / 0.18)` the tone and grade stages share).
     public static let sceneMidGrey: Double = 0.18
     /// Display-linear level scene mid-grey renders at on every curved preset, in
-    /// ABSOLUTE terms (1.0 = SDR white) at every display peak. 0.25 is sRGB code 137:
-    /// the DNG SDK's default rendering puts scene 0.18 near code 166 and a metered
-    /// RAW's mid-grey decodes at 0.06–0.11, so 0.18 → 0.18 (code 118) rendered every
-    /// photograph about 0.86 EV darker than Lightroom. 0.25 closes about half of that
-    /// in the curve, keeping the shadows dense; the rest belongs to the decode's
-    /// baseline exposure, not to this curve (WS-13 SPEC § Out of lane).
+    /// ABSOLUTE terms (1.0 = SDR white) at every display peak: code 118.
     ///
-    /// These were one constant, `midGrey`, until WS-13. It is split, not renamed, so
-    /// every caller had to say which of the two it means.
-    public static let displayMidGrey: Double = 0.25
+    /// These were one constant, `midGrey`, until WS-13. They are split, not renamed,
+    /// so every caller says which of the two it means and a density change is this
+    /// one number. WS-13 measured 0.25 (code 137; the DNG SDK default puts scene 0.18
+    /// near code 166): it brightens real photos about +0.3 EV, but under the fixed
+    /// +5 EV white anchor it leaves the shoulder 118 codes instead of 137 and costs
+    /// the highlight controls a third of their authority. So it moves together with
+    /// the white anchor (WS-05), not before it.
+    public static let displayMidGrey: Double = 0.18
     /// Shape parameter of the skew term. 2 keeps the extra curvature gentle and
     /// keeps the monotonicity bound (`lambda < power/skewShape`) generous.
     private static let skewShape: Double = 2.0
@@ -234,7 +249,7 @@ public struct DisplayTransform: Sendable {
         self.range = hi - lo
         self.pivotX = (0 - lo) / (hi - lo)
 
-        // Mid-grey lands on `displayMidGrey` (0.25) display-linear in ABSOLUTE terms,
+        // Mid-grey lands on `displayMidGrey` display-linear in ABSOLUTE terms,
         // at every display peak. In HDR the extra headroom goes to speculars; diffuse
         // white and mid-grey stay where they are, which is why an HDR rendition looks like the
         // SDR one with the highlights let out rather than like a brighter picture.
@@ -354,10 +369,9 @@ public struct DisplayTransform: Sendable {
     /// λ for one side of the curve from the skew that adds curvature to it (positive)
     /// or removes it (negative). Adding spans min(½, cap), so the whole slider is
     /// live and the end of the slider is the end of the room; removing spans the full
-    /// −1 (λ = −1 is monotone for every a₀ > 0, see above), which is what gives Skew
-    /// visible authority now that a 0.25 mid-grey leaves Neutral's shoulder only
-    /// 0.245 of adding room (it measured 9.9 code values over its travel at ±½,
-    /// under its proof floor of 12). A cap at or below zero still forces λ to it.
+    /// −1 (λ = −1 is monotone for every a₀ > 0, see above), which gives Skew
+    /// visible authority where the shoulder has little adding room (Neutral's is
+    /// 0.29). A cap at or below zero still forces λ to it.
     private static func skewLambda(_ skew: Double, cap: Double) -> Double {
         if skew > 0, cap > 0 { return skew * Swift.min(0.5, cap) }
         return Num.clamp(skew, -1, cap)
@@ -416,7 +430,7 @@ public struct DisplayTransform: Sendable {
     public func tone(_ x: Double) -> Double {
         if params.linear {
             // Identity, clipped at the peak — never scaled by it. The same absolute
-            // rule as the anchored presets (mid-grey on 0.25 at every peak): every
+            // rule as the anchored presets (mid-grey absolute at every peak): every
             // JPEG/HEIC imports on Linear, and multiplying by `white` showed the HDR
             // preview of one 2 stops brighter at 400 % and wrote a uniform 4× gain
             // map. In HDR the headroom goes to values above 1.0, nothing else.
@@ -508,7 +522,8 @@ public struct DisplayTransform: Sendable {
         let hueStable = bleachTowardNeutral(
             ratio, level: level,
             amount: DisplayTransform.bleachAmount(shoulderPosition(lum),
-                                                  power: params.pathToWhite))
+                                                  power: params.pathToWhite),
+            chromaGain: Num.clamp(params.chromaGain, 1, 2))
         let shoulderU = shoulderPosition(norm)
 
         // Per-channel character (Hue preservation below 100) lives in the midtones
@@ -538,6 +553,8 @@ public struct DisplayTransform: Sendable {
     /// about as fast as the shoulder's first stop lifts it; at +0.9 EV some saturated
     /// probes' chroma still climbed past +1 EV).
     static let bleachOnset: Double = 0.16
+    /// OKLab chroma at which `chromaGain` has fallen to half its excess.
+    static let chromaGainKnee: Double = 0.12
 
     /// Bleach amount at a shoulder position: 0 up to `bleachOnset`, 1 at the anchor,
     /// 1 − (1 − v)^power between (`pathToWhite`, clamped to 1…4).
@@ -555,10 +572,12 @@ public struct DisplayTransform: Sendable {
 
     /// Move `c` toward the grey of display level `level` by `amount` (0…1) in OKLab:
     /// L walks to the grey's L, a and b scale by 1 − amount, so the hue is exactly
-    /// kept and amount 1 IS the grey; the largest channel is held to a straight walk
-    /// between the two ends. amount 0 returns `c` untouched (no round trip).
-    func bleachTowardNeutral(_ c: RGB, level: Double, amount: Double) -> RGB {
-        guard amount > 0 else { return c }
+    /// kept and amount 1 IS the grey. `chromaGain` scales a and b too (at amount 0
+    /// as well), tapered by chroma. amount 0 with no gain returns `c` untouched (no
+    /// round trip).
+    func bleachTowardNeutral(_ c: RGB, level: Double, amount: Double,
+                             chromaGain: Double = 1) -> RGB {
+        guard amount > 0 || chromaGain != 1 else { return c }
         if amount >= 1 { return RGB(gray: level) }
         // Non-negative first: OKLab's cube root is vertical at zero, and a hue-stable
         // colour carrying a negative channel (a scene value outside the working gamut,
@@ -567,20 +586,30 @@ public struct DisplayTransform: Sendable {
         // blue (flooring L, M, S instead left 0.33). Every cone row of the working
         // space is positive, so after this clamp L, M and S stay away from zero for
         // any colour with light in it.
-        let lab = oklab.toLab(RGB(Swift.max(c.r, 0), Swift.max(c.g, 0), Swift.max(c.b, 0)))
+        let positive = RGB(Swift.max(c.r, 0), Swift.max(c.g, 0), Swift.max(c.b, 0))
+        let lab = oklab.toLab(positive)
         let greyL = oklab.toLab(RGB(gray: level)).L
-        let keep = 1 - amount
-        let walked = oklab.toRGB(OKLab(L: lab.L + (greyL - lab.L) * amount,
+        // The gain tapers with chroma: full on the moderate colours a scene is made of
+        // (a ColorChecker patch sits at OKLab C 0.03…0.15), fading toward 1 on colours
+        // already near the edge of the gamut, where more purity has nowhere to go but
+        // into a clip. C·g(C) stays strictly increasing (its slope is ≥ 1 − (g₀−1)/8).
+        let c0 = hypot(lab.a, lab.b)
+        let x = c0 / DisplayTransform.chromaGainKnee
+        let gain = 1 + (chromaGain - 1) / (1 + x * x)
+        let keep = (1 - amount) * gain
+        // Lightness walks to the grey's quadratically, chroma linearly: the colour
+        // loses purity first and lifts toward white late. Linear in L too, a bright
+        // colour's lightness moved with every push of a colour control through the
+        // shoulder, and Blue hue handed back 10.9 code values of its own effect
+        // (4.1 this way; pinned at 12.0).
+        let walked = oklab.toRGB(OKLab(L: lab.L + (greyL - lab.L) * amount * amount,
                                        a: lab.a * keep, b: lab.b * keep))
-        // The largest channel walks linearly from the colour's to the grey's. A
-        // straight OKLab line between the two bulges past both near white (a bright
-        // yellow's red reached 1.07 of white, straight into the gamut map's knee,
-        // and the finish table stopped converging there). A uniform scale of linear
-        // RGB scales L, a and b by one factor, so it keeps the OKLab hue exactly.
-        let source = Swift.max(c.r, c.g, c.b, 0)
-        let target = source + (level - source) * amount
-        let top = walked.maxComponent
-        return top > 1e-12 ? walked * (target / top) : walked
+        // What the clamp took off (the out-of-gamut excess) rides along, fading with
+        // the bleach, so a colour pushed further outside the gamut still renders
+        // further out. Dropped, it made every out-of-gamut colour one colour: Green
+        // purity lost a third of its authority (58 → 40 code values) and Blue hue's
+        // hand-back grew past its pinned ceiling.
+        return walked + (c - positive) * (1 - amount)
     }
 
     /// The transform a recipe renders through, without building a whole `RenderPlan`.

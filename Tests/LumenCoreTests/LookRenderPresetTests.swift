@@ -306,12 +306,11 @@ final class LookRenderPresetTests: XCTestCase {
                            "Linear is supposed to be a pass-through")
         }
 
-        // The same pixels under a RAW look's Neutral: a second tone map. (Re-measured
-        // for WS-13's 0.25 display mid-grey; was 12.6 / 26.7 / 221.7.)
-        XCTAssertEqual(codeValue(32, preset: "Neutral"), 15.1, accuracy: 0.5,
+        // The same pixels under a RAW look's Neutral: a second tone map.
+        XCTAssertEqual(codeValue(32, preset: "Neutral"), 12.6, accuracy: 0.5,
                        "shadows plug")
-        XCTAssertEqual(codeValue(48, preset: "Neutral"), 31.7, accuracy: 0.5)
-        XCTAssertEqual(codeValue(255, preset: "Neutral"), 237.2, accuracy: 0.5,
+        XCTAssertEqual(codeValue(48, preset: "Neutral"), 26.7, accuracy: 0.5)
+        XCTAssertEqual(codeValue(255, preset: "Neutral"), 221.7, accuracy: 0.5,
                        "paper white is no longer white")
 
         // And the other direction, in scene EV above mid-grey: Linear clips where the

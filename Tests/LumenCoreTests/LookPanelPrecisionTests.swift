@@ -4,8 +4,7 @@ import XCTest
 
 /// THE ROW THAT ADVERTISED NINE THOUSAND VALUES AND COULD REACH ABOUT A FIFTH OF THEM.
 ///
-/// Black target is `0…15` on the track and by typing (WS-13: the engine's own range;
-/// the track was `0…9` while the engine clamped there), and it used to declare
+/// Black target is `0…9` on the track and `0…15` by typing, and it used to declare
 /// `step: 0.001, decimals: 3`. That is 9,000 values, against a best gesture — the
 /// readout scrub under ⇧, 426 points of travel at `FineDrag.scale` — of 1,704 points:
 /// 0.189 pt per step. The readout printed a third decimal that no drag, no scrub and no
@@ -65,7 +64,7 @@ final class LookPanelPrecisionTests: XCTestCase {
 
         // And the hard range is what keeps the precision that the step gave up: a
         // typed value is not snapped, so the preset's own 0.0152 is still enterable.
-        XCTAssertEqual(row.hard, "0...15",
+        XCTAssertEqual(row.hard, "0...9",
                        "the typed range is what makes a coarser step affordable; "
                        + "without it two decimals would be the only precision there is")
     }

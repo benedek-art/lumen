@@ -29,12 +29,10 @@ final class FilmLabHDRMidGreyTests: XCTestCase {
                                       filmExposure: 0, displayWhite: white)
                 let out = chain.apply(grey)
                 for channel in 0..<3 {
-                    // WS-13: the display target is `displayMidGrey` (0.25), the level the
-                    // display transform the chain blends with puts scene mid-grey on.
                     XCTAssertEqual(out[channel], DisplayTransform.displayMidGrey, accuracy: 1e-4,
                                    "\(stock.id) at display white \(white): film mid-grey "
-                                       + "must be display mid-grey absolute (D8), got \(out[channel]) "
-                                       + "— \(log2(out[channel] / DisplayTransform.displayMidGrey)) EV off")
+                                       + "must be 0.18 absolute (D8), got \(out[channel]) "
+                                       + "— \(log2(out[channel] / 0.18)) EV off")
                 }
             }
         }

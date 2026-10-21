@@ -1342,9 +1342,9 @@ struct LookPanel: View {
                                                  $1, LookPanel.blackTargetRange.lowerBound,
                                                  LookPanel.blackTargetRange.upperBound) }),
                         // Track, typing and binding share the engine's range
-                        // (`DisplayTransformParams.blackTargetRange`, 0…15 since WS-13:
-                        // the engine used to clamp to 9 % = half of a 0.18 mid-grey, and
-                        // this row followed it while the recipe key said 15).
+                        // (`DisplayTransformParams.blackTargetRange`, 0…9: half of
+                        // display mid-grey). Since WS-13 the recipe key says the same;
+                        // it used to advertise 15 while the engine clamped at 9.
                         //
                         // TWO DECIMALS, NOT THREE. Three over 0…9 is nine thousand
                         // values, and the best gesture this app has — the readout scrub
@@ -1371,7 +1371,7 @@ struct LookPanel: View {
                         // Literal on purpose (LookPanelPrecisionTests reads it): equal to
                         // `DisplayTransformParams.blackTargetRange`, which the bindings
                         // above clamp to.
-                        range: 0...15, hardRange: 0...15,
+                        range: 0...9, hardRange: 0...9,
                         defaultValue: base.blackTarget,
                         step: 0.01, decimals: 2, bipolar: false,
                         help: LookPanel.overrideHelp,

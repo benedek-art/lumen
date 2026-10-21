@@ -1,18 +1,18 @@
 {
-  "authority" : 11.028015471364043,
+  "authority" : 9.602162459985848,
   "deadSteps" : 0,
   "frame" : "noisyISO6400",
-  "frontLoading" : 0.6549355004354465,
+  "frontLoading" : 0.6552230388494412,
   "givenBack" : 0,
-  "hueRotation" : 2.1457814171075142,
+  "hueRotation" : 5.592539513125274,
   "id" : "denoise.luma",
   "isMonotone" : true,
-  "meanSeparation" : 3.416049405432437,
+  "meanSeparation" : 3.0490194059587874,
   "overshoot" : 0,
   "overshootAbove" : 0,
   "overshootBelow" : 0,
   "panel" : "Detail",
-  "smallestLiveStep" : 0.4636712675419403,
+  "smallestLiveStep" : 0.412831106703095,
   "travelHigh" : 100,
   "travelLow" : 0
 }

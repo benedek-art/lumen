@@ -1,15 +1,15 @@
 {
-  "authority" : 81.8712884126056,
+  "authority" : 73.86862293904711,
   "deadSteps" : 0,
   "frame" : "colourChart",
-  "frontLoading" : 0.5697612877544785,
+  "frontLoading" : 0.6912011271930768,
   "givenBack" : 0,
-  "hueRotation" : 0.36385318791548116,
+  "hueRotation" : 1.2725211383379929,
   "id" : "mixer.aqua.sat",
   "isMonotone" : true,
-  "meanSeparation" : 2.5667810205284654,
+  "meanSeparation" : 2.4848035379159046,
   "panel" : "Colour Mixer",
-  "smallestLiveStep" : 3.558807409784606,
+  "smallestLiveStep" : 3.365192353396182,
   "travelHigh" : 100,
   "travelLow" : -100
 }
