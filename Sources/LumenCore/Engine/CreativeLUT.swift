@@ -104,7 +104,8 @@ public struct CreativeLUTStage: Sendable, Equatable {
     ///
     /// NON-FINITE IN, FINITE OUT, as before the residual existed: a NaN channel reads as
     /// 0 and an infinite one as the domain edge it points past, and neither contributes
-    /// a residual — one poisoned pixel must not take a whole pixel, or a render, with it.
+    /// a residual — one poisoned channel must not take a whole pixel, or a render, with
+    /// it. (The reference only: the GPU graph has no finite-test kernel; WS-30 NEEDS.md.)
     public func apply(_ c: RGB) -> RGB {
         switch tap {
         case .log:
@@ -117,8 +118,16 @@ public struct CreativeLUTStage: Sendable, Equatable {
             let looked = cube.sample(u)
             return LumenLog.decode(e + (looked - u) * amount)
         case .display:
-            let d = Self.finite(Self.workingToDisplay.apply(c))
-            let u = d.map(Num.saturate)
+            // Sanitized BEFORE the matrix, which would spread one NaN channel into all
+            // three and black out the whole pixel.
+            let d = Self.workingToDisplay.apply(Self.finite(c))
+            // The cube's own DOMAIN, in linear: a narrower one is honoured and a wider one
+            // above code 1 is read. Floored at 0 — the sRGB curve is not extended below
+            // black the same way by both renderers, and no display LUT means it.
+            let low = Self.domainLinear(cube.domainMin).map { Swift.max($0, 0) }
+            let high = Self.domainLinear(cube.domainMax)
+            let u = RGB(Num.clamp(d.r, low.r, high.r), Num.clamp(d.g, low.g, high.g),
+                        Num.clamp(d.b, low.b, high.b))
             let e = TransferFunction.srgb.encode(u)
             let looked = cube.sample(e)
             // Floored at code 0, the one bound an extrapolated Amount can cross that has
@@ -128,6 +137,9 @@ public struct CreativeLUTStage: Sendable, Equatable {
             return Self.displayToWorking.apply(TransferFunction.srgb.decode(blended) + (d - u))
         }
     }
+
+    /// A display cube's domain bound (sRGB code) as display-linear. Unit domain: 0 and 1.
+    public static func domainLinear(_ code: RGB) -> RGB { TransferFunction.srgb.decode(code) }
 
     /// NaN → 0, +∞ → 1, −∞ → 0: the unit domain's own values, so neither leaves a
     /// residual to add back.

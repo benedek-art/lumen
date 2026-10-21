@@ -348,4 +348,26 @@ final class CreativeLUTAccuracyTests: XCTestCase {
         let out = LumenLog.encode(stage.apply(LumenLog.decode(e)))
         XCTAssertLessThan(out.maxAbsDifference(RGB(gray: 1.35)), 1e-6)
     }
+
+    /// SPEC L9. One NaN channel at the display tap does not black out the pixel: the
+    /// other two channels come through an identity cube unchanged.
+    func testL9OneNaNChannelLeavesTheOtherTwo() {
+        let stage = CreativeLUTStage(tap: .display, amount: 100, cube: Self.cube(size: 17) { $0 })
+        let out = stage.apply(RGB(.nan, 0.18, 0.4))
+        XCTAssertLessThan(out.maxAbsDifference(RGB(0, 0.18, 0.4)), 1e-9)
+    }
+
+    /// SPEC L9. The display tap honours a cube's DOMAIN: an identity cube over [0.1, 0.9]
+    /// or [0, 1.5] (sRGB code) is still the identity on every value.
+    func testL9TheDisplayTapHonoursTheCubesDomain() {
+        for (lo, hi) in [(0.1, 0.9), (0.0, 1.5)] {
+            let text = Self.cubeText(size: 9) { $0 * (hi - lo) + RGB(gray: lo) }
+                .replacingOccurrences(of: "LUT_3D_SIZE 9\n", with: "LUT_3D_SIZE 9\n"
+                    + "DOMAIN_MIN \(lo) \(lo) \(lo)\nDOMAIN_MAX \(hi) \(hi) \(hi)\n")
+            let stage = CreativeLUTStage(tap: .display, amount: 100,
+                                         cube: LUT3D.fromCubeFile(text)!)
+            let worst = Self.displaySamples.map { stage.apply($0).maxAbsDifference($0) }.max()!
+            XCTAssertLessThan(worst, 1e-6, "domain [\(lo), \(hi)]")
+        }
+    }
 }

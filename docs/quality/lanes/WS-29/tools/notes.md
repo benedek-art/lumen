@@ -7,19 +7,22 @@ Photos (rows, in order): 6929_sony-ilce-7m4 (A7 IV, foliage + wall), 2545_panaso
 glass, low light, saturated primaries). The corpus has no frame with a person, so skin was
 judged on the warm fruit and on porcelain staying neutral; a real portrait check is still owed.
 
-All looks use only the `look` subtree. Rendered with `as-shot` WB/ISO from each sidecar, no
+All looks use only the `look` subtree. Round 2: every colour look states its curve as Neutral
+plus the walkable overrides (contrast, skew, hue preservation, black target) instead of naming
+Soft / Punchy / Film Base, because a preset lands whole at any Amount and left Cool Cinema's
+Amount slider dead (50% = 100.01% of its change). The pictures barely changed. Rendered with `as-shot` WB/ISO from each sidecar, no
 develop changes, so the baseline (None) is the corpus' Neutral render, which runs dark.
 
 | # | Look | Intent | Key settings |
 |---|---|---|---|
-| 1 | Natural Portrait | gentle, flattering: softer curve, a breath of warmth, quieter colour | render Soft; global wheel hue 60 sat 0.03; high hue 70 sat 0.04; saturation −8 |
-| 2 | Vivid Landscape | clear and rich without neon or hue shifts | Punchy, contrast 1.7, skew +0.3 (keeps shadows open); vibrance +35, saturation +5 |
-| 3 | Soft Matte | lifted, muted, editorial | Soft, contrast 1.25, blackTarget 0.8 %; saturation −18 |
+| 1 | Natural Portrait | gentle, flattering: softer curve, a breath of warmth, quieter colour | contrast 1.2, skew +0.25; global wheel hue 60 sat 0.03; high hue 70 sat 0.04; saturation −8 |
+| 2 | Vivid Landscape | clear and rich without neon or hue shifts | contrast 1.7, skew +0.3 (keeps shadows open); vibrance +35, saturation +5 |
+| 3 | Soft Matte | lifted, muted, editorial | contrast 1.25, skew +0.25, blackTarget 0.8 %; saturation −18 |
 | 4 | Warm Film | Portra-ish warmth and palette | filmLab lumen/portra400 at 80 %; creative grain 15 |
-| 5 | Cool Cinema | restrained split: teal shadows, warm highlights, whites stay white | Film Base; shadows hue 200 sat 0.08; high hue 65 sat 0.05; vibrance −10 |
-| 6 | Faded Vintage | aged print: faded blacks, warm-yellow highs, green-cyan shadows, grain | Film Base, blackTarget 1.0 %; shadows 170/0.06; high 80/0.10; saturation −30; vignette −0.5; grain 30 |
+| 5 | Cool Cinema | restrained split: teal shadows, warm highlights, whites stay white | contrast 1.7, skew +0.4, hue preservation 70; shadows hue 200 sat 0.08; high hue 65 sat 0.05; vibrance −10 |
+| 6 | Faded Vintage | aged print: faded blacks, warm-yellow highs, green-cyan shadows, grain | contrast 1.7, skew +0.4, hue preservation 70, blackTarget 1.0 %; shadows 170/0.06; high 80/0.10; saturation −30; vignette −0.5; grain 30 |
 | 7 | B&W Classic | neutral panchromatic with a faint yellow-filter lift | bw bands [5,8,5,0,0,−5,0,0]; Neutral contrast 1.65 |
-| 8 | B&W High Contrast | red/orange-filter drama, dark skies | bw bands [20,12,0,−5,−10,−25,−10,5]; Punchy contrast 1.85; vignette −0.25 |
+| 8 | B&W High Contrast | red/orange-filter drama, dark skies | bw bands [20,12,0,−5,−10,−25,−10,5]; contrast 1.85, skew −0.15; vignette −0.25 |
 
 Per-tile numbers (mean L*, p99 L*, % clipped ≥254, % crushed ≤1 code) are in metrics.txt.
 No look clips (max 0.02 % on the stained glass, None is 0.00). Crush is the trade-off:
@@ -39,5 +42,5 @@ B&W High Contrast crushes 6.2 % of 1192 and ~9 % of 4694 (both low-key frames; N
 - B&W at bands all 0 matches the colour render's luminance closely (mean L* within 0.6 on
   three frames), but desaturated dry grass then reads brighter than in colour
   (Helmholtz-Kohlrausch); +15 on orange made the 2545 lawn near-white, hence the small bands.
-- The `_partN.png` evidence strips are 256-colour quantized to fit 400 KB; the lemon in
-  4694 shows posterization there that is NOT in the render (contact.png is lossless).
+- The evidence strips are full colour, downscaled to fit 400 KB (an earlier 256-colour
+  version posterised the lemon in 4694).

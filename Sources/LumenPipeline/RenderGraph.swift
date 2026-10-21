@@ -402,7 +402,14 @@ public struct RenderGraph {
             return decoded.cropped(to: extent)
         case .display:
             let d = applyMatrix(image, CreativeLUTStage.workingToDisplay)
-            guard let u = clamped(d, low: 0, high: 1) else { return nil }
+            // The cube's own domain in linear, floored at 0, as the reference does.
+            let low = CreativeLUTStage.domainLinear(lut.cube.domainMin).map { max($0, 0) }
+            let high = CreativeLUTStage.domainLinear(lut.cube.domainMax)
+            let domain = CIFilter.colorClamp()
+            domain.inputImage = d
+            domain.minComponents = CIVector(x: low.r, y: low.g, z: low.b, w: 0)
+            domain.maxComponents = CIVector(x: high.r, y: high.g, z: high.b, w: 1)
+            guard let u = domain.outputImage?.cropped(to: extent) else { return nil }
             let encode = CIFilter.linearToSRGBToneCurve()
             encode.inputImage = u
             guard let e = encode.outputImage,
