@@ -2076,9 +2076,14 @@ struct MaskPanel: View {
             // broken, which is the failure this rebuild exists to remove
             // (docs/36 §1.3).
             refineSlider(mask.id, "Follow", \.feather, 0...100, 0,
+                         // The old sentence promised "does nothing where there
+                         // is no edge". A guided filter cannot keep that promise: on a
+                         // flat region it is a box blur of its own radius. Say what it
+                         // does instead of what it was meant to.
                          help: "Bends the selection toward edges it can find in "
-                             + "the photograph itself. Does nothing where there "
-                             + "is no edge under the boundary.",
+                             + "the photograph, in brightness and in colour. "
+                             + "Where there is no edge under the boundary it "
+                             + "softens it instead.",
                          behaviour: .followEdges,
                          behaviourValue: mask.refine.feather / 100)
             // "Expand", not "Expand / Contract". Seventeen characters could not
