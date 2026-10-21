@@ -91,6 +91,29 @@ public enum KernelLibrary {
     }
     """
 
+    /// S7 tone mask, offset step: the smoothed guide minus its wide local reference,
+    /// in EV, and its square — packed in r and g so ONE box blur yields both moments.
+    /// Centred so fp16 keeps the variance (`ReferenceRenderer.toneMask` says why).
+    static let toneMaskOffsetSource = """
+    kernel vec4 lumenToneMaskOffset(__sample s, __sample reference, float range) {
+        float d = (s.r - reference.r) * range;
+        return vec4(d, d * d, 0.0, 1.0);
+    }
+    """
+
+    /// S7 tone mask, coefficient step from the centred moments:
+    ///   v = max(mean(d²) − mean(d)², 0) / range²,  a = v / (v + eps),  b = meanS · (1 − a)
+    static let toneMaskCoefficientsSource = """
+    kernel vec4 lumenToneMaskCoefficients(__sample moments, __sample meanS,
+                                          float invRange, float eps) {
+        float dm = moments.r;
+        float v = max(moments.g - dm * dm, 0.0) * invRange * invRange;
+        float a = v / (v + eps);
+        float b = meanS.r * (1.0 - a);
+        return vec4(a, b, 0.0, 1.0);
+    }
+    """
+
     /// Guided filter, apply step: q = mean(a)·I + mean(b).
     static let guidedApplySource = """
     kernel vec4 lumenGuidedApply(__sample coefficients, __sample guide) {
@@ -1291,6 +1314,8 @@ public enum KernelLibrary {
     public static let guidedCoefficients = make(guidedCoefficientsSource)
     public static let guidedCrossCoefficients = make(guidedCrossCoefficientsSource)
     public static let guidedApply = make(guidedApplySource)
+    public static let toneMaskOffset = make(toneMaskOffsetSource)
+    public static let toneMaskCoefficients = make(toneMaskCoefficientsSource)
     public static let blendMask = make(blendMaskSource)
     public static let blendMaskMode = make(blendMaskModeSource)
     // GENERAL kernels, not colour ones: they take no `__sample` at all, and a colour
@@ -1385,6 +1410,7 @@ public enum KernelLibrary {
             ("guidedCoefficients", guidedCoefficients),
             ("guidedCrossCoefficients", guidedCrossCoefficients),
             ("guidedApply", guidedApply),
+            ("toneMaskOffset", toneMaskOffset), ("toneMaskCoefficients", toneMaskCoefficients),
             // `blendMaskMode` sits beside `blendMask` and not in `unavailableMaskKernels`
             // because it is the OTHER BRANCH of the same call, and neither branch has a
             // fallback: `RenderGraph`'s `guard let blended = composite else { continue }`

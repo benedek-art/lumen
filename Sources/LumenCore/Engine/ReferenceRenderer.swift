@@ -246,10 +246,12 @@ public enum ReferenceRenderer {
     /// follow ISO 6400 noise (0.06 EV measured σ 0.090 EV of ripple) and leaf texture,
     /// and the tone gains re-print both. The mask no longer measures its variance on
     /// the raw guide (`toneMaskTextureFraction`), so that constraint is gone and the
-    /// threshold can sit where the halo wants it: 0.12 EV halves every step's halo
+    /// threshold can sit where the halo wants it: 0.115 EV halves every step's halo
     /// (0.08 / 0.04 / 0 / 0 EV at 0.75 / 1.5 / 3 / 5 EV) and ±0.4 EV of noise leaves
-    /// 0.011 EV of ripple, the same as before.
-    public static let toneMaskContrastThresholdEV: Double = 0.12
+    /// 0.011 EV of ripple, the same as before. (0.12 with the uncentred variance; the
+    /// centred one in `toneMask` reads slightly less at an edge, and 0.115 puts the
+    /// halo back where it was.)
+    public static let toneMaskContrastThresholdEV: Double = 0.115
     /// The threshold CONVERTED to the encoded plane the mask runs on (rule 1 of the
     /// units section in BUILDING.md: write the conversion, not the result).
     public static var toneMaskEpsilon: Double {
@@ -276,7 +278,7 @@ public enum ReferenceRenderer {
     /// corpus photos was 0.77-0.81 against 0.71-0.74 for NO mask at all (a global
     /// curve): the mask was buying almost none of the local contrast it exists for.
     /// With the variance measured at half the mask radius the mean over the six is
-    /// 0.93 against 0.91 before, at half the halo.
+    /// 0.92 against 0.91 before, at half the halo.
     ///
     /// Only the variance is taken from the smoothed guide. The mask is still
     /// `mean(a)·I + mean(b)` on the unsmoothed log luminance, so an edge the mask
@@ -287,19 +289,37 @@ public enum ReferenceRenderer {
         Swift.max(Int((Double(maskRadius) * toneMaskTextureFraction).rounded()), 1)
     }
 
+    /// The local reference the variance is measured against, as a multiple of the
+    /// mask radius. See `toneMask` for why there is one; 16 is where the measured
+    /// halo and detail stop moving (0.75 EV step and 6929 identical to an exact
+    /// variance within one 8-bit code; 4 R costs 0.04 EV of halo).
+    public static let toneMaskReferenceScale: Int = 16
+
+    public static func toneMaskReferenceRadius(maskRadius: Int) -> Int {
+        maskRadius * toneMaskReferenceScale
+    }
+
     /// The S7 mask: log luminance smoothed within surfaces and held at edges.
     ///
     /// A self-guided filter whose coefficients come from the guide smoothed at the
-    /// texture scale (above) and are applied to the unsmoothed log luminance —
-    /// `RenderGraph.guidedFilter(input: lum, guide: structure)` on the GPU, step for
-    /// step. Plain `box(S²) − box(S)²` for the variance, as before: the GPU holds it in
-    /// fp16, where that difference carries an error near ε, but where the variance is
-    /// that small the mask is within a quantum of `I` whatever `a` comes out as.
-    /// Simulated in fp16 against f64: 0.019 EV worst on a smooth ramp, +0.02 EV on a
-    /// 0.75 EV step. A centred variance, `box((S − box(S))²)`, avoids the cancellation
-    /// but measures a third of the variance at an edge and spreads it over twice the
-    /// width; it haloed worse at every threshold tried (0.13 EV at 0.75 EV for the same
-    /// detail), so the precision fix would have cost more than it bought.
+    /// texture scale (above) and are applied to the unsmoothed log luminance, mirrored
+    /// step for step by `RenderGraph.toneMask`.
+    ///
+    /// THE VARIANCE IS CENTRED, because the GPU computes it in fp16. The textbook
+    /// `box(S²) − box(S)²` cancels two numbers near 0.2 whose fp16 quantum is ~1e-4,
+    /// against an ε of 2.3e-5: on a noisy plateau `a` came out anywhere in [0, 0.5],
+    /// and the mask `mean(a)·I + mean(b)` followed the noise by that much. macOS CI
+    /// measured it (ToneMaskGPUParityTests, noisy 1 EV edge): 0.038 EV mean, 0.138 EV
+    /// worst between the GPU mask and this definition.
+    ///
+    /// So the moments are taken of `d = (S − c)` in EV, where `c` is the guide boxed at
+    /// 16 mask radii. Over one window `c` is close to constant, so `var(d)` is the
+    /// guide's variance; `d` stays a few EV, so `d²` keeps its precision in fp16
+    /// (simulated: 0.003 EV mean, 0.016 EV worst, down from 0.03 / 0.20, including
+    /// ±0.2 EV noise beside a 9 EV edge). Two cheaper centrings were measured and
+    /// rejected: `box((S − box S)²)` reads a third of an edge's variance over twice
+    /// its width (no threshold gave both the halo and the detail), and a fixed offset
+    /// (mid grey) still left 0.07 EV on a −6 EV plateau.
     public static func toneMask(_ log: Plane, longEdge: Int) -> Plane {
         let radius = toneMaskRadius(longEdge: longEdge)
         let textureRadius = toneMaskTextureRadius(maskRadius: radius)
@@ -307,15 +327,20 @@ public enum ReferenceRenderer {
         let structure = SpatialOps.boxBlur(SpatialOps.boxBlur(log, radius: textureRadius),
                                            radius: textureRadius)
         let mean = SpatialOps.boxBlur(structure, radius: radius)
-        let correlation = SpatialOps.boxBlur(structure.zip(structure) { $0 * $1 },
-                                             radius: radius)
+        let reference = SpatialOps.boxBlur(
+            structure, radius: toneMaskReferenceRadius(maskRadius: radius))
+        let offset = structure.zip(reference) { ($0 - $1) * LumenLog.range }
+        let offsetMean = SpatialOps.boxBlur(offset, radius: radius)
+        let offsetSquare = SpatialOps.boxBlur(offset.zip(offset) { $0 * $1 },
+                                              radius: radius)
         var a = Plane(width: log.width, height: log.height)
         var b = Plane(width: log.width, height: log.height)
         for y in 0..<log.height {
             for x in 0..<log.width {
                 let m = mean[x, y]
-                // f32 round-trip can push a near-zero variance slightly negative.
-                let v = Swift.max(correlation[x, y] - m * m, 0)
+                let dm = offsetMean[x, y]
+                let v = Swift.max(offsetSquare[x, y] - dm * dm, 0)
+                    * LumenLog.invRange * LumenLog.invRange
                 let av = v / (v + eps)
                 a[x, y] = av
                 b[x, y] = m * (1 - av)

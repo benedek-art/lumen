@@ -8,6 +8,18 @@
 - Judge `evidence/steps_before_after.png` first (the band is plain to see in the BEFORE rows), then `evidence/6929_foliage_2x.png`.
 - GPU agreement can only be proven on macOS CI: see "CI" below.
 
+## Round 2: GPU parity (quality/t1-fix-gpu-parity)
+
+The first merge failed `ToneMaskGPUParityTests` on macOS: the GPU mask was 0.0383 EV mean / 0.1383 EV worst from the CPU definition on a noisy 1 EV edge (bars 0.02 / 0.06). My lane pushed READY before its own GPU-parity run had left the queue. That was my mistake: the fp16 risk was written down and not waited for.
+
+Cause: the working format is RGBAh. The variance `box(S²) − box(S)²` cancels two numbers near 0.2 whose fp16 quantum is about 1e-4, against an ε of 2.3e-5. On a noisy plateau `a` lands anywhere in [0, 0.5], and the mask `mean(a)·I + mean(b)` follows the noise by that much. My first simulation used noise-free frames, which is why it said "harmless". A noisy fp16 simulation of the pipeline reproduces it: 0.030 / 0.106 EV.
+
+Fix (CPU and GPU together): the moments are taken of `d = (S − c)` in EV, where `c` is the guide boxed at 16 mask radii. Over one window `c` is close to constant, so `var(d)` is the guide's variance, and `d` stays a few EV, so fp16 keeps it. Simulated parity: 0.003 EV mean, 0.016 EV worst, including ±0.2 EV noise beside a 9 EV edge and at 1600 px preview geometry. The GPU gains two small kernels (`toneMaskOffset` packs d and d² so one box blur gives both moments; `toneMaskCoefficients`). Threshold 0.12 → 0.115 EV, because the centred estimate reads very slightly less at an edge and this puts the step halo back where it was.
+
+Rejected on measurement: `box((S − box S)²)` is fp16-safe but reads a third of an edge's variance over twice its width, so no threshold gave both the S1 halo and the S5 detail (ε 0.04: halo OK, detail 0.851; ε 0.07: detail OK, 0.75 EV step 0.133). A fixed mid-grey offset left 0.07 EV worst on a −6 EV plateau. Capping the variance with the centred estimate still left 0.13 EV worst. A reference of 4 or 8 radii costs one 8-bit code on the 0.75 EV step.
+
+**S5 baseline note.** On the integration branch 4213 reads 0.973 with the exact merged mask, not the 1.020 SPEC.md records from 9068ded: other lanes' merges moved it. The per-photo line is judged against the integration head: 4213 0.946 vs 0.973 (−0.027). 6929's halo with the exact merged mask is also 0.101 here, now 0.098.
+
 ## What was wrong (audit)
 
 The mask behind Highlights, Shadows, Whites, Blacks and the Zones is a self-guided filter on log luminance, radius 2 % of the long edge, contrast threshold √ε = 0.375 EV.
@@ -23,7 +35,7 @@ The mask behind Highlights, Shadows, Whites, Blacks and the Zones is a self-guid
 `ReferenceRenderer.toneMask` (CPU definition) and `RenderGraph.toneMask` (GPU twin), changed together:
 
 - The variance that decides "edge or surface" comes from the guide after two box passes at **half the mask radius** (`toneMaskTextureFraction = 0.5`). Texture and grain no longer read as edges; a real edge spans the window and keeps its variance. The mask is still `mean(a)·I + mean(b)` on the unsmoothed luminance, so kept edges stay sharp. On the GPU this is exactly the existing `guidedFilter(input: lum, guide: smoothed)`, so there's no new kernel.
-- Threshold **0.375 → 0.12 EV** (`toneMaskContrastThresholdEV`). On the raw guide that would follow grain; on the smoothed guide it doesn't (noise ripple 0.0116 vs 0.0113 EV before).
+- Threshold **0.375 → 0.12 EV** (`toneMaskContrastThresholdEV`; 0.115 after round 2). On the raw guide that would follow grain; on the smoothed guide it doesn't (noise ripple 0.0116 vs 0.0113 EV before).
 - Radius and texture radius are single functions both renderers call (`toneMaskRadius`, `toneMaskTextureRadius`).
 
 Explored and rejected (same harness, same six photos and steps): a plain threshold drop to 0.15 EV, which removes the halo but follows ±0.4 EV noise (detail 0.85 vs 1.07) and is flatter on foliage. Pre-smoothing at 1.0 R, which gives more detail but up to 0.25 EV halos on 6929. A centred variance `box((S−box S)²)`, which is fp16-safe but measures a third of the variance at an edge and spreads it over twice the width, so it haloed worse at every threshold (0.13 EV at 0.75 EV for equal detail).

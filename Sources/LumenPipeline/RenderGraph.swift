@@ -2124,18 +2124,33 @@ public struct RenderGraph {
         return applyMatrix(mapped, Mat3.diagonal(RGB(gray: scale)))
     }
 
-    /// The S7 tone mask, the twin of `ReferenceRenderer.toneMask`: coefficients from
-    /// the guide smoothed at the texture scale (two box passes), applied to the
-    /// unsmoothed log luminance — which is exactly what `guidedFilter(input:guide:)`
-    /// does when the two differ. Smoothing only the variance is what keeps leaf
-    /// texture and grain from reading as edges; the reference says why at length.
+    /// The S7 tone mask, the twin of `ReferenceRenderer.toneMask`, step for step:
+    /// coefficients from the guide smoothed at the texture scale (two box passes),
+    /// with the variance taken of the guide's offset from a wide local reference so
+    /// fp16 keeps it, applied to the unsmoothed log luminance. The textbook
+    /// `box(S²) − box(S)²` this replaced put the GPU mask 0.038 EV (mean) / 0.138 EV
+    /// (worst) away from the reference on a noisy 1 EV edge; the reference says why.
     static func toneMask(_ lum: CIImage, longEdge: Int) -> CIImage? {
         let radius = ReferenceRenderer.toneMaskRadius(longEdge: longEdge)
         let textureRadius = ReferenceRenderer.toneMaskTextureRadius(maskRadius: radius)
+        let referenceRadius = ReferenceRenderer.toneMaskReferenceRadius(maskRadius: radius)
+        let extent = lum.extent
         guard let once = boxBlur(lum, radius: textureRadius),
-              let structure = boxBlur(once, radius: textureRadius) else { return nil }
-        return guidedFilter(input: lum, guide: structure, radius: radius,
-                            epsilon: ReferenceRenderer.toneMaskEpsilon)
+              let structure = boxBlur(once, radius: textureRadius),
+              let meanS = boxBlur(structure, radius: radius),
+              let reference = boxBlur(structure, radius: referenceRadius),
+              let offset = KernelLibrary.apply(
+                KernelLibrary.toneMaskOffset, extent: extent,
+                [structure, reference, Float(LumenLog.range)]),
+              let moments = boxBlur(offset, radius: radius),
+              let coefficients = KernelLibrary.apply(
+                KernelLibrary.toneMaskCoefficients, extent: extent,
+                [moments, meanS, Float(LumenLog.invRange),
+                 Float(ReferenceRenderer.toneMaskEpsilon)]),
+              let meanCoefficients = boxBlur(coefficients, radius: radius)
+        else { return nil }
+        return KernelLibrary.apply(KernelLibrary.guidedApply, extent: extent,
+                                   [meanCoefficients, lum])
     }
 
     static func guidedFilter(input: CIImage, guide: CIImage, radius: Int,
