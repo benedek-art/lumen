@@ -297,8 +297,7 @@ struct MaskFloatingPanel: View {
             VStack(spacing: 5) {
                 ForEach(masks, id: \.id) { mask in
                     Button {
-                        state.activeMaskID = mask.id
-                        state.activeComponentIndex = 0
+                        state.selectMask(mask.id)
                     } label: {
                         // ONE SIZE, from `MaskPanel`. This construction and the two in
                         // `MaskPanel` were three literals for one picture, and two of

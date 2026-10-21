@@ -127,6 +127,13 @@ extension AppState {
         }
         history.record(before: before, after: after, coalescingKey: nil,
                        label: "Auto Tone")
+        // Auto is an adjustment: a just-made mask's overlay goes, as it would for a
+        // slider. It writes `recipes` directly rather than through `updateRecipe`,
+        // so the overlay has to be told here.
+        if let primary = primarySelection, let old = before[primary.id]?.recipe,
+           let new = applied[primary.id] {
+            noteMaskOverlayEdit(old: old, new: new)
+        }
         // THROUGH `persist`, not a hand-rolled save loop. Writing the catalog
         // directly skipped everything else `persist` does — notably
         // `refreshLibraryQueryIfEditStateShows`, so with the filter chip set to

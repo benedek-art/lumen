@@ -127,7 +127,7 @@ final class LoupeViewport: ObservableObject {
         hdrPreview.toggle()
         EDRDisplay.shared.setActive(hdrPreview)
     }
-    /// A `let`, for the reason `maskOverlayOpacity` below is one: nothing anywhere sets
+    /// A `let`, because nothing anywhere sets
     /// it. Four reads gate the on-image cursor readout and the pixel sampler; there is no
     /// key, no menu item and no control that writes it, so the `@Published var` was a
     /// constant wearing a setting's clothes — observable state that could not be observed
@@ -135,11 +135,6 @@ final class LoupeViewport: ObservableObject {
     /// value has always meant. If it becomes a setting it goes back to being published,
     /// with the control that writes it.
     let showReadout: Bool = true
-    /// Overlay tint strength. A `let`, not a `@Published var`: nothing ever set it, so
-    /// it was a constant wearing a setting's clothes — observable state that could not
-    /// be observed to change, in a batch whose thesis was reachability. If it becomes
-    /// adjustable it goes back to being published, with a control that writes it.
-    static let maskOverlayOpacity: Double = 0.45
 
     /// Last pointer position in loupe-local points. Not `@Published`: it changes on
     /// every mouse move and nothing should redraw because of it. The zoom verbs read
@@ -1983,7 +1978,7 @@ struct LoupeView: View {
                                 sourceSize: sourceFrameSize
                                     ?? CGSize(width: cg.width, height: cg.height),
                                 mode: state.maskOverlayMode, tint: state.maskOverlayTint,
-                                strength: LoupeViewport.maskOverlayOpacity)
+                                strength: state.maskOverlayOpacity)
                     .frame(width: drawn.width, height: drawn.height)
             }
 
@@ -2046,11 +2041,7 @@ struct LoupeView: View {
                            // Every mask, so the ones not being edited are still visible
                            // and their pins are still reachable.
                            allMasks: recipe.masks,
-                           selectMask: { id in
-                               state.activeMaskID = id
-                               state.activeComponentIndex = 0
-                               state.flashMaskOverlay(id)
-                           }) { edit in
+                           selectMask: { id in state.selectMask(id) }) { edit in
                     MaskCanvas.apply(edit, in: state)
                 }
                 .frame(width: drawn.width, height: drawn.height)

@@ -528,12 +528,12 @@ final class LayoutMetricTests: XCTestCase {
              "EffectsPanel.swift:536 — proof intent"),
             (["Add", "Subtract", "Intersect"],
              PanelChain.Host.maskComponent.contentWidth(columnWidth: Lumen.minimumPanelWidth),
-             "MaskPanel.swift:1147 — component operation"),
+             "MaskPanel.swift:1159 — component operation"),
             (["Lights", "Darks", "Midtones"], 190,
-             "MaskPanel.swift:1453 — luminosity series"),
+             "MaskPanel.swift:1478 — luminosity series"),
             (["Shift", "Kelvin"],
              PanelChain.Host.developTop.contentWidth(columnWidth: Lumen.minimumPanelWidth) / 2,
-             "MaskPanel.swift:2367 — mask white balance unit"),
+             "MaskPanel.swift:2392 — mask white balance unit"),
         ]
         var failures: [String] = []
         for control in controls {
