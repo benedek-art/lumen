@@ -1721,6 +1721,8 @@ public struct RenderGraph {
         let toRGB = DetailEngine.vignetteColourLMSToRGB
         let lightness = DetailEngine.vignetteColourLightnessRow
         let toSRGB = DetailEngine.vignetteWorkingToSRGB
+        let chromaA = DetailEngine.vignetteColourChromaRowA
+        let chromaB = DetailEngine.vignetteColourChromaRowB
         // Rendered over the FULL extent — the crop only defines the field. Cropping the
         // output here would throw away the pixels applyGeometry is about to select.
         // The burn's exponent is dithered by half an fp16 quantum of the encoded
@@ -1743,6 +1745,9 @@ public struct RenderGraph {
             row(toRGB, 0), row(toRGB, 1), row(toRGB, 2),
             CIVector(x: k.liftHold, y: k.keyLow, z: k.keyHigh),
             row(toSRGB, 0), row(toSRGB, 1), row(toSRGB, 2),
+            CIVector(x: chromaA.r, y: chromaA.g, z: chromaA.b),
+            CIVector(x: chromaB.r, y: chromaB.g, z: chromaB.b),
+            Float(DetailEngine.vignetteColourBoostLimit),
             Float(ditherEV),
         ]
         return KernelLibrary.apply(KernelLibrary.vignette, extent: full, arguments)

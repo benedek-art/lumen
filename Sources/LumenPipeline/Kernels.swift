@@ -909,7 +909,8 @@ public enum KernelLibrary {
                               vec4 tone, vec4 knee, vec4 paint, vec4 chroma,
                               vec3 lms0, vec3 lms1, vec3 lms2, vec3 lightRow,
                               vec3 rgb0, vec3 rgb1, vec3 rgb2, vec3 lift,
-                              vec3 srgb0, vec3 srgb1, vec3 srgb2, float ditherEV) {
+                              vec3 srgb0, vec3 srgb1, vec3 srgb2, vec3 chromaA,
+                              vec3 chromaB, float boostLimit, float ditherEV) {
         vec3 sourcePoint = vec3(destCoord(), 1.0);
         vec2 oriented = vec2(dot(axisX, sourcePoint), dot(axisY, sourcePoint));
         vec2 uv = abs((oriented - centre) * invHalf);
@@ -960,6 +961,10 @@ public enum KernelLibrary {
             vec3 lms = vec3(dot(lms0, rgb), dot(lms1, rgb), dot(lms2, rgb));
             vec3 n = sign(lms) * pow(abs(lms), vec3(1.0 / 3.0));
             float light = dot(lightRow, n);
+            if (phi > 1.0) {
+                float cl = length(vec2(dot(chromaA, n), dot(chromaB, n))) / max(light, 1e-9);
+                phi = min(phi, max(1.0, boostLimit / max(cl, 1e-9)));
+            }
             vec3 m = vec3(light) + phi * (n - vec3(light));
             vec3 cube = m * m * m;
             vec3 kept = vec3(dot(rgb0, cube), dot(rgb1, cube), dot(rgb2, cube));

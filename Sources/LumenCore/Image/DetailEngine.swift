@@ -764,8 +764,8 @@ public struct DetailEngine: Sendable {
     /// `vignetteColourLiftFloor` of Amount, so bright corners are not lifted into the
     /// display's shoulder where no chroma survives. Mid-grey itself gets all of Amount,
     /// so on neutrals CP and HP agree.
-    public static let vignetteColourLiftRolloffEV: Double = 3
-    public static let vignetteColourLiftFloor: Double = 0.25
+    public static let vignetteColourLiftRolloffEV: Double = 3.5
+    public static let vignetteColourLiftFloor: Double = 0.1
 
     /// Where the falloff starts, on the normalized radius whose 1 is the frame corner,
     /// for a recipe feather in 0…100 at the DEFAULT midpoint on an unbounded frame:
@@ -1061,6 +1061,18 @@ public struct DetailEngine: Sendable {
         return RGB(row[0], row[1], row[2])
     }()
     public static let vignetteColourLMSToRGB: Mat3 = OKLabTransform.working.lmsToRGB
+    /// The two chroma rows of nonlinear LMS → Lab (a and b), for the boost limit.
+    public static let vignetteColourChromaRowA: RGB = {
+        let row = OKLabTransform.lmsToLab.m[1]
+        return RGB(row[0], row[1], row[2])
+    }()
+    public static let vignetteColourChromaRowB: RGB = {
+        let row = OKLabTransform.lmsToLab.m[2]
+        return RGB(row[0], row[1], row[2])
+    }()
+    /// The OKLab C/L a Color Priority lift may restore a colour up to (a lifted sky's
+    /// scene C/L is 0.14; a saturated red's is 0.37 and gets no boost).
+    public static let vignetteColourBoostLimit: Double = 0.2
 
     /// `c` with its OKLab chroma scaled by `phi` about its own lightness: hue and L held.
     /// Done in nonlinear LMS, where scaling (a, b) about L is `L + φ·(n − L)` because
@@ -1073,6 +1085,18 @@ public struct DetailEngine: Sendable {
                     Num.spow(lms.b, 1.0 / 3.0))
         let w = vignetteColourLightnessRow
         let lightness = w.r * n.r + w.g * n.g + w.b * n.b
+        // A boost only brings a colour UP TO `vignetteColourBoostLimit` of C/L: the
+        // pastel a lift leaves on a mid-saturated sky is what it restores; an already
+        // saturated colour near white is left to the display transform's own path to
+        // white, which is where a boost turned hue 10-15° (VERIFY-R2, SPEC line 31).
+        var phi = phi
+        if phi > 1 {
+            let a = vignetteColourChromaRowA, b = vignetteColourChromaRowB
+            let ca = a.r * n.r + a.g * n.g + a.b * n.b
+            let cb = b.r * n.r + b.g * n.g + b.b * n.b
+            let cl = (ca * ca + cb * cb).squareRoot() / Swift.max(lightness, 1e-9)
+            phi = Swift.min(phi, Swift.max(1, vignetteColourBoostLimit / Swift.max(cl, 1e-9)))
+        }
         let m = RGB(lightness + phi * (n.r - lightness),
                     lightness + phi * (n.g - lightness),
                     lightness + phi * (n.b - lightness))
