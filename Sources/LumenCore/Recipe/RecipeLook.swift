@@ -128,7 +128,7 @@ public struct RenderParams: Codable, Equatable, Sendable {
     public var contrast: Double?         // 0.1…10, log-scaled slider
     public var skew: Double?             // −1…+1
     public var huePreservation: Double?  // 0…100
-    public var blackTarget: Double?      // 0…15 % of SDR white
+    public var blackTarget: Double?      // 0…15 % of SDR white (DisplayTransformParams.blackTargetRange)
     /// % of SDR white. nil = follow the display's live EDR headroom (docs/14 §7).
     public var whiteTarget: Double?
 

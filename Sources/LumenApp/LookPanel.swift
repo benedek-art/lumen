@@ -1333,12 +1333,18 @@ struct LookPanel: View {
                         onReset: { clearTransformOverride(\.huePreservation) })
             LumenSlider(title: "Black target",
                         value: renderBinding("render.black",
-                                             get: { $0.blackTarget.map { Num.clamp($0, 0, 9) } },
+                                             get: { $0.blackTarget.map {
+                                                 Num.clamp($0, LookPanel.blackTargetRange.lowerBound,
+                                                           LookPanel.blackTargetRange.upperBound)
+                                             } },
                                              fallback: base.blackTarget,
-                                             set: { $0.blackTarget = Num.clamp($1, 0, 9) }),
-                        // Track, typing and binding share the engine's effective ceiling.
-                        // Legacy overrides above 9 display as 9 without rewriting recipes
-                        // on load; their rendered appearance is unchanged.
+                                             set: { $0.blackTarget = Num.clamp($1,
+                                                                               LookPanel.blackTargetRange.lowerBound,
+                                                                               LookPanel.blackTargetRange.upperBound) }),
+                        // Track, typing and binding share the engine's range
+                        // (`DisplayTransformParams.blackTargetRange`, 0…15 since WS-13:
+                        // the engine used to clamp to 9 % = half of a 0.18 mid-grey, and
+                        // this row followed it while the recipe key said 15).
                         //
                         // TWO DECIMALS, NOT THREE. Three over 0…9 is nine thousand
                         // values, and the best gesture this app has — the readout scrub
@@ -1362,13 +1368,17 @@ struct LookPanel: View {
                         // against 0.0002 of white on the darkest pixel in the frame —
                         // about a sixth of one 8-bit code value once encoded. The hard
                         // range still takes 0.0152 typed.
-                        range: 0...9, hardRange: 0...9,
+                        range: LookPanel.blackTargetRange, hardRange: LookPanel.blackTargetRange,
                         defaultValue: base.blackTarget,
                         step: 0.01, decimals: 2, bipolar: false,
                         help: LookPanel.overrideHelp,
                         onReset: { clearTransformOverride(\.blackTarget) })
         }
     }
+
+    /// The Black target row's range: the engine's, so the row cannot advertise a value
+    /// the transform clamps away.
+    private static let blackTargetRange = DisplayTransformParams.blackTargetRange
 
     /// The line that used to close the fold, on each of the four rows it was about.
     private static let overrideHelp =

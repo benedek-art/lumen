@@ -1881,8 +1881,8 @@ public struct FilmChain: Sendable {
     /// the sweeps iterate; six lands every shipped stock inside 1e-6. Build-time only.
     private static func solveGains(_ base: SolvedChain, white: Double) -> SolvedChain {
         var s: SolvedChain = base
-        let grey: RGB = RGB(gray: DisplayTransform.midGrey)
-        let target: Double = DisplayTransform.midGrey * white
+        let grey: RGB = RGB(gray: DisplayTransform.sceneMidGrey)
+        let target: Double = DisplayTransform.displayMidGrey * white
         let usePrintGain: Bool = base.printStage != nil
 
         var sweep: Int = 0

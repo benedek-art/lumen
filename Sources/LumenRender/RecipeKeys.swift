@@ -308,7 +308,9 @@ enum Ranges {
         ("look.render.contrast", 0.1, 10, "RecipeLook.swift RenderParams", "log-scaled"),
         ("look.render.skew", -1, 1, "RecipeLook.swift RenderParams", nil),
         ("look.render.huePreservation", 0, 100, "RecipeLook.swift RenderParams", nil),
-        ("look.render.blackTarget", 0, 15, "RecipeLook.swift RenderParams", "% of SDR white"),
+        ("look.render.blackTarget", DisplayTransformParams.blackTargetRange.lowerBound,
+         DisplayTransformParams.blackTargetRange.upperBound, "RecipeLook.swift RenderParams",
+         "% of SDR white"),
         ("look.render.whiteTarget", 100, 400, "RecipeLook.swift RenderParams",
          "% of SDR white; above 100 is HDR and an SDR PNG clips"),
     ]

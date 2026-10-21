@@ -1029,7 +1029,7 @@ extension AutoTone {
             for i in 0..<n {
                 let ev = Num.mix(lo, hi, Double(i) / Double(n - 1))
                 evs[i] = ev
-                display[i] = transform.tone(DisplayTransform.midGrey * exp2(ev))
+                display[i] = transform.tone(DisplayTransform.sceneMidGrey * exp2(ev))
             }
             self.sampleEV = evs
             self.sampleDisplay = display

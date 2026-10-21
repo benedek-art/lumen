@@ -54,6 +54,17 @@ Fix route: the outset fully inverts the inset ROTATION after the curve (AgX-styl
 | 3.4 | Reds, oranges, yellows and greens hold: hues 0…150 at C 0.08 and at 75 % max, −3…+1 EV | Each probe ≤ max(5°, its baseline). The baseline is already over 5° for N 150hi 5.4, S 60hi 5.1, P 0hi 6.4 / 150hi 5.6, and F 60/90/150 up to 10.0. | `$CHK hue`, `warm/green per probe` | N 5.4, S 5.1, P 6.4, F 10.0 (worst) |
 | 3.5 | The finish-table bars are not touched | `RobustnessTests/testEachTableTracksItsOwnExactEvaluationSeparately` and `EngineIntegrationTests/testTheInteractiveTableAgreesWithTheExportOne` pass with no edit to the tests | `swift test --filter 'testEachTableTracksItsOwnExactEvaluationSeparately\|testTheInteractiveTableAgreesWithTheExportOne'` | pass |
 
+### 3b. Path to white keeps hue (added after WS-05 audit F1/F3: owner's "blue highlights are funky")
+
+The hue-preservation weight is switched off across the shoulder by `shoulderU`, measured on the MAX channel, so a saturated blue renders mostly per-channel and walks +49° through violet and magenta to pink (sRGB blue −2→+3 EV), while pale and cyan skies swing −20…−38° toward cyan on their way to white. Fix route: in the shoulder, bleach toward neutral at constant hue (mix the hue-stable result toward an achromatic value of the same display level) instead of fading into the per-channel branch. Per-channel character stays available below Hue preservation 100.
+
+| # | Claim | Threshold | Command | Baseline |
+|---|---|---|---|---|
+| 3.6 | Blue probes hold hue all the way to white: sRGB blue (20,30,255), deep sky (40,90,190), azure (30,120,220), mid sky (90,140,200), pale sky, CC blue sky; −2…+3 EV at scene luminance, where output C ≥ 0.02 | max \|dh\| ≤ 5° on presets with huePreservation 100 (N, S, P); ≤ 12° on Film Base (70, per-channel by design) | new test `DisplayTransformWS13Tests/testBluesHoldHueOnTheWayToWhite` (exact `DisplayTransform.apply`, gamut nil and sRGB gamut), and the same probes through `lumen-render` at 65-cube | sRGB blue +49°, deep sky +10.5°, mid sky +6.7° offset (WS-05 AUDIT F1) |
+| 3.7 | Full hue ring holds hue: 24 hues at C 0.08 and 75 % max, −2…+3 EV | max \|dh\| ≤ 6° (N, S, P); p95 ≤ 4° | same test, ring section | not measured at base for +3 EV; WS-05 reports radial creases near blue/cyan |
+| 3.8 | The roll-off still reaches white: for every probe of 3.6/3.7 output chroma is non-increasing from +1 EV upward and ≤ 0.02 at the white anchor; output luminance monotone | as stated | same test | per-channel bleach does this today |
+| 3.9 | No hue folds: hue_wheel at exposure 0 and +2, adjacent-pixel OKLab hue jump p99.9 ≤ 2° where C ≥ 0.03 | as stated | `$CHK wheel` (add a hue-jump column) | WS-05 sees radial creases near blue/cyan |
+
 ## 4. Saturation: purity restore and attenuation, not a saturation boost
 
 | # | Claim | Threshold | Command | Baseline |
