@@ -291,6 +291,44 @@ public struct ColorEngine: Sendable {
     public static let pointSigmaFloor: Double = 1e-4
     public static let pointHueShiftLimit: Double = 60.0
 
+    /// A PIXEL IS ALSO READ AS A MIXTURE: how much of the swatch's colour is in it.
+    ///
+    /// A soft edge between the swatch's colour and a neutral — a defocused red petal on
+    /// a white plate, a blue sky fading into haze, a cheek into a white collar — is a
+    /// MIXTURE: its pixels keep the swatch's hue while chroma falls toward zero and
+    /// lightness moves toward the neutral's. Measured on frame 2062 (ISO 6400) at the
+    /// default Range, the selection held 1.0 down to a 85% petal mix and was 0.00 at
+    /// 40%, so a −100 Saturation left a fully saturated red ring round every petal and
+    /// a −80 Luminance cut each one out with a jagged, noise-driven edge, half a blend
+    /// width inside the edge the photograph actually has.
+    ///
+    /// That share is measured in LINEAR light, where it is exact: a pixel that is `α`
+    /// of the swatch's colour and `1 − α` of any neutral has a linear opponent chroma
+    /// vector exactly `α` times the swatch's, whatever the neutral's level. So the
+    /// projection `r = χ·χₜ / |χₜ|²` IS the blend fraction, and the selection can fade
+    /// with it instead of cutting through it. (The first draft used the OKLab chroma
+    /// ratio; toward a bright neutral that falls far faster than the blend, and a 50%
+    /// mix with a light grey still read as unselected.)
+    ///
+    /// This tolerance is the ratio's sigma at Range 100 (scaled by Range and the
+    /// Saturation refinement like the others) and is capped at 1, so a pure neutral
+    /// (`r = 0`) is at mixture distance ≥ 1 and never selected by this reading.
+    public static let pointRatioTolerance: Double = 0.9
+
+    /// The mixture reading's hue tolerance, as a fraction of the hue sigma, on the angle
+    /// between linear chroma vectors. A true blend with a neutral has angle 0; a blend
+    /// with a WARM backdrop (2062's plate) drifts up to about 30°, and a pale colour of
+    /// another hue (2062's cream pollen) sits 40° off. The two cannot both be had:
+    /// 0.75 recovers some rim (2062 rim chroma left 0.82× base instead of 0.88×) but
+    /// lets a pale colour 40° off in at 0.10; 0.5 keeps it under 0.03. A false tint
+    /// shows as speckle inside an object, a rim as a softer edge, so 0.5.
+    public static let pointMixtureHueFraction: Double = 0.5
+    /// How much lightness counts in the mixture reading. A constant, so the reading is
+    /// monotone along any blend (see `selectionWeights`); low, because a blend toward
+    /// white or black moves lightness the most and that is exactly the move this reading
+    /// exists to forgive. The Luminance refinement still scales it.
+    public static let pointMixtureLightness: Double = 0.5
+
     // MARK: - Skin (docs/06 brief §5.3)
 
     /// The NTSC vectorscope I-bar — the axis all human skin hues cluster on regardless
@@ -355,8 +393,17 @@ public struct ColorEngine: Sendable {
 
     // MARK: - Primaries (docs/06 brief §6.2)
 
-    public static let primaryRotationDegrees: Double = 20.0
-    public static let primaryPurityScale: Double = 0.5
+    /// A primary's chroma turn at ±100, in the linear opponent plane
+    /// (`primariesMatrix`). 12° there carries the chart's red patch about 25° round
+    /// OKLab's wheel each way, green 15° and blue 23°.
+    public static let primaryRotationDegrees: Double = 12.0
+    /// Purity at ±100 scales a primary's chroma by `2^±stops`, per primary (R, G, B).
+    /// Blue's is longer because the white rescale hands most of a blue push back: at
+    /// 0.6 the chart's blue patch moved under 7%, against red's 22% and green's 37%.
+    /// No longer than 1.0, though: past it Blue −100 starts to lift the blue's own
+    /// lightness (+0.047 OKLab L at 1.2, +0.057 at 1.4) and turn it (6° at 1.4) — a
+    /// tone move in disguise. At 1.0 a saturated blue gains 10% and loses 15%.
+    public static let primaryPurityStops: [Double] = [0.6, 0.6, 1.0]
     /// Shadows Tint: a pinned shadow window (NOT the user's grading pivot) and the
     /// maximum a/b offset at ±100.
     public static let tintPivotEV: Double = -3.0
@@ -400,7 +447,7 @@ public struct ColorEngine: Sendable {
 
         self.swatches = Self.compiledSwatches(pointColors, context: context)
 
-        let m: Mat3 = Self.primariesMatrix(primaries, space: Self.workingSpace)
+        let m: Mat3 = Self.primariesMatrix(primaries, context: context)
         self.remap = m
         self.remapIsIdentity = m.maxAbsDifference(.identity) < 1e-12
 
@@ -563,7 +610,8 @@ public struct ColorEngine: Sendable {
         }
         resolved.swatches = swatches.map { s in
             [s.target.L, s.target.C, s.target.h, s.sigmaL, s.sigmaC, s.sigmaH,
-             s.shiftH, s.shiftS, s.shiftL * Self.lumKappa, s.q]
+             s.shiftH, s.shiftS, s.shiftL * Self.lumKappa, s.q, s.sigmaR,
+             s.chiA, s.chiB, s.chiInverseNorm]
         }
         let vibrance = Num.clamp(color.vibrance, -100, 100) / 100
         let saturation = Num.clamp(color.saturation, -100, 100) / 100
@@ -1055,67 +1103,69 @@ public struct ColorEngine: Sendable {
         return Num.raisedCosine((u + 1) / 2)
     }
 
-    /// Rotate and rescale each primary's chromaticity about the white point, then rebuild
-    /// the RGB→XYZ matrix. The rebuild renormalizes so `M · (1,1,1)` is the white point:
-    /// **greys are preserved by construction**, at any setting. That is the property that
-    /// beats LrC Calibration, where extreme primary moves drag neutrals off-axis.
-    private static func primariesMatrix(_ p: Primaries, space: RGBColorSpace) -> Mat3 {
+    /// Rotate and rescale each primary's CHROMA about the neutral axis, then put white
+    /// back: the remap that moves what R, G and B mean.
+    ///
+    /// THE PLANE IS LINEAR OPPONENT SPACE, NOT xy — and that is the whole fix.
+    ///
+    /// This used to rotate and scale each primary's xy chromaticity and rebuild an
+    /// RGB→XYZ matrix from the result, which needs every moved primary to be a REAL
+    /// chromaticity (y > 0, x + y < 1). Rec.2020's primaries are laser lines on the
+    /// spectral locus, so they have no room outward at all: Red Purity's whole positive
+    /// half was a clamp (byte-identical renders from +10 to +100, ProofRegistry's
+    /// declared plateau, PROOF-03), Green's died past about +25 and Blue's past +31.
+    /// Measured on the chart's red patch: Purity +25, +50, +100 all left it at OKLab C
+    /// 0.155. Rotating did the same trick in reverse — a red turned toward orange slid
+    /// off the locus and came back desaturated (C 0.155 → 0.108 at Hue +100).
+    ///
+    /// A remap matrix does not need physical primaries. Each primary's column is taken
+    /// into linear opponent coordinates — OKLab's two matrices without the cube root
+    /// between them, so `a`/`b` point where OKLab's hues do and the lightness row is
+    /// left alone — its (a, b) is turned by up to `primaryRotationDegrees` and scaled by
+    /// `2^(purity · primaryPurityStops)`, and it comes back to RGB. Nothing there can
+    /// leave a valid domain, so every slider runs its whole travel.
+    ///
+    /// **Greys are preserved by construction**, as before: the columns are rescaled by
+    /// `s = P⁻¹·(1,1,1)` so the matrix maps (1,1,1) to itself, at any setting. That
+    /// rescale is also why a primary's move reaches every colour containing it — the
+    /// Calibration behaviour a colourist reaches for (Blue Saturation lifting the whole
+    /// palette, Red Hue warming skin) rather than the Mixer's "pixels that look red".
+    /// Every corner of the eight-slider cube keeps every `s` above 0.13 (white stays
+    /// inside the moved primaries' triangle); the guard below refuses the matrix
+    /// rather than invert through a degenerate one if a future constant breaks that.
+    private static func primariesMatrix(_ p: Primaries,
+                                        context: OKLabTransform.Context) -> Mat3 {
         let hues: [Double] = [p.rHue, p.gHue, p.bHue]
         let purities: [Double] = [p.rPurity, p.gPurity, p.bPurity]
-        let base: [Chromaticity] = [space.red, space.green, space.blue]
         var flat = true
         for i in 0..<3 where hues[i] != 0 || purities[i] != 0 { flat = false }
         if flat { return .identity }
 
-        let w = space.white
-        var moved: [Chromaticity] = []
-        moved.reserveCapacity(3)
+        let toOpponent = OKLabTransform.lmsToLab * context.rgbToLMS
+        let fromOpponent = toOpponent.inverse
+        var columns: [RGB] = []
+        columns.reserveCapacity(3)
         for i in 0..<3 {
             let theta = Num.clamp(hues[i], -100, 100) / 100 * primaryRotationDegrees * .pi / 180
-            let rho = 1 + Num.clamp(purities[i], -100, 100) / 100 * primaryPurityScale
-            let dx = base[i].x - w.x
-            let dy = base[i].y - w.y
-            let ct = cos(theta)
-            let st = sin(theta)
-            let ox = rho * (ct * dx - st * dy)
-            let oy = rho * (st * dx + ct * dy)
-            moved.append(safeChromaticity(white: w, offsetX: ox, offsetY: oy, fallback: base[i]))
+            let rho = Foundation.pow(2, Num.clamp(purities[i], -100, 100) / 100
+                                         * primaryPurityStops[i])
+            let unit = RGB(i == 0 ? 1 : 0, i == 1 ? 1 : 0, i == 2 ? 1 : 0)
+            let o = toOpponent.apply(unit)
+            let a = rho * (cos(theta) * o.g - sin(theta) * o.b)
+            let b = rho * (sin(theta) * o.g + cos(theta) * o.b)
+            columns.append(fromOpponent.apply(RGB(o.r, a, b)))
         }
-
-        let remapped = RGBColorSpace(name: "primaries", red: moved[0], green: moved[1],
-                                     blue: moved[2], white: w)
-        let toXYZ = remapped.toXYZ
-        guard abs(toXYZ.determinant) > 1e-9 else { return .identity }
-        let full = space.fromXYZ * toXYZ
-        guard abs(full.determinant) > 1e-9 else { return .identity }
+        let moved = Mat3(columns[0].r, columns[1].r, columns[2].r,
+                         columns[0].g, columns[1].g, columns[2].g,
+                         columns[0].b, columns[1].b, columns[2].b)
+        guard abs(moved.determinant) > 1e-9 else { return .identity }
+        let scale = moved.inverse.apply(RGB(1, 1, 1))
+        guard scale.r > 0.05, scale.g > 0.05, scale.b > 0.05 else { return .identity }
+        let full = moved * Mat3.diagonal(scale)
         for row in full.m {
             for value in row where !value.isFinite { return .identity }
         }
         return full
-    }
-
-    /// Purity at ±100 can push a primary off the chromaticity plane entirely (Rec.2020's
-    /// blue leaves y > 0 well before the slider ends). Shrink the offset along its own
-    /// direction until it lands somewhere a matrix can be built from, rather than letting
-    /// the derivation trap or emit garbage.
-    private static func safeChromaticity(white w: Chromaticity,
-                                         offsetX: Double, offsetY: Double,
-                                         fallback: Chromaticity) -> Chromaticity {
-        func valid(_ s: Double) -> Bool {
-            let x = w.x + s * offsetX
-            let y = w.y + s * offsetY
-            return x.isFinite && y.isFinite && y > 0.002 && x > 0.001 && (x + y) < 0.999
-        }
-        if valid(1) { return Chromaticity(w.x + offsetX, w.y + offsetY) }
-        var lo: Double = 0
-        var hi: Double = 1
-        for _ in 0..<20 {
-            let mid = (lo + hi) / 2
-            if valid(mid) { lo = mid } else { hi = mid }
-        }
-        // A primary collapsed onto the white point would make the matrix singular.
-        guard lo > 0.05 else { return fallback }
-        return Chromaticity(w.x + lo * offsetX, w.y + lo * offsetY)
     }
 
     // MARK: - Colour Mixer (D13)
@@ -1234,6 +1284,13 @@ public struct ColorEngine: Sendable {
         let sigmaL: Double
         let sigmaC: Double
         let sigmaH: Double
+        /// The mixture tolerance (`pointRatioTolerance`, scaled), ≤ 1.
+        let sigmaR: Double
+        /// The sample's linear opponent chroma (a, b) and `1/|(a, b)|²` (0 for a
+        /// sample with none) — what a pixel's own is projected onto.
+        let chiA: Double
+        let chiB: Double
+        let chiInverseNorm: Double
         let shiftH: Double
         let shiftS: Double
         let shiftL: Double
@@ -1255,16 +1312,28 @@ public struct ColorEngine: Sendable {
             if shiftH == 0 && shiftS == 0 && shiftL == 0 && q == 0 { continue }
             let target = context.toLCh(sample)
             guard target.L.isFinite, target.C.isFinite else { continue }
+            let chi = linearChroma(sample, context: context)
+            let norm = chi.a * chi.a + chi.b * chi.b
             // The wire format carries one master Range; the per-axis refine ranges are a
             // documented format gap (brief §2.1), so all three axes share it.
             let r = Num.clamp(pc.range, 0, 100) / 100
             // Sub-linear, so neither end of the slider is a degenerate case. See
             // `pointRangeBase`.
             let scale = pointRangeBase + (1 - pointRangeBase) * r
+            // The per-axis refinements multiply the master on their own axis only.
+            let hue = scale * PointColor.axisFactor(pc.hueRange)
+            let sat = scale * PointColor.axisFactor(pc.satRange)
+            let lum = scale * PointColor.axisFactor(pc.lumRange)
             out.append(Swatch(target: target,
-                              sigmaL: Swift.max(pointSigmaL * scale, pointSigmaFloor),
-                              sigmaC: Swift.max(pointSigmaC * scale, pointSigmaFloor),
-                              sigmaH: Swift.max(pointSigmaH * scale, pointSigmaFloor),
+                              sigmaL: Swift.max(pointSigmaL * lum, pointSigmaFloor),
+                              sigmaC: Swift.max(pointSigmaC * sat, pointSigmaFloor),
+                              sigmaH: Swift.max(pointSigmaH * hue, pointSigmaFloor),
+                              // Capped at 1 whatever the refinement: past it a true
+                              // neutral would fall inside the selection.
+                              sigmaR: Swift.max(Swift.min(pointRatioTolerance * sat, 1),
+                                                pointSigmaFloor),
+                              chiA: chi.a, chiB: chi.b,
+                              chiInverseNorm: norm > 1e-12 ? 1 / norm : 0,
                               shiftH: shiftH, shiftS: shiftS, shiftL: shiftL, q: q))
         }
         return out
@@ -1290,6 +1359,70 @@ public struct ColorEngine: Sendable {
         let lch = context.toLCh(c)
         guard lch.L.isFinite, lch.C.isFinite else { return c }
 
+        let weights = Self.selectionWeights(lch, Self.linearChroma(c, context: context), s)
+        let weight = weights.weight
+        let hueWeight = weights.hueWeight
+        guard weight > 0 || hueWeight > 0 else { return c }
+
+        var L = lch.L
+        var C = lch.C
+        var h = lch.h
+
+        // THE CHROMA GATE IS THIS ENGINE'S LAW, not Variance's local variable.
+        //
+        // The file's own header states it: every hue-selective tool shares the gate, so
+        // near-neutral pixels — whose hue is numerically noise — are never rotated by
+        // one. `applyMixer` obeys it. Point Colour computed it INSIDE the Variance
+        // branch and left the three shift lines below ungated, so a swatch could rotate
+        // the hue of a pixel the Mixer refuses to touch: measured on a warm grey at
+        // C = 0.02, exactly `gateLoChroma`, a +60° hue shift arrived as +59.8° and
+        // swung sRGB (138,126,117) to (126,130,117) — twelve code values from warm to
+        // green, on a pixel with no hue to speak of.
+        //
+        // Hue only. Saturation on a near-neutral is already almost a no-op (it scales a
+        // chroma near zero), and lightness is legitimate — dodging a grey is a real
+        // thing to want, and the gate exists to protect hue from noise, not to make
+        // neutrals untouchable.
+        let gate = Self.chromaGate(lch.C)
+
+        if s.q != 0 {
+            // The neighbourhood, in the same coordinates the deviations are measured in.
+            // Identical to `lch` on the flat path, so this costs one comparison there.
+            let mu: OKLCh = localMean == c ? lch : {
+                let m = context.toLCh(localMean)
+                return m.L.isFinite && m.C.isFinite ? m : lch
+            }()
+            h = Self.varianceCompress(value: h, localMean: mu.h, target: s.target.h,
+                                      q: s.q, beta: 1.0, weight: weight * gate, axis: .hue)
+            // Gated like hue: converging a near-neutral's chroma toward the swatch's
+            // would GIVE a selected grey colour, at whatever hue its noise points —
+            // and the Float32 path's noise points elsewhere (verifier round 1: a grey
+            // under a skin swatch left at 297° on the CPU, 180° on the twin).
+            C = Self.varianceCompress(value: C, localMean: mu.C, target: s.target.C,
+                                      q: s.q, beta: 1.0, weight: weight * gate, axis: .chroma)
+            // LIGHTNESS DOES NOT TAKE PART. It did, at half weight, on the theory that
+            // a neighbourhood mean would leave the texture alone — but every shipping
+            // path runs the flat case, where the "mean" is the pixel itself, so −100
+            // halved the lightness detail of everything it selected: measured on a
+            // blotchy-skin frame, pore texture fell to 0.50 of itself and the skin went
+            // to plastic. Uneven skin is uneven in hue and colourfulness (redness,
+            // sallowness); its lightness variation IS its texture. Hue and chroma
+            // converge, lightness is the photograph's.
+        }
+
+        h += hueWeight * gate * s.shiftH
+        C = Swift.max(0, C * (1 + weight * s.shiftS / 100))
+        // Same chroma-preserving lightness kernel as the Mixer: C is untouched here.
+        L += weight * (s.shiftL / 100) * Self.lumKappa * Self.lumShape(L)
+        return context.toRGB(OKLCh(L: L, C: C, h: Num.wrapHue(h)))
+    }
+
+    /// The swatch's selection at one colour: `weight` for Saturation, Luminance and
+    /// Variance, and `hueWeight` (the absolute selection, stretched ahead of the swatch)
+    /// for the hue rotation.
+    private static func selectionWeights(_ lch: OKLCh, _ chi: (a: Double, b: Double),
+                                         _ s: Swatch)
+        -> (weight: Double, hueWeight: Double) {
         let dL = lch.L - s.target.L
         let dC = lch.C - s.target.C
         let dh = Num.hueDelta(s.target.h, lch.h)
@@ -1316,13 +1449,78 @@ public struct ColorEngine: Sendable {
         // expression that happens to be right and one that says what it means.
         let dH = Self.chromaGate(Swift.min(lch.C, s.target.C)) * (abs(dh) / 180)
 
+        // A MIXTURE WITH A NEUTRAL IS STILL THE SWATCH'S COLOUR, IN PART. See
+        // `pointRatioTolerance`. A pixel has two readings and is as selected as the
+        // more generous one says:
+        //
+        //   absolute — the selection as it always was: ΔL, ΔC and hue against the
+        //              tolerances, flat to half the radius, C¹ rolloff to the edge;
+        //   mixture  — the share `r` of the swatch's colour in it (linear light),
+        //              ramped smoothly from `1 − σR` (nothing) to 1 (all), times the
+        //              same rolloff on hue and on lightness counted at `pointMixtureLightness` — a tint or a
+        //              shade of the swatch is judged mostly on how much of the colour it
+        //              kept, not on how far a white or a black carried its lightness.
+        //              A constant, not `r` or `r²`: each factor of this reading is then
+        //              monotone along any blend, so their product is (`tL·r` peaks
+        //              half way, and with Sat range wide and Lum range tight the weight
+        //              rose as the colour left — verifier round 2). Still scaled by the
+        //              Luminance refinement, so a tight Lum range keeps its grip.
+        //
+        // WHY A RAMP OF ITS OWN and not one more term in the distance: the first draft
+        // put `(1 − r)/σR` into the distance, which sends the share through the
+        // plateau-and-cliff falloff — fully selected above r ≈ 0.65 and nothing below
+        // 0.3 at the default Range, the steepest stretch exactly where a warm
+        // off-white backdrop sits (frame 2062's plate reads r ≈ 0.37 against its
+        // petals). Chroma noise there flipped plate pixels in and out at full
+        // strength. The ramp has a third of that slope, so the backdrop gets a few
+        // per cent, smoothly, and a half blend gets a fifth.
+        //
+        // WHOLE READINGS, NOT AXES: combining per axis (the second draft) let a grey
+        // borrow the absolute chroma term and the mixture's zero lightness term and
+        // come along at 0.06 under a skin swatch. A neutral has r = 0 and a mixture
+        // weight of exactly 0.
+        //
+        // The mixture reading is scaled by both chroma gates, so it is absent for a
+        // near-neutral sample or pixel, whose "share of the colour" is noise.
         let tL = dL / s.sigmaL
         let tC = dC / s.sigmaC
+        let share = (chi.a * s.chiA + chi.b * s.chiB) * s.chiInverseNorm
+        // NO FADE. The reading used to be faded in below the sample's chroma (first on
+        // the share, then on 0.9–1.0 of the chroma, then on a quarter of the chroma
+        // tolerance); every version dipped somewhere, because while a fade runs the
+        // mixture reading sits ABOVE the absolute one and the weight climbs as the
+        // colour leaves — verifier rounds 1 and 2 found 0.05, 0.11 and, with a tight Lum
+        // range, 0.04. It needs none: it charges chroma above the sample's like the
+        // absolute reading does (`max(tC, 0)` below), folds shares above 1, and along
+        // any blend with a neutral each of its factors is monotone, so their product is.
+        // Gated by both chromas, so near-neutral samples and pixels gain nothing.
+        let g = chromaGate(s.target.C) * chromaGate(lch.C)
+        // More linear chroma than the swatch is not a mixture of it with a neutral — a
+        // brighter, paler colour reads that way. Folded back down as `1/share`, so it
+        // leaves the reading as fast as a blend enters it, continuously at 1.
+        let r = share > 1 ? 1 / share : Swift.max(share, 0)
+        let mL = Self.pointMixtureLightness * tL
+        // A BLEND WITH A NEUTRAL POINTS EXACTLY ALONG THE SWATCH'S CHROMA. The angle
+        // between the two linear chroma vectors is the mixture reading's hue test, at
+        // half the hue tolerance and ungated: 2062's cream pollen sits inside the red
+        // petal at 31–82% of its share but 40° off it, and the gated OKLab hue term
+        // (its chroma is 0.03–0.06) let it in at 21% with ±8% pixel-to-pixel noise.
+        let cross = chi.b * s.chiA - chi.a * s.chiB
+        let dot = chi.a * s.chiA + chi.b * s.chiB
+        let angle = atan2(abs(cross), dot) * 180 / .pi
+        let mH = angle / 180 / (Self.pointMixtureHueFraction * s.sigmaH)
+        let ramp = g > 0 ? g * Num.smoothstep(1 - s.sigmaR, 1, r) : 0
+        func absolute(_ tH: Double) -> Double {
+            1 - Num.smoothstep(0.5, 1.0, (tL * tL + tC * tC + tH * tH).squareRoot())
+        }
         let tH = dH / s.sigmaH
-        let d = (tL * tL + tC * tC + tH * tH).squareRoot()
-        guard d.isFinite else { return c }
-        // Flat plateau out to half the radius, C¹ rolloff to nothing at the edge.
-        let weight = 1 - Num.smoothstep(0.5, 1.0, d)
+        guard (tL * tL + tC * tC + tH * tH).isFinite else { return (0, 0) }
+        var weight = absolute(tH)
+        if ramp > 0 {
+            let over = Swift.max(tC, 0)
+            weight = Swift.max(weight, ramp * (1 - Num.smoothstep(
+                0.5, 1.0, (mL * mL + over * over + mH * mH).squareRoot())))
+        }
         // THE HUE ROTATION GETS ITS OWN, WIDER REACH — along hue, ahead of the swatch,
         // and only when the shift needs it.
         //
@@ -1359,64 +1557,104 @@ public struct ColorEngine: Sendable {
         //   binds only for |shift| above 58.8° and there still holds the slope to
         //   |shift|/60 ≤ 1: flat at worst, never reversed.
         //
-        // Below the fold `k` is exactly 1 and the rotation is the selection's own
-        // `weight`, so saved looks there render as before. Saturation, Luminance and
-        // Variance always keep `weight`. `hueWeight ≥ weight` everywhere, so it is the
-        // one the early-out reads.
+        // Below the fold `k` is exactly 1 and the rotation is the absolute selection,
+        // so saved looks there render as before.
+        //
+        // THE ROTATION READS THE ABSOLUTE SELECTION ONLY, never the mixture reading.
+        // The mixture's hue test is an angle in linear opponent space, which turns
+        // faster than OKLab hue in places, so the fold bound above does not hold for it:
+        // with it, Hue −30° at Range 100 ran the output hue 0.9° backwards
+        // (`PointColourHueOrderTests`, verifier round 3 build). Saturation, Luminance and
+        // Variance read `weight`, which includes the mixture reading; a Hue turn on a
+        // soft edge is cut exactly as it always was.
         let hueWeight: Double
         if dh * s.shiftH > 0 {
             let k = Swift.min(Swift.max(1, abs(s.shiftH) / (0.98 * 60 * s.sigmaH)),
                               Swift.max(1, 1 / s.sigmaH))
-            let tHk = tH / k
-            hueWeight = 1 - Num.smoothstep(0.5, 1.0, (tL * tL + tC * tC + tHk * tHk).squareRoot())
+            hueWeight = absolute(tH / k)
         } else {
-            hueWeight = weight
+            hueWeight = absolute(tH)
         }
-        guard hueWeight > 0 else { return c }
+        return (weight, hueWeight)
+    }
 
-        var L = lch.L
-        var C = lch.C
-        var h = lch.h
+    /// The linear opponent chroma of `c` — OKLab's two matrices with no cube root
+    /// between them, (a, b) rows only. Linear, so a mixture's is the mixture of its
+    /// parts', and a neutral's is zero.
+    static func linearChroma(_ c: RGB,
+                             context: OKLabTransform.Context) -> (a: Double, b: Double) {
+        let lms = context.rgbToLMS.apply(c)
+        let m = OKLabTransform.lmsToLab.m
+        return (m[1][0] * lms.r + m[1][1] * lms.g + m[1][2] * lms.b,
+                m[2][0] * lms.r + m[2][1] * lms.g + m[2][2] * lms.b)
+    }
 
-        // THE CHROMA GATE IS THIS ENGINE'S LAW, not Variance's local variable.
-        //
-        // The file's own header states it: every hue-selective tool shares the gate, so
-        // near-neutral pixels — whose hue is numerically noise — are never rotated by
-        // one. `applyMixer` obeys it. Point Colour computed it INSIDE the Variance
-        // branch and left the three shift lines below ungated, so a swatch could rotate
-        // the hue of a pixel the Mixer refuses to touch: measured on a warm grey at
-        // C = 0.02, exactly `gateLoChroma`, a +60° hue shift arrived as +59.8° and
-        // swung sRGB (138,126,117) to (126,130,117) — twelve code values from warm to
-        // green, on a pixel with no hue to speak of.
-        //
-        // Hue only. Saturation on a near-neutral is already almost a no-op (it scales a
-        // chroma near zero), and lightness is legitimate — dodging a grey is a real
-        // thing to want, and the gate exists to protect hue from noise, not to make
-        // neutrals untouchable.
-        let gate = Self.chromaGate(lch.C)
+    /// How strongly `swatch` selects the colour `c` (a colour-stage value, as
+    /// `selectionInput` returns it), 0…1 — the weight its Saturation and Luminance
+    /// moves are multiplied by. Read through the compiled swatch the render uses, so a
+    /// picture of the selection (the panel's range strip) cannot disagree with what the
+    /// sliders do. The swatch's own shifts are ignored: a swatch nobody has moved yet
+    /// still has a selection to show.
+    public static func pointSelectionWeight(_ c: RGB, of swatch: PointColor,
+                                            context: OKLabTransform.Context
+                                                = OKLabTransform.working) -> Double {
+        var probe = swatch
+        probe.shift = HSLShift(h: 0, s: 0, l: 1)
+        probe.variance = 0
+        guard c.isFinite,
+              let compiled = compiledSwatches([probe], context: context).first else { return 0 }
+        let lch = context.toLCh(c)
+        guard lch.L.isFinite, lch.C.isFinite else { return 0 }
+        return selectionWeights(lch, linearChroma(c, context: context), compiled).weight
+    }
 
-        if s.q != 0 {
-            // The neighbourhood, in the same coordinates the deviations are measured in.
-            // Identical to `lch` on the flat path, so this costs one comparison there.
-            let mu: OKLCh = localMean == c ? lch : {
-                let m = context.toLCh(localMean)
-                return m.L.isFinite && m.C.isFinite ? m : lch
-            }()
-            h = Self.varianceCompress(value: h, localMean: mu.h, target: s.target.h,
-                                      q: s.q, beta: 1.0, weight: weight * gate, axis: .hue)
-            C = Self.varianceCompress(value: C, localMean: mu.C, target: s.target.C,
-                                      q: s.q, beta: 1.0, weight: weight, axis: .chroma)
-            // Lightness deviation participates at half weight — which is why evening out
-            // a blotchy sky does not flatten its luminance texture.
-            L = Self.varianceCompress(value: L, localMean: mu.L, target: s.target.L,
-                                      q: s.q, beta: 0.5, weight: weight, axis: .lightness)
+    /// One axis of a swatch's selection, for the panel to draw (`PointSelectionStrip`).
+    public enum PointAxis: Sendable, CaseIterable {
+        /// ±90° round the wheel from the sample, at its lightness and chroma.
+        case hue
+        /// Chroma from 0 to twice the sample's (at least 0.12), at its lightness and hue.
+        case saturation
+        /// Lightness ±0.4 from the sample's, at its chroma and hue.
+        case luminance
+    }
+
+    /// `steps + 1` colours evenly along `axis` through the swatch's sample, each with the
+    /// weight the swatch gives it, and the position (0…1) of the sample itself. The
+    /// colours are colour-stage values in the working space, like the sample.
+    public static func pointSelectionStrip(_ swatch: PointColor, axis: PointAxis,
+                                           steps: Int = 48,
+                                           context: OKLabTransform.Context
+                                               = OKLabTransform.working)
+        -> (colours: [RGB], weights: [Double], samplePosition: Double) {
+        guard swatch.sample.count >= 3, steps > 0 else { return ([], [], 0.5) }
+        let t = context.toLCh(RGB(swatch.sample[0], swatch.sample[1], swatch.sample[2]))
+        guard t.L.isFinite, t.C.isFinite else { return ([], [], 0.5) }
+        let cMax = Swift.max(2 * t.C, 0.12)
+        let lLow = Swift.max(0.02, t.L - 0.4)
+        let lHigh = Swift.min(0.98, t.L + 0.4)
+        var colours: [RGB] = []
+        var weights: [Double] = []
+        colours.reserveCapacity(steps + 1)
+        weights.reserveCapacity(steps + 1)
+        for i in 0...steps {
+            let u = Double(i) / Double(steps)
+            var p = t
+            switch axis {
+            case .hue: p.h = Num.wrapHue(t.h - 90 + 180 * u)
+            case .saturation: p.C = cMax * u
+            case .luminance: p.L = lLow + (lHigh - lLow) * u
+            }
+            let c = context.toRGB(p)
+            colours.append(c)
+            weights.append(pointSelectionWeight(c, of: swatch, context: context))
         }
-
-        h += hueWeight * gate * s.shiftH
-        C = Swift.max(0, C * (1 + weight * s.shiftS / 100))
-        // Same chroma-preserving lightness kernel as the Mixer: C is untouched here.
-        L += weight * (s.shiftL / 100) * Self.lumKappa * Self.lumShape(L)
-        return context.toRGB(OKLCh(L: L, C: C, h: Num.wrapHue(h)))
+        let position: Double
+        switch axis {
+        case .hue: position = 0.5
+        case .saturation: position = t.C / cMax
+        case .luminance: position = lHigh > lLow ? (t.L - lLow) / (lHigh - lLow) : 0.5
+        }
+        return (colours, weights, Num.clamp(position, 0, 1))
     }
 
     // MARK: - Vibrance and Saturation (D21)

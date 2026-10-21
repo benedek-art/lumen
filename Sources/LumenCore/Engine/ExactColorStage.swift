@@ -79,7 +79,7 @@ public struct ExactColorStage: Sendable, Equatable {
         var luma: RGB
         /// Per band: centre, coreBelow, coreAbove, featherBelow, featherAbove, hue°, sat, lum, target°.
         var mixer: (bands: [[Double]], q: Double)?
-        /// Per swatch: L, C, h, σL, σC, σH, shiftH, shiftS, shiftL, q.
+        /// Per swatch: L, C, h, σL, σC, σH, shiftH, shiftS, shiftL, q, σR, χa, χb, 1/|χ|².
         var swatches: [[Double]]
         var vibranceSaturation: (vibrance: Double, saturation: Double,
                                  protectSkin: Double, density: Double)?
@@ -123,7 +123,8 @@ public struct ExactColorStage: Sendable, Equatable {
         for s in r.swatches {
             let u = conversion + [Self.v(s[0], s[1], s[2], s[3]),
                                   Self.v(s[4], s[5], s[6], s[7]),
-                                  Self.v(s[8], s[9], 0, 0)]
+                                  Self.v(s[8], s[9], s[10], 0),
+                                  Self.v(s[11], s[12], s[13], 0)]
             out.append(Pass(kernel: .point, uniforms: u, readsReference: s[9] != 0))
         }
 
@@ -396,24 +397,38 @@ enum ExactColorTwin {
     static func point(_ c: F3, _ ref: F3, _ u: U) -> F3 {
         let l = lch(toLab(c, u))
         guard finite(l) else { return c }
-        let t = u[9], s = u[10], k = u[11]
+        let t = u[9], s = u[10], k = u[11], m = u[12]
         let dL = l.x - t.x
         let dC = l.y - t.y
         let dh = hueDelta(t.z, l.z)
         let dH = gate(min(l.y, t.y)) * (abs(dh) / 180)
         let a = dL / t.w, b = dC / s.x, cc = dH / s.y
-        let d = (a * a + b * b + cc * cc).squareRoot()
-        guard d.isFinite else { return c }
-        let weight = 1 - smoothstep(0.5, 1, d)
-        // The rotation's own reach, hue term only, leading side only —
-        // `ColorEngine.applySwatch` says why.
-        var hueWeight = weight
+        // Two readings, the more generous wins — `ColorEngine.selectionWeights`.
+        let chi = mul(u, 9, mul(u, 0, c))
+        let dot = chi.y * m.x + chi.z * m.y
+        let share = dot * m.z
+        let gt = gate(t.y) * gate(l.y)
+        let r: Float = share > 1 ? 1 / share : max(share, 0)
+        let ma = 0.5 * a
+        let cross = chi.z * m.x - chi.y * m.y
+        let mh = (atan2(abs(cross), dot) * 57.2957795) / 180 / (0.5 * s.y)
+        let ramp: Float = gt > 0 ? gt * smoothstep(1 - k.z, 1, r) : 0
+        func absolute(_ h: Float) -> Float {
+            1 - smoothstep(0.5, 1, (a * a + b * b + h * h).squareRoot())
+        }
+        guard (a * a + b * b + cc * cc).squareRoot().isFinite else { return c }
+        var weight = absolute(cc)
+        if ramp > 0 {
+            let over = max(b, 0)
+            weight = max(weight, ramp * (1 - smoothstep(0.5, 1, (ma * ma + over * over + mh * mh).squareRoot())))
+        }
+        // The rotation reads the absolute selection only — `ColorEngine.selectionWeights`.
+        var hueWeight = absolute(cc)
         if dh * s.z > 0 {
             let kk = min(max(1, abs(s.z) / (0.98 * 60 * s.y)), max(1, 1 / s.y))
-            let ck = cc / kk
-            hueWeight = 1 - smoothstep(0.5, 1, (a * a + b * b + ck * ck).squareRoot())
+            hueWeight = absolute(cc / kk)
         }
-        guard hueWeight > 0 else { return c }
+        guard weight > 0 || hueWeight > 0 else { return c }
         var L = l.x, C = l.y, h = l.z
         let g = gate(l.y)
         let q = k.y
@@ -421,8 +436,7 @@ enum ExactColorTwin {
             var mu = lch(toLab(ref, u))
             if !finite(mu) { mu = l }
             h = wrapHue(h + q * (weight * g) * hueDelta(t.z, mu.z))
-            C = C + q * weight * (mu.y - t.y)
-            L = L + q * 0.5 * weight * (mu.x - t.x)
+            C = C + q * (weight * g) * (mu.y - t.y)
         }
         h += hueWeight * g * s.z
         C = max(0, C * (1 + weight * s.w / 100))
@@ -763,7 +777,7 @@ public enum ExactColorKernelSource {
     public static let point: String = prelude + """
 
     kernel vec4 lumenColourPoint(__sample s, __sample ref, \(conversionParameters),
-                                 vec4 t, vec4 sg, vec4 k) {
+                                 vec4 t, vec4 sg, vec4 k, vec4 mx) {
         vec3 c = s.rgb;
         vec3 l = lumenLCh(\(toLab("c")));
         if (lumenFinite(l) == false) { return s; }
@@ -772,16 +786,30 @@ public enum ExactColorKernelSource {
         float dh = lumenHueDelta(t.z, l.z);
         float dH = lumenGate(min(l.y, t.y)) * (abs(dh) / 180.0);
         float ea = dL / t.w; float eb = dC / sg.x; float ec = dH / sg.y;
+        vec3 chiLMS = \(mul(0, "c"));
+        vec3 chi = \(mul(9, "chiLMS"));
+        float cdot = chi.y * mx.x + chi.z * mx.y;
+        float share = cdot * mx.z;
+        float gt = lumenGate(t.y) * lumenGate(l.y);
+        float over = max(eb, 0.0);
+        float rr = share > 1.0 ? 1.0 / share : max(share, 0.0);
+        float ma = 0.5 * ea;
+        float ccross = chi.z * mx.x - chi.y * mx.y;
+        float mh = (atan(abs(ccross), cdot) * 57.2957795) / 180.0 / (0.5 * sg.y);
+        float ramp = gt > 0.0 ? gt * lumenSmooth(1.0 - k.z, 1.0, rr) : 0.0;
         float d = sqrt(ea * ea + eb * eb + ec * ec);
         if (!(abs(d) < 3.0e38)) { return s; }
         float weight = 1.0 - lumenSmooth(0.5, 1.0, d);
-        float hueWeight = weight;
+        if (ramp > 0.0) {
+            weight = max(weight, ramp * (1.0 - lumenSmooth(0.5, 1.0, sqrt(ma * ma + over * over + mh * mh))));
+        }
+        float hueWeight = 1.0 - lumenSmooth(0.5, 1.0, d);
         if (dh * sg.z > 0.0) {
             float kk = min(max(1.0, abs(sg.z) / (0.98 * 60.0 * sg.y)), max(1.0, 1.0 / sg.y));
             float ek = ec / kk;
             hueWeight = 1.0 - lumenSmooth(0.5, 1.0, sqrt(ea * ea + eb * eb + ek * ek));
         }
-        if (!(hueWeight > 0.0)) { return s; }
+        if (!(weight > 0.0) && !(hueWeight > 0.0)) { return s; }
         float L = l.x; float C = l.y; float h = l.z;
         float g = lumenGate(l.y);
         float qq = k.y;
@@ -790,8 +818,7 @@ public enum ExactColorKernelSource {
             vec3 mu = lumenLCh(\(toLab("rc")));
             if (lumenFinite(mu) == false) { mu = l; }
             h = lumenWrap(h + qq * (weight * g) * lumenHueDelta(t.z, mu.z));
-            C = C + qq * weight * (mu.y - t.y);
-            L = L + qq * 0.5 * weight * (mu.x - t.x);
+            C = C + qq * (weight * g) * (mu.y - t.y);
         }
         h += hueWeight * g * sg.z;
         C = max(0.0, C * (1.0 + weight * sg.w / 100.0));

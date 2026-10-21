@@ -296,9 +296,13 @@ final class PerPixelVarianceHelpTests: XCTestCase {
                     color: ColorAdjust(), primaries: Primaries(), bw: nil)
     }
 
-    /// "at −100 colours well inside its range take the swatch's hue and colourfulness
-    /// and move halfway to its lightness". Measured: 24°/29°/34° all leave at 29.23°.
-    func testPointVarianceMinus100TakesTheSwatchsHueAndChromaAndHalfItsLightness() {
+    /// "at −100 fine colour variation evens out with the blotches — lightness, and with
+    /// it texture, is never touched". Measured: 24°/29°/34° all leave at 29.23°.
+    ///
+    /// WS-32 changed the lightness half: Variance used to move lightness halfway to the
+    /// swatch's, which on this flat path halved pore texture (0.50× on a blotchy-skin
+    /// frame). It leaves lightness exactly alone now, and this test says so.
+    func testPointVarianceMinus100TakesTheSwatchsHueAndChromaAndLeavesLightness() {
         let swatch = lch(0.55, 0.10, 29.23)
         let engine = pointEngine(swatch: swatch, variance: -100)
         for dh in [-5.0, 0, 5] {
@@ -313,7 +317,7 @@ final class PerPixelVarianceHelpTests: XCTestCase {
         }
         for dL in [-0.04, 0.04] {
             XCTAssertEqual(ctx.toLCh(engine.apply(lch(0.55 + dL, 0.10, 29.23))).L,
-                           0.55 + dL / 2, accuracy: 1e-6)
+                           0.55 + dL, accuracy: 1e-6)
         }
     }
 
@@ -356,13 +360,12 @@ final class PerPixelVarianceHelpTests: XCTestCase {
                       "Even out hues no longer says it flattens texture")
         let variance = try Scan.between("LumenSlider(title: \"Variance\"",
                                         ".onChange(of: swatches.count)", in: source)
-        XCTAssertTrue(variance.contains("For now it works pixel by pixel, not on the "
-                                        + "neighbourhood: at \u{2212}100 colours well "
-                                        + "inside its range take the swatch's hue and "
-                                        + "colourfulness and move halfway to its "
-                                        + "lightness, so fine colour texture flattens "
-                                        + "too; positive amplifies it, noise included."),
-                      "Point Colour Variance no longer says it flattens texture")
+        XCTAssertTrue(variance.contains("It works pixel by pixel, so at \u{2212}100 fine "
+                                        + "colour variation evens out with the blotches "
+                                        + "\u{2014} lightness, and with it texture, is never "
+                                        + "touched; positive amplifies colour variation, "
+                                        + "noise included."),
+                      "Point Colour Variance no longer says what it flattens and what not")
     }
 }
 

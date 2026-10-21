@@ -48,10 +48,9 @@ final class ControlProofTests: XCTestCase {
             // Equality against the DECLARED plateau, which is zero for every control
             // that has not argued for one — so this is the same assertion it has always
             // been everywhere it has always been made. docs/20 P2 forbids "a plateau
-            // the control does not declare", and `primaries.rPurity` is the first
-            // control in this registry to declare one: Rec.2020's red primary already
-            // sits on the x + y = 1 line, so `safeChromaticity` refuses to push it any
-            // further out and the positive half of that slider is a clamp.
+            // the control does not declare". `primaries.rPurity` used to be the one
+            // control that declared one (its positive half was a clamp); WS-33 rebuilt
+            // the remap and took the declaration back to zero.
             //
             // The equality cuts both ways on purpose. A plateau that GROWS is a
             // regression, and a plateau that DISAPPEARS is a fix that has to say so in

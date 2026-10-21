@@ -255,6 +255,33 @@ final class PanelSnapshotTests: XCTestCase {
             SnapshotMaskOverlay(image: sample, overlay: overlay, container: viewer)
         }
 
+        // Appended for quality lane K3 (WS-32/33): Primaries open with its six matrix
+        // rows moved, and the first Point Colour swatch with its Range refined.
+        state.activeMaskID = nil
+        state.updateRecipe(label: "Snapshot primaries and refined swatch") { recipe in
+            recipe.look.primaries = Primaries(rHue: 30, rPurity: 40, gHue: -20,
+                                              gPurity: -30, bHue: 25, bPurity: 50)
+            if !recipe.develop.pointColors.isEmpty {
+                recipe.develop.pointColors[0].hueRange = 80
+                recipe.develop.pointColors[0].lumRange = 25
+            }
+        }
+        await recorder.settle(0.3)
+        await recorder.render("panel-grade-grading-primaries-open",
+                              "Grade ▸ Grading with Primaries open and its six matrix rows moved",
+                              width: width) {
+            SnapshotSectionCard(.grading, isModified: recorder.isModified(.grading)) {
+                LookPanel(only: .grading, primariesOpen: true)
+            }
+        }
+        await recorder.render("panel-grade-colour-point-refined",
+                              "Grade ▸ Colour, first swatch with Hue range 80 and Lum range 25",
+                              width: width) {
+            SnapshotSectionCard(.color, isModified: recorder.isModified(.color)) {
+                ColorPanel(only: .color)
+            }
+        }
+
         // Lane C1: the two shaped guides, and the picture turning with its fine grid.
         let tool = CropTool.shared
         let rememberedGuide = tool.overlay

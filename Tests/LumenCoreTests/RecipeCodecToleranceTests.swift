@@ -470,7 +470,8 @@ final class RecipeCodecToleranceTests: XCTestCase {
     private static func populated() -> Recipe {
         let shift = HSLShift(h: 3, s: 4, l: 5)
         let swatch = PointColor(sample: [0.2, 0.3, 0.4], range: 44,
-                                variance: -12, shift: shift)
+                                variance: -12, shift: shift,
+                                hueRange: 61, satRange: 37, lumRange: 72)
         let curve = CurveSet(
             parametric: ParametricCurve(highlights: 11, lights: 12, darks: 13,
                                         shadows: 14, splits: [0.2, 0.45, 0.8]),
