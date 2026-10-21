@@ -65,9 +65,11 @@ public struct LateralCAModel: Equatable, Sendable, Codable {
 
 public enum LateralCAEstimator {
 
-    /// Below this misregistration (px at the measured scale, anywhere in the frame) the
-    /// estimate is indistinguishable from noise and the stage stays an exact identity.
-    public static let significancePixels = 0.08
+    /// Below this misregistration (native px, anywhere in the frame) the estimate is
+    /// indistinguishable from noise and the stage stays an exact identity. 0.12: the A7 IV
+    /// frame (6929), whose lens shows no lateral CA, measures a sign-flipping 0.09–0.10
+    /// px of noise, and a 0.1 px colour misregistration is not visible at 100 %.
+    public static let significancePixels = 0.12
 
     public struct Sample: Sendable {
         public var r: Double
