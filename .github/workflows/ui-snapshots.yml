@@ -1,0 +1,269 @@
+name: UI snapshots
+
+# PICTURES OF THE INTERFACE, FOR THE AGENTS THAT HAVE NEVER SEEN IT.
+#
+# `ui-layout.yml` measures the panels; this lane draws them. On a macOS runner with no
+# display, `PanelSnapshotTests` hosts every editing panel and the full window offscreen,
+# at 2x, in the dark appearance, and writes PNGs plus an `index.md` saying what each one
+# shows and how it was captured. This workflow then commits them to the orphan branch
+# `ui-snapshots`, where a Linux checkout can read them with plain git:
+#
+#   git fetch origin ui-snapshots
+#   git show origin/ui-snapshots:README.md                    # every branch, newest first
+#   git show origin/ui-snapshots:<branch>/LATEST              # e.g. a1b2c3d
+#   git show origin/ui-snapshots:<branch>/<sha>/index.md
+#   git worktree add /tmp/snaps origin/ui-snapshots           # then open the PNGs
+#
+# `<branch>` is the source branch with every character outside [A-Za-z0-9._-] turned
+# into `-` (so `claude/foo` is `claude-foo`); `<sha>` is the 7-character commit. The
+# newest three snapshot sets per branch are kept, and folders for branches that no
+# longer exist are dropped.
+#
+# THE BRANCH IS ALWAYS ONE COMMIT. Each publish writes a fresh parentless commit and
+# force-pushes it with a lease, so `git fetch origin ui-snapshots` costs the current
+# pictures and never their history. A concurrent publish from another branch's run
+# moves the lease, and this one re-reads the tip and tries again.
+#
+# The test is an instrument, not a gate: a panel that cannot be drawn is a row in
+# `index.md`, not a red run. The job goes red only when the test process itself fails —
+# a compile error, a crash — and even then it publishes what it has, with the log
+# excerpt, so the reason is readable from Linux too.
+
+on:
+  push:
+    # Never the snapshot branch itself (a GITHUB_TOKEN push does not start a run
+    # anyway, and that branch carries no workflow — this is belt and braces).
+    branches-ignore:
+      - "ui-snapshots"
+    # Same rule as `ci.yml` and `ui-layout.yml`: a docs-only push moves no pixel.
+    paths-ignore:
+      - "docs/**"
+  workflow_dispatch:
+
+# One run per source branch, newest wins. Different branches run in parallel and
+# serialize only at the push, through the lease.
+concurrency:
+  group: ui-snapshots-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  snapshots:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: swift --version && xcodebuild -version
+
+      - name: Render the panels
+        id: render
+        shell: bash
+        env:
+          SNAPSHOT_DIR: ${{ github.workspace }}/build/snapshots
+          SNAPSHOT_BRANCH: ${{ github.ref_name }}
+        run: |
+          set +e
+          mkdir -p "$SNAPSHOT_DIR"
+          swift test --filter PanelSnapshotTests 2>&1 | tee snapshots.log
+          status=${PIPESTATUS[0]}
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "test process exit status: $status"
+            echo
+            echo "=== compile errors ==="
+            grep -E "error:" snapshots.log | grep -v ": error: -\[" \
+              | sed 's#/Users/runner/work/[^/]*/[^/]*/##' | sort -u | head -60
+            echo
+            echo "=== summary ==="
+            grep -E "Executed [0-9]+ test|UI snapshots:|skipped" snapshots.log | tail -5
+            echo
+            echo "=== test failures ==="
+            grep -E ": error: -\[" snapshots.log \
+              | sed 's#/Users/runner/work/[^/]*/[^/]*/##' | head -40
+          } > "$SNAPSHOT_DIR/log-excerpt.txt"
+          cat "$SNAPSHOT_DIR/log-excerpt.txt"
+
+          # No index means the test never reached its end — the reader on Linux still
+          # needs to be told why the folder has no pictures in it.
+          if [ ! -f "$SNAPSHOT_DIR/index.md" ]; then
+            {
+              echo "# Lumen UI snapshots — NOT RENDERED"
+              echo
+              echo "The snapshot test did not finish (exit status $status) for"
+              echo "\`$SNAPSHOT_BRANCH\` at \`$GITHUB_SHA\`. See \`log-excerpt.txt\`."
+            } > "$SNAPSHOT_DIR/index.md"
+          fi
+          ls -la "$SNAPSHOT_DIR"
+          exit 0
+
+      - name: Keep the run's pictures as an artifact too
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-snapshots-${{ github.run_id }}
+          path: build/snapshots
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Publish to the ui-snapshots branch
+        shell: bash
+        env:
+          SOURCE_BRANCH: ${{ github.ref_name }}
+          SNAPSHOT_DIR: ${{ github.workspace }}/build/snapshots
+          KEEP: "3"
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_WORKSPACE"
+
+          sanitize() {
+            local out
+            out=$(printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '-' \
+              | sed -E 's/-+/-/g; s/^[-.]+//; s/[-.]+$//' | cut -c1-80)
+            [ -n "$out" ] || out="branch"
+            printf '%s' "$out"
+          }
+
+          safe=$(sanitize "$SOURCE_BRANCH")
+          short="${GITHUB_SHA:0:7}"
+          echo "publishing $SOURCE_BRANCH@$short as $safe/$short"
+
+          # Every branch that still exists, sanitized, so folders for deleted branches
+          # can be dropped. Empty when the listing fails, which disables the pruning
+          # rather than pruning everything.
+          live=""
+          if heads=$(git -C "$repo" ls-remote --heads origin); then
+            while read -r _ ref; do
+              [ -n "$ref" ] || continue
+              live="$live $(sanitize "${ref#refs/heads/}")"
+            done <<< "$heads"
+          fi
+          # The source itself always counts as live — a dispatch on a tag, or a
+          # branch deleted mid-run, must not prune the set being published.
+          [ -z "$live" ] || live="$live $safe"
+
+          publish() {
+            local work="$RUNNER_TEMP/ui-snapshots-tree"
+            local index="$RUNNER_TEMP/ui-snapshots.index"
+            local lease=""
+            rm -rf "$work" "$index"
+            mkdir -p "$work"
+
+            # The current tip, if the branch exists: its files are the starting point.
+            if git -C "$repo" fetch --no-tags --depth=1 origin \
+                 "+refs/heads/ui-snapshots:refs/remotes/origin/ui-snapshots" 2>/dev/null; then
+              lease=$(git -C "$repo" rev-parse refs/remotes/origin/ui-snapshots) || return 1
+              # A tip that cannot be unpacked must not be replaced by a tree that is
+              # missing every other branch's pictures.
+              git -C "$repo" archive "$lease" | tar -x -C "$work" || return 1
+            fi
+
+            # This run's set replaces any earlier set for the same commit.
+            local branch_dir="$work/$safe"
+            mkdir -p "$branch_dir"
+            rm -rf "${branch_dir:?}/$short"
+            mkdir -p "$branch_dir/$short"
+            cp -R "$SNAPSHOT_DIR"/. "$branch_dir/$short/" || return 1
+
+            # Newest first; keep $KEEP; delete the rest and anything unlisted.
+            local history="$branch_dir/HISTORY"
+            {
+              echo "$short"
+              if [ -f "$history" ]; then grep -vx "$short" "$history" || true; fi
+            } | grep -v '^$' | head -n "$KEEP" > "$history.new" || true
+            mv "$history.new" "$history"
+            for dir in "$branch_dir"/*/; do
+              [ -d "$dir" ] || continue
+              local name
+              name=$(basename "$dir")
+              if ! grep -qx "$name" "$history"; then rm -rf "$dir"; fi
+            done
+            echo "$short" > "$branch_dir/LATEST"
+
+            # Branches that are gone.
+            if [ -n "$live" ]; then
+              for dir in "$work"/*/; do
+                [ -d "$dir" ] || continue
+                local name
+                name=$(basename "$dir")
+                case " $live " in
+                  *" $name "*) ;;
+                  *) echo "dropping $name (branch no longer exists)"; rm -rf "$dir" ;;
+                esac
+              done
+            fi
+
+            # The front page: every branch, its newest set first.
+            {
+              echo "# Lumen UI snapshots"
+              echo
+              echo "PNG renders of every editing panel and the full window, made on a"
+              echo "macOS runner by \`Tests/LumenAppTests/PanelSnapshotTests.swift\` and"
+              echo "published by \`.github/workflows/ui-snapshots.yml\`. This branch is"
+              echo "regenerated as a single commit on every publish."
+              echo
+              echo "    git fetch origin ui-snapshots"
+              echo "    git show origin/ui-snapshots:<branch>/LATEST"
+              echo "    git show origin/ui-snapshots:<branch>/<sha>/index.md"
+              echo "    git worktree add /tmp/snaps origin/ui-snapshots"
+              echo
+              echo "| branch | snapshot sets, newest first |"
+              echo "|---|---|"
+              for dir in "$work"/*/; do
+                [ -f "$dir/HISTORY" ] || continue
+                local name sets
+                name=$(basename "$dir")
+                sets=""
+                while read -r set; do
+                  [ -n "$set" ] || continue
+                  sets="$sets [\`$set\`]($name/$set/index.md)"
+                done < "$dir/HISTORY"
+                echo "| \`$name\` |$sets |"
+              done
+            } > "$work/README.md"
+
+            # A parentless commit of exactly that tree, through a private index so the
+            # source checkout is never touched. Every step is checked by hand: this
+            # function runs as an `if` condition, where `set -e` does not apply, and an
+            # empty index here would force-push an empty branch.
+            local tree commit
+            GIT_INDEX_FILE="$index" git --git-dir="$repo/.git" --work-tree="$work" \
+              -C "$work" add -A . || return 1
+            tree=$(GIT_INDEX_FILE="$index" git --git-dir="$repo/.git" write-tree) || return 1
+            if [ -z "$(git --git-dir="$repo/.git" ls-tree "$tree" -- "$safe/$short/index.md")" ]; then
+              echo "the tree to publish has no $safe/$short/index.md — refusing"
+              return 1
+            fi
+            commit=$(git -C "$repo" commit-tree "$tree" \
+              -m "UI snapshots: $SOURCE_BRANCH @ $short" \
+              -m "Source commit $GITHUB_SHA, run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID") \
+              || return 1
+            git -C "$repo" push \
+              --force-with-lease="refs/heads/ui-snapshots:$lease" \
+              origin "$commit:refs/heads/ui-snapshots"
+          }
+
+          for attempt in 1 2 3 4 5; do
+            if publish; then
+              echo "published on attempt $attempt"
+              exit 0
+            fi
+            echo "push refused (another branch published first?) — retrying"
+            sleep $((attempt * 3))
+          done
+          echo "::error::could not publish to ui-snapshots after 5 attempts"
+          exit 1
+
+      - name: Report the test's own verdict
+        if: steps.render.outputs.status != '0'
+        run: |
+          echo "::error::PanelSnapshotTests exited with status ${{ steps.render.outputs.status }} — see log-excerpt.txt in the published set"
+          exit 1

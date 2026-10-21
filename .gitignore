@@ -24,3 +24,6 @@ Tests/LumenCoreTests/Proof/evidence/
 # Proof corpus: CC0 RAWs, decoded .lfi and synthetic frames, rebuilt by
 # scripts/proof/fetch_corpus.sh. Binaries never go in git.
 /corpus/
+# UI snapshot output (PanelSnapshotTests with LUMEN_UI_SNAPSHOTS=1); published by CI to
+# the ui-snapshots branch, never committed here.
+/build/snapshots/
