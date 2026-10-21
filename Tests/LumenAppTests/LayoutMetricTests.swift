@@ -174,12 +174,14 @@ final class LayoutMetricTests: XCTestCase {
     /// 380 it is 1.24, past Lightroom's default", and both of those figures were stale:
     /// they predate `WorkspaceSectionView`'s card gutter (−20) and `valueWidth` going
     /// 44 → 52 for the readout pill (−8 on every row in the app). The measured pair is
-    /// **0.710 and 1.010**, and `Lumen.defaultPanelWidth`'s comment now says so — which
+    /// **0.710 and 1.010** (0.650 and 0.950 since U1 widened the column gutter and card
+    /// padding), and `Lumen.defaultPanelWidth`'s comment now says so — which
     /// is a repair rather than a concession: a comment that overstates the instrument by
     /// 23% is how a panel gets narrowed twice.
     ///
-    /// WHAT THIS CENSUS STILL FAILS ON, AND WHY THE FLOOR IS NOT MOVING. Forty-two of
-    /// the 142 rows are under 1.0 at the default, and they are not a layout problem:
+    /// WHAT THIS CENSUS STILL FAILS ON, AND WHY THE FLOOR IS NOT MOVING. Before U1,
+    /// forty-two of the 142 rows were under 1.0 at the default and none of them was a
+    /// layout problem (since U1 the 200-step class at 0.950 joins them, which is):
     /// they are the fine-quantum rows — Exposure's 0.01 EV over ±5 is 1,000 steps and
     /// would want 1,000 points of track, which no width this app permits comes near. The
     /// answer to those is the readout's own scrub, and
@@ -196,8 +198,8 @@ final class LayoutMetricTests: XCTestCase {
     /// The 1.0 pt-per-step floor is real, it is the app's own stated number, and a large
     /// share of the inventory is under it. But clearing it is not a bug fix — it is a
     /// trade the owner has to make, and the arithmetic says so: 200 points of groove for
-    /// a ±100 control needs a 378 pt column, and the minimum is 320. Raising the minimum
-    /// to 378 makes it equal to the default, which deletes the drag-narrower half of a
+    /// a ±100 control needs a 390 pt column, and the minimum is 320. Raising the minimum
+    /// to 390 puts it above the 380 default, which deletes the drag-narrower half of a
     /// resize that exists on purpose. Every inset in the chain above is already spent.
     ///
     /// So it is recorded rather than silenced. The census still RUNS and still prints
@@ -206,11 +208,11 @@ final class LayoutMetricTests: XCTestCase {
     /// this becomes an unexpected pass and asks for the expectation to be deleted — the
     /// same contract the grain parity expectation carries in KernelGoldenTests.
     func testTheCoarseTrackClearsThePrecisionFloorAtTheDefaultPanelWidth() {
-        XCTExpectFailure("The precision floor is not met at this width, and closing it is a trade rather than a fix: a bipolar-100 row needs a 378 pt column and the minimum is 320. Delete this expectation when the chain or the minimum changes.")
+        XCTExpectFailure("The precision floor is not met at this width, and closing it is a trade rather than a fix: a bipolar-100 row needs a 390 pt column and the minimum is 320. Delete this expectation when the chain or the minimum changes.")
         let failures = precisionCensus(columnWidth: Lumen.defaultPanelWidth)
         report(failures, of: SliderInventory.all.count,
-               "LumenControls.swift: the default width exists to buy \"~1.0\" points of "
-               + "track travel per unit.\n"
+               "LumenControls.swift: since U1 the default width no longer buys \"~1.0\" "
+               + "points of track travel per unit; 390 would.\n"
                + chainSummary(columnWidth: Lumen.defaultPanelWidth))
     }
 
@@ -220,20 +222,18 @@ final class LayoutMetricTests: XCTestCase {
     /// minimum is a state a photographer can actually be in, and a control that cannot
     /// address its own integers there is broken there.
     ///
-    /// 99 of the 142 rows are under the floor here, against 42 at the default, and the
-    /// 57 that separate the two censuses are the 200-step class: 0.710 pt per unit at 320,
-    /// 1.010 at 380. `Lumen.defaultPanelWidth` now states that gap in the place the
-    /// promise is made, because the honest reading of these two numbers is that the
-    /// floor is bought by the width the panel OPENS at and spent again by dragging it in
-    /// — and a photographer who drags it in is trading precision for room knowingly,
-    /// which is a different thing from a control that arrives broken.
+    /// Before U1, 99 of the 142 rows were under the floor here against 42 at the default,
+    /// and the 57 that separated the two censuses were the 200-step class: 0.710 pt per
+    /// unit at 320, 1.010 at 380. Since U1 that class is 0.650 and 0.950, under at both,
+    /// and `Lumen.defaultPanelWidth` says so where the old promise was made: the floor
+    /// now needs a 390 pt column, ten points wider than the column opens at.
     /// EXPECTED FAILURE, and the expectation carries the reason.
     ///
     /// The 1.0 pt-per-step floor is real, it is the app's own stated number, and a large
     /// share of the inventory is under it. But clearing it is not a bug fix — it is a
     /// trade the owner has to make, and the arithmetic says so: 200 points of groove for
-    /// a ±100 control needs a 378 pt column, and the minimum is 320. Raising the minimum
-    /// to 378 makes it equal to the default, which deletes the drag-narrower half of a
+    /// a ±100 control needs a 390 pt column, and the minimum is 320. Raising the minimum
+    /// to 390 puts it above the 380 default, which deletes the drag-narrower half of a
     /// resize that exists on purpose. Every inset in the chain above is already spent.
     ///
     /// So it is recorded rather than silenced. The census still RUNS and still prints
@@ -242,7 +242,7 @@ final class LayoutMetricTests: XCTestCase {
     /// this becomes an unexpected pass and asks for the expectation to be deleted — the
     /// same contract the grain parity expectation carries in KernelGoldenTests.
     func testTheCoarseTrackClearsThePrecisionFloorAtTheMinimumPanelWidth() {
-        XCTExpectFailure("The precision floor is not met at this width, and closing it is a trade rather than a fix: a bipolar-100 row needs a 378 pt column and the minimum is 320. Delete this expectation when the chain or the minimum changes.")
+        XCTExpectFailure("The precision floor is not met at this width, and closing it is a trade rather than a fix: a bipolar-100 row needs a 390 pt column and the minimum is 320. Delete this expectation when the chain or the minimum changes.")
         let failures = precisionCensus(columnWidth: Lumen.minimumPanelWidth)
         report(failures, of: SliderInventory.all.count,
                "LumenControls.swift: \"under the ~1.0 at which a one-pixel tremor stops "
@@ -262,10 +262,11 @@ final class LayoutMetricTests: XCTestCase {
     /// THE FOLD TERM IS ZERO NOW AND THE SHORTFALL IS UNCHANGED, which is the useful
     /// thing this test has to say today. The disclosure's 16 points came back to the
     /// track (`PanelChain.disclosureInset`), so a fold no longer costs a row anything and
-    /// a ±100 control inside one went 126 → 142 pt, 0.630 → 0.710 pt per unit. It is
-    /// still not 1.0, and no arrangement of insets can make it 1.0: 200 points of track
-    /// wants 350 points of card content, which wants a 378-point column. What is left is
-    /// a decision about `Lumen.minimumPanelWidth` — 320 today, 378 to make the floor
+    /// a ±100 control inside one went 126 → 142 pt, 0.630 → 0.710 pt per unit — then
+    /// 130 pt, 0.650, when U1 widened the column gutter and card padding. It is still
+    /// not 1.0, and no arrangement of insets can make it 1.0: 200 points of track wants
+    /// 350 points of card content, which wants a 390-point column. What is left is
+    /// a decision about `Lumen.minimumPanelWidth` — 320 today, 390 to make the floor
     /// hold at every width the drag reaches — and that decision belongs to whoever owns
     /// how narrow the column may be dragged, not to this file. The assertion stays where
     /// it is so the number stays visible; softening it to 0.71 would turn the instrument
@@ -275,8 +276,8 @@ final class LayoutMetricTests: XCTestCase {
     /// The 1.0 pt-per-step floor is real, it is the app's own stated number, and a large
     /// share of the inventory is under it. But clearing it is not a bug fix — it is a
     /// trade the owner has to make, and the arithmetic says so: 200 points of groove for
-    /// a ±100 control needs a 378 pt column, and the minimum is 320. Raising the minimum
-    /// to 378 makes it equal to the default, which deletes the drag-narrower half of a
+    /// a ±100 control needs a 390 pt column, and the minimum is 320. Raising the minimum
+    /// to 390 puts it above the 380 default, which deletes the drag-narrower half of a
     /// resize that exists on purpose. Every inset in the chain above is already spent.
     ///
     /// So it is recorded rather than silenced. The census still RUNS and still prints
@@ -285,7 +286,7 @@ final class LayoutMetricTests: XCTestCase {
     /// this becomes an unexpected pass and asks for the expectation to be deleted — the
     /// same contract the grain parity expectation carries in KernelGoldenTests.
     func testTheNarrowestTrackCanAddressEveryIntegerOfABipolarHundredControl() {
-        XCTExpectFailure("The precision floor is not met at this width, and closing it is a trade rather than a fix: a bipolar-100 row needs a 378 pt column and the minimum is 320. Delete this expectation when the chain or the minimum changes.")
+        XCTExpectFailure("The precision floor is not met at this width, and closing it is a trade rather than a fix: a bipolar-100 row needs a 390 pt column and the minimum is 320. Delete this expectation when the chain or the minimum changes.")
         let track = PanelChain.Host.developDisclosure
             .trackWidth(columnWidth: Lumen.minimumPanelWidth)
         let perUnit = Double(track) / 200
@@ -446,9 +447,11 @@ final class LayoutMetricTests: XCTestCase {
     /// this ever stops fitting, the row grows past its card rather than truncating.
     func testTheDisplayTransformHeaderAndEveryStockBadgeFitTheNarrowColumn() {
         let content = PanelChain.Host.developTop.contentWidth(columnWidth: Lumen.minimumPanelWidth)
-        // LumenSectionHeader: 4 pt of horizontal padding each side; a 20 pt chevron, the
-        // 5 pt modified dot and the "Reset" button, each with one 4 pt gap.
-        let chrome: CGFloat = 8 + (20 + 4) + (5 + 4)
+        // LumenSectionHeader since U1: its horizontal padding is `rowHighlightOutset` in
+        // and the same out again, so it nets to zero (this used to charge 8 for it); the
+        // chevron is `disclosureGlyphWidth` plus a 4 pt trailing pad plus the 4 pt gap;
+        // then the 5 pt modified dot and the "Reset" button, each with one 4 pt gap.
+        let chrome: CGFloat = (Lumen.disclosureGlyphWidth + 4 + 4) + (5 + 4)
             + (TextMetric.width("Reset", LayoutFont.caption) + 4)
         let room = content - chrome
         let title = TextMetric.width("Display Transform", LayoutFont.heading)
@@ -689,10 +692,11 @@ final class LayoutMetricTests: XCTestCase {
 
         // The develop column's chain, outside in.
         try pin("Sources/LumenApp/DevelopPanel.swift",
-                ".padding(.horizontal, 4) .padding(.top, 6) .padding(.bottom, 16)",
+                ".padding(.horizontal, Lumen.columnGutter) .padding(.top, Lumen.space1) "
+                + ".padding(.bottom, Lumen.space4)",
                 "scroll inset \(f(PanelChain.scrollInset))")
         try pin("Sources/LumenApp/DevelopColumn.swift",
-                ".padding(.horizontal, 10) .padding(.top, 8) .padding(.bottom, 8)",
+                ".padding(.horizontal, Lumen.cardPaddingH) .padding(.vertical, Lumen.cardPaddingV)",
                 "section card gutter \(f(PanelChain.cardInset))")
         // THE FOLD COSTS ITS ROWS NOTHING, pinned as two facts rather than one.
         //
@@ -701,15 +705,17 @@ final class LayoutMetricTests: XCTestCase {
         // way to write it is to delete the pin. So it is pinned as an adjacency: these
         // two tokens are neighbours in the flattened source exactly when nothing sits
         // between them, and any inset reintroduced there separates them and fails here.
-        // The second is where the fold's depth went instead, which is what makes the
-        // first one a design decision rather than an oversight somebody will "fix".
+        // The second used to pin where the fold's depth went instead — an 8 pt leading
+        // inset on its header. U1 removed that too (the header now sits on the label
+        // column and the level is said in type), so it pins the header's ABSENCE of
+        // an inset the same way: the header's closing paren and the `if` are neighbours.
         try pin("Sources/LumenApp/DevelopPanel.swift",
                 "content() .transition(.opacity.combined(",
                 "disclosure content inset \(f(PanelChain.disclosureInset)) — a fold's "
                 + "track equals a top-level track")
         try pin("Sources/LumenApp/DevelopPanel.swift",
-                "topRhythm: 10) .padding(.leading, 8)",
-                "fold depth carried on the header, not on the rows")
+                "topRhythm: Lumen.foldGap) if isExpanded {",
+                "fold header on the label column, its level carried by type")
 
         // The row.
         try pin("Sources/LumenApp/LumenControls.swift",
@@ -759,8 +765,8 @@ final class LayoutMetricTests: XCTestCase {
 
         // The footer G1-06 is about.
         try pin("Sources/LumenApp/DevelopPanel.swift",
-                ".padding(.horizontal, 8) .padding(.vertical, 6)",
-                "footer gutter 8")
+                ".padding(.horizontal, Lumen.columnGutter) .padding(.vertical, Lumen.space2)",
+                "footer gutter \(f(Lumen.columnGutter))")
 
         // The mask panel's compact wheel bar, whose host is built out of the wheel's own
         // diameter rather than out of any column. (The grade's large wheel lost its

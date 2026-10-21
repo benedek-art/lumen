@@ -211,7 +211,9 @@ struct MaskingReturnBar: View {
                     Text(panel.layout.workspace.title)
                         .font(.lumenBody)
                 }
-                .padding(.horizontal, 6)
+                // The hover pill's inset is the row highlight's outset, so the text
+                // inside it starts on the column's content edge like every label below.
+                .padding(.horizontal, Lumen.rowHighlightOutset)
                 .padding(.vertical, 6)
                 .background(backHovered ? Lumen.controlHover : Color.clear)
                 .foregroundStyle(backHovered ? Lumen.primaryText : Lumen.secondaryText)
@@ -227,8 +229,11 @@ struct MaskingReturnBar: View {
             Spacer(minLength: 0)
             masksChip
         }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 4)
+        // ON THE CONTENT EDGE (U1). It was 4 + the button's 6 = 10 pt, against 14 for the
+        // card labels directly under it. Now the "‹" lands on `contentInset` with the
+        // labels; the hover pill sits in the card gutter like a focused row's fill.
+        .padding(.horizontal, Lumen.contentInset - Lumen.rowHighlightOutset)
+        .padding(.vertical, Lumen.space1)
         .animation(Lumen.motionState, value: backHovered)
         .animation(Lumen.motionState, value: masksHovered)
     }
@@ -257,7 +262,8 @@ struct MaskingReturnBar: View {
                         .monospacedDigit()
                 }
             }
-            .padding(.horizontal, 7)
+            // Mirrors the back button: text ends on the content edge.
+            .padding(.horizontal, Lumen.rowHighlightOutset)
             .padding(.vertical, 5)
             .foregroundStyle(masksHovered || state.maskPanelVisible
                              ? Lumen.primaryText : Lumen.secondaryText)
@@ -449,7 +455,7 @@ struct WorkspaceSections: View {
     /// unnecessary), and with every section always listed there is nothing left for a
     /// hidden-active indicator to be honest about — nothing is hidden.
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Lumen.cardGap) {
             ForEach(panel.layout.visibleSections, id: \.self) { section in
                 WorkspaceSectionView(
                     section: section,
@@ -496,7 +502,7 @@ private struct HistorySection: View {
     @AppStorage("develop.history") private var isExpanded = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Lumen.headerContentGap) {
             // No modified dot and no Reset. The dot means "this section carries a
             // non-default value" and history carries none — it is a record, not a
             // setting — and a Reset here would either mean "clear the list", which
@@ -506,6 +512,7 @@ private struct HistorySection: View {
                                symbol: "clock.arrow.circlepath",
                                isExpanded: .constant(isExpanded),
                                topRhythm: 0,
+                               level: .card,
                                onToggle: { _ in
                                    // The accordion's own animation lives in
                                    // `PanelLayout.commit`, which this fold does not go
@@ -528,9 +535,8 @@ private struct HistorySection: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 10)
-        .padding(.top, 8)
-        .padding(.bottom, 8)
+        .padding(.horizontal, Lumen.cardPaddingH)
+        .padding(.vertical, Lumen.cardPaddingV)
         .lumenSurface(radius: Lumen.radiusCard, elevation: .flush, fill: Lumen.panel)
     }
 }
@@ -581,7 +587,7 @@ private struct WorkspaceSectionView: View {
     @EnvironmentObject private var state: AppState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Lumen.headerContentGap) {
             // `topRhythm: 0` — the card's own padding is the boundary now, and stacking
             // twenty more points of blank panel on top of it inside the card would only
             // push the title away from the rows it names.
@@ -591,6 +597,7 @@ private struct WorkspaceSectionView: View {
                                isModified: isModified,
                                onReset: reset,
                                topRhythm: 0,
+                               level: .card,
                                onToggle: onToggle)
             // CLOSED MEANS CLOSED. `DevelopSection` and `DevelopDisclosure` both take
             // their content as a closure now for this reason: a section that collapses
@@ -615,9 +622,8 @@ private struct WorkspaceSectionView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 10)
-        .padding(.top, 8)
-        .padding(.bottom, 8)
+        .padding(.horizontal, Lumen.cardPaddingH)
+        .padding(.vertical, Lumen.cardPaddingV)
         // `.flush`: an edge but no cast shadow. Six drop shadows stacked down a
         // scrolling column is a pile of floating tiles, and these are tiled edge to
         // edge — which is the case `Lumen.Elevation` names this step for.
@@ -764,16 +770,16 @@ struct MaskEditor: View {
     var body: some View {
         MaskPanel(showsOwnHeader: false)
             .frame(maxWidth: .infinity, alignment: .leading)
-            // Ten, matching `WorkspaceSectionView`: the takeover wears the accordion's
-            // card, so it has to wear the accordion's gutter or the column's text edge
-            // would jump sideways every time masking opened.
-            .padding(.horizontal, 10)
+            // `cardPaddingH`, matching `WorkspaceSectionView`: the takeover wears the
+            // accordion's card, so it has to wear the accordion's gutter or the column's
+            // text edge would jump sideways every time masking opened.
+            .padding(.horizontal, Lumen.cardPaddingH)
             // 8 AND 8, which is what `WorkspaceSectionView` uses. It was 4 and 8, so
             // the masking takeover sat four points higher inside its own card than
             // every accordion section does inside theirs — and the two cards are
             // adjacent, one replacing the other, which is the arrangement where four
             // points read as a jump rather than as nothing.
-            .padding(.vertical, 8)
+            .padding(.vertical, Lumen.cardPaddingV)
             // The same card the accordion's sections wear, for the same reason and to
             // keep the column's edges aligned across the takeover: while masking has the
             // column this IS the area, so it should sit on the surface an area sits on

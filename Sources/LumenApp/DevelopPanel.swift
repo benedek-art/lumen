@@ -154,7 +154,8 @@ struct DevelopSection<Content: View>: View {
         // 6, not 2. A heading two points off the row it governs is the "everything is
         // super back to back to back" the owner named; the gap has to be big enough that
         // the eye reads a title and then a list, rather than one column of text.
-        VStack(alignment: .leading, spacing: 6) {
+        // `headerContentGap` (8) since U1, the same gap a card header and a fold use.
+        VStack(alignment: .leading, spacing: Lumen.headerContentGap) {
             // No "Default" badge on clean sections any more (design audit §1.9):
             // chrome announcing the ABSENCE of information, repeated per section per
             // panel. The accent dot already says "modified"; silence says default.
@@ -166,6 +167,7 @@ struct DevelopSection<Content: View>: View {
                                isExpanded: onToggle == nil ? nil : .constant(isExpanded),
                                isModified: isModified, onReset: onReset,
                                resetHelp: resetHelp,
+                               topRhythm: Lumen.subsectionGap,
                                onToggle: onToggle)
             if isExpanded {
                 content()
@@ -234,7 +236,7 @@ struct DevelopDisclosure<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Lumen.headerContentGap) {
             // THE FOLD'S DEPTH IS ON THE HEADER, AND ITS ROWS PAY NOTHING FOR IT.
             //
             // This inset has now been all three of its possible values, and the third
@@ -252,7 +254,7 @@ struct DevelopDisclosure<Content: View>: View {
             // measures the chain, and a fold at the 380 default was running 186 pt of
             // track against 202 everywhere else: a ±100 control inside one sat at 0.93
             // pt per unit while its neighbour outside sat at 1.010, i.e. on the wrong
-            // side of the ~1.0 floor `Lumen.defaultPanelWidth` exists to buy — the
+            // side of the ~1.0 floor `Lumen.defaultPanelWidth` then bought — the
             // section that folds was the section that lost the guarantee. At the 320
             // minimum it was 126 against 142.
             //
@@ -265,12 +267,17 @@ struct DevelopDisclosure<Content: View>: View {
             // whole card rather than merely with each other. The 16 points go back to
             // the instrument: 186 → 202 at the default, 126 → 142 at the minimum.
             //
-            // `topRhythm` is 10 rather than the section rhythm's 20 for the same reason
-            // the depth is 8 rather than the card's own gutter: a disclosure is a fold
-            // inside a section, and giving it a full boundary would make the sub-heading
-            // read as louder than the heading it sits under.
-            LumenSectionHeader(title: title, isExpanded: $isExpanded, topRhythm: 10)
-                .padding(.leading, 8)
+            // `topRhythm` is `foldGap` rather than the subsection rhythm for the same
+            // reason: a disclosure is a fold inside a section, and giving it a full
+            // boundary would make the sub-heading read as louder than the heading above.
+            //
+            // AND THE 8 PT INDENT IS GONE (U1). It put the fold's chevron at 33 pt from
+            // the column against the labels' 15 and the card chevron's 20.5: three left
+            // edges in one card. The level is now said in type (a fold title is 12 pt
+            // under a 13 pt card title, both `primaryText`), so the chevron can sit on
+            // the label column with everything else.
+            LumenSectionHeader(title: title, isExpanded: $isExpanded,
+                               topRhythm: Lumen.foldGap)
             if isExpanded {
                 content()
                     .transition(.opacity.combined(
@@ -409,19 +416,19 @@ struct DevelopPanel: View {
                 // The histogram sits above the sliders because it is the instrument
                 // they are being read against, not a panel of its own.
                 HistogramView(histogram: state.scopes?.histogram)
-                    // 4, matching the accordion's cards below, so the instrument's edges
-                    // line up with the section edges instead of sitting eight points
-                    // inside them. Its own inner padding makes up the difference.
-                    .padding(.horizontal, 4)
+                    // `columnGutter`, matching the accordion's cards below, so the
+                    // instrument's edges line up with the section edges.
+                    .padding(.horizontal, Lumen.columnGutter)
                     // 4 and 4, not a bare bottom 6: the instrument sat flush against
                     // whatever was above it and floated 6 pt off whatever was below,
                     // which reads as the histogram having slipped rather than as a gap.
-                    .padding(.vertical, 4)
+                    // Its bottom 4 plus the scroll column's top 4 is one `cardGap`.
+                    .padding(.vertical, Lumen.space1)
             }
             if state.showScopes {
                 ScopesView(scopes: state.scopes)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, Lumen.columnGutter)
+                    .padding(.vertical, Lumen.space1)
             }
             // NO SWITCHER BAND ANY MORE. The workspace strip that opened the column
             // moved to the window's right edge as `WorkspaceRail` (docs/32 Stream A, the
@@ -471,8 +478,10 @@ struct DevelopPanel: View {
                 LumenBadge(text: "\(state.editTargets.count) photos", emphasized: true)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        // On the content edge (U1): the filename starts where every label in every card
+        // below it starts. It was 10, four points left of the labels.
+        .padding(.horizontal, Lumen.contentInset)
+        .padding(.vertical, Lumen.space2)
     }
 
     /// EVERY SECTION SCROLLS TOGETHER NOW, which is the change and not a detail.
@@ -520,7 +529,7 @@ struct DevelopPanel: View {
     /// mouse macOS draws LEGACY scrollers rather than overlay ones, and a legacy scroller
     /// insets the document view. So opening one accordion section makes this column
     /// overflow, the 15pt scroller appears, and every slider in the panel loses 15 of its
-    /// 142 points of track: a 10.6% precision change in the control this app is made of,
+    /// 130 points of track at 320 (190 at 380): an 8–12% precision change in the control,
     /// caused by clicking a chevron.
     ///
     /// `.never` rather than `.hidden`, because `.hidden` leaves the system free to show
@@ -530,7 +539,7 @@ struct DevelopPanel: View {
     private func scrollColumn<Content: View>(
         @ViewBuilder _ content: () -> Content) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: Lumen.cardGap) {
                 content()
             }
             // 4, not 8, and NOT four points off every slider's track.
@@ -540,9 +549,16 @@ struct DevelopPanel: View {
             // track is exactly the width it was. What changed is where the padding is
             // spent: half of it now draws the trough the cards sit in rather than being
             // blank margin.
-            .padding(.horizontal, 4)
-            .padding(.top, 6)
-            .padding(.bottom, 16)
+            //
+            // THEN 8 (U1): with the card padding at 12 the cards can afford a real
+            // margin, and at 4 the outside margin was half the 8 pt trough between two
+            // cards. `columnGutter` makes the two the same number.
+            .padding(.horizontal, Lumen.columnGutter)
+            .padding(.top, Lumen.space1)
+            .padding(.bottom, Lumen.space4)
+            // Every header inside the column takes the column's grid (U1); the sidebar
+            // and the sheets, which share `LumenSectionHeader`, do not.
+            .environment(\.lumenColumnGrid, true)
         }
         .scrollIndicators(.never)
     }
@@ -654,8 +670,8 @@ struct DevelopPanel: View {
                     .disabled(!state.hasCopiedLook)
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .padding(.horizontal, Lumen.columnGutter)
+        .padding(.vertical, Lumen.space2)
     }
 
     private var isRecipeModified: Bool {

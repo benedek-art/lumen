@@ -100,9 +100,18 @@ struct HistogramView: View {
             graph
             readoutLine
         }
-        .padding(.horizontal, 8)
-        .padding(.top, 8)
-        .padding(.bottom, 6)
+        // 4, NOT THE SECTION CARDS' 12 (U1), and it is a measured trade. The card moved
+        // out to `columnGutter` (8) so its edge lines up with the section cards below,
+        // and this came in by the same 4 so the well and the readout sit exactly where
+        // they did. They have to: the clipping headline's widest case ("100.00% RB
+        // white · 100.00% RB black") measures 209.8 pt at the 320 pt minimum column,
+        // and at an 8 pt inset its slot was 206.9 (ScopeTests, macOS CI). A truncated
+        // clipping readout is worse than a readout 8 pt left of the slider labels. The
+        // well's corner (9) is also now nearly concentric with the card's (14 − 4).
+        // The vertical went 8/6 → 12/12 so the card's rhythm matches the rest.
+        .padding(.horizontal, Lumen.space1)
+        .padding(.top, Lumen.space3)
+        .padding(.bottom, Lumen.space3)
         .foregroundStyle(Lumen.primaryText)
         // The same card the accordion's sections wear, so the instrument reads as one of
         // the column's areas rather than as something painted onto the chrome above it.

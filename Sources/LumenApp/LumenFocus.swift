@@ -25,10 +25,11 @@
 // with an invisible state, which is worse than a loud one.
 //
 // So focus moved onto the channel hover already speaks — the row's own surface — and
-// climbed one rung of the ladder rather than changing axis: hover fills
-// `Lumen.controlHover` (0.27), focus fills `Lumen.controlActive` (0.31). That is the
-// same rest/hover/active triple every button and chip in the app already uses, so focus
-// now looks like "this control is engaged" instead of like an error state. Zero chroma,
+// climbed one rung of the ladder rather than changing axis. It filled
+// `Lumen.controlActive` (0.31) until U1, which brought it down to `Lumen.controlHover`
+// (0.27): an unmodified label in `secondaryText` measured 3.1:1 on 0.31, under WCAG AA.
+// Rows no longer hover (below), so the two never meet on one row; focus now looks like
+// "this control is engaged" instead of like an error state. Zero chroma,
 // no stroke, and no layout: a ring that changed a row's height on focus would make the
 // whole panel jump as the arrows moved between rows.
 //
@@ -69,7 +70,7 @@ extension View {
     ///
     /// Drawn as a background rather than an overlay, because an overlay would sit ON the
     /// groove it is reporting — dimming the instrument in order to announce that you can
-    /// type at it. It is the same fill `lumenHoverable()` paints one rung lower, so a
+    /// type at it. It is the same fill `lumenHoverable()` paints (0.27 since U1), so a
     /// focused row and a hovered button are visibly the same family of state.
     ///
     /// NO HOVER RUNG. It had one and the owner asked for it to go; the file header holds
@@ -77,9 +78,17 @@ extension View {
     /// longer needs `@State` of its own.
     func lumenFocusSurface(focused: Bool,
                            radius: CGFloat = Lumen.radiusControl) -> some View {
+        // OUTSET, AND ONE RUNG LOWER (U1). The fill used to be exactly the row's
+        // frame, so the label's first glyph and the value pill's stroke sat ON its
+        // edges (1 pt and 0 pt in the baseline snapshots). It now reaches
+        // `rowHighlightOutset` past the row on each side, into the card's padding, so
+        // the text has 6 pt of fill around it and the fill has 6 pt of card. And it is
+        // `controlHover` 0.27 rather than `controlActive` 0.31: an unmodified label in
+        // `secondaryText` was 3.1:1 on 0.31 and is 4.6:1 on 0.27.
         background(
             RoundedRectangle(cornerRadius: radius, style: .continuous)
-                .fill(focused ? Lumen.controlActive : Color.clear))
+                .fill(focused ? Lumen.controlHover : Color.clear)
+                .padding(.horizontal, -Lumen.rowHighlightOutset))
             .contentShape(Rectangle())
             // Animated on the value rather than on the view, so losing focus fades out
             // rather than snapping — the asymmetry the eye reads as responsiveness.
