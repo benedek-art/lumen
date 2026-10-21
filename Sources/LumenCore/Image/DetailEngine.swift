@@ -1049,7 +1049,7 @@ public struct DetailEngine: Sendable {
         if k.amount < 0 { return pow(2.0, stops * k.burnChroma) }
         let lifted = log2(Swift.max(lum * pow(2.0, stops), vignetteLuminanceFloor))
         let shoulder = Num.smoothstep(k.shoulderLow, k.shoulderHigh, lifted)
-        return pow(2.0, -stops * k.liftHold)
+        return pow(2.0, -stops * (Double(wsEnv["WS41_HOLD"] ?? "") ?? k.liftHold))
             * (1 + (pow(2.0, stops * k.liftChroma) - 1) * shoulder)
     }
 
@@ -1095,7 +1095,8 @@ public struct DetailEngine: Sendable {
             let ca = a.r * n.r + a.g * n.g + a.b * n.b
             let cb = b.r * n.r + b.g * n.g + b.b * n.b
             let cl = (ca * ca + cb * cb).squareRoot() / Swift.max(lightness, 1e-9)
-            phi = Swift.min(phi, Swift.max(1, vignetteColourBoostLimit / Swift.max(cl, 1e-9)))
+            let lim = Double(wsEnv["WS41_LIM"] ?? "") ?? vignetteColourBoostLimit
+            phi = Swift.min(phi, Swift.max(1, lim / Swift.max(cl, 1e-9)))
         }
         let m = RGB(lightness + phi * (n.r - lightness),
                     lightness + phi * (n.g - lightness),
@@ -1126,6 +1127,7 @@ public struct DetailEngine: Sendable {
     /// Working (Rec.2020) linear → sRGB linear, for Color Priority's lift key: the
     /// display a picture is judged on is sRGB, and a colour near ITS gamut wall is the
     /// one a lift drives into a clipped channel.
+    static let wsEnv: [String: String] = ProcessInfo.processInfo.environment
     public static let vignetteWorkingToSRGB: Mat3 =
         RGBColorSpace.srgb.fromXYZ * RGBColorSpace.rec2020.toXYZ
 
