@@ -30,6 +30,8 @@ Explored and rejected (same harness, same six photos and steps): a plain thresho
 
 Tests: `ToneMaskEdgeTests` gains `testShadowsDoNotHaloAcrossAModerateEdge` (1 EV step, HDR combo, bar 0.06 EV). It measures 0.045 now and 0.121 on the old mask. The two existing tests are unchanged in their bars. The noise test now calls the real mask function (it called the old filter directly): 4 EV halo 0.051 → 0.012 EV, noise σ 0.010 → 0.002 EV. New `Tests/LumenPipelineTests/ToneMaskGPUParityTests.swift` (macOS only) compares the GPU mask to the CPU definition on a noisy 1 EV edge.
 
+Proof records: the 16 controls that read the mask (six tone sliders, five Zones EVs, five Zones pivots) were re-recorded. CI's proof sweep caught the drift (tolerance 1e-6). Every metric is equal to two decimals except zones.bright.ev authority 43.23 → 43.33 and its smallest live step 1.00 → 1.21. Monotonicity, dead steps and give-back are unchanged.
+
 ## Verdict per spec line
 
 Final build, `run_ws07.sh OUT --full`:
