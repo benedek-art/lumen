@@ -102,6 +102,24 @@ their context), or a fresh session can start from the branch plus these docs.
 | M8-fix Local softening scale | `quality/m8-fix-local-softening` | session_01QZU4juWwtmMFt4GiSDPAw6 | Finding whether M8's applyLocalSoftening or T3's sensor-pixel radius causes the size dependence (see 2). | Green gpu-parity, merge. If unfixable, revert the M8 merge `41d0690`. |
 | M9b Range masks back on GPU | `quality/m9b-range-gpu` | session_019KYf7nydGKiFYKErwzurdg | Porting M9's range kernels to M4's CPU definition (centred shoulders, guided denoise of the measurement on the GPU, colour range shading-invariant). | Turn `rangeKindsOnGPU` back on, un-skip the six tests, MaskRangeGPUParityTests (full and half float) and MaskSpeedTests green on macOS, merge. |
 
+### 4.2b Exact state each paused lane reported at 13:11 UTC (supersedes "Where it was" above)
+
+Several verifiers were cut off by the account usage limit just before the pause, so "unverified" below
+means "built, never checked", not "failed".
+
+| Lane | Pushed head | Status at pause | First step on resume |
+|---|---|---|---|
+| M8-fix | `quality/m8-fix-local-softening` @ `f3ec6a5` | **Fixed.** `LocalSofteningScaleTests` now passes on macOS (run 39586420398). Cause was M8's sqrt radius putting sigma below 1 on a sampled Gaussian, not T3; fixed with a discrete Gaussian on both CPU and GPU. Run is red only on the T1 tone-mask test, which M8 doesn't touch. | Merge (it clears one of the two integration-branch reds). |
+| M9b | `quality/m9b-range-gpu` @ `1cfad55` | Code done, `rangeKindsOnGPU` back on. macOS gpu-parity passed every range test (6 un-skipped plus new denoise/noise-table tests) on `eb75b22`; only the two known reds remained. Verifier cut off; final-sha CI not checked. | Run the verifier, confirm gpu-parity on `1cfad55`, merge. |
+| T1-fix | `quality/t1-fix-gpu-parity` @ `6deaf1a` | **Not fixed yet.** Centred variance cut the tone-mask parity error from mean 0.0383 to 0.0244 EV (limit 0.02); the worst-case assert now passes. Next suspects: fp16 storage of the guided filter's a/b coefficients, or CIBoxBlur rounding. Linux gates and spec S1-S7 green. | Try float32 for the a/b planes first. If it can't reach 0.02, decide between reverting merge `da0ed57` and keeping T1's visible halo improvement with a documented parity tolerance (owner/director call; don't silently loosen). |
+| WS-13 Display transform | `quality/ws-13-display-transform` @ `d37998d` | Blue fix built: inset rotation undone, constant-hue path to white. Last tested commit `5a1b43d` passes 3055/3055 on Linux but fails one proof floor; round 3 (gPurity floor) is unverified WIP. No verifier has run. Density/mid-grey change waits on WS-05's white anchor (NEEDS.md). | Run the verifier on `5a1b43d` vs `d37998d`; resolve the proof floor honestly; macOS parity; produce an owner before/after sheet (it changes every photo). |
+| WS-38 Film stocks | `quality/ws-38-film-stocks` @ `ecaa7b4` | Round 2 committed, 36/39 spec lines pass, 3057 core tests pass. Verifier FAIL on: Film Exposure -2 combined with Push +2 gives green shadows; 33³ LUT accuracy for Ektar and Velvia; Portra vs Cine 250D not distinct enough (S38/S39). **Do not merge as is.** | Round 3 on those three; then owner taste check with a stock-by-photo sheet. |
+| WS-41 Vignette | `quality/ws-41-vignette` @ `d0fc9c6` | Round 2 (`627245c`) verified 31/32 with CI green (except the pre-existing surface check). Round 3 (lines 31-34: Colour Priority bright-colour monotonicity, tiny-frame identity, Paint Overlay hot pixels, feather kink) is unverified WIP. | Either merge `627245c` (verified, 31/32) now, or verify round 3 first. |
+| WS-14 Texture/Clarity | `quality/ws-14-texture-clarity` @ `7e9f8d6` | Round 1 (`e406d6e`) verifier FAIL 46/51 and 2 GPU parity tests red; tip is unverified round 2 WIP. | Verify round 2, fix GPU parity, macOS. |
+| WS-15 Dehaze | `quality/ws-15-dehaze` @ `576dbf2` | Round 1 (CPU+GPU) at head passes 33/44 spec lines but is too weak: U2 and the `detail.dehaze` authority floor (9.8 vs 68) will fail CI. Round 2 is stored as an unapplied patch in the lane folder. Verifier never ran. | Apply the round-2 patch, verify, macOS. |
+| WS-56/57 Heal | `quality/ws-56-57-heal` @ `68559fa` | Round 2 pushed, unverified (verifier hit the usage limit). Round-1 CI fix in. C3 2/5 and C5 8/9 still fail by spec; spots straddling an edge are a known limit. | Verifier on `68559fa`, macOS, merge with C3/C5 as open items if the rest passes. |
+| WS-02/08 Eyedroppers + Zones | `quality/ws-02-08-pickers-zones` @ `4e4b171` | WS-02 done and verified PASS. WS-08 round 3 built and pushed (Linux 3105/0), verifier cut off. | Re-run the WS-08 verifier on `3454637`, then merge. |
+
 ### 4.3 Not started (write a lane brief from `docs/quality/workstreams.md` when resuming)
 
 - **WS-22 AI Denoise.** The trained weights live only on the owner's machine (`Denoise/README.md`: "photos and
@@ -168,7 +186,8 @@ their context), or a fresh session can start from the branch plus these docs.
 
 1. Read macOS CI on `552412c`; back out K3 or M5 only if they are the cause of a new red.
 2. Collect each paused lane's PAUSED line and pushed sha (REPORT.md top line on its branch).
-3. One integrator run: WS-16, WS-05 (zonal), K2, then T1-fix, M8-fix, M9b as each shows green gpu-parity.
+3. One integrator run: WS-16, WS-05 (zonal), K2, M8-fix (already green on its test), then M9b after its
+   verifier, WS-41 at `627245c` if you take the verified round 2. T1-fix only once its parity passes.
 4. Resume WS-13 and WS-38 first (largest visible effect: blue highlights, base look, film looks), then WS-41,
    WS-15, WS-14, WS-56/57, WS-02/08.
 5. White anchor once the owner signs off, as its own follow-up lane.
