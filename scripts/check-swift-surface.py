@@ -231,14 +231,14 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "StringProtocol", "ContiguousArray", "ArraySlice", "MemoryLayout", "Mirror",
     "ObjectIdentifier", "OpaquePointer", "UnsafePointer", "UnsafeMutablePointer",
     "UnsafeRawPointer", "UnsafeMutableRawPointer", "UnsafeBufferPointer",
-    "UnsafeMutableBufferPointer", "Task", "TaskPriority", "MainActor", "Actor",
+    "UnsafeMutableBufferPointer", "UnsafeRawBufferPointer", "UnicodeScalar", "Task", "TaskPriority", "MainActor", "Actor",
     "CheckedContinuation", "AsyncStream", "SystemRandomNumberGenerator",
     "RandomNumberGenerator", "WritableKeyPath", "ReferenceWritableKeyPath", "KeyPath",
     "ObjCBool", "Duration", "ContinuousClock", "SuspendingClock",
     # Foundation
     "Foundation", "Data", "Date", "DateComponents", "DateFormatter", "TimeInterval",
     "URL", "URLComponents", "URLResourceKey", "URLSession", "URLRequest", "URLResponse", "UUID",
-    "FileManager", "FileHandle", "ProcessInfo", "FileWrapper", "Bundle", "JSONEncoder", "JSONDecoder",
+    "FileManager", "FileHandle", "NSTemporaryDirectory", "ProcessInfo", "FileWrapper", "Bundle", "JSONEncoder", "JSONDecoder",
     "JSONSerialization", "PropertyListEncoder", "PropertyListDecoder",
     "PropertyListSerialization", "NSError", "NSURL", "CocoaError", "NSString", "NSNumber", "NSObject", "NSArray",
     "NSCocoaErrorDomain", "NSFileReadNoSuchFileError", "NSPOSIXErrorDomain",
@@ -295,6 +295,8 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "Vision", "VNImageRequestHandler", "VNGenerateForegroundInstanceMaskRequest",
     "VNGeneratePersonSegmentationRequest", "VNInstanceMaskObservation",
     "VNPixelBufferObservation", "VNObservation", "VNRequest",
+    # M5's sky model (`SkyModel`): the Core ML request's crop-and-scale option.
+    "VNImageCropAndScaleOption",
     # ...and the culling pass's face evidence (docs/10 §10.6).
     "VNDetectFaceLandmarksRequest", "VNDetectFaceCaptureQualityRequest",
     "VNFaceLandmarkRegion2D",

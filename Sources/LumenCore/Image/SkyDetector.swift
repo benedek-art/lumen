@@ -230,7 +230,12 @@ public enum SkyDetector {
         let sortedL = L.sorted()
         let frameMedian = sortedL[n / 2]
         let frameUpper = sortedL[Swift.min(n - 1, n * 3 / 4)]
-        struct Candidate { var members: [Int]; var mL, mA, mB: Double }
+        struct Candidate {
+            var members: [Int]
+            var mL: Double
+            var mA: Double
+            var mB: Double
+        }
         var candidates: [Candidate] = []
         for members in regions where Double(members.count) >= minSeedFraction * Double(n) {
             var sL = 0.0, sA = 0.0, sB = 0.0
@@ -552,10 +557,10 @@ public enum SkyDetector {
         func lin(_ v: Float) -> Float {
             v <= 0.04045 ? v / 12.92 : powf((v + 0.055) / 1.055, 2.4)
         }
-        let R = lin(r), G = lin(g), Bl = lin(b)
-        let l = cbrtf(0.4122214708 * R + 0.5363325363 * G + 0.0514459929 * Bl)
-        let m = cbrtf(0.2119034982 * R + 0.6806995451 * G + 0.1073969566 * Bl)
-        let s = cbrtf(0.0883024619 * R + 0.2817188376 * G + 0.6299787005 * Bl)
+        let lr = lin(r), lg = lin(g), lb = lin(b)
+        let l = cbrtf(0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb)
+        let m = cbrtf(0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb)
+        let s = cbrtf(0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb)
         return (0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
                 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
                 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s)
