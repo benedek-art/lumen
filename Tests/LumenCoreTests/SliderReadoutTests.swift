@@ -62,6 +62,25 @@ final class SliderReadoutTests: XCTestCase {
         }
     }
 
+    /// Return after ↑/↓ in the field: the value the nudge wrote and the text it shows
+    /// must count as the same, or the commit is an empty undo step.
+    func testReturnOnANudgedFieldIsNotAnEdit() throws {
+        let exposure = SliderTrack(width: 426, lowerBound: -5, upperBound: 5, step: 0.01)
+        var mismatched = 0
+        for i in -500...500 {
+            let nudged = exposure.nudged(Double(i) / 100 - 0.01, steps: 1)
+            let typed = try XCTUnwrap(SliderEntry.value(
+                of: SliderReadout.editingText(nudged, decimals: 2), current: nudged))
+            if typed != nudged { mismatched += 1 }
+            XCTAssertTrue(SliderReadout.isNoChange(typed, from: nudged, step: 0.01),
+                          "\(nudged) vs \(typed)")
+        }
+        XCTAssertGreaterThan(mismatched, 0, "the exact compare this replaces would have passed")
+        XCTAssertFalse(SliderReadout.isNoChange(0.36, from: 0.35, step: 0.01))
+        XCTAssertTrue(SliderReadout.isNoChange(5500, from: 5500, step: 0))
+        XCTAssertFalse(SliderReadout.isNoChange(5501, from: 5500, step: 0))
+    }
+
     func testDecimalsForAStepAreTheDigitsItNeeds() {
         XCTAssertEqual(SliderReadout.decimals(forStep: 1), 0)
         XCTAssertEqual(SliderReadout.decimals(forStep: 10), 0)
@@ -219,6 +238,7 @@ final class SliderReadoutTests: XCTestCase {
         XCTAssertTrue(s.contains(".onKeyPress(.upArrow) { typedNudge(1) }"))
         XCTAssertTrue(s.contains(".onKeyPress(.downArrow) { typedNudge(-1) }"))
         XCTAssertTrue(s.contains("scrubTrack.nudged(base,"))
+        XCTAssertTrue(s.contains("guard !SliderReadout.isNoChange(next, from: value, step: step)"))
         XCTAssertTrue(s.contains("SliderReadout.text(value, decimals: decimals,"))
         XCTAssertFalse(s.contains("String(format: \"%.\\(decimals)f\", value)"))
     }

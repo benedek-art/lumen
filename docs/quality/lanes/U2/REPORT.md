@@ -34,8 +34,11 @@ Branch `quality/u2-slider-component`, head a3b24ed (code). Baseline snapshots ar
 Verifier: round 1 FAILED because macOS would not compile 93fd592 (`ambiguous use of operator '/'` on the tick
 offset, which `swiftc -parse` on Linux cannot catch). Round 2 fixed it in a3b24ed, along with two of its code
 findings: the outset fill widened the row's hit area by 6 pt into its neighbours, and Return after ↑/↓ wrote
-an empty undo step. The a3b24ed snapshots were then judged against the baseline (crops above). Every measurable
-line passed in round 1, with 108 targeted tests and 0 failures.
+an empty undo step. The a3b24ed snapshots were then judged against the baseline (crops above). Round 2 confirmed the compile
+fix, the hit-target fix and the snapshots, but FAILED the undo fix: `guard next != value` compared Doubles
+exactly, and a snapped `0.35000000000000003` never equals the parsed "0.35" (124 of Exposure's 1001 values).
+Round 3: `SliderReadout.isNoChange` compares within a thousandth of a step, with a test that walks all 1001
+Exposure values.
 
 ## What changed and why
 

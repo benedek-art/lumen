@@ -49,6 +49,18 @@ public enum SliderReadout {
         text(value, decimals: decimals, signed: false)
     }
 
+    /// Whether committing `next` over `current` would change nothing a photographer can
+    /// see: within a thousandth of a step, the slider's own `isModified` tolerance.
+    ///
+    /// Not `==`. A snapped value is `(v / step).rounded() * step`, which for 0.35 on a
+    /// 0.01 step is 0.35000000000000003, while the field's text "0.35" parses to 0.35.
+    /// Return after ↑/↓ in the field compared the two exactly and wrote an edit that
+    /// changed nothing but still cost an undo step: 124 of Exposure's 1001 values.
+    public static func isNoChange(_ next: Double, from current: Double, step: Double) -> Bool {
+        guard next.isFinite, current.isFinite else { return next == current }
+        return abs(next - current) <= Swift.max(step, 0) / 1000
+    }
+
     /// The decimal places a step needs so that two adjacent reachable values never print
     /// the same string. 1 → 0, 0.1 → 1, 0.05 → 2, 0.01 → 2.
     public static func decimals(forStep step: Double) -> Int {

@@ -1564,7 +1564,7 @@ struct LumenSlider: View {
         let next = min(max(parsed, effectiveHardRange.lowerBound),
                        effectiveHardRange.upperBound)
         // ↑/↓ in the field already wrote what it holds; Return on that is not an edit.
-        guard next != value else { return }
+        guard !SliderReadout.isNoChange(next, from: value, step: step) else { return }
         onEditingChanged?(true)
         sliderGestureChanged(true)
         value = next
