@@ -78,6 +78,10 @@ public struct ColorEngine: Sendable {
     public let arcs: [BandArc]
     private let uniformity: Double
     private let mixerIsIdentity: Bool
+    /// Each band's resolved Hue move in degrees (`resolvedHueShifts`), and whether they
+    /// are all zero.
+    private let hueShifts: [Double]
+    private let hueIsFlat: Bool
     private let swatches: [Swatch]
     private let remap: Mat3
     private let remapIsIdentity: Bool
@@ -94,57 +98,28 @@ public struct ColorEngine: Sendable {
 
     /// What each band is CALLED, in the wire format's fixed structural order.
     ///
-    /// B1-08. These were LrC's eight names, and two of them named a colour their band is
-    /// nowhere near. The bands sit 45° apart in OKLCh anchored on sRGB red; the names were
-    /// inherited from a different product with a different geometry, and nothing had ever
-    /// checked one against the other. Measured — HSV hue of `ProofFrames.bandCentreSRGB`,
-    /// the sRGB that sits on each centre, against the conventional sRGB of the name it
-    /// carried:
-    ///
-    ///     band  centre       was       off by    is now    off by
-    ///     0     #FF0000      Red         0.0°    Red         0.0°
-    ///     1     #FFAC00      Orange     10.4°    Orange     10.4°
-    ///     2     #DCFF00      Yellow      8.2°    Yellow      8.2°
-    ///     3     #00FFB8      Green      43.3°    Mint        1.4°
-    ///     4     #00E5FF      Aqua        6.1°    Aqua        6.1°
-    ///     5     #0087FF      Blue       31.8°    Azure       1.9°
-    ///     6     #9000FF      Purple      3.8°    Purple      3.8°
-    ///     7     #FF00BD      Magenta    15.5°    Magenta    15.5°
-    ///
-    /// TWO RENAMES AND NOT EIGHT, on a rule rather than on taste: a band is renamed when
-    /// its name sits more than HALF A BAND (22.5°) from the centre, because past that the
-    /// name is describing the neighbouring band's territory. "Green" was almost a whole
-    /// band out. The five left alone are all inside half a band, and for Magenta no
-    /// candidate is materially better — Pink is 8.5° and Rose 14.6°, so it is a swap, not
-    /// a fix, and Magenta is the established vocabulary for a mixer.
-    ///
-    /// THE CENTRES DO NOT MOVE, and that is the whole point of doing it this way. Moving
-    /// them is the fix docs/audit-2026-09/w2/B1.md:297 describes, and it costs a
-    /// `pipelineVersion` bump with a badged per-photo migration, because every recipe that
-    /// ever touched the mixer would render differently. Renaming costs nothing: these
-    /// strings reach `ColorPanel` and one status message and are not in the wire format —
-    /// the recipe stores bands POSITIONALLY. The owner chose this trade explicitly.
-    ///
-    /// WHAT IT DOES NOT FIX, said here because a truthful label is not the same as a
-    /// complete instrument: there is now no band called Green, and that is honest rather
-    /// than sloppy — the centres are 68.2° and 163.3° in HSV terms, and ordinary green
-    /// sits in the 95° gap between them, belonging to neither. Only re-anchoring closes
-    /// that, and re-anchoring is the migration above. The way to find the band for a
-    /// colour meanwhile is the picker — click the colour in the photograph and the band
-    /// selects itself (`dominantBand(for:)`), which is exactly the affordance that exists
-    /// because these names were never reliable.
+    /// WS-31. Lightroom's eight names, and now they are true: the bands moved (see
+    /// `bandHueCentres`), so the band called Green holds foliage and sRGB green, and the
+    /// band called Blue holds skies and sRGB blue. The interim names "Mint" and "Azure"
+    /// (B1-08) described where the old equal-spaced 45° centres happened to sit; they
+    /// are gone with that geometry. These strings are not in the wire format — the
+    /// recipe stores bands POSITIONALLY — so the rename itself costs nothing; what costs
+    /// a `pipelineVersion` pin is the geometry move (docs/quality/lanes/WS-31/NEEDS.md).
     public static let bandNames: [String] = [
-        "Red", "Orange", "Yellow", "Mint", "Aqua", "Azure", "Purple", "Magenta"
+        "Red", "Orange", "Yellow", "Green", "Aqua", "Blue", "Purple", "Magenta"
     ]
 
-    /// Anchor: the OKLCh hue of sRGB pure red. Golden-locked — changing this or the 45°
-    /// step is a pipelineVersion bump, because it moves what every saved recipe means.
+    /// The LEGACY equal-spaced grid: 45° apart, anchored on the OKLCh hue of sRGB red.
+    ///
+    /// The Mixer no longer uses it. It is kept, unchanged, because the B&W mix is
+    /// denominated in it (`uniformBandWeights(hue:)`, the GPU finish pass) and the B&W
+    /// lane has not moved; and because recipes rendered before WS-31 were made on it,
+    /// which is what a `pipelineVersion` pin has to reproduce.
     public static let bandAnchorDegrees: Double = 29.23
     public static let bandSpacingDegrees: Double = 45.0
 
-    /// Band centres, 45° apart so the Mixer and the Hue Equalizer are one parameter set
-    /// viewed two ways (D3: the Equalizer's "8 fixed, equally spaced hues").
-    public static let bandHueCentres: [Double] = {
+    /// The legacy grid's eight centres (see `bandAnchorDegrees`). B&W only.
+    public static let uniformBandHueCentres: [Double] = {
         var v: [Double] = []
         v.reserveCapacity(ColorEngine.bandCount)
         for i in 0..<ColorEngine.bandCount {
@@ -154,38 +129,235 @@ public struct ColorEngine: Sendable {
         return v
     }()
 
-    /// Core half-arc and feather extent, at the DEFAULT geometry. Cores tile the circle
-    /// exactly (±22.5° at 45° spacing) and the feathers overlap the neighbours, which is
-    /// what makes the normalized weights C¹ everywhere: no wedge edges exist, so the LrC
-    /// PV6 banding class of artifact is structurally impossible rather than merely
-    /// mitigated. `MixerBand.defaultCore`/`defaultFeather` are derived from these.
+    /// The Mixer's band centres, OKLCh degrees, wire order Red…Magenta (WS-31).
+    ///
+    /// UNEVEN, the way Lightroom's are, because the colours photographs are made of are
+    /// uneven: sRGB red, orange and skin crowd into 25° of OKLCh hue while green to cyan
+    /// spans 50°. The equal 45° grid this replaces put sRGB orange and sRGB green on
+    /// exact 50/50 seams, gave ColorChecker light skin 86% to Red, and left foliage 84%
+    /// in Yellow with "Green" holding nothing (WS-31 audit M4/M5).
+    ///
+    /// Solved numerically against the acceptance spec rather than transcribed: every
+    /// sRGB primary and secondary sits ≥ 0.8 in its own band, ColorChecker skins and
+    /// MST 5–8 ≥ 0.6 in Orange, skies ≥ 0.9 in Blue, foliage mostly Green, and every gap
+    /// ≥ 40° so a full hue move (`hueRangeDegrees`) never folds the circle.
+    ///
+    /// DERIVED, not listed: a centre is the middle of the band's plateau — halfway
+    /// between where the hand-over from the previous band ends and the hand-over to the
+    /// next begins (`bandCrossoverDegrees`, `bandTransitionDegrees`). So every default
+    /// core is symmetric, `BandArc.coreCentre` is the centre, Uniformity converges on
+    /// it, and the centre is the knot the band's Hue slider moves.
+    public static let bandHueCentres: [Double] = (0..<ColorEngine.bandCount).map { i in
+        let n = ColorEngine.bandCount
+        let j = (i + n - 1) % n
+        let start = ColorEngine.bandCrossoverDegrees[j] + ColorEngine.bandTransitionDegrees[j] / 2
+        let end = ColorEngine.bandCrossoverDegrees[i] - ColorEngine.bandTransitionDegrees[i] / 2
+        return Num.wrapHue(start + Num.wrapHue(end - start) / 2)
+    }
+
+    /// Where band `i` hands over to band `i + 1` (weight 0.5 each), OKLCh degrees, and
+    /// how wide that hand-over is. These ARE the default geometry: band `i`'s upper core ends `bandTransitionDegrees[i] / 2` before the
+    /// crossover and its upper feather spans the whole transition, and band `i + 1`'s
+    /// lower side mirrors it. Two complementary raised cosines over the same interval
+    /// sum to exactly 1, so at the default geometry the normalised weight IS that raised
+    /// cosine: C¹, no wedge, and no slope steeper than π/(2·width).
+    public static let bandCrossoverDegrees: [Double] = [37.7, 83.5, 121.0, 173.3, 228.5, 276.0, 316.0, 356.6]
+    public static let bandTransitionDegrees: [Double] = [31.8, 30.5, 30.5, 46.2, 35.0, 31.0, 32.0, 32.0]
+
+    /// The WIRE UNITS of the ring handles, and nothing else.
+    ///
+    /// `MixerBand.core`/`feather` are stored relative to the band's own default
+    /// geometry: a stored core side of 22.5 means "this band's default core on this
+    /// side", 11.25 half of it, 45 twice it. That is what lets the default become
+    /// per-band without a migration of the wire value: every recipe that never touched
+    /// a handle stores `[22.5, 22.5]`/`[15, 15]` and resolves to the new per-band
+    /// default, and a dragged handle keeps its proportion. `bandArcs` turns wire values
+    /// into degrees and `wireHandles(for:band:)` turns degrees back.
     public static let bandCoreDegrees: Double = 22.5
     public static let bandFeatherDegrees: Double = 15.0
 
-    /// Bounds on the user's four ring handles (docs/05: draggable core + per-side
-    /// feather, "fully visual, no hidden numeric range").
-    public static let bandCoreMinDegrees: Double = 5.0
+    /// Bounds on the user's four ring handles, in resolved DEGREES (docs/05: draggable
+    /// core + per-side feather, "fully visual, no hidden numeric range").
+    ///
+    /// The feather floor is 12°, not the old 2°. A raised-cosine feather of extent F has
+    /// a second derivative up to (π/F)²/2 per deg²; at 2° that is a 1.2/deg² kink, a
+    /// visible crease in any gradient that crosses the band edge. At 12° the worst arc
+    /// set the sanitizer can produce stays under 0.05/deg² (`MixerBandGeometryTests`).
+    public static let bandCoreMinDegrees: Double = 3.4
     public static let bandCoreMaxDegrees: Double = 44.0
-    public static let bandFeatherMinDegrees: Double = 2.0
+    public static let bandFeatherMinDegrees: Double = 12.0
     public static let bandFeatherMaxDegrees: Double = 60.0
 
-    /// The invariant that keeps the partition of unity a partition: every band must
-    /// reach at least this far to each side.
+    /// The invariant that keeps the partition of unity a partition: every band reaches
+    /// at least half the gap to its neighbour on that side, plus this margin.
     ///
     /// `bandWeights` has a fallback for the case where every band's weight at some hue
     /// is zero — it hands the whole weight to the nearest band. That branch is a HARD
-    /// EDGE, the one thing this band model exists not to have, and with fixed geometry
-    /// it was unreachable. Draggable handles make it reachable, so the sanitizer closes
-    /// the door instead: cores sit 45° apart, so a reach of more than 22.5° per side
-    /// means every hue is strictly inside at least one band's falloff and the sum is
-    /// never zero. The fallback stays as a guard against a corrupt decode, not as a
-    /// state the ring can be dragged into.
-    public static let bandMinReachDegrees: Double = 27.5
+    /// EDGE, the one thing this band model exists not to have. With uneven centres a
+    /// single reach cannot close that door for every gap, so the floor is per side: two
+    /// neighbours that each reach past the midpoint of their gap by this margin overlap
+    /// by twice it, every hue is strictly inside some band's falloff, and the sum is
+    /// never zero. The fallback stays as a guard against a corrupt decode only.
+    public static let bandMinReachMarginDegrees: Double = 8.0
 
-    /// ±100 on a Hue slider lands exactly on the adjacent band centre.
-    public static let hueRangeDegrees: Double = 45.0
-    /// Luminance shaping constant: ±100 moves L by at most ±0.25, at and above L = 0.5.
+    /// The degrees between band `i`'s centre and the next band's, going up.
+    public static func bandGapAbove(_ i: Int) -> Double {
+        let n = bandCount
+        let k = ((i % n) + n) % n
+        return Num.wrapHue(bandHueCentres[(k + 1) % n] - bandHueCentres[k])
+    }
+
+    /// The degrees between band `i`'s centre and the previous band's, going down.
+    public static func bandGapBelow(_ i: Int) -> Double { bandGapAbove(i - 1) }
+
+    /// The minimum reach of band `i` to each side, in degrees (see
+    /// `bandMinReachMarginDegrees`).
+    public static func bandMinReach(_ i: Int) -> (below: Double, above: Double) {
+        (bandGapBelow(i) / 2 + bandMinReachMarginDegrees,
+         bandGapAbove(i) / 2 + bandMinReachMarginDegrees)
+    }
+
+    /// Band `i`'s default geometry in degrees, derived from the centres, crossovers and
+    /// transition widths above (see `bandCrossoverDegrees`).
+    public static func defaultArc(_ i: Int) -> BandArc {
+        let n = bandCount
+        let k = ((i % n) + n) % n
+        let j = (k + n - 1) % n
+        let centre = bandHueCentres[k]
+        let up = bandTransitionDegrees[k]
+        let down = bandTransitionDegrees[j]
+        let coreAbove = Num.wrapHue(bandCrossoverDegrees[k] - up / 2 - centre)
+        let coreBelow = Num.wrapHue(centre - bandCrossoverDegrees[j] - down / 2)
+        return BandArc(centre: centre, coreBelow: coreBelow, coreAbove: coreAbove,
+                       featherBelow: down, featherAbove: up)
+    }
+
+    /// The largest Hue move, in degrees, at ±100 (SPEC H3: 25–35° at the centre).
+    ///
+    /// It was 45° — "±100 lands exactly on the adjacent band centre" — and with a 25°
+    /// transition that folded the hue circle: 14–20° of input hue on every band came
+    /// out in reverse order, a crease on every gradient that crossed a band edge (audit
+    /// M1). Lightroom's ±100 is about 30° of HSV, well short of the neighbour.
+    public static let hueRangeDegrees: Double = 35.0
+    /// The smallest slope of output hue against input hue any Hue setting may produce.
+    /// Each band's move is limited so that it alone keeps this slope, and a recipe whose
+    /// moves combine to squeeze some hue further is scaled down as a whole until it
+    /// reaches this floor, so the hue circle is never folded (`resolvedHueShifts`).
+    public static let hueMinSlope: Double = 0.25
+    /// The hue move's falloff eases in and out over this fraction of its length at each
+    /// end (`hueTransfer`), so it leaves the band's core and arrives at zero with slope 0.
+    public static let hueRampFraction: Double = 0.1
+    /// How far past the band's own reach (core + feather, the Band range ring) its Hue
+    /// move falls off: 1.35 × the reach on each side. A hue move cannot be as narrow as
+    /// a Saturation or Luminance move — turning a hue 30° needs about 40° of hue
+    /// to hand back over without folding — so the ring scales it rather than clipping it:
+    /// a narrower ring moves fewer hues, a wider one more (SPEC R6).
+    public static let hueReachFactor: Double = 1.35
+    /// Head-room under `hueMinSlope` for what the 0.05° grid in `resolvedHueShifts` can
+    /// miss between samples; a single band is limited with the same margin, so it is
+    /// never scaled and ±100 stay equal and opposite.
+    public static let hueSlopeMargin: Double = 0.01
+
+    /// The length of band `arc`'s hue falloff below and above, in degrees: from the core
+    /// edge to `hueReachFactor` × (core + feather).
+    public static func hueFalloff(_ arc: BandArc) -> (below: Double, above: Double) {
+        (hueReachFactor * (arc.coreBelow + arc.featherBelow) - arc.coreBelow,
+         hueReachFactor * (arc.coreAbove + arc.featherAbove) - arc.coreAbove)
+    }
+
+    /// Band `arc`'s Hue move at ±100, in degrees: the same both ways, so a move and its
+    /// opposite are equal and opposite on every pixel; capped by `hueRangeDegrees` and
+    /// by the shorter falloff, so that the band alone never squeezes the circle below
+    /// `hueMinSlope` (its steepest falloff slope is 1/(1 − ramp) per falloff length).
+    public static func bandHueShiftLimit(_ arc: BandArc) -> Double {
+        let f = hueFalloff(arc)
+        let peak = 1 / (1 - hueRampFraction)
+        return Swift.min(hueRangeDegrees,
+                         (1 - hueMinSlope - hueSlopeMargin) * Swift.min(f.below, f.above) / peak)
+    }
+
+    /// The chroma-preserving lightness kernel's constant for POINT COLOUR. The Mixer has
+    /// its own, multiplicative, kernel (`mixerLightness`); this one is shared with
+    /// nothing else now and is unchanged.
     public static let lumKappa: Double = 1.0
+
+    /// The Mixer's Luminance, per band: at ±100 OKLab L is scaled by 2^(stops·ω(L)),
+    /// chroma held. `mixerLumStopsDown[i]` is band i's stops at −100, `…Up[i]` at +100.
+    ///
+    /// MULTIPLICATIVE, so it can never reach black and it is a move in stops rather
+    /// than the old additive 0.25 of L, which took 983's dark sky 6 EV down with 11% of
+    /// it crushed to code 0 while 2545's bright sky moved 2.3 EV (audit M3). OKLab L is
+    /// close to Y^(1/3), so 2^s on L is about 3s stops of luminance.
+    ///
+    /// Tuned through the default display transform to Lightroom's range: Blue −100 about
+    /// −1.1…−1.5 EV and +100 about +0.9…+1.1 EV on the corpus skies, and Orange gentler,
+    /// because skin sits where the default rendering is steepest — the same scene stops
+    /// read 1.4× as many display stops on mid skin as on a bright, saturated sky.
+    public static let mixerLumStopsDown: [Double] = [0.30, 0.27, 0.30, 0.30,
+                                                     0.33, 0.345, 0.33, 0.30]
+    public static let mixerLumStopsUp: [Double] = [0.32, 0.29, 0.32, 0.32,
+                                                   0.35, 0.36, 0.35, 0.32]
+
+    /// ω(L) = (min(L, cap) / reference)^exponent: the stops scale with lightness.
+    ///
+    /// Dark colours move fewer stops and bright ones more. Through a rendering with a
+    /// shoulder the same scene stops read far fewer display stops on a bright sky than
+    /// on a dark one (2545's against 983's: 0.68×), so a flat stop count made Blue +100
+    /// either blow a dark sky out or barely touch a bright one. Capped at L = 1 (about
+    /// +2.5 EV over mid-grey) so it stays monotone in L at every setting: d ln L′/d ln L
+    /// = 1 + stops·ln2·exponent·ω ≥ 1 − 0.36·0.69·0.9·1.87 > 0.5.
+    public static let mixerLumReferenceLightness: Double = 0.5
+    public static let mixerLumLightnessExponent: Double = 0.9
+    public static let mixerLumLightnessCap: Double = 1.0
+
+    /// The Mixer's chroma gate: full authority from C 0.04, nothing below 0.022.
+    ///
+    /// Not `chromaGate` (0.02…0.06), which Point Colour and Skin keep. Skies sit at C
+    /// 0.047–0.064, inside that ramp, so per-pixel chroma noise modulated a Blue move
+    /// and came out as luminance noise — 4.7× the sky grain on 1840 at Blue −100 —
+    /// plus a pale fringe on every low-chroma sky/leaf edge pixel (audit M3). Fully open
+    /// by 0.04, the whole sky is inside the flat top and its chroma noise no longer
+    /// reaches luminance. The low end cannot come down: at C 0.012–0.023 (the hue
+    /// wheel's near-neutral ring) any gate above ~0.2 moves near-greys by more than 0.03
+    /// under an all-bands edit, and the same gate would turn a grey wall's chroma noise
+    /// into luminance mottling under a single band. The cost, measured and recorded in
+    /// docs/quality/lanes/WS-31/BUILD-NOTES.md: the palest and darkest skin (MST 1, 2, 9,
+    /// 10, C 0.011–0.021) is still below the gate.
+    public static let mixerGateLoChroma: Double = 0.022
+    public static let mixerGateHiChroma: Double = 0.04
+
+    /// Saturation +100 rolls off toward the edge of the display-primaries cone.
+    ///
+    /// A push used to be a flat C × 2, and on the ColorChecker that sent 28.6% of the
+    /// pixels to a code-0 channel (audit M6). Now the push's gain is 1 + p·(1 − r/R),
+    /// where r is the colour's chroma as a fraction of the most an sRGB-primaries colour
+    /// of that lightness and hue can have (`mixerReferenceSaturation`) and R is this
+    /// ceiling. A dull colour still doubles at +100; one at the display's edge does not
+    /// move; and r′ = r(1 + p(1 − r/R)) rises with r at every p ≤ 1, so the push never
+    /// reverses chroma order.
+    ///
+    /// The cone is scale-free — sRGB channels ≥ 0 only, no upper face — so this is not a
+    /// display-referred clip in a scene-referred stage: it reads hue and the ratio C/L,
+    /// both of which exposure leaves alone.
+    public static let mixerSatCeiling: Double = 1.10
+
+    /// ln σ(h) as a 6-harmonic Fourier series in the working OKLab hue: σ is the largest
+    /// C/L whose sRGB-primaries linear value has no negative channel (the scale-free
+    /// cone `mixerSatCeiling` is measured against). Order: a0, then (cos kh, sin kh) for
+    /// k = 1…6. Fitted by least squares to the exact cone on a 0.25° grid
+    /// (docs/quality/lanes/WS-31/BUILD-NOTES.md); the true σ has corners at the
+    /// primaries and secondaries, the series rounds them, which is what keeps a push
+    /// free of hue seams. Within 3% of the exact cone on 15 of the 18 ColorChecker
+    /// colours; below it (a gentler push) at the blue corner.
+    public static let mixerSatReferenceCoefficients: [Double] = [
+        -1.2100707970194082,
+        0.3863056409922535, -0.26126513638081733,
+        -0.06590516437000735, -0.2252915900015586,
+        0.0039556156251049236, 0.21429153012149343,
+        0.013591315069540694, 0.03513436518353367,
+        0.03159289841278413, -0.04054023126330382,
+        -0.0693018124744145, 0.01715000897423165,
+    ]
 
     /// Where the chroma-preserving lightness kernel reaches full authority and HOLDS it.
     ///
@@ -494,6 +666,9 @@ public struct ColorEngine: Sendable {
         let sanitized: [MixerBand] = Self.sanitizedBands(mixer.bands)
         self.bands = sanitized
         self.arcs = Self.bandArcs(sanitized)
+        let shifts = Self.resolvedHueShifts(sanitized, arcs: self.arcs)
+        self.hueShifts = shifts
+        self.hueIsFlat = shifts.allSatisfy { $0 == 0 }
         self.uniformity = Num.clamp(mixer.uniformity, 0, 100)
         var mixerFlat = true
         for b in sanitized where b.hue != 0 || b.sat != 0 || b.lum != 0 { mixerFlat = false }
@@ -655,9 +830,9 @@ public struct ColorEngine: Sendable {
                 let band = bands[i]
                 return [arc.centre, arc.coreBelow, arc.coreAbove,
                         arc.featherBelow, arc.featherAbove,
-                        Num.clamp(band.hue, -100, 100) / 100 * Self.hueRangeDegrees,
+                        hueShifts[i],
                         Num.clamp(band.sat, -100, 100) / 100,
-                        Num.clamp(band.lum, -100, 100) / 100 * Self.lumKappa,
+                        Self.bandLumStops(band.lum, band: i),
                         bandTargetHue(i)]
             }
             resolved.mixer = (bandRows, -uniformity / 100)
@@ -757,35 +932,48 @@ public struct ColorEngine: Sendable {
         public var featherEnd: Double { Num.wrapHue(centre + coreAbove + featherAbove) }
     }
 
-    /// The default geometry, as arcs. What `bandWeights(hue:)` and the B&W mix use.
+    /// The default geometry, as arcs: `defaultArc(i)` for every band, which is also
+    /// exactly what `bandArcs` resolves an untouched recipe to. What `bandWeights(hue:)`
+    /// uses. (The B&W mix does NOT: it stays on the legacy grid, `uniformBandWeights`.)
     public static let canonicalArcs: [BandArc] =
         ColorEngine.bandArcs(Array(repeating: MixerBand(), count: ColorEngine.bandCount))
 
-    /// Resolve the wire format's per-band handles into arcs, clamped so the partition
-    /// of unity survives any file (see `bandMinReachDegrees`).
+    /// Resolve the wire format's per-band handles into arcs in degrees, clamped so the
+    /// partition of unity survives any file (see `bandMinReachMarginDegrees`).
+    ///
+    /// The wire values are RELATIVE to the band's own default (see `bandCoreDegrees`):
+    /// degrees = wire / 22.5 × the default core on that side, and likewise for the
+    /// feather against 15. So the old wire default `[22.5, 22.5]`/`[15, 15]` — what every
+    /// recipe that never dragged a handle stores — resolves to the new per-band default,
+    /// and a handle dragged to half the old default keeps half the new one.
     public static func bandArcs(_ bands: [MixerBand]) -> [BandArc] {
         var out: [BandArc] = []
         out.reserveCapacity(bandCount)
         for i in 0..<bandCount {
             let band: MixerBand = i < bands.count ? bands[i] : MixerBand()
-            func side(_ v: [Double], _ index: Int, _ fallback: Double,
+            let d = defaultArc(i)
+            let reach = bandMinReach(i)
+            func side(_ v: [Double], _ index: Int, _ unit: Double, _ fallback: Double,
                       _ lo: Double, _ hi: Double) -> Double {
                 guard index < v.count, v[index].isFinite else { return fallback }
-                return Num.clamp(v[index], lo, hi)
+                // An exact wire default is the exact default arc, with no rounding
+                // through the division, so `canonicalArcs` IS `defaultArc`.
+                let degrees = v[index] == unit ? fallback : v[index] / unit * fallback
+                return Num.clamp(degrees, lo, hi)
             }
-            let cb: Double = side(band.core, 0, bandCoreDegrees,
+            let cb: Double = side(band.core, 0, bandCoreDegrees, d.coreBelow,
                                   bandCoreMinDegrees, bandCoreMaxDegrees)
-            let ca: Double = side(band.core, 1, bandCoreDegrees,
+            let ca: Double = side(band.core, 1, bandCoreDegrees, d.coreAbove,
                                   bandCoreMinDegrees, bandCoreMaxDegrees)
-            var fb: Double = side(band.feather, 0, bandFeatherDegrees,
+            var fb: Double = side(band.feather, 0, bandFeatherDegrees, d.featherBelow,
                                   bandFeatherMinDegrees, bandFeatherMaxDegrees)
-            var fa: Double = side(band.feather, 1, bandFeatherDegrees,
+            var fa: Double = side(band.feather, 1, bandFeatherDegrees, d.featherAbove,
                                   bandFeatherMinDegrees, bandFeatherMaxDegrees)
             // Widen the FEATHER, never the core, to meet the minimum reach: the core is
             // what the user drew and the feather is how it lets go, so a narrow
             // selection stays narrow and only its falloff is forced to stay smooth.
-            fb = Swift.max(fb, bandMinReachDegrees - cb)
-            fa = Swift.max(fa, bandMinReachDegrees - ca)
+            fb = Swift.max(fb, reach.below - cb)
+            fa = Swift.max(fa, reach.above - ca)
             out.append(BandArc(centre: bandHueCentres[i],
                                coreBelow: cb, coreAbove: ca,
                                featherBelow: fb, featherAbove: fa))
@@ -793,13 +981,42 @@ public struct ColorEngine: Sendable {
         return out
     }
 
+    /// The wire values that `bandArcs` resolves to `arc` for band `i` — the inverse the
+    /// panel needs to write a dragged handle back. Degrees in, wire units out (see
+    /// `bandCoreDegrees`). An arc that is already legal round-trips exactly:
+    /// `bandArcs` of the result is `arc`.
+    public static func wireHandles(for arc: BandArc, band i: Int)
+        -> (core: [Double], feather: [Double]) {
+        let d = defaultArc(i)
+        func wire(_ degrees: Double, _ fallback: Double, _ unit: Double) -> Double {
+            degrees == fallback ? unit : degrees / fallback * unit
+        }
+        return ([wire(arc.coreBelow, d.coreBelow, bandCoreDegrees),
+                 wire(arc.coreAbove, d.coreAbove, bandCoreDegrees)],
+                [wire(arc.featherBelow, d.featherBelow, bandFeatherDegrees),
+                 wire(arc.featherAbove, d.featherAbove, bandFeatherDegrees)])
+    }
+
     // MARK: - Band weights
 
-    /// The 8-band partition of unity at `hue`, in wire order, at the DEFAULT geometry.
-    /// Kept as the canonical-geometry entry point: the B&W mix and the goldens are
-    /// denominated in it, and it must not move when a Mixer handle does.
+    /// The 8-band partition of unity at `hue`, in wire order, at the Mixer's DEFAULT
+    /// geometry (`canonicalArcs`). It must not move when a Mixer handle does.
     public static func bandWeights(hue: Double) -> [Double] {
         bandWeights(hue: hue, arcs: canonicalArcs)
+    }
+
+    /// The LEGACY partition: the equal 45° grid (`uniformBandHueCentres`) with the old
+    /// ±22.5° core and 15° feather. The B&W mix is denominated in it and has not moved
+    /// (WS-31 changed only the Mixer; docs/quality/lanes/WS-31/NEEDS.md), and it is what
+    /// a pinned pre-WS-31 recipe's Mixer used.
+    public static let uniformArcs: [BandArc] = uniformBandHueCentres.map {
+        BandArc(centre: $0, coreBelow: 22.5, coreAbove: 22.5,
+                featherBelow: 15, featherAbove: 15)
+    }
+
+    /// `bandWeights` on the legacy grid (see `uniformArcs`). B&W only.
+    public static func uniformBandWeights(hue: Double) -> [Double] {
+        bandWeights(hue: hue, arcs: uniformArcs)
     }
 
     /// The 8-band partition of unity at `hue`, in wire order. Σw = 1 exactly, on every
@@ -810,15 +1027,7 @@ public struct ColorEngine: Sendable {
         var sum: Double = 0
         for i in 0..<bandCount {
             let arc: BandArc = i < arcs.count ? arcs[i] : canonicalArcs[i]
-            let d = Num.hueDelta(arc.centre, hue)          // signed wrap180(hue − centre)
-            let below = Swift.max(0, -d - arc.coreBelow)
-            let above = Swift.max(0, d - arc.coreAbove)
-            var v: Double = 1
-            if below > 0 {
-                v = featherFalloff(below, extent: arc.featherBelow)
-            } else if above > 0 {
-                v = featherFalloff(above, extent: arc.featherAbove)
-            }
+            let v = rawBandWeight(hue: hue, arc: arc)
             w[i] = v
             sum += v
         }
@@ -830,7 +1039,8 @@ public struct ColorEngine: Sendable {
             var bestScore: Double = .infinity
             let reach = Swift.max(bandCoreDegrees + bandFeatherDegrees, 1e-6)
             for i in 0..<bandCount {
-                let score = abs(Num.hueDelta(bandHueCentres[i], hue)) / reach
+                let centre: Double = i < arcs.count ? arcs[i].centre : bandHueCentres[i]
+                let score = abs(Num.hueDelta(centre, hue)) / reach
                 if score < bestScore {
                     bestScore = score
                     best = i
@@ -842,6 +1052,18 @@ public struct ColorEngine: Sendable {
         }
         for i in 0..<bandCount { w[i] /= sum }
         return w
+    }
+
+    /// One band's membership BEFORE normalisation: 1 on the core, a raised-cosine
+    /// feather to 0 beyond it. At the default geometry adjacent feathers are
+    /// complementary, so these already sum to 1 (`bandCrossoverDegrees`).
+    static func rawBandWeight(hue: Double, arc: BandArc) -> Double {
+        let d = Num.hueDelta(arc.centre, hue)          // signed wrap180(hue − centre)
+        let below = Swift.max(0, -d - arc.coreBelow)
+        let above = Swift.max(0, d - arc.coreAbove)
+        if below > 0 { return featherFalloff(below, extent: arc.featherBelow) }
+        if above > 0 { return featherFalloff(above, extent: arc.featherAbove) }
+        return 1
     }
 
     /// Raised-cosine feather: 1 at the core edge, 0 at the feather extent, derivative 0
@@ -883,20 +1105,28 @@ public struct ColorEngine: Sendable {
     /// angle is numerical noise — the same noise `skinWeight` refuses to act on — so
     /// selecting a band from it would be selecting at random and then showing the
     /// photographer three sliders for a decision nobody made. "There is no colour there"
-    /// is a true answer and a cheap one to say.
+    /// is a true answer and a cheap one to say. The gate is the MIXER's (`mixerGate`),
+    /// so a pick answers exactly where the sliders it selects can act.
     public static func dominantBand(
         for colour: RGB,
         arcs: [BandArc],
         context: OKLabTransform.Context = OKLabTransform.working) -> Int? {
         guard colour.isFinite else { return nil }
         let lch = context.toLCh(colour)
-        guard lch.C.isFinite, lch.h.isFinite, chromaGate(lch.C) > 0 else { return nil }
+        guard lch.C.isFinite, lch.h.isFinite, mixerGate(lch.C) > 0 else { return nil }
         return dominantBand(hue: lch.h, arcs: arcs)
     }
 
     /// Chroma gate. Multiplies adjustment magnitude, never membership.
     public static func chromaGate(_ chroma: Double) -> Double {
         Num.smoothstep(gateLoChroma, gateHiChroma, chroma)
+    }
+
+    /// The Mixer's own chroma gate (`mixerGateLoChroma…mixerGateHiChroma`). Scales the
+    /// magnitude of every gated Mixer move — Hue, a Saturation push, Luminance and
+    /// Uniformity — and never membership. Point Colour and Skin keep `chromaGate`.
+    public static func mixerGate(_ chroma: Double) -> Double {
+        Num.smoothstep(mixerGateLoChroma, mixerGateHiChroma, chroma)
     }
 
     // MARK: - The shared variance-compression kernel
@@ -1229,8 +1459,9 @@ public struct ColorEngine: Sendable {
 
     // MARK: - Colour Mixer (D13)
 
-    /// The chroma-preserving lightness kernel, shared by the Mixer's Luminance sliders
-    /// and Point Colour's. Chroma is not an argument and never moves (invariant #1).
+    /// The chroma-preserving lightness kernel of POINT COLOUR's Luminance. Chroma is not
+    /// an argument and never moves (invariant #1). The Mixer used to share it and no
+    /// longer does: see `mixerLightness`.
     ///
     /// Rises from a true zero at black to full authority at `lumShapePeak`, then holds.
     /// See `lumShapePeak` for why it holds rather than falling back to zero at 1.0.
@@ -1238,6 +1469,133 @@ public struct ColorEngine: Sendable {
         guard lightness.isFinite else { return 0 }
         let t = Num.clamp(lightness, 0, lumShapePeak)
         return t * (1 - t)
+    }
+
+    /// The Mixer's chroma-preserving lightness move: OKLab L scaled by 2^(stops·ω(L)),
+    /// where `stops` is the gated, membership-weighted sum of the bands' Luminance in
+    /// stops (`mixerLumStopsDown`/`Up`) and ω is `mixerLumLightnessExponent`'s scale.
+    ///
+    /// A ratio: black stays black, nothing is ever crushed through zero, and the move is
+    /// monotone in `stops` and in L. A non-positive L (out-of-gamut input) is left alone.
+    public static func mixerLightness(_ lightness: Double, stops: Double) -> Double {
+        guard lightness > 0, stops != 0 else { return lightness }
+        let omega = pow(Swift.min(lightness, mixerLumLightnessCap) / mixerLumReferenceLightness,
+                        mixerLumLightnessExponent)
+        return lightness * exp2(stops * omega)
+    }
+
+    /// Band i's Luminance slider in stops: slider/100 times its down or up strength.
+    public static func bandLumStops(_ slider: Double, band i: Int) -> Double {
+        let v = Num.clamp(slider, -100, 100) / 100
+        return v * (v < 0 ? mixerLumStopsDown[i] : mixerLumStopsUp[i])
+    }
+
+    /// σ(h): the largest C/L an sRGB-primaries colour of OKLab hue `hue` can have before
+    /// one of its linear channels goes negative, from the Fourier fit
+    /// `mixerSatReferenceCoefficients` (smooth on purpose; see there).
+    public static func mixerReferenceSaturation(hue: Double) -> Double {
+        let t = hue * .pi / 180
+        let a = mixerSatReferenceCoefficients
+        var x = a[0]
+        for k in 1...6 {
+            let kt = Double(k) * t
+            x += a[2 * k - 1] * cos(kt) + a[2 * k] * sin(kt)
+        }
+        return exp(x)
+    }
+
+    /// The chroma GAIN of a Saturation push `push` (≥ 0, the gated weighted sum in 0…1)
+    /// on a colour at (L, C, h): 1 + push·(1 − r/R), r = C / (L·σ(h)), R =
+    /// `mixerSatCeiling`, and 1 at or beyond the ceiling. +100 still doubles a muted
+    /// sky; a colour already at the display's edge stays where it is.
+    ///
+    /// Monotone in `push`, and C·gain is monotone in C: dr′/dr = 1 + p(1 − 2r/R) ≥ 1 − p.
+    public static func mixerSatGain(chroma: Double, lightness: Double, hue: Double,
+                                    push: Double) -> Double {
+        guard push > 0 else { return 1 }
+        guard chroma > 0 else { return 1 + push }
+        let reference = lightness * mixerReferenceSaturation(hue: hue)
+        // Black (or a negative lightness) has no room in the cone at all: the limit of
+        // the gain as L falls to zero is 1, so that is what it gets.
+        guard reference > 1e-9 else { return 1 }
+        let room = 1 - chroma / (reference * mixerSatCeiling)
+        return 1 + push * Swift.max(0, room)
+    }
+
+    /// Each band's Hue move in degrees, as the recipe's sliders resolve it: slider/100 ×
+    /// `bandHueShiftLimit` of the band's own arc, then the whole set scaled down
+    /// together, only if needed, so that the composed warp's slope stays at least
+    /// `hueMinSlope` everywhere. A single band never needs the scale; neighbours pushed
+    /// toward each other can. The slope is linear in the moves, so the scale is exact:
+    /// it is measured on a 0.05° grid of the warp's derivative.
+    public static func resolvedHueShifts(_ bands: [MixerBand], arcs: [BandArc]) -> [Double] {
+        var d = [Double](repeating: 0, count: bandCount)
+        var moved = false
+        for i in 0..<bandCount where i < bands.count && i < arcs.count {
+            d[i] = Num.clamp(bands[i].hue, -100, 100) / 100 * bandHueShiftLimit(arcs[i])
+            if d[i] != 0 { moved = true }
+        }
+        guard moved, d.allSatisfy({ $0.isFinite }) else { return d }
+        var steepest: Double = 0           // most negative d(displacement)/d(hue)
+        let step = 0.05
+        var previous = hueDisplacement(0, shifts: d, arcs: arcs)
+        var h = step
+        while h <= 360 {
+            let next = hueDisplacement(h, shifts: d, arcs: arcs)
+            steepest = Swift.min(steepest, (next - previous) / step)
+            previous = next
+            h += step
+        }
+        let room = 1 - hueMinSlope - hueSlopeMargin
+        if -steepest > room {
+            let scale = room / -steepest
+            for i in 0..<bandCount { d[i] *= scale }
+        }
+        return d
+    }
+
+    /// The falloff of a hue move, 0 → 1 over t ∈ 0…1, with slope 0 at both ends: a
+    /// quadratic ease over `hueRampFraction` at each end and a straight line between (its
+    /// slope, 1/(1 − ramp), is the least any shape with flat ends can have).
+    public static func hueTransfer(_ t: Double) -> Double {
+        let ramp = hueRampFraction
+        let peak = 1 / (1 - ramp)
+        if t <= ramp { return peak * t * t / (2 * ramp) }
+        if t >= 1 - ramp { return 1 - peak * (1 - t) * (1 - t) / (2 * ramp) }
+        return peak * (t - ramp / 2)
+    }
+
+    /// THE HUE MOVE: a monotone warp of the hue circle, as a displacement in degrees.
+    ///
+    /// Band k turns its whole core by `shifts[k]`, and beyond the core the move falls off
+    /// through `hueTransfer` over `hueFalloff` — the band's own Band range ring scaled by
+    /// `hueReachFactor`, so a narrowed ring narrows which hues move (SPEC R6), exactly as
+    /// it narrows Saturation and Luminance. Output hue against input hue has slope
+    /// 1 + Σ dₖ·Bₖ′, and `bandHueShiftLimit` with `resolvedHueShifts` keep that at least
+    /// `hueMinSlope` for every recipe: the circle can be stretched and squeezed but never
+    /// folded.
+    ///
+    /// It replaced `Σ wᵢ·shiftᵢ` over the normalised membership weights. That form put a
+    /// 45° move through a 25° raised-cosine transition, and its slope went to −1.6: 14–20°
+    /// of input hue on every band came out reversed (audit M1). The membership weights'
+    /// transitions are as narrow as Lightroom-like band selectivity needs, which is too
+    /// narrow to carry a 25–35° move, so the hue move falls off over the longer reach.
+    ///
+    /// A sum of per-band bases with no interval search, so the GPU twin evaluates the
+    /// same expression.
+    public static func hueDisplacement(_ hue: Double, shifts d: [Double],
+                                       arcs: [BandArc]) -> Double {
+        var out: Double = 0
+        for k in 0..<bandCount where d[k] != 0 && k < arcs.count {
+            let arc = arcs[k]
+            let delta = Num.hueDelta(arc.centre, hue)
+            let f = hueFalloff(arc)
+            let core = delta >= 0 ? arc.coreAbove : arc.coreBelow
+            let fall = delta >= 0 ? f.above : f.below
+            let s = Num.clamp((abs(delta) - core) / fall, 0, 1)
+            out += d[k] * (1 - hueTransfer(s))
+        }
+        return out
     }
 
     private static func sanitizedBands(_ input: [MixerBand]) -> [MixerBand] {
@@ -1253,7 +1611,7 @@ public struct ColorEngine: Sendable {
         // The user's own arcs, not the canonical ones: the ring the panel draws and the
         // membership the pixel loop uses are the same four handles.
         let w = Self.bandWeights(hue: lch.h, arcs: arcs)
-        let gate = Self.chromaGate(lch.C)
+        let gate = Self.mixerGate(lch.C)
         // Uniformity's neighbourhood. Equal to `lch.h` on the flat path.
         let meanHue: Double = {
             guard uniformity > 0, localMean != c else { return lch.h }
@@ -1261,11 +1619,11 @@ public struct ColorEngine: Sendable {
             return m.h.isFinite ? m.h : lch.h
         }()
 
-        // Sum all three attributes across bands BEFORE applying any of them. Applying
+        // Sum all attributes across bands BEFORE applying any of them. Applying
         // band-serially would double-count in the overlap regions, which is exactly
         // where the smooth band model is supposed to be invisible.
-        var hueSum: Double = 0
-        var satSum: Double = 0
+        var pullSum: Double = 0
+        var pushSum: Double = 0
         var lumSum: Double = 0
         let q = -uniformity / 100
         // Uniformity converges on ONE blended target — the weighted circular mean of
@@ -1286,28 +1644,18 @@ public struct ColorEngine: Sendable {
             // A Saturation PULL is the one band move the chroma gate must not scale.
             // The gate exists to keep noise hue from being rotated or amplified; a
             // pull does neither — it only scales chroma towards zero. Gated, a −100
-            // pull rendered C·(1 − gate(C)), which rises to 0.025 at C = 0.03 and
-            // falls back to zero at 0.06: the palest members of a band kept their
-            // tint while stronger ones went grey, non-monotone in chroma.
+            // pull rendered C·(1 − gate(C)), non-monotone in chroma: the palest
+            // members of a band kept their tint while stronger ones went grey.
             // Ungated, C' = C·(1 + Σw·s) is monotone and −100 removes the colour at
             // every chroma. Pushes, Hue, Luminance and Uniformity stay gated.
-            // No softer gate fits between the two: at the band centre −100 must give
-            // C' = 0 for every C ≥ gateLo, and a C'(C) that is non-decreasing and zero
-            // at gateLo is zero below it too, so any gate opening from 0 (e.g.
-            // smoothstep(0, gateLo, C)) brings the fold back. The price, paid below the
-            // gate: the band-hued part of near-neutral chroma noise goes to zero and the
-            // rest stays, a cast of ~0.12 × the noise chroma (≤ 0.0024 at the gate,
-            // about a tenth of a JND), and a slightly cool neutral is neutralised by a
-            // Blue pull.
             // `HuePreservationTests.testBandSaturationPullIsMonotoneInChromaAndRemovesTheColour`,
             // `…testABandPullOnIsotropicLowChromaNoiseLeavesOnlyAFaintCast`.
             let sat = Num.clamp(band.sat, -100, 100) / 100
-            if sat < 0 { satSum += w[i] * sat }
+            if sat < 0 { pullSum += w[i] * sat }
             let weight = w[i] * gate
             if weight == 0 { continue }
-            hueSum += weight * (Num.clamp(band.hue, -100, 100) / 100) * Self.hueRangeDegrees
-            if sat > 0 { satSum += weight * sat }
-            lumSum += weight * (Num.clamp(band.lum, -100, 100) / 100)
+            if sat > 0 { pushSum += weight * sat }
+            lumSum += weight * Self.bandLumStops(band.lum, band: i)
             if q != 0 {
                 let radians = bandTargetHue(i) * .pi / 180
                 targetX += weight * cos(radians)
@@ -1324,13 +1672,23 @@ public struct ColorEngine: Sendable {
                                               q: q, beta: 1, weight: gate, axis: .hue)
             converge = Num.hueDelta(lch.h, moved)
         }
+        // Uniformity first, then the hue warp evaluated AT THE CONVERGED HUE: the two
+        // moves compose (slope = warp′ · uniformity′, both ≥ 0) instead of adding two
+        // displacements read off the same input hue, which folded the circle when a
+        // band's Hue and Uniformity were both set (WS-31 verify R7). Gated like every
+        // hue-selective move: below the gate a pixel's hue is noise.
+        let converged = Num.wrapHue(lch.h + converge)
+        let hueMove: Double = hueIsFlat || gate == 0
+            ? 0 : gate * Self.hueDisplacement(converged, shifts: hueShifts, arcs: arcs)
 
-        let gC = Swift.max(0, 1 + satSum)
+        // A pull scales chroma linearly; a push goes through the cone roll-off. The two
+        // multiply, so chroma stays monotone in each slider and in the input chroma.
+        let gC = Swift.max(0, 1 + pullSum)
+            * Self.mixerSatGain(chroma: lch.C, lightness: lch.L, hue: lch.h, push: pushSum)
         // Chroma is carried through the luminance move literally unchanged — invariant
-        // #1. The shaping term holds the black fixed point and keeps full authority on
-        // the above-white values scene-referred data reaches.
-        let L = lch.L + lumSum * Self.lumKappa * Self.lumShape(lch.L)
-        let h = Num.wrapHue(lch.h + hueSum + converge)
+        // #1 — and the move itself is a ratio (see `mixerLightness`).
+        let L = Self.mixerLightness(lch.L, stops: lumSum)
+        let h = Num.wrapHue(converged + hueMove)
         return context.toRGB(OKLCh(L: L, C: lch.C * gC, h: h))
     }
 
@@ -1955,7 +2313,9 @@ public struct ColorEngine: Sendable {
                 // pasted Look render differently on every frame depending on how that
                 // frame's Mixer happened to be shaped, which is exactly the
                 // non-portability the Look layer exists to prevent.
-                let w = Self.bandWeights(hue: lch.h)
+                // On the LEGACY equal-spaced grid: WS-31 moved the Mixer's bands, not
+                // the B&W mix's (docs/quality/lanes/WS-31/NEEDS.md). The gate is WS-16's.
+                let w = Self.uniformBandWeights(hue: lch.h)
                 let gate = Self.bwGate(lch.C)
                 for i in 0..<Self.bandCount {
                     ev += w[i] * gate * (blackAndWhiteBands[i] / 100) * Self.bwKappa

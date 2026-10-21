@@ -169,8 +169,7 @@ final class RobustnessTests: XCTestCase {
         let context = OKLabTransform.working
         // Dead centre of the Blue band, which is index 5 of the fixed eight.
         let blueBand = 5
-        let hue = ColorEngine.bandAnchorDegrees
-            + ColorEngine.bandSpacingDegrees * Double(blueBand)
+        let hue = ColorEngine.bandHueCentres[blueBand]
         XCTAssertGreaterThan(ColorEngine.bandWeights(hue: hue)[blueBand], 0.9,
                              "INVALID PROBE: the test colour is not in the Blue band")
 
@@ -191,7 +190,11 @@ final class RobustnessTests: XCTestCase {
             let drop = before.L - after.L
             if stops == 0 { midtoneDrop = drop }
 
-            XCTAssertGreaterThan(drop, 0.2,
+            // 0.1, not the old 0.2: WS-31 retuned −100 from an additive 0.25 of L (6 EV
+            // on a dark sky) to a ratio of about −1.3 EV on a mid sky, which is a drop of
+            // 0.13 at mid-grey. What this test is for — the drop must not collapse as the
+            // patch brightens — is the second assertion, unchanged.
+            XCTAssertGreaterThan(drop, 0.1,
                                  "Blue Luminance −100 moved OKLab L by \(drop) at "
                                      + "+\(stops) EV (L = \(before.L))")
             XCTAssertGreaterThan(drop, midtoneDrop * 0.9,

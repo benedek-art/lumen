@@ -840,7 +840,14 @@ public struct MixerBand: Codable, Equatable, Sendable {
     public var lum: Double    // chroma-preserving luminance (D13)
 
     /// The two INNER ring handles: how far the band's core arc reaches below and above
-    /// its canonical centre, in degrees. `[below, above]`, default `[22.5, 22.5]`.
+    /// its canonical centre. `[below, above]`, default `[22.5, 22.5]`.
+    ///
+    /// In WIRE UNITS relative to the band's own default (WS-31): 22.5 is that band's
+    /// default core on that side, whatever it is in degrees, 11.25 half of it. The
+    /// default became per-band when the centres stopped being 45° apart, and this keeps
+    /// every recipe that never touched a handle on the new default with no migration of
+    /// the stored value. `ColorEngine.bandArcs` resolves to degrees and
+    /// `ColorEngine.wireHandles(for:band:)` writes degrees back.
     ///
     /// Asymmetric on purpose, and that asymmetry is the whole feature. docs/05 asks for
     /// an eyedropper that "re-centers the core range on the sampled hue"; a band centred
@@ -849,14 +856,14 @@ public struct MixerBand: Codable, Equatable, Sendable {
     /// can see. `ColorEngine.BandArc.coreCentre` reads that midpoint back out, and
     /// Mixer Uniformity converges toward it.
     public var core: [Double]
-    /// The two OUTER ring handles: falloff extent beyond the core, per side, in degrees.
+    /// The two OUTER ring handles: falloff extent beyond the core, per side, in the same
+    /// relative wire units (15 = the band's default feather on that side).
     /// `[below, above]`, default `[15, 15]`. Capture One exposes one global Smoothness;
     /// this is the per-side version docs/05 claims as the improvement on it.
     public var feather: [Double]
 
-    /// Wire defaults, derived from the engine's canonical geometry rather than
-    /// transcribed — a recipe that said 22.5 while the engine said something else would
-    /// be a band whose drawn arc and rendered reach disagreed.
+    /// Wire defaults: the engine's wire units (`ColorEngine.bandCoreDegrees`,
+    /// `bandFeatherDegrees`), which `bandArcs` resolves to each band's own default arc.
     public static let defaultCore: [Double] =
         [ColorEngine.bandCoreDegrees, ColorEngine.bandCoreDegrees]
     public static let defaultFeather: [Double] =

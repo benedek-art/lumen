@@ -38,9 +38,9 @@
 //
 // Exactly-unreachable branch, stated: `ColorEngine.bandWeights` hands all the weight to
 // the nearest band when every membership is under 1e-6. The sanitizer's minimum reach
-// (27.5° against a 22.5° half-spacing) makes that impossible for any arcs the engine
-// can hold, so the kernel does not carry it; `ExactColorStageTests` sweeps the
-// extreme-arc corners to prove the floor.
+// (half of each gap plus `bandMinReachMarginDegrees`, per side) makes that impossible for
+// any arcs the engine can hold, so the kernel does not carry it; `ExactColorStageTests`
+// sweeps the extreme-arc corners to prove the floor.
 
 import Foundation
 
@@ -77,7 +77,8 @@ public struct ExactColorStage: Sendable, Equatable {
         var remap: Mat3?
         var tint: (a: Double, b: Double)?
         var luma: RGB
-        /// Per band: centre, coreBelow, coreAbove, featherBelow, featherAbove, hue°, sat, lum, target°.
+        /// Per band: centre, coreBelow, coreAbove, featherBelow, featherAbove, hue move°
+        /// (`ColorEngine.resolvedHueShifts`), sat, lum (both −1…1), target°.
         var mixer: (bands: [[Double]], q: Double)?
         /// Per swatch: L, C, h, σL, σC, σH, shiftH, shiftS, shiftL, q, σR, χa, χb, 1/|χ|².
         var swatches: [[Double]]
@@ -97,7 +98,9 @@ public struct ExactColorStage: Sendable, Equatable {
                                     OKLabTransform.labToLMS, r.context.lmsToRGB]
             .flatMap { m in m.m.flatMap { $0 } })
         precondition(conversion.count == 9)
-        let centres = Self.pack(ColorEngine.bandHueCentres)
+        // The B&W mix's band centres: the LEGACY equal-spaced grid, which WS-31 left in
+        // place for B&W (the Mixer block below packs its own, moved, centres).
+        let centres = Self.pack(ColorEngine.uniformBandHueCentres)
         var out: [Pass] = []
 
         if r.remap != nil || r.tint != nil {
@@ -111,11 +114,16 @@ public struct ExactColorStage: Sendable, Equatable {
         }
 
         if let mixer = r.mixer {
-            var u = conversion + centres
+            // Per band: arc; then (hue move in degrees, sat in −1…1, lum in stops); then
+            // the Uniformity target. The last vector carries Uniformity's q and the
+            // Luminance lightness scale ω (`ColorEngine.mixerLightness`).
+            var u = conversion + Self.pack(ColorEngine.bandHueCentres)
             for band in mixer.bands { u.append(Self.v(band[1], band[2], band[3], band[4])) }
             u += Self.pack(mixer.bands.flatMap { [$0[5], $0[6], $0[7]] })
             u += Self.pack(mixer.bands.map { $0[8] })
-            u.append(Self.v(mixer.q, 0, 0, 0))
+            u.append(Self.v(mixer.q, ColorEngine.mixerLumReferenceLightness,
+                            ColorEngine.mixerLumLightnessExponent,
+                            ColorEngine.mixerLumLightnessCap))
             precondition(u.count == 28, "the Mixer kernel's argument budget")
             out.append(Pass(kernel: .mixer, uniforms: u, readsReference: false))
         }
@@ -356,6 +364,43 @@ enum ExactColorTwin {
 
     // ---- mixer: eight bands, summed before applying, Uniformity on the flat path ----
 
+    /// `ColorEngine.mixerGate`.
+    @inline(__always) static func mixerGate(_ C: Float) -> Float {
+        smoothstep(Float(ColorEngine.mixerGateLoChroma), Float(ColorEngine.mixerGateHiChroma), C)
+    }
+
+    /// `ColorEngine.mixerReferenceSaturation`.
+    @inline(__always) static func mixerReference(_ h: Float) -> Float {
+        let a = ColorEngine.mixerSatReferenceCoefficients.map { Float($0) }
+        let t = h * 0.0174532925
+        var x = a[0]
+        for k in 1...6 {
+            let kt = Float(k) * t
+            x += a[2 * k - 1] * cos(kt) + a[2 * k] * sin(kt)
+        }
+        return exp(x)
+    }
+
+    /// `ColorEngine.mixerSatGain`.
+    @inline(__always) static func mixerSatGain(_ C: Float, _ L: Float, _ h: Float,
+                                               _ push: Float) -> Float {
+        guard push > 0 else { return 1 }
+        guard C > 0 else { return 1 + push }
+        let reference = L * mixerReference(h)
+        guard reference > 1e-9 else { return 1 }
+        let room = 1 - C / (reference * Float(ColorEngine.mixerSatCeiling))
+        return 1 + push * max(0, room)
+    }
+
+    /// `ColorEngine.hueTransfer`.
+    @inline(__always) static func hueTransfer(_ t: Float) -> Float {
+        let ramp = Float(ColorEngine.hueRampFraction)
+        let peak = Float(1 / (1 - ColorEngine.hueRampFraction))
+        if t <= ramp { return peak * t * t / (2 * ramp) }
+        if t >= 1 - ramp { return 1 - peak * (1 - t) * (1 - t) / (2 * ramp) }
+        return peak * (t - ramp / 2)
+    }
+
     static func mixer(_ c: F3, _ u: U) -> F3 {
         let l = lch(toLab(c, u))
         guard finite(l) else { return c }
@@ -366,30 +411,43 @@ enum ExactColorTwin {
             w[i] = membership(h, e(u, 36 + i), u[11 + i])
             total += w[i]
         }
-        let g = gate(l.y)
-        var hueSum: Float = 0, satSum: Float = 0, lumSum: Float = 0
+        let g = mixerGate(l.y)
+        var pull: Float = 0, push: Float = 0, lumSum: Float = 0
         var tx: Float = 0, ty: Float = 0
         for i in 0..<8 {
             let weight = w[i] / total * g
-            hueSum += weight * e(u, 76 + 3 * i)
             // A pull runs ungated, a push gated — `ColorEngine.applyMixer` says why.
             let sat = e(u, 77 + 3 * i)
-            satSum += (sat < 0 ? w[i] / total : weight) * sat
+            pull += sat < 0 ? w[i] / total * sat : 0
+            push += sat > 0 ? weight * sat : 0
             lumSum += weight * e(u, 78 + 3 * i)
             let r = e(u, 100 + i) * 0.0174532925
             tx += weight * cos(r)
             ty += weight * sin(r)
         }
-        let q = u[27].x
+        let q = u[27]
         var converge: Float = 0
-        if q != 0 && g != 0 && tx * tx + ty * ty > 1e-12 {
+        if q.x != 0 && g != 0 && tx * tx + ty * ty > 1e-12 {
             let blended = atan2(ty, tx) * 57.2957795
-            let moved = wrapHue(h + q * g * hueDelta(blended, h))
+            let moved = wrapHue(h + q.x * g * hueDelta(blended, h))
             converge = hueDelta(h, moved)
         }
-        let L = l.x + lumSum * lumShape(l.x)
-        let C = l.y * max(0, 1 + satSum)
-        return toRGB(lab(F3(L, C, wrapHue(h + hueSum + converge))), u)
+        // Uniformity first, then the hue warp at the converged hue
+        // (`ColorEngine.applyMixer`, `ColorEngine.hueDisplacement`).
+        let hc = wrapHue(h + converge)
+        let reach = Float(ColorEngine.hueReachFactor)
+        var warp: Float = 0
+        for k in 0..<8 {
+            let arc = u[11 + k]
+            let delta = hueDelta(e(u, 36 + k), hc)
+            let core = delta >= 0 ? arc.y : arc.x
+            let fall = delta >= 0 ? reach * (arc.y + arc.w) - arc.y : reach * (arc.x + arc.z) - arc.x
+            let s = min(max((abs(delta) - core) / fall, 0), 1)
+            warp += e(u, 76 + 3 * k) * (1 - hueTransfer(s))
+        }
+        let L = l.x > 0 && lumSum != 0 ? l.x * exp2(lumSum * pow(min(l.x, q.w) / q.y, q.z)) : l.x
+        let C = l.y * max(0, 1 + pull) * mixerSatGain(l.y, l.x, h, push)
+        return toRGB(lab(F3(L, C, wrapHue(hc + g * warp))), u)
     }
 
     // ---- point: one swatch against the fixed pre-Mixer reference ----
@@ -751,12 +809,49 @@ public enum ExactColorKernelSource {
             sums += """
                     { float k = w\(i) / total * g;
                       float sv = \(u(77 + 3 * i));
-                      hueSum += k * \(u(76 + 3 * i)); satSum += (sv < 0.0 ? w\(i) / total : k) * sv; lumSum += k * \(u(78 + 3 * i));
+                      pull += sv < 0.0 ? w\(i) / total * sv : 0.0; push += sv > 0.0 ? k * sv : 0.0; lumSum += k * \(u(78 + 3 * i));
                       float r = \(u(100 + i)) * 0.0174532925; tx += k * cos(r); ty += k * sin(r); }
 
             """
         }
+        let reach = ColorEngine.hueReachFactor
+        var warp = ""
+        for k in 0..<8 {
+            warp += """
+                    { vec4 ar = a\(k);
+                      float dl = lumenHueDelta(\(u(36 + k)), hc);
+                      float core = dl >= 0.0 ? ar.y : ar.x;
+                      float fall = dl >= 0.0 ? \(reach) * (ar.y + ar.w) - ar.y : \(reach) * (ar.x + ar.z) - ar.x;
+                      float sn = min(max((abs(dl) - core) / fall, 0.0), 1.0);
+                      warp += \(u(76 + 3 * k)) * (1.0 - lumenHueTransfer(sn)); }
+
+            """
+        }
+        let a = ColorEngine.mixerSatReferenceCoefficients
+        var series = "\(a[0])"
+        for k in 1...6 {
+            series += " + \(a[2 * k - 1]) * cos(\(Double(k)) * t) + \(a[2 * k]) * sin(\(Double(k)) * t)"
+        }
+        let ceiling = ColorEngine.mixerSatCeiling
+        let ramp = ColorEngine.hueRampFraction
+        let peak = 1 / (1 - ColorEngine.hueRampFraction)
         return prelude + """
+
+        float lumenHueTransfer(float t) {
+            if (t <= \(ramp)) { return \(peak) * t * t / \(2 * ramp); }
+            if (t >= \(1 - ramp)) { return 1.0 - \(peak) * (1.0 - t) * (1.0 - t) / \(2 * ramp); }
+            return \(peak) * (t - \(ramp / 2));
+        }
+        float lumenMixerGate(float C) { return lumenSmooth(\(ColorEngine.mixerGateLoChroma), \(ColorEngine.mixerGateHiChroma), C); }
+        float lumenMixerReference(float h) { float t = h * 0.0174532925; return exp(\(series)); }
+        float lumenMixerSatGain(float C, float L, float h, float push) {
+            if (!(push > 0.0)) { return 1.0; }
+            if (!(C > 0.0)) { return 1.0 + push; }
+            float reference = L * lumenMixerReference(h);
+            if (!(reference > 1e-9)) { return 1.0; }
+            float room = 1.0 - C / (reference * \(ceiling));
+            return 1.0 + push * max(0.0, room);
+        }
 
         kernel vec4 lumenColourMixer(__sample s, \(conversionParameters), vec4 c0, vec4 c1,
                                      \(arcs), \(moves), vec4 t0, vec4 t1, vec4 q) {
@@ -766,8 +861,8 @@ public enum ExactColorKernelSource {
             float h = l.z;
         \(weights)
             float total = \(total);
-            float g = lumenGate(l.y);
-            float hueSum = 0.0; float satSum = 0.0; float lumSum = 0.0;
+            float g = lumenMixerGate(l.y);
+            float pull = 0.0; float push = 0.0; float lumSum = 0.0;
             float tx = 0.0; float ty = 0.0;
         \(sums)
             float converge = 0.0;
@@ -776,9 +871,12 @@ public enum ExactColorKernelSource {
                 float moved = lumenWrap(h + q.x * g * lumenHueDelta(blended, h));
                 converge = lumenHueDelta(h, moved);
             }
-            float L = l.x + lumSum * lumenLumShape(l.x);
-            float C = l.y * max(0.0, 1.0 + satSum);
-            vec3 mapped = lumenLab(vec3(L, C, lumenWrap(h + hueSum + converge)));
+            float hc = lumenWrap(h + converge);
+            float warp = 0.0;
+        \(warp)
+            float L = (l.x > 0.0 && lumSum != 0.0) ? l.x * exp2(lumSum * pow(min(l.x, q.w) / q.y, q.z)) : l.x;
+            float C = l.y * max(0.0, 1.0 + pull) * lumenMixerSatGain(l.y, l.x, h, push);
+            vec3 mapped = lumenLab(vec3(L, C, lumenWrap(hc + g * warp)));
             \(toRGB("mapped", into: "outRGB"))
             return vec4(outRGB, s.a);
         }

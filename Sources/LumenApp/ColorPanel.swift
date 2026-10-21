@@ -47,12 +47,18 @@ struct ColorPanel: View {
     // Band selection lives on `AppState`, not here, because the eyedropper resolves on
     // the render actor and has to write its answer somewhere this panel will see it.
     // See `AppState.mixerBand` for what that costs and why it is affordable.
+    //
+    // `AppState.mixerAllBands` is NOT read here any more. The "All bands" segment that
+    // set it is gone (see `mixerHeaderRow`), and a panel that went on honouring a flag
+    // nothing on screen can show or clear would be a hidden mode.
     private var selectedBand: Int { state.mixerBand }
-    private var allBands: Bool { state.mixerAllBands }
     @State private var selectedSwatch: Int = 0
     // Folds inside the section, not the section itself: the accordion decides whether
     // Colour is open, these three decide whether the rows under one of its headers are.
     @State private var mixerExpanded: Bool = true
+    /// The row an eyedropper pick landed on while Hue, Saturation or Luminance is showing
+    /// — see `mixerSection`'s `onChange`. Nil until a pick, and cleared by a view switch.
+    @State private var pickedRow: Int? = nil
     @State private var pointExpanded: Bool = true
     /// Only ever consulted while the treatment is on — see `blackAndWhiteSection`, where
     /// the header stops offering a chevron once there is nothing behind it to fold.
@@ -128,100 +134,250 @@ struct ColorPanel: View {
                                topRhythm: innerRhythm)
 
             if mixerExpanded {
-                // PICKER FIRST (docs/28 Phase 5). Before this row, using the mixer began
-                // with a question the panel would not answer: which of Red, Orange,
-                // Yellow, Green, Aqua, Blue, Purple and Magenta owns the colour you want
-                // to change? A photographer knows the sky and the skin; nobody knows
-                // which 45° arc of OKLCh they fall in, and guessing wrong means three
-                // sliders that appear to do nothing. Capture One's most-praised colour
-                // idea is that you eyedrop the colour and the band selects itself, and
-                // the engine can already answer it — `ColorEngine.dominantBand` is the
-                // argmax of the same membership vector the pixel loop uses.
-                HStack(spacing: 6) {
-                    pickBandButton
-                    Spacer(minLength: 8)
-                    LumenSegmented(options: [(value: false, label: "Band"),
-                                             (value: true, label: "All bands")],
-                                   selection: Binding(get: { state.mixerAllBands },
-                                                      set: { state.mixerAllBands = $0 }))
-                        // `maxWidth`, not `width`: this was sized by eye against a
-                        // 300pt content area and the column is draggable now, so a hard
-                        // 150 overflows the moment someone narrows it.
-                        .frame(maxWidth: 150)
-                }
-                .padding(.vertical, 2)
-
-                bandSwatches(bands)
-
-                bandReach(arcs, index)
-
-                // The tracks carry the band's own colour, which also makes the track say
-                // what the row's SCOPE is: in All bands there is no single band's colour
-                // to show, so the three rows go back to the neutral groove and the
-                // ordinary deviation fill. See `mixerStops`.
-                LumenSlider(title: "Hue", value: mixerBinding(.hue),
-                            range: -100...100, defaultValue: 0, step: 1, decimals: 0,
-                            trackStops: mixerStops(ColorPanel.mixerHueStops, index),
-                            help: "Turns the band's colours toward a neighbour — the "
-                                + "track shows which way, and ±100 lands exactly on "
-                                + "the next band's hue.")
-                LumenSlider(title: "Saturation", value: mixerBinding(.sat),
-                            range: -100...100, defaultValue: 0, step: 1, decimals: 0,
-                            trackStops: mixerStops(ColorPanel.mixerSaturationStops, index),
-                            help: "Strengthens or mutes just this band's colours; "
-                                + "−100 takes them to grey.")
-                LumenSlider(title: "Luminance", value: mixerBinding(.lum),
-                            range: -100...100, defaultValue: 0, step: 1, decimals: 0,
-                            trackStops: mixerStops(ColorPanel.mixerLuminanceStops, index),
-                            help: "Lightens or darkens this band's colours without "
-                                + "draining them — a darkened sky stays blue.")
-
-                // Not inside the band block above, and named for what it is. There is
-                // one `Mixer.uniformity` on the wire and the engine applies it to all
-                // eight bands, each converging on its own core arc — so selecting Blue
-                // and dragging this also pulls skin toward Orange.
-                //
-                // This rule SURVIVES the hairline cull (design audit §1.1) on purpose:
-                // it does not fence two sections — those are spaced apart now — it marks
-                // a change of scope inside one, from "the selected band" to "every
-                // band". Space alone would read as an ordinary gap between rows, and
-                // reading this row as per-band is a wrong edit, not an ugly one. It is
-                // now the only thing on screen that marks the change of scope, which is
-                // what it was always for.
-                // AND THEN IT WENT TOO (U2), with ZonesPanel's twin and for the same
-                // reason: it was the last pair of rules in the owned panels, the
-                // direction says there are none, and eight points of space where the
-                // rows run at two reads as a break without drawing a stroke inches from
-                // a photograph. The claim above — that misreading this row as per-band
-                // is a wrong edit rather than an ugly one — still holds, and if the
-                // space turns out not to carry it, the upgrade is to NAME the scope
-                // with a group marker rather than to bring the line back.
-                Color.clear.frame(height: 8)
-
-                // "Even out hues", not "Uniformity". The coalescing key stays
-                // `mixer.uniformity` and so does the wire field; this is the label doing
-                // the caption's job. "Uniformity" is a word out of the format, and it
-                // took sixty-two words underneath it to turn back into an instruction —
-                // which is the definition of a control that has not been designed yet.
-                LumenSlider(title: "Even out hues",
-                            value: bind("mixer.uniformity",
-                                        get: { $0.develop.mixer.uniformity },
-                                        set: { $0.develop.mixer.uniformity = $1 }),
-                            range: 0...100, defaultValue: 0, step: 1, decimals: 0,
-                            bipolar: false,
-                            // AI-08, interim: the engine evaluates this per pixel
-                            // (S9 is a colour table, so it cannot see a neighbourhood),
-                            // and the help says what that costs until a spatial local
-                            // mean reaches the stage. Measured: at 100, inputs at
-                            // 24°/29°/34° inside one band all leave at 29°.
-                            help: "Gathers scattered hues in toward each band's own "
-                                + "centre — calms mottled colour like patchy skin or a "
-                                + "streaky sky. Works on all eight bands at once, "
-                                + "whatever is selected above. For now it works pixel "
-                                + "by pixel, not on the neighbourhood: at 100 the hues "
-                                + "inside a band all land on one, so fine colour "
-                                + "texture flattens along with the blotches.")
+                mixerHeaderRow(bands, reshaped: reshaped)
+                mixerBody(bands, arcs, index)
+                evenOutHues
             }
+        }
+        // WHERE A PICK LANDS, IN THE VIEWS THAT HAVE NO SWATCHES (E1). The eyedropper
+        // resolves on `AppState` and writes `mixerBand`; in Band view the ring on the
+        // swatch is the answer. In Hue, Saturation and Luminance the eight rows are
+        // all on screen and none of them is "selected", so the row the pick chose
+        // wears the focus surface until the view changes. Nothing but a pick writes
+        // `mixerBand` while those views show — the swatches that also write it are
+        // only drawn in Band view — so this does not fire on any other gesture.
+        .onChange(of: state.mixerBand) { _, band in
+            if state.mixerAdjust != .band { pickedRow = band }
+        }
+        .onChange(of: state.mixerAdjust) { _, _ in
+            pickedRow = nil
+        }
+    }
+
+    /// The eyedropper and the Adjust control, on one row.
+    ///
+    /// PICKER FIRST (docs/28 Phase 5). Before this row, using the mixer began with a
+    /// question the panel would not answer: which of the eight bands owns the colour you
+    /// want to change? A photographer knows the sky and the skin; nobody knows which arc
+    /// of hue they fall in, and guessing wrong means sliders that appear to do nothing.
+    /// `ColorEngine.dominantBand` is the argmax of the same membership vector the pixel
+    /// loop uses, so the engine can answer it.
+    ///
+    /// THE SEGMENTS ARE LIGHTROOM'S, and "All bands" is not one of them any more. It
+    /// was a rigid group offset — every band's Hue, Saturation or Luminance moved by the
+    /// same amount — sitting where Lightroom puts a VIEW of all the sliders, and it
+    /// dimmed the swatches so they read as disabled (audit UI-5). Moving every band's
+    /// hue together is a global hue rotation, every band's saturation together is the
+    /// Presence Saturation row, and the question "what did I do to all of them" is now
+    /// answered by the Hue, Saturation and Luminance views. The dots on the segments
+    /// say which of them carries an edit, the way the grading zones' segments do.
+    private func mixerHeaderRow(_ bands: [MixerBand], reshaped: Bool) -> some View {
+        var marked: Set<AppState.MixerAdjust> = []
+        if bands.contains(where: { $0.hue != 0 }) { marked.insert(.hue) }
+        if bands.contains(where: { $0.sat != 0 }) { marked.insert(.saturation) }
+        if bands.contains(where: { $0.lum != 0 }) { marked.insert(.luminance) }
+        // Band view is the only place a reshaped arc can be seen, so it is the segment
+        // that says one exists.
+        if reshaped { marked.insert(.band) }
+
+        return HStack(spacing: 6) {
+            mixerPickButton
+            // The rest of the row, not a fixed width: the column is draggable, and four
+            // segments in the narrowest column still get a 64 pt share each
+            // (`LayoutMetricTests.testEverySegmentedControlsLabelsFitTheirShare`).
+            LumenSegmented(options: ColorPanel.adjustOptions,
+                           selection: Binding(get: { state.mixerAdjust },
+                                              set: { state.mixerAdjust = $0 }),
+                           marked: marked)
+                .frame(maxWidth: .infinity)
+        }
+        .padding(.vertical, 2)
+    }
+
+    /// The four views, in Lightroom's order.
+    static let adjustOptions: [(value: AppState.MixerAdjust, label: String)] = [
+        (value: .hue, label: "Hue"),
+        (value: .saturation, label: "Saturation"),
+        (value: .luminance, label: "Luminance"),
+        (value: .band, label: "Band"),
+    ]
+
+    /// The mixer's eyedropper, icon-only and drawn exactly as Point Colour's is — the
+    /// same glyph, the same 24 pt by row-height target, the same armed paint — because
+    /// two eyedroppers one section apart that look different read as two different
+    /// tools. Armed, pressing it again disarms rather than stacking a second pick, the
+    /// contract every picker in the app keeps.
+    ///
+    /// It replaces `pickBandButton` here (that one still reads "Pick a colour" in text,
+    /// and is Point Colour's lane's to retire; see docs/quality/lanes/WS-31/NEEDS.md).
+    private var mixerPickButton: some View {
+        let armed = state.pickTarget == .mixerBand
+        let help: String
+        if armed {
+            help = "Click a colour in the photograph — or click here again to cancel the pick"
+        } else {
+            help = "Pick a colour: click this, then click the photograph, and the band "
+                + "grading that colour is selected"
+        }
+        return Button {
+            if armed {
+                state.cancelPick()
+            } else {
+                state.beginPick(.mixerBand)
+            }
+        } label: {
+            Image(systemName: "eyedropper")
+                .font(.lumenGlyphCaptionStrong)
+                .frame(width: 24, height: Lumen.rowHeight)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(armed ? Lumen.accent : Lumen.primaryText)
+        .background(
+            RoundedRectangle(cornerRadius: Lumen.radiusChip, style: .continuous)
+                .fill(armed ? Lumen.fillColor.opacity(0.35) : Color.clear))
+        // Dead with no photograph: the pick resolves only on the loupe's frame. An
+        // ARMED button stays live, because pressing it is the cancel.
+        .disabled(!armed && state.primarySelection == nil)
+        .lumenClickCursor()
+        .help(help)
+    }
+
+    /// Band view, or one attribute across all eight bands.
+    @ViewBuilder
+    private func mixerBody(_ bands: [MixerBand], _ arcs: [ColorEngine.BandArc],
+                           _ index: Int) -> some View {
+        switch state.mixerAdjust {
+        case .band:
+            bandView(bands, arcs, index)
+        case .hue:
+            attributeRows(.hue)
+        case .saturation:
+            attributeRows(.sat)
+        case .luminance:
+            attributeRows(.lum)
+        }
+    }
+
+    /// LIGHTROOM'S HSL TABS: one attribute, eight rows, each in its band's colours.
+    ///
+    /// The rows are ordinary slider rows at the panel's ordinary pitch, so a label, a
+    /// track and a readout here line up with Point Colour's below — the mixer is not a
+    /// denser instrument than the rest of the column.
+    private func attributeRows(_ component: MixerComponent) -> some View {
+        VStack(alignment: .leading, spacing: Lumen.rowGap) {
+            ForEach(Array(0..<ColorEngine.bandCount), id: \.self) { band in
+                LumenSlider(title: ColorPanel.bandName(band),
+                            value: mixerBinding(component, band: band),
+                            range: -100...100, defaultValue: 0, step: 1, decimals: 0,
+                            trackStops: ColorPanel.trackStops(component, band),
+                            help: ColorPanel.rowHelp(component, band),
+                            // Eight names that are the rows' index, not their state:
+                            // dimmed at rest, seven of eight read as disabled.
+                            labelAtFullStrength: true)
+                    .lumenFocusSurface(focused: pickedRow == band)
+            }
+        }
+    }
+
+    /// One band's three sliders under a row of the eight bands — Lightroom's Colour
+    /// mode — with the band's reach folded away beneath them.
+    private func bandView(_ bands: [MixerBand], _ arcs: [ColorEngine.BandArc],
+                          _ index: Int) -> some View {
+        VStack(alignment: .leading, spacing: Lumen.rowGap) {
+            bandSwatches(bands, index)
+
+            // The name, because a swatch is a colour and the photographer is choosing a
+            // word as often as a colour ("the oranges"); it is also the only place the
+            // name was ever said without a hover. A group label in the house style —
+            // the same treatment as Colour Balance's axis names — so it reads as the
+            // heading of the three rows under it.
+            LumenCapsLabel(text: ColorPanel.bandName(index))
+                .padding(.top, 2)
+
+            // The tracks carry the band's own colours, so the track also says what the
+            // row's scope is: this band, and the way a Hue move turns it.
+            LumenSlider(title: "Hue", value: mixerBinding(.hue, band: index),
+                        range: -100...100, defaultValue: 0, step: 1, decimals: 0,
+                        trackStops: ColorPanel.trackStops(.hue, index),
+                        help: ColorPanel.rowHelp(.hue, nil))
+            LumenSlider(title: "Saturation", value: mixerBinding(.sat, band: index),
+                        range: -100...100, defaultValue: 0, step: 1, decimals: 0,
+                        trackStops: ColorPanel.trackStops(.sat, index),
+                        help: ColorPanel.rowHelp(.sat, nil))
+            LumenSlider(title: "Luminance", value: mixerBinding(.lum, band: index),
+                        range: -100...100, defaultValue: 0, step: 1, decimals: 0,
+                        trackStops: ColorPanel.trackStops(.lum, index),
+                        help: ColorPanel.rowHelp(.lum, nil))
+
+            bandRange(arcs, index)
+        }
+    }
+
+    /// The help on a band row, in the words the row is labelled with. `band` nil is the
+    /// Band view's rows, whose band is already named in the label above them.
+    private static func rowHelp(_ component: MixerComponent, _ band: Int?) -> String {
+        let subject: String
+        if let band {
+            subject = ColorPanel.bandName(band).lowercased() + "s"
+        } else {
+            subject = "this band's colours"
+        }
+        switch component {
+        case .hue:
+            return "Turns \(subject) toward a neighbouring band — the track shows "
+                + "which way."
+        case .sat:
+            return "Strengthens or mutes \(subject); −100 takes them to grey."
+        case .lum:
+            return "Lightens or darkens \(subject) without draining them — a darkened "
+                + "sky stays blue."
+        }
+    }
+
+    /// "Even out hues", under a group label that says its scope.
+    ///
+    /// Not inside the band block above, and named for what it is. There is one
+    /// `Mixer.uniformity` on the wire and the engine applies it to all eight bands, each
+    /// converging on its own core arc — so selecting Blue and dragging this also pulls
+    /// skin toward Orange. Reading it as per-band is a wrong edit, not an ugly one.
+    ///
+    /// It used to be marked by a rule, then by eight points of bare space when the
+    /// panels lost their rules (U2), with a note that if space did not carry the change
+    /// of scope "the upgrade is to NAME the scope with a group marker rather than to
+    /// bring the line back". The audit found that it did not (UI-8), so this is that
+    /// upgrade: the house group label, the one Colour Balance's axes wear.
+    private var evenOutHues: some View {
+        VStack(alignment: .leading, spacing: Lumen.rowGap) {
+            // "Every band", not "All bands": that was the removed group-offset
+            // mode's name, and reusing it here would bring the confusion back.
+            LumenCapsLabel(text: "Every band")
+                // 12 over, 4 under — the group-label rhythm LookPanel argues: enough
+                // above to read as a new group, little enough below that the row still
+                // belongs to it.
+                .padding(.top, 12)
+                .padding(.bottom, 4)
+            // "Even out hues", not "Uniformity". The coalescing key stays
+            // `mixer.uniformity` and so does the wire field; this is the label doing
+            // the caption's job.
+            LumenSlider(title: "Even out hues",
+                        value: bind("mixer.uniformity",
+                                    get: { $0.develop.mixer.uniformity },
+                                    set: { $0.develop.mixer.uniformity = $1 }),
+                        range: 0...100, defaultValue: 0, step: 1, decimals: 0,
+                        bipolar: false,
+                        // AI-08, interim: the engine evaluates this per pixel
+                        // (S9 is a colour table, so it cannot see a neighbourhood),
+                        // and the help says what that costs until a spatial local
+                        // mean reaches the stage. Measured: at 100, inputs at
+                        // 24°/29°/34° inside one band all leave at 29°.
+                        help: "Gathers scattered hues in toward each band's own "
+                            + "centre — calms mottled colour like patchy skin or a "
+                            + "streaky sky. Works on all eight bands at once, "
+                            + "whatever is selected above. For now it works pixel "
+                            + "by pixel, not on the neighbourhood: at 100 the hues "
+                            + "inside a band all land on one, so fine colour "
+                            + "texture flattens along with the blotches.")
         }
     }
 
@@ -229,40 +385,67 @@ struct ColorPanel: View {
 
     /// Write one dragged handle back into the band's wire geometry.
     ///
-    /// Everything is stored relative to the band's canonical centre, and the centre
-    /// itself never moves — it is the wire format's identity for the band. Dragging the
-    /// two inner handles to the same side is how you re-centre the band on a colour, and
-    /// `ColorEngine.BandArc.coreCentre` is what reads that back out for Uniformity.
+    /// DEGREES ON SCREEN, WIRE UNITS ON DISK, AND THE ENGINE CONVERTS BETWEEN THEM. The
+    /// wire's `core`/`feather` are relative to each band's own default (22.5 / 15 mean
+    /// "this band's default on this side", WS-31 E-4), because the bands are no longer
+    /// 45° apart and one absolute default cannot fit all eight. So the drag reads the
+    /// arc the ring is drawing (`ColorEngine.bandArcs`), moves one side of it IN
+    /// DEGREES, clamps in degrees to the engine's limits, and writes the result back
+    /// through `ColorEngine.wireHandles` — the inverse of `bandArcs`, so the arc the
+    /// render resolves is the arc the hand left. Writing degrees straight into the wire,
+    /// as this did when wire and degrees were the same number, would now scale every
+    /// handle by the band's default and throw it somewhere the pointer is not.
+    ///
+    /// The centre never moves — it is the wire format's identity for the band. Dragging
+    /// the two inner handles to the same side is how you re-centre the band on a colour,
+    /// and `ColorEngine.BandArc.coreCentre` is what reads that back out for Uniformity.
+    /// `bandArcs` re-applies the per-side minimum reach on the way back in, by widening
+    /// the feather, so a core dragged narrow cannot open a hole in the partition.
     private func moveHandle(_ band: Int, _ handle: MixerArcHandle, to degrees: Double) {
         state.updateRecipe(coalescingKey: "mixer.arc.\(band).\(handle.rawValue)") { recipe in
             var bands = ColorPanel.normalizedBands(recipe.develop.mixer.bands)
-            guard bands.indices.contains(band),
-                  ColorEngine.bandHueCentres.indices.contains(band) else { return }
-            let centre = ColorEngine.bandHueCentres[band]
-            let delta = Num.hueDelta(centre, degrees)     // signed, (−180, 180]
-            var core = ColorPanel.pair(bands[band].core, MixerBand.defaultCore)
-            var feather = ColorPanel.pair(bands[band].feather, MixerBand.defaultFeather)
-            let coreLo = ColorEngine.bandCoreMinDegrees
-            let coreHi = ColorEngine.bandCoreMaxDegrees
-            let featherLo = ColorEngine.bandFeatherMinDegrees
-            let featherHi = ColorEngine.bandFeatherMaxDegrees
-            switch handle {
-            case .coreStart:
-                core[0] = Num.clamp(-delta, coreLo, coreHi)
-            case .coreEnd:
-                core[1] = Num.clamp(delta, coreLo, coreHi)
-            case .featherStart:
-                feather[0] = Num.clamp(-delta - core[0], featherLo, featherHi)
-            case .featherEnd:
-                feather[1] = Num.clamp(delta - core[1], featherLo, featherHi)
-            }
-            bands[band].core = core
-            bands[band].feather = feather
+            let arcs = ColorEngine.bandArcs(bands)
+            guard bands.indices.contains(band), arcs.indices.contains(band) else { return }
+            let moved = ColorPanel.draggedArc(arcs[band], handle, to: degrees)
+            let wire = ColorEngine.wireHandles(for: moved, band: band)
+            bands[band].core = wire.core
+            bands[band].feather = wire.feather
             recipe.develop.mixer.bands = bands
         }
     }
 
-    /// Back to the canonical wedge, leaving the band's three sliders alone.
+    /// One handle of `arc` moved to the absolute hue `degrees`, every side in degrees and
+    /// clamped to the engine's handle limits. Static and pure, so the arithmetic the ring
+    /// writes with is one expression that can be read apart from the gesture.
+    static func draggedArc(_ arc: ColorEngine.BandArc, _ handle: MixerArcHandle,
+                           to degrees: Double) -> ColorEngine.BandArc {
+        let delta = Num.hueDelta(arc.centre, degrees)     // signed, (−180, 180]
+        let coreLo = ColorEngine.bandCoreMinDegrees
+        let coreHi = ColorEngine.bandCoreMaxDegrees
+        let featherLo = ColorEngine.bandFeatherMinDegrees
+        let featherHi = ColorEngine.bandFeatherMaxDegrees
+        var coreBelow = arc.coreBelow
+        var coreAbove = arc.coreAbove
+        var featherBelow = arc.featherBelow
+        var featherAbove = arc.featherAbove
+        switch handle {
+        case .coreStart:
+            coreBelow = Num.clamp(-delta, coreLo, coreHi)
+        case .coreEnd:
+            coreAbove = Num.clamp(delta, coreLo, coreHi)
+        case .featherStart:
+            featherBelow = Num.clamp(-delta - coreBelow, featherLo, featherHi)
+        case .featherEnd:
+            featherAbove = Num.clamp(delta - coreAbove, featherLo, featherHi)
+        }
+        return ColorEngine.BandArc(centre: arc.centre,
+                                   coreBelow: coreBelow, coreAbove: coreAbove,
+                                   featherBelow: featherBelow, featherAbove: featherAbove)
+    }
+
+    /// Back to the band's default arc, leaving its three sliders alone. The wire
+    /// defaults ARE "this band's default" under the relative wire (E-4), and `bandArcs`
+    /// resolves them exactly to `canonicalArcs[band]`, so the Band range dot clears.
     private func resetArc(_ band: Int) {
         state.updateRecipe { recipe in
             var bands = ColorPanel.normalizedBands(recipe.develop.mixer.bands)
@@ -273,14 +456,83 @@ struct ColorPanel: View {
         }
     }
 
+    /// THE BAND RANGE DISCLOSURE: a fold row, and behind it the ring, the ribbon and a
+    /// sentence. Closed by default (audit UI-3): the ring and the ribbon took about
+    /// 165 pt above the three sliders that do the work, giving an advanced edit the
+    /// primary position. They are still one click away and still draw the engine's own
+    /// geometry when they are open.
+    private func bandRange(_ arcs: [ColorEngine.BandArc], _ index: Int) -> some View {
+        let reshaped = arcs.indices.contains(index)
+            && ColorEngine.canonicalArcs.indices.contains(index)
+            && arcs[index] != ColorEngine.canonicalArcs[index]
+        let anyReshaped = arcs != ColorEngine.canonicalArcs
+        return VStack(alignment: .leading, spacing: Lumen.rowGap) {
+            bandRangeHeader(index, reshaped: reshaped, anyReshaped: anyReshaped)
+            if state.mixerRangeExpanded {
+                bandReach(arcs, index)
+            }
+        }
+    }
+
+    /// The fold row. A plain chevron and a body-size name rather than a
+    /// `LumenSectionHeader`: this is a fold inside a fold, and a third heading at the
+    /// heading size would shout as loudly as "Colour Mixer" above it.
+    private func bandRangeHeader(_ index: Int, reshaped: Bool,
+                                 anyReshaped: Bool) -> some View {
+        HStack(spacing: 4) {
+            Button {
+                withAnimation(Lumen.motionFold) { state.mixerRangeExpanded.toggle() }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "chevron.right")
+                        .font(.lumenGlyphCaptionStrong)
+                        .rotationEffect(.degrees(state.mixerRangeExpanded ? 90 : 0))
+                        .frame(width: 20, height: 20)
+                    Text("Band range")
+                        .font(.lumenBody)
+                        .lineLimit(1)
+                    // The modified mark every fold header wears, for ANY band's reach
+                    // — a reshaped arc is otherwise invisible with the fold closed.
+                    if anyReshaped {
+                        Circle()
+                            .fill(Lumen.accent)
+                            .frame(width: 4, height: 4)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .frame(height: Lumen.rowHeight)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Lumen.secondaryText)
+            // Named for VoiceOver; without it the chevron's symbol name is read into the
+            // label. (The snapshot suite does not click this: SwiftUI did not surface
+            // it to `press:`'s accessibility walk, so the suite sets
+            // `AppState.mixerRangeExpanded` instead.)
+            .accessibilityLabel("Band range")
+            .lumenClickCursor()
+            .help(state.mixerRangeExpanded
+                  ? "Hide the ring that shapes which hues this band reaches"
+                  : "Show the ring that shapes which hues this band reaches")
+
+            if reshaped {
+                Button("Reset") { resetArc(index) }
+                    .buttonStyle(.plain)
+                    .font(.lumenCaption)
+                    .foregroundStyle(Lumen.secondaryText)
+                    .lumenClickCursor()
+                    .help("Put \(ColorPanel.bandName(index))'s range back, keeping its "
+                          + "three sliders")
+            }
+        }
+    }
+
     /// Ring, ribbon and the sentence under them — the three views that answer "what does
-    /// this band reach", grouped so `mixerSection`'s builder stays inside its ten-child
-    /// limit and so the three can never be shown without each other.
+    /// this band reach", grouped so the three can never be shown without each other.
     private func bandReach(_ arcs: [ColorEngine.BandArc], _ index: Int) -> some View {
         VStack(alignment: .leading, spacing: Lumen.rowGap) {
             MixerHueRing(arcs: arcs,
                          selected: index,
-                         allBands: allBands,
                          onHandleMoved: { handle, degrees in
                              moveHandle(index, handle, to: degrees)
                          },
@@ -288,14 +540,15 @@ struct ColorPanel: View {
 
             MixerBandRibbon(weights: ColorPanel.ribbon(arcs),
                             colors: ColorPanel.bandSwatchColors,
-                            selected: index,
-                            allBands: allBands)
+                            selected: index)
 
-            Text(allBands
-                 ? "All bands move together; the spread between them is preserved."
-                 : "\(ColorPanel.bandName(index)) — centred on "
-                   + String(format: "%.1f°", ColorPanel.bandCentre(index))
-                   + " in OKLCh, " + ColorPanel.arcSummary(arcs, index))
+            // WORDS, NOT ANGLES (audit UI-4). This said "Red — centred on 29.2° in
+            // OKLCh, core −22°/+22°, feather 15°/15°": four numbers in a colour model
+            // the photographer never chose, for handles that are already on screen. The
+            // ring shows the reach; the sentence only has to say how to change it.
+            Text("Drag the ends of the bright arc to change which hues "
+                 + "\(ColorPanel.bandName(index)) takes in, and the dim tails to "
+                 + "change how softly it lets go. Double-click the ring to put it back.")
                 .font(.lumenCaption)
                 .foregroundStyle(Lumen.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
@@ -303,47 +556,73 @@ struct ColorPanel: View {
         }
     }
 
-    /// NOT BUTTONS ANY MORE, and that is the fix rather than a regression. A `.plain`
-    /// button still paints its own pressed state over the label, and on a strip of
-    /// full-bleed colour chips that read as a flash with no padding — the owner named
-    /// it: "when I press on them, they highlight… it doesn't have any padding so it
-    /// looks kind of weird" (docs/32 Stream D item 2, removal preferred). A tap gesture
-    /// selects identically and draws nothing; the selection RING is the state, and the
-    /// pointing hand is what says the chips are click targets.
-    private func bandSwatches(_ bands: [MixerBand]) -> some View {
-        HStack(spacing: 3) {
-            ForEach(Array(0..<ColorEngine.bandCount), id: \.self) { index in
-                let isSelected = !allBands && index == selectedBand
-                let touched = index < bands.count
-                    && (bands[index].hue != 0 || bands[index].sat != 0 || bands[index].lum != 0)
-                ZStack(alignment: .topTrailing) {
-                    RoundedRectangle(cornerRadius: Lumen.radiusChip, style: .continuous)
-                        .fill(ColorPanel.swatch(index))
-                        .frame(height: 16)
-                        .opacity(allBands ? 0.55 : 1)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: Lumen.radiusChip, style: .continuous)
-                                .strokeBorder(isSelected ? Lumen.primaryText : Lumen.separator,
-                                              lineWidth: isSelected ? 1.5 : 0.5)
-                        )
-                    if touched {
-                        Circle()
-                            .fill(Lumen.primaryText)
-                            .frame(width: 3, height: 3)
-                            .padding(2)
-                    }
-                }
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    state.mixerAllBands = false
-                    state.mixerBand = index
-                }
-                .lumenClickCursor()
-                .help(ColorPanel.bandName(index))
+    /// EIGHT ROUND SWATCHES, IN THE ENGINE'S COLOURS (audit UI-1, UI-5).
+    ///
+    /// NOT BUTTONS, and that is the fix rather than a regression. A `.plain` button
+    /// still paints its own pressed state over the label, and on a strip of full-bleed
+    /// colour chips that read as a flash with no padding — the owner named it: "when I
+    /// press on them, they highlight… it doesn't have any padding so it looks kind of
+    /// weird" (docs/32 Stream D item 2). A tap gesture selects identically and draws
+    /// nothing; the selection RING is the state, and the pointing hand is what says the
+    /// swatches are click targets.
+    ///
+    /// The ring stands OFF the swatch by a point of panel, so it reads at 1x on every
+    /// band colour — a ring drawn on the swatch's own edge vanished on Yellow. The edited
+    /// mark is the accent dot every modified header and segment wears, under the swatch
+    /// rather than on it: on the colour it was a 3 px speck nobody could find.
+    private func bandSwatches(_ bands: [MixerBand], _ index: Int) -> some View {
+        HStack(spacing: 0) {
+            ForEach(Array(0..<ColorEngine.bandCount), id: \.self) { band in
+                let touched = band < bands.count
+                    && (bands[band].hue != 0 || bands[band].sat != 0 || bands[band].lum != 0)
+                bandSwatch(band, selected: band == index, touched: touched)
             }
         }
         .padding(.vertical, 2)
     }
+
+    /// One swatch: the colour, the selection ring around it, the edited dot under it.
+    private func bandSwatch(_ band: Int, selected: Bool, touched: Bool) -> some View {
+        let name = ColorPanel.bandName(band)
+        let help: String
+        if touched {
+            help = "\(name) — edited. Click to show its sliders."
+        } else {
+            help = "\(name) — click to show its sliders."
+        }
+        return VStack(spacing: 3) {
+            ZStack {
+                Circle()
+                    .fill(ColorPanel.swatch(band))
+                    .frame(width: ColorPanel.swatchDiameter,
+                           height: ColorPanel.swatchDiameter)
+                Circle()
+                    .strokeBorder(Lumen.primaryText, lineWidth: 2)
+                    .frame(width: ColorPanel.swatchDiameter + 6,
+                           height: ColorPanel.swatchDiameter + 6)
+                    .opacity(selected ? 1 : 0)
+            }
+            Circle()
+                .fill(Lumen.accent)
+                .frame(width: 5, height: 5)
+                .opacity(touched ? 1 : 0)
+        }
+        // An equal share of the row each, so the eight spread to the column's width
+        // at any width rather than bunching at the leading edge.
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+        .onTapGesture { state.mixerBand = band }
+        .lumenClickCursor()
+        .help(help)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(name))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    /// 20 pt: the ring's 26 pt outer edge, eight across, fits the narrowest column's
+    /// 36 pt share with air either side.
+    static let swatchDiameter: CGFloat = 20
 
     // MARK: - Point colour
 
@@ -810,56 +1089,26 @@ struct ColorPanel: View {
         }
     }
 
-    /// One slider, two modes. In "all bands" the slider reads the mean and writes the
-    /// difference, so a global move keeps whatever spread the user built by hand.
+    /// One band's Hue, Saturation or Luminance, clamped to ±100.
     ///
-    /// THE GROUP MOVE IS `GroupMove`, NOT A PER-BAND CLAMP (B3-01). This row clamped each
-    /// band into ±100 as it went, which is not the same operation: with bands at
-    /// `[+50, −50, 0 …]` the mean is 0, and dragging to +100 asks band 0 for 150 — clipped
-    /// to 100 — while every other band moves the full 100. The 100-unit difference the
-    /// photographer built between Red and Blue is squeezed to 50 at the rail and does NOT
-    /// come back when the drag comes back, under a caption promising in as many words
-    /// that "the spread between them is preserved".
-    ///
-    /// `GroupMove.allowed` stops the SET when the first member reaches the rail, so the
-    /// move is a rigid translation: every difference inside the set survives it, and
-    /// dragging back restores the set — to round-off, with zero restored exactly so the
-    /// Reset dot clears (S-06). Both halves read the set through `GroupMove.legal`, so
-    /// the number shown and the set moved agree even for an out-of-range sidecar. The
-    /// rule and its properties live in LumenCore, where they are tested; the panel does
-    /// not restate them.
-    private func mixerBinding(_ component: MixerComponent) -> Binding<Double> {
+    /// THE GROUP MOVE WENT WITH THE "ALL BANDS" SEGMENT. This binding used to have a
+    /// second mode that read the mean of all eight and moved them as a rigid set through
+    /// `GroupMove` (B3-01, whose rule and tests stay in LumenCore). With the Hue,
+    /// Saturation and Luminance views drawing every band's row, each row is one band
+    /// again, and so is every write. The coalescing key is the one the per-band rows
+    /// always used, so a drag is still one undo step.
+    private func mixerBinding(_ component: MixerComponent, band: Int) -> Binding<Double> {
         Binding(
             get: {
                 let bands = ColorPanel.normalizedBands(state.currentRecipe.develop.mixer.bands)
-                if allBands {
-                    // The mean of the LEGAL set, which is where `moved` starts from —
-                    // so a sidecar band at 150 shows the value the drag will move.
-                    return GroupMove.mean(GroupMove.legal(bands.map { component.value($0) },
-                                                          lower: -100, upper: 100))
-                }
-                let i = min(max(selectedBand, 0), bands.count - 1)
+                let i = min(max(band, 0), bands.count - 1)
                 return component.value(bands[i])
             },
             set: { newValue in
-                let key = "mixer.\(component.rawValue).\(allBands ? -1 : selectedBand)"
-                let everything = allBands
-                let index = selectedBand
-                state.updateRecipe(coalescingKey: key) { recipe in
+                state.updateRecipe(coalescingKey: "mixer.\(component.rawValue).\(band)") { recipe in
                     var bands = ColorPanel.normalizedBands(recipe.develop.mixer.bands)
-                    if everything {
-                        let values = GroupMove.legal(bands.map { component.value($0) },
-                                                     lower: -100, upper: 100)
-                        let moved = GroupMove.moved(values,
-                                                    by: newValue - GroupMove.mean(values),
-                                                    lower: -100, upper: 100)
-                        for i in bands.indices where i < moved.count {
-                            component.write(&bands[i], moved[i])
-                        }
-                    } else {
-                        let i = min(max(index, 0), bands.count - 1)
-                        component.write(&bands[i], Num.clamp(newValue, -100, 100))
-                    }
+                    let i = min(max(band, 0), bands.count - 1)
+                    component.write(&bands[i], Num.clamp(newValue, -100, 100))
                     recipe.develop.mixer.bands = bands
                 }
             })
@@ -948,9 +1197,8 @@ struct ColorPanel: View {
     // were explanation, one has become a slider's name ("Even out hues"), and one read
     // "Off." underneath a switch that was off.
     //
-    // The live band readout ("Red — centred on 29.2° in OKLCh…") never went through
-    // here and stays where it is: it is a raw `Text` further up, because it is an
-    // instrument rather than teaching, and it changes as you drag.
+    // The Band range sentence never went through here: it is a raw `Text` in
+    // `bandReach`, shown only with the ring it explains.
 
     // MARK: - Static helpers
 
@@ -984,109 +1232,180 @@ struct ColorPanel: View {
         return centres[index]
     }
 
-    /// The stops for one band's row, or nil for a neutral track.
-    ///
-    /// Nil in All-bands mode on purpose: the row then acts on every band at once, and a
-    /// track wearing Azure's colours while the drag also moves skin would be the panel
-    /// lying about scope. The bounds check is not defensive noise either — the tables
-    /// are sized from the swatch list and the index comes from `ColorEngine.bandCount`,
-    /// two constants that agree today and are declared in different modules.
-    private func mixerStops(_ table: [[LumenTrackStop]], _ index: Int) -> [LumenTrackStop]? {
-        guard !allBands, table.indices.contains(index) else { return nil }
-        return table[index]
-    }
-
     static func swatch(_ index: Int) -> Color {
         guard bandSwatchColors.indices.contains(index) else { return Lumen.controlBackground }
         return bandSwatchColors[index]
     }
 
-    /// Reference colours, not the OKLCh centres: the swatch labelled Orange has to look
-    /// orange (docs/06 brief §1.1). The centres are what the ribbon plots.
-    ///
-    /// Held as components rather than as `Color` because the coloured tracks below need
-    /// darker, lighter and greyer versions of each band, and a `Color` cannot be taken
-    /// apart portably. `bandSwatchColors` derives from this, so there is still exactly
-    /// one answer to what Orange looks like.
-    static let bandSwatchComponents: [(r: Double, g: Double, b: Double)] = [
-        (0.84, 0.24, 0.22),
-        (0.86, 0.51, 0.18),
-        (0.84, 0.77, 0.24),
-        (0.34, 0.69, 0.34),
-        (0.26, 0.71, 0.71),
-        (0.28, 0.46, 0.84),
-        (0.55, 0.35, 0.82),
-        (0.82, 0.30, 0.66),
-    ]
+    // MARK: Band colours, derived from the engine's centres (audit UI-1)
 
-    static let bandSwatchColors: [Color] = bandSwatchComponents.map {
-        Color(red: $0.r, green: $0.g, blue: $0.b)
+    // THE SWATCH IS THE BAND'S CENTRE, DRAWN. These were eight hand-picked sRGB
+    // triples, chosen as reference colours rather than as the centres, on the argument
+    // that the swatch labelled Orange has to look orange. Measured against the
+    // centres they sat 14–21° off: the fourth chip was foliage green and split 51/49
+    // between two bands, so a photographer matching the chip to the sky or the leaves picked the wrong one. The
+    // band IS its centre hue — that is what the engine selects with — so the colour is
+    // computed from `ColorEngine.bandHueCentres` and follows them wherever they move.
+    //
+    // Hue is exact and lightness and chroma are chosen per hue, because one fixed
+    // OKLCh lightness cannot paint all eight well: at the L where blue is rich, yellow is
+    // olive. So each hue is drawn mostly at its own sRGB cusp (the lightness where that
+    // hue reaches its most colourful) — 85% of the way there from a dark anchor — at 95%
+    // of the chroma the display has at that lightness, capped so no band shouts. The
+    // cusp weight is what makes Yellow read yellow rather than mustard (its cusp is near
+    // white) and the dark anchor is what keeps Red deep rather than coral; an even blend
+    // toward a mid-panel lightness, which this was, gave both of those away (verify R1). Getting into gamut is done
+    // by REDUCING CHROMA, never by clipping channels — a per-channel clip moves hue,
+    // which is the one property these colours exist to hold.
+    //
+    // All of it is STATIC — computed once, never in a `body` from recipe values. A track
+    // whose colour depended on the recipe would make every mixer row a reader of the
+    // edit signal, and a Hue drag rebuilds its panel on every mouse event. The arcs are
+    // editable but the centres are not; the ribbon is where live geometry is drawn, and
+    // these say which band you are in.
+
+    /// How far each band's display lightness sits toward its own cusp (the rest is
+    /// `paintLightnessAnchor`).
+    static let paintCuspWeight: Double = 0.85
+    /// Where every band's display lightness is pulled toward from its cusp.
+    static let paintLightnessAnchor: Double = 0.45
+    /// The most chroma any band colour is drawn with.
+    static let paintChromaCap: Double = 0.22
+    /// The share of the display's chroma at that lightness a band colour takes.
+    static let paintChromaShare: Double = 0.95
+
+    /// An OKLCh colour in display-linear sRGB, through the working space the engine
+    /// measures hue in — the same route `Lumen.hueColor` takes.
+    static func displayLinear(_ lch: OKLCh) -> RGB {
+        Lumen.workingToSRGB.apply(OKLabTransform.working.toRGB(lch))
     }
 
-    // MARK: Coloured tracks for the three band rows (docs/28 Phase 2)
+    static func isDisplayable(_ c: RGB) -> Bool {
+        let lo = -1e-6
+        let hi = 1 + 1e-6
+        return c.r >= lo && c.r <= hi && c.g >= lo && c.g <= hi && c.b >= lo && c.b <= hi
+    }
+
+    /// The most chroma sRGB can show at this lightness and hue, by bisection.
+    static func maxChroma(L: Double, h: Double) -> Double {
+        var lo = 0.0
+        var hi = 0.4
+        for _ in 0..<18 {
+            let mid = (lo + hi) / 2
+            if isDisplayable(displayLinear(OKLCh(L: L, C: mid, h: h))) {
+                lo = mid
+            } else {
+                hi = mid
+            }
+        }
+        return lo
+    }
+
+    /// The lightness at which this hue is most colourful on an sRGB display.
+    static func cuspLightness(h: Double) -> Double {
+        var bestL = 0.6
+        var bestC = -1.0
+        var L = 0.30
+        while L <= 0.98 {
+            let c = maxChroma(L: L, h: h)
+            if c > bestC {
+                bestC = c
+                bestL = L
+            }
+            L += 0.02
+        }
+        return bestL
+    }
+
+    /// The colour a hue is painted with in this panel. See the block comment above.
+    static func paint(h: Double) -> OKLCh {
+        let L = paintCuspWeight * cuspLightness(h: h)
+            + (1 - paintCuspWeight) * paintLightnessAnchor
+        let C = min(paintChromaCap, paintChromaShare * maxChroma(L: L, h: h))
+        return OKLCh(L: L, C: C, h: h)
+    }
+
+    /// An OKLCh colour as a SwiftUI colour, brought into gamut by chroma alone.
+    static func color(_ lch: OKLCh) -> Color {
+        var c = lch
+        if !isDisplayable(displayLinear(c)) { c.C = maxChroma(L: c.L, h: c.h) }
+        let linear = displayLinear(c)
+        let encoded = TransferFunction.srgb.encode(RGB(Num.saturate(linear.r),
+                                                       Num.saturate(linear.g),
+                                                       Num.saturate(linear.b)))
+        return Color(red: Num.saturate(encoded.r),
+                     green: Num.saturate(encoded.g),
+                     blue: Num.saturate(encoded.b))
+    }
+
+    /// Each band's centre, painted.
+    static let bandPaints: [OKLCh] = ColorEngine.bandHueCentres.map { paint(h: $0) }
+
+    static let bandSwatchColors: [Color] = bandPaints.map { color($0) }
+
+    // MARK: Coloured tracks for the band rows (docs/28 Phase 2)
 
     // Law 7's colour-axis exception (docs/00, amended 2026-08-29) covers exactly these
     // three: Hue, Saturation and Luminance in the mixer are axes whose units ARE colour,
-    // so the track can say what the row does before the row is touched. Today all three
-    // are the same grey, and which of eight bands owns the colour under the cursor is
-    // something the photographer has to already know.
+    // so the track can say what the row does before the row is touched.
     //
-    // All three tables are STATIC — built once from `bandSwatchComponents`, never
-    // computed in a `body` from recipe values. A track whose colour depended on the
-    // recipe would make every mixer row a reader of the edit signal, and a Hue drag
-    // rebuilds its panel on every mouse event.
-    //
-    // They are reference colours for the same reason the swatches are: the band arcs are
-    // editable, so the live centres move, and a track that slid its own colours around
-    // under a Hue drag would be an instrument reporting on itself. The ribbon is where
-    // live geometry is drawn; these say which band you are in.
+    // Each track is several stops computed in OKLCh rather than three stops blended in
+    // sRGB: a gradient between two sRGB colours drifts in hue on the way, and a track
+    // is read at every point along it, its midpoint most of all.
 
-    /// The hue span the row shifts between — the neighbour below, this band, the
-    /// neighbour above. The ring wraps, so Red's left neighbour is Magenta.
-    static let mixerHueStops: [[LumenTrackStop]] = bandSwatchColors.indices.map { i in
-        let n = bandSwatchColors.count
-        return [LumenTrackStop(value: -100, color: bandSwatchColors[(i + n - 1) % n]),
-                LumenTrackStop(value: 0, color: bandSwatchColors[i]),
-                LumenTrackStop(value: 100, color: bandSwatchColors[(i + 1) % n])]
-    }
+    /// Stops at −100, −50, 0, +50, +100 — enough that sRGB's blend between them stays
+    /// within a degree or two of the OKLCh path.
+    static let trackValues: [Double] = [-100, -50, 0, 50, 100]
 
-    /// Grey to vivid, in this band's own hue.
-    static let mixerSaturationStops: [[LumenTrackStop]] = bandSwatchComponents.map { c in
-        [LumenTrackStop(value: -100, color: greyed(c, 1.0)),
-         LumenTrackStop(value: 0, color: greyed(c, 0.5)),
-         LumenTrackStop(value: 100, color: Color(red: c.r, green: c.g, blue: c.b))]
-    }
-
-    /// Dark to bright, in this band's own hue.
-    static let mixerLuminanceStops: [[LumenTrackStop]] = bandSwatchComponents.map { c in
-        [LumenTrackStop(value: -100, color: shaded(c, 0.38)),
-         LumenTrackStop(value: 0, color: Color(red: c.r, green: c.g, blue: c.b)),
-         LumenTrackStop(value: 100, color: shaded(c, 1.62))]
-    }
-
-    /// Toward black below 1, toward white above it. Multiplying past 1 would clip to the
-    /// same over-saturated colour for every band, which is why the light half blends
-    /// toward white instead.
-    private static func shaded(_ c: (r: Double, g: Double, b: Double),
-                               _ lightness: Double) -> Color {
-        if lightness <= 1 {
-            return Color(red: c.r * lightness, green: c.g * lightness, blue: c.b * lightness)
+    /// The hue span the row turns between — toward the neighbour below, this band, toward
+    /// the neighbour above, each point painted at its own hue. The ring wraps, so Red's
+    /// lower neighbour is Magenta. The ends are the neighbours' own colours: the track
+    /// says which way the row turns, not how far (±100 stops short of the neighbour).
+    static let mixerHueStops: [[LumenTrackStop]] = bandPaints.indices.map { i -> [LumenTrackStop] in
+        let centres = ColorEngine.bandHueCentres
+        let n = centres.count
+        let below = Num.hueDelta(centres[i], centres[(i + n - 1) % n])   // negative
+        let above = Num.hueDelta(centres[i], centres[(i + 1) % n])       // positive
+        return trackValues.map { v -> LumenTrackStop in
+            let span = v < 0 ? -below : above
+            let h = Num.wrapHue(centres[i] + span * v / 100)
+            return LumenTrackStop(value: v, color: color(paint(h: h)))
         }
-        let t = min(lightness - 1, 1)
-        return Color(red: c.r + (1 - c.r) * t,
-                     green: c.g + (1 - c.g) * t,
-                     blue: c.b + (1 - c.b) * t)
     }
 
-    /// Toward the colour's own luma rather than toward a fixed grey, so a desaturated
-    /// yellow stays as bright as the yellow was — which is what "remove the chroma"
-    /// means, and what the Luminance row's own caption promises the engine does.
-    private static func greyed(_ c: (r: Double, g: Double, b: Double),
-                               _ amount: Double) -> Color {
-        let y = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
-        return Color(red: c.r + (y - c.r) * amount,
-                     green: c.g + (y - c.g) * amount,
-                     blue: c.b + (y - c.b) * amount)
+    /// Grey to vivid, at the band's own hue and lightness: −100 is the grey the band
+    /// goes to, 0 sits at half the band's chroma, +100 is the band's full colour.
+    static let mixerSaturationStops: [[LumenTrackStop]] = bandPaints.map { p -> [LumenTrackStop] in
+        trackValues.map { v -> LumenTrackStop in
+            LumenTrackStop(value: v,
+                           color: color(OKLCh(L: p.L, C: p.C * (v + 100) / 200, h: p.h)))
+        }
+    }
+
+    /// Dark to light, at the band's own hue. Lightness, not a multiply toward black: a
+    /// multiplied yellow goes olive long before it goes dark, which is the hue shift the
+    /// engine's Luminance exists not to make.
+    static let mixerLuminanceStops: [[LumenTrackStop]] = bandPaints.map { p -> [LumenTrackStop] in
+        trackValues.map { v -> LumenTrackStop in
+            let L = min(0.95, max(0.2, p.L + (v < 0 ? 0.32 : 0.2) * v / 100))
+            return LumenTrackStop(value: v, color: color(OKLCh(L: L, C: p.C, h: p.h)))
+        }
+    }
+
+    /// The stops for one band's row in one attribute. The bounds check is not defensive
+    /// noise: the tables are sized from the engine's centre list and the index comes
+    /// from `ColorEngine.bandCount`, two constants that agree today and are declared
+    /// apart.
+    private static func trackStops(_ component: MixerComponent,
+                                   _ band: Int) -> [LumenTrackStop]? {
+        let table: [[LumenTrackStop]]
+        switch component {
+        case .hue: table = mixerHueStops
+        case .sat: table = mixerSaturationStops
+        case .lum: table = mixerLuminanceStops
+        }
+        guard table.indices.contains(band) else { return nil }
+        return table[band]
     }
 
     static let ribbonSteps: Int = 96
@@ -1129,43 +1448,17 @@ struct ColorPanel: View {
         return out
     }
 
-    /// The sentence under the ring, in the units the handles are dragged in.
-    static func arcSummary(_ arcs: [ColorEngine.BandArc], _ index: Int) -> String {
-        guard arcs.indices.contains(index) else { return "feathered into its neighbours." }
-        let a = arcs[index]
-        return String(format: "core −%.0f°/+%.0f°, feather %.0f°/%.0f°.",
-                      a.coreBelow, a.coreAbove, a.featherBelow, a.featherAbove)
-    }
-
-    /// A hue's actual colour, for the ring — evaluated through OKLCh and the working
-    /// space rather than through SwiftUI's HSB, whose hue angle is a different number
-    /// entirely. A ring that put "29°" somewhere other than where the engine's red band
-    /// sits would be a diagram of a different tool.
+    /// The ring's wedge colours, computed once, in the same paint as the swatches.
     ///
-    /// C 0.16, up from the 0.13 that shipped — the owner flagged the ring alongside the
-    /// grading wheels as pastel, and the two took the raise together (docs/32 Stream D
-    /// item 4; `LumenColorWheel.wheelColors` is the other half). The ceiling is real:
-    /// at L 0.72 the sRGB gamut runs out of chroma near cyan (~200°) at about C 0.122,
-    /// so that span was clipping even at 0.13 and now clips to the most saturated cyan
-    /// the display has — which is the richest true answer available, and the per-channel
-    /// saturate below is what keeps the clip from leaving the gamut rather than the hue.
-    /// Moved to `Lumen.hueColor` (LumenControls) so the grading wheel can paint from the
-    /// same colour system this ring does — see B2-02 there. Kept as a forwarder because
-    /// this type is where the ring's own call site reads best.
-    static func hueColor(_ degrees: Double, L: Double = 0.72, C: Double = 0.16) -> Color {
-        Lumen.hueColor(degrees, L: L, C: C)
-    }
-
-    /// The ring's wedge colours, computed once.
-    ///
-    /// A hundred and eighty OKLab round trips per redraw is real work to repeat on every
-    /// frame of a slider drag, and the hue circle is a constant — the same reason
-    /// `ribbonWeights` used to be cached before the handles made it a function of the
-    /// recipe. This one genuinely is not.
+    /// The ring was drawn at one fixed L 0.72 / C 0.16 through `Lumen.hueColor`, so its
+    /// colours did not match the swatches above it (audit UI-2): the yellow on the ring
+    /// was not the yellow of the Yellow chip. Painting every wedge with `paint(h:)` makes
+    /// the swatch row a sample of the ring. A hundred and eighty conversions with a
+    /// gamut search each is real work, so it is done once — the hue circle is a constant.
     static let ringColors: [Color] = (0..<MixerHueRing.steps).map { step in
         let a0 = Double(step) / Double(MixerHueRing.steps) * 360
         let a1 = Double(step + 1) / Double(MixerHueRing.steps) * 360
-        return ColorPanel.hueColor((a0 + a1) / 2)
+        return ColorPanel.color(ColorPanel.paint(h: (a0 + a1) / 2))
     }
 
     /// A chip for a sampled swatch. The sample is scene-linear working RGB, so it gets
@@ -1246,7 +1539,6 @@ enum MixerArcHandle: String, Hashable, Sendable {
 struct MixerHueRing: View {
     let arcs: [ColorEngine.BandArc]
     let selected: Int
-    let allBands: Bool
     let onHandleMoved: (MixerArcHandle, Double) -> Void
     let onResetArc: () -> Void
 
@@ -1279,13 +1571,19 @@ struct MixerHueRing: View {
     /// The press turned out to be a double-click reset; swallow the rest of the
     /// gesture so the reset is not immediately re-edited by the same press.
     @State private var pressWasReset = false
+    /// Where the pointer was, and where the grabbed handle TRULY sat, when the press took
+    /// hold — so the drag moves the handle by the pointer's travel rather than to the
+    /// pointer. The ring may draw a handle away from its true degrees (see `displayArc`);
+    /// writing the pointer's own angle would make the first move jump by that offset.
+    @State private var grabPointer: Double = 0
+    @State private var grabDegrees: Double = 0
     /// The gesture-in-flight signal every slider fires (docs/23 audit queue item 5).
     @Environment(\.sliderGestureChanged) private var sliderGestureChanged
 
     var body: some View {
         let arcList = arcs
         let index = selected
-        let showHandles = !allBands && arcList.indices.contains(index)
+        let showHandles = arcList.indices.contains(index)
         let palette = ColorPanel.ringColors
 
         return ZStack {
@@ -1323,7 +1621,12 @@ struct MixerHueRing: View {
                 }
 
                 guard showHandles, arcList.indices.contains(index) else { return }
-                let arc = arcList[index]
+                // DRAWN at a legible spread, not at the true degrees, whenever the true
+                // arc is too short to see (`displayArc`): the uneven bands' default
+                // cores are 3.5–7° a side, which put the two core handles on top of
+                // each other and hid the bright arc the caption tells you to drag.
+                let truth = arcList[index]
+                let arc = MixerHueRing.displayArc(truth, radius: Double(arcRadius))
 
                 // Core and feather at ONE radius, so they read as a single arc with a
                 // bright middle and two dim tails: the core is what the band fully
@@ -1345,8 +1648,8 @@ struct MixerHueRing: View {
                 // Where Uniformity converges: the midpoint of the core arc, which sits
                 // off the band's tick as soon as the two inner handles stop matching.
                 var target = Path()
-                target.move(to: MixerHueRing.point(centre, arcRadius - 4, arc.coreCentre))
-                target.addLine(to: MixerHueRing.point(centre, arcRadius + 4, arc.coreCentre))
+                target.move(to: MixerHueRing.point(centre, arcRadius - 4, truth.coreCentre))
+                target.addLine(to: MixerHueRing.point(centre, arcRadius + 4, truth.coreCentre))
                 context.stroke(target, with: .color(Lumen.accent), lineWidth: 1.5)
 
                 for handle in MixerHueRing.allHandles {
@@ -1392,16 +1695,26 @@ struct MixerHueRing: View {
                         //
                         // Deliberately AFTER the double-click branch above, so a reset
                         // still lands from anywhere in the box exactly as it does now.
+                        //
+                        // Against the arc AS DRAWN (`displayArc`), so a press lands on
+                        // the handle the eye is aiming at.
                         let handle: MixerArcHandle
                         if let held = grabbed {
                             handle = held
                         } else {
+                            let shown = MixerHueRing.displayArc(
+                                arcList[index],
+                                radius: Double(MixerHueRing.arcRadius(box: box)))
                             guard let taken = MixerHueRing.grab(at: drag.startLocation,
                                                                 box: box,
-                                                                arc: arcList[index])
+                                                                arc: shown)
                             else { return }
                             grabbed = taken
                             handle = taken
+                            grabPointer = Num.wrapHue(
+                                atan2(Double(drag.startLocation.y - box / 2),
+                                      Double(drag.startLocation.x - box / 2)) * 180 / .pi)
+                            grabDegrees = MixerHueRing.degrees(of: taken, in: arcList[index])
                         }
                         // A PRESS IS NOT A MOVE (B3-05). `minimumDistance: 0` delivers
                         // the press itself as a change, and the first click of a
@@ -1417,7 +1730,14 @@ struct MixerHueRing: View {
                         // Still needed for the REST of the drag: the press is out in
                         // the annulus, but the pointer is free to cross the centre.
                         guard dx != 0 || dy != 0 else { return }
-                        let angle = Num.wrapHue(atan2(dy, dx) * 180 / .pi)
+                        // TRUE degrees: the handle's true position at the press plus
+                        // how far the pointer has turned since. Where the ring draws
+                        // the handle at its true angle this is exactly the pointer's
+                        // angle, as before; where `displayArc` spread it, the drag
+                        // starts from where the handle really is instead of jumping.
+                        let pointer = Num.wrapHue(atan2(dy, dx) * 180 / .pi)
+                        let angle = Num.wrapHue(grabDegrees
+                                                + Num.hueDelta(grabPointer, pointer))
                         onHandleMoved(handle, angle)
                     }
                     .onEnded { _ in
@@ -1426,19 +1746,49 @@ struct MixerHueRing: View {
                         sliderGestureChanged(false)
                     }
             )
-
-            if allBands {
-                Text("All bands")
-                    .font(.lumenCaption)
-                    .foregroundStyle(Lumen.secondaryText)
-            }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 2)
-        .help(allBands
-              ? "Band reach is per band; pick one to shape its arc."
-              : "Drag the inner handles for the core range, the outer ones for the "
-                + "feather. Double-click to reset the arc.")
+        // In the words the caption under the ribbon uses: the bright arc is what the
+        // band fully takes, the dim tails are how softly it lets go.
+        .help("Drag the ends of the bright arc to set which hues this band takes in, "
+              + "and the dim tails to set how softly it lets go. Double-click to put "
+              + "the range back.")
+    }
+
+    /// The least separation, in points along the arc, between the two core handles'
+    /// centres as DRAWN — enough for two 8 pt dots with a visible bright segment between
+    /// them (verify R2: at the uneven bands' default cores, 3.5–7° a side, they touched).
+    static let minCoreSeparation: Double = 18
+    /// The least separation, in points, between a core handle and its feather handle.
+    static let minFeatherSeparation: Double = 14
+
+    /// The arc as the ring DRAWS it and hit-tests it: the true arc, except that a core
+    /// shorter than `minCoreSeparation` is spread symmetrically about its true core
+    /// centre to that length, and each feather handle is kept at its true outer angle
+    /// unless that would put it within `minFeatherSeparation` of its core handle. A
+    /// display transform only — the recipe, the render and the drag's writes all use the
+    /// true arc; the drag moves a handle by the pointer's travel from its true position.
+    /// Static and pure, so the separation is arithmetic a test can read.
+    static func displayArc(_ arc: ColorEngine.BandArc,
+                           radius: Double) -> ColorEngine.BandArc {
+        guard radius > 0 else { return arc }
+        let degreesPerPoint = 180 / (Double.pi * radius)
+        let minCore = minCoreSeparation * degreesPerPoint
+        let minTail = minFeatherSeparation * degreesPerPoint
+        var below = arc.coreBelow
+        var above = arc.coreAbove
+        if below + above < minCore {
+            // The core centre's offset from the band centre stays where it truly is.
+            let mid = (above - below) / 2
+            below = minCore / 2 - mid
+            above = minCore / 2 + mid
+        }
+        let featherBelow = Swift.max(arc.coreBelow + arc.featherBelow - below, minTail)
+        let featherAbove = Swift.max(arc.coreAbove + arc.featherAbove - above, minTail)
+        return ColorEngine.BandArc(centre: arc.centre,
+                                   coreBelow: below, coreAbove: above,
+                                   featherBelow: featherBelow, featherAbove: featherAbove)
     }
 
     static let allHandles: [MixerArcHandle] =
@@ -1597,13 +1947,11 @@ struct MixerBandRibbon: View {
     let weights: [[Double]]
     let colors: [Color]
     let selected: Int
-    let allBands: Bool
 
     var body: some View {
         let samples = weights
         let palette = colors
         let highlighted = selected
-        let all = allBands
 
         return Canvas { context, size in
             let count = samples.count
@@ -1627,7 +1975,7 @@ struct MixerBandRibbon: View {
                     }
                 }
                 guard started else { continue }
-                let emphasised = all || band == highlighted
+                let emphasised = band == highlighted
                 context.stroke(path,
                                with: .color(palette[band].opacity(emphasised ? 0.95 : 0.30)),
                                lineWidth: emphasised ? 1.6 : 1.0)

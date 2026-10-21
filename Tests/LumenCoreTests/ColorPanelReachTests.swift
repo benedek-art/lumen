@@ -536,3 +536,183 @@ private enum Scan {
         return out
     }
 }
+
+// MARK: - WS-31 E-4, the ring writes degrees through the engine's wire inverse
+
+/// The wire's `core`/`feather` became RELATIVE to each band's default (22.5 / 15 mean
+/// "this band's default") when the bands went uneven. The ring drags in degrees, so the
+/// panel must read the arc through `ColorEngine.bandArcs`, move it in degrees, and write
+/// it back through `ColorEngine.wireHandles` — the old code wrote degrees straight into
+/// the wire, which now scales every handle by the band's default.
+///
+/// Two halves, like the classes above: the scan pins the expressions `moveHandle` and
+/// `draggedArc` decide with, and the arithmetic proves that what those expressions
+/// write round-trips through the engine to the arc the hand left on screen.
+final class MixerRingWireTests: XCTestCase {
+
+    func testTheDragReadsDegreesAndWritesThroughTheWireInverse() throws {
+        let source = Scan.squeezed(Scan.stripped(try Scan.appSource("ColorPanel.swift")))
+        let move = try Scan.between("private func moveHandle(", "static func draggedArc(",
+                                    in: source)
+        XCTAssertTrue(move.contains("ColorEngine.bandArcs(bands)"),
+                      "the drag no longer starts from the arc the ring draws")
+        XCTAssertTrue(move.contains("ColorPanel.draggedArc(arcs[band], handle, to: degrees)"))
+        XCTAssertTrue(move.contains("ColorEngine.wireHandles(for: moved, band: band)"),
+                      "the drag writes degrees into the relative wire")
+        XCTAssertFalse(move.contains("MixerBand.defaultCore"),
+                       "the drag treats the wire default as degrees again")
+        let dragged = try Scan.between("static func draggedArc(", "private func resetArc(",
+                                       in: source)
+        for limit in ["ColorEngine.bandCoreMinDegrees", "ColorEngine.bandCoreMaxDegrees",
+                      "ColorEngine.bandFeatherMinDegrees", "ColorEngine.bandFeatherMaxDegrees"] {
+            XCTAssertTrue(dragged.contains(limit), "the drag no longer clamps to \(limit)")
+        }
+    }
+
+    /// The panel's `draggedArc`, restated: one side moved to an absolute hue, in degrees,
+    /// clamped to the engine's limits. Restated because ColorPanel compiles on macOS
+    /// only; the scan above pins that the shipped function uses these same limits.
+    private static func dragged(_ arc: ColorEngine.BandArc, side: Int,
+                                to degrees: Double) -> ColorEngine.BandArc {
+        let delta = Num.hueDelta(arc.centre, degrees)
+        var cb = arc.coreBelow, ca = arc.coreAbove, fb = arc.featherBelow, fa = arc.featherAbove
+        switch side {
+        case 0: cb = Num.clamp(-delta, ColorEngine.bandCoreMinDegrees, ColorEngine.bandCoreMaxDegrees)
+        case 1: ca = Num.clamp(delta, ColorEngine.bandCoreMinDegrees, ColorEngine.bandCoreMaxDegrees)
+        case 2: fb = Num.clamp(-delta - cb, ColorEngine.bandFeatherMinDegrees,
+                               ColorEngine.bandFeatherMaxDegrees)
+        default: fa = Num.clamp(delta - ca, ColorEngine.bandFeatherMinDegrees,
+                                ColorEngine.bandFeatherMaxDegrees)
+        }
+        return ColorEngine.BandArc(centre: arc.centre, coreBelow: cb, coreAbove: ca,
+                                   featherBelow: fb, featherAbove: fa)
+    }
+
+    /// Every band, every handle, a sweep of drag targets: the arc written through
+    /// `wireHandles` resolves back through `bandArcs` to the arc that was dragged —
+    /// except that the feather may be widened to the band's minimum reach, which is the
+    /// engine's partition guard and must only ever widen.
+    func testRingDegreesRoundTripThroughTheWire() {
+        var checked = 0
+        for band in 0..<ColorEngine.bandCount {
+            let start = ColorEngine.canonicalArcs[band]
+            for side in 0..<4 {
+                for step in stride(from: -80.0, through: 80.0, by: 2.5) {
+                    let target = Num.wrapHue(start.centre + step)
+                    let moved = Self.dragged(start, side: side, to: target)
+                    let wire = ColorEngine.wireHandles(for: moved, band: band)
+                    var bands = Array(repeating: MixerBand(), count: ColorEngine.bandCount)
+                    bands[band].core = wire.core
+                    bands[band].feather = wire.feather
+                    let back = ColorEngine.bandArcs(bands)[band]
+                    let reach = ColorEngine.bandMinReach(band)
+                    XCTAssertEqual(back.centre, moved.centre)
+                    XCTAssertEqual(back.coreBelow, moved.coreBelow, accuracy: 1e-9)
+                    XCTAssertEqual(back.coreAbove, moved.coreAbove, accuracy: 1e-9)
+                    XCTAssertEqual(back.featherBelow,
+                                   max(moved.featherBelow, reach.below - moved.coreBelow),
+                                   accuracy: 1e-9)
+                    XCTAssertEqual(back.featherAbove,
+                                   max(moved.featherAbove, reach.above - moved.coreAbove),
+                                   accuracy: 1e-9)
+                    checked += 1
+                }
+            }
+        }
+        XCTAssertGreaterThan(checked, 1000)
+    }
+
+    /// THE RING DRAWS A LEGIBLE ARC (verify R2). The uneven bands' default cores are
+    /// 3.5–7° a side, which at the ring's 60 pt radius put the two core handles 7–10 px
+    /// apart at 2x: touching, with no bright arc between them. The ring now draws, and
+    /// hit-tests, `MixerHueRing.displayArc` — the true arc with a short core spread
+    /// symmetrically to 18 pt and feathers kept 14 pt outside their core handles — while
+    /// the drag writes TRUE degrees: the handle's true angle at the press plus the
+    /// pointer's travel since.
+    func testTheRingDrawsAndGrabsTheDisplayedArcAndWritesTrueDegrees() throws {
+        let source = Scan.squeezed(Scan.stripped(try Scan.appSource("ColorPanel.swift")))
+        XCTAssertTrue(source.contains("static let minCoreSeparation: Double = 18"))
+        XCTAssertTrue(source.contains("static let minFeatherSeparation: Double = 14"))
+        let canvas = try Scan.between("Canvas { context, size in", ".frame(width: MixerHueRing.diameter",
+                                      in: source)
+        XCTAssertTrue(canvas.contains("MixerHueRing.displayArc(truth, radius: Double(arcRadius))"),
+                      "the ring draws the true arc again, handles on top of each other")
+        let gesture = try Scan.between("DragGesture(minimumDistance: 0)", ".onEnded", in: source)
+        XCTAssertTrue(gesture.contains("MixerHueRing.grab(at: drag.startLocation, box: box, arc: shown)"),
+                      "the press is tested against an arc that is not the one drawn")
+        XCTAssertTrue(gesture.contains("grabDegrees = MixerHueRing.degrees(of: taken, in: arcList[index])"),
+                      "the drag no longer starts from the handle's TRUE angle")
+        XCTAssertTrue(gesture.contains(
+                          "let angle = Num.wrapHue(grabDegrees + Num.hueDelta(grabPointer, pointer))"),
+                      "the drag writes the pointer's angle, which jumps by the display offset")
+    }
+
+    /// `displayArc`, restated (ColorPanel compiles on macOS only; the scan above pins the
+    /// constants), and checked over every band at the default geometry, at shrunk cores
+    /// and at a lopsided core: no two handles closer than their minimum, the core centre
+    /// where it truly is, and an arc that is already legible drawn unchanged.
+    private static func display(_ arc: ColorEngine.BandArc, radius: Double)
+        -> ColorEngine.BandArc {
+        let perPoint = 180 / (Double.pi * radius)
+        let minCore = 18 * perPoint, minTail = 14 * perPoint
+        var below = arc.coreBelow, above = arc.coreAbove
+        if below + above < minCore {
+            let mid = (above - below) / 2
+            below = minCore / 2 - mid
+            above = minCore / 2 + mid
+        }
+        return ColorEngine.BandArc(
+            centre: arc.centre, coreBelow: below, coreAbove: above,
+            featherBelow: max(arc.coreBelow + arc.featherBelow - below, minTail),
+            featherAbove: max(arc.coreAbove + arc.featherAbove - above, minTail))
+    }
+
+    func testNoTwoDrawnHandlesTouchAndTheCoreCentreStays() {
+        let radius = 60.0      // `arcRadius(box: 130)`, pinned by ColorPanelReachTests
+        let points = { (degrees: Double) in degrees * .pi / 180 * radius }
+        var arcs = ColorEngine.canonicalArcs
+        for a in ColorEngine.canonicalArcs {
+            arcs.append(ColorEngine.BandArc(centre: a.centre, coreBelow: 3.4, coreAbove: 3.4,
+                                            featherBelow: 12, featherAbove: 12))
+            arcs.append(ColorEngine.BandArc(centre: a.centre, coreBelow: 3.4, coreAbove: 12,
+                                            featherBelow: 30, featherAbove: 12))
+            arcs.append(ColorEngine.BandArc(centre: a.centre, coreBelow: 30, coreAbove: 25,
+                                            featherBelow: 20, featherAbove: 40))
+        }
+        for arc in arcs {
+            let shown = Self.display(arc, radius: radius)
+            XCTAssertGreaterThanOrEqual(points(shown.coreBelow + shown.coreAbove), 18 - 1e-9)
+            XCTAssertGreaterThanOrEqual(points(shown.featherBelow), 14 - 1e-9)
+            XCTAssertGreaterThanOrEqual(points(shown.featherAbove), 14 - 1e-9)
+            XCTAssertEqual(shown.coreCentre, arc.coreCentre, accuracy: 1e-9,
+                           "the spread moved the core centre Uniformity converges on")
+            if points(arc.coreBelow + arc.coreAbove) >= 18,
+               points(arc.featherBelow) >= 14, points(arc.featherAbove) >= 14 {
+                XCTAssertEqual(shown, arc, "a legible arc is drawn somewhere it is not")
+            }
+            // The feather handles stay at their true angle unless that collides.
+            XCTAssertGreaterThanOrEqual(shown.coreBelow + shown.featherBelow,
+                                        arc.coreBelow + arc.featherBelow - 1e-9)
+            XCTAssertGreaterThanOrEqual(shown.coreAbove + shown.featherAbove,
+                                        arc.coreAbove + arc.featherAbove - 1e-9)
+        }
+    }
+
+    /// An untouched band written back unchanged stays EXACTLY canonical, so the Band
+    /// range dot (`arcs != ColorEngine.canonicalArcs`) does not light from a press, and
+    /// the wire defaults `resetArc` writes resolve to the canonical arc.
+    func testTheDefaultArcIsExactlyCanonicalBothWays() {
+        for band in 0..<ColorEngine.bandCount {
+            let wire = ColorEngine.wireHandles(for: ColorEngine.canonicalArcs[band], band: band)
+            var bands = Array(repeating: MixerBand(), count: ColorEngine.bandCount)
+            bands[band].core = wire.core
+            bands[band].feather = wire.feather
+            XCTAssertEqual(ColorEngine.bandArcs(bands), ColorEngine.canonicalArcs,
+                           "band \(band): a no-op write marks the mixer reshaped")
+            var reset = Array(repeating: MixerBand(), count: ColorEngine.bandCount)
+            reset[band].core = MixerBand.defaultCore
+            reset[band].feather = MixerBand.defaultFeather
+            XCTAssertEqual(ColorEngine.bandArcs(reset), ColorEngine.canonicalArcs)
+        }
+    }
+}

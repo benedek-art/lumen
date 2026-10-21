@@ -617,6 +617,14 @@ struct LumenSlider: View {
     /// lightness bar is the one such row. Ignored when there is a title: the words on
     /// screen are the name (UX-03, `SliderAccessibility.label`).
     var accessibilityName: String? = nil
+    /// The NAME at full strength even at the default — for a row that is one of a set
+    /// whose names are its index rather than its state. The Colour Mixer's Hue,
+    /// Saturation and Luminance views list eight bands; with the resting-state dim,
+    /// seven of eight read as disabled, where Lightroom shows all eight names alike.
+    /// The modified signal is not lost: the readout still dims at rest, the deviation
+    /// underline and the segment's dot still mark an edit. Off by default, so every
+    /// other row in the app keeps the label as its "what did I change" mark.
+    var labelAtFullStrength: Bool = false
 
     @State private var isDragging = false
     @State private var isHoveringTrack = false
@@ -725,7 +733,8 @@ struct LumenSlider: View {
                 HStack(spacing: 4) {
                     Text(title)
                         .font(.lumenBody)
-                        .foregroundStyle(isModified ? Lumen.primaryText : Lumen.secondaryText)
+                        .foregroundStyle(isModified || labelAtFullStrength
+                                         ? Lumen.primaryText : Lumen.secondaryText)
                         // Inside the frame below, so the column keeps its width and
                         // the tracks stay aligned. See `indented`.
                         .padding(.leading, indented ? 12 : 0)

@@ -112,14 +112,17 @@ final class PointColourPickerStageTests: XCTestCase {
                                                   arcs: e.arcs)
             if raw != picked { moved += 1 }
             // The band the Mixer actually weights most for this pixel: pull each band
-            // in turn and see which one darkens it most.
+            // in turn and see which one darkens it most — per stop of that band's own
+            // Luminance strength (WS-31 gave bands their own −100 strength, so Orange
+            // −100 is gentler than Blue −100; the ratio of the log drops is the weight).
             var strongest = -1
             var deepest = 0.0
             for band in 0..<ColorEngine.bandCount {
                 var pulled = recipe
                 pulled.develop.mixer.bands[band].lum = -100
-                let drop = context.toLCh(engine(recipe).apply(colour)).L
-                    - context.toLCh(engine(pulled).apply(colour)).L
+                let drop = log2(context.toLCh(engine(recipe).apply(colour)).L
+                                / context.toLCh(engine(pulled).apply(colour)).L)
+                    / ColorEngine.mixerLumStopsDown[band]
                 if drop > deepest { deepest = drop; strongest = band }
             }
             XCTAssertEqual(picked, strongest, "hue \(hue)")

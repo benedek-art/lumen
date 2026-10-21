@@ -118,7 +118,9 @@ final class ProofFrameTests: XCTestCase {
     func testTheWedgeSitsOnTheBandCentres() {
         let frame = ProofFrames.tonalColourWedge()
         let ctx = OKLabTransform.working
-        for (band, centre) in ColorEngine.bandHueCentres.enumerated() {
+        // The wedge sits on the LEGACY equal-spaced grid, which the B&W mix still uses
+        // and on which the proof records were made (WS-31 moved only the Mixer's bands).
+        for (band, centre) in ColorEngine.uniformBandHueCentres.enumerated() {
             for stop in [-6.0, -3.0, 0.0, 3.0] {
                 let p = ProofFrames.wedgeSample(band: band, ev: stop)
                 let hue = ctx.toLCh(frame[p.x, p.y]).h

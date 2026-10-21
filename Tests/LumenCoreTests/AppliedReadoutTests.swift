@@ -329,14 +329,21 @@ final class PerPixelVarianceHelpTests: XCTestCase {
         XCTAssertEqual(out.h, 39.23, accuracy: 0.01)
     }
 
-    /// "at 100 the hues inside a band all land on one": ±5° around every band's centre.
+    /// "at 100 the hues inside a band all land on one": every hue in each band's core.
+    ///
+    /// WS-31: it was ±5° around every centre, which sat well inside the old ±22.5° cores.
+    /// The uneven bands' cores are 3.6–8.4° each side (the sRGB primaries, skin and
+    /// foliage between them leave no more room), so "inside a band" is read off the
+    /// band's own core rather than a fixed 5°.
     func testUniformity100LandsEveryHueInsideABandOnOne() {
         var mixer = Mixer()
         mixer.uniformity = 100
         let engine = ColorEngine(mixer: mixer, pointColors: [], color: ColorAdjust(),
                                  primaries: Primaries(), bw: nil)
-        for centre in ColorEngine.bandHueCentres {
-            for dh in [-5.0, 0, 5] {
+        for (i, centre) in ColorEngine.bandHueCentres.enumerated() {
+            let arc = ColorEngine.canonicalArcs[i]
+            let inside = Swift.min(arc.coreBelow, arc.coreAbove) - 0.01
+            for dh in [-inside, 0, inside] {
                 let out = ctx.toLCh(engine.apply(lch(0.6, 0.10, centre + dh)))
                 XCTAssertEqual(Num.hueDelta(centre, out.h), 0, accuracy: 0.01,
                                "band at \(centre)°: a hue \(dh)° off kept its offset")

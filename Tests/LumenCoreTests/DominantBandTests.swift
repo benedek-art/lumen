@@ -85,19 +85,27 @@ final class DominantBandTests: XCTestCase {
         // `bandHueCentres`. Widen Red's core and feather toward Orange, and a hue that
         // the default geometry called Orange must now answer Red — otherwise the panel
         // would select a band the ring says is not the one grading that colour.
-        let towardOrange = ColorEngine.bandHueCentres[0]
-            + ColorEngine.bandSpacingDegrees * 0.45
+        // WS-31: the bands are uneven now, so "just inside" and "just past" are read off
+        // the Red/Orange crossover rather than off a fixed 45° spacing.
+        let crossover = ColorEngine.bandCrossoverDegrees[0]
+        let towardOrange = crossover - 3
         XCTAssertEqual(ColorEngine.dominantBand(hue: towardOrange, arcs: canonical), 0,
                        "precondition: just inside Red at default geometry")
 
-        let justPastMidpoint = ColorEngine.bandHueCentres[0]
-            + ColorEngine.bandSpacingDegrees * 0.62
+        let justPastMidpoint = crossover + 6
         XCTAssertEqual(ColorEngine.dominantBand(hue: justPastMidpoint, arcs: canonical), 1,
                        "precondition: Orange owns this at default geometry")
 
+        // Widen Red's upper core and feather to the panel's limits, in degrees.
+        let d = ColorEngine.defaultArc(0)
+        let wide = ColorEngine.BandArc(centre: d.centre, coreBelow: d.coreBelow,
+                                       coreAbove: ColorEngine.bandCoreMaxDegrees,
+                                       featherBelow: d.featherBelow,
+                                       featherAbove: ColorEngine.bandFeatherMaxDegrees)
+        let handles = ColorEngine.wireHandles(for: wide, band: 0)
         var bands = [MixerBand](repeating: MixerBand(), count: ColorEngine.bandCount)
-        bands[0].core = [ColorEngine.bandCoreDegrees, ColorEngine.bandCoreMaxDegrees]
-        bands[0].feather = [ColorEngine.bandFeatherDegrees, 60]
+        bands[0].core = handles.core
+        bands[0].feather = handles.feather
         let widened = ColorEngine.bandArcs(bands)
         XCTAssertEqual(ColorEngine.dominantBand(hue: justPastMidpoint, arcs: widened), 0,
                        "a widened Red must claim the hue it now grades most")
@@ -139,8 +147,8 @@ final class DominantBandTests: XCTestCase {
         // grades in.
         let cases: [(sample: RGB, band: Int, name: String)] = [
             (RGB(0.9, 0.05, 0.05), 0, "Red"),
-            (RGB(0.05, 0.7, 0.1), 3, "Mint"),
-            (RGB(0.05, 0.1, 0.9), 5, "Azure"),
+            (RGB(0.05, 0.7, 0.1), 3, "Green"),
+            (RGB(0.05, 0.1, 0.9), 5, "Blue"),
         ]
         for (colour, expectedBand, expectedName) in cases {
             guard let band = ColorEngine.dominantBand(for: colour, arcs: canonical) else {
@@ -152,6 +160,52 @@ final class DominantBandTests: XCTestCase {
                                + "that is the arithmetic changing, not a rename")
             XCTAssertEqual(ColorEngine.bandNames[band], expectedName,
                            "band \(band) is called \(ColorEngine.bandNames[band]) now")
+        }
+    }
+
+    // MARK: WS-31 E1: a pick selects the band a photographer would name
+
+    /// sRGB HSV 0/30/60/120/180/240/270/300 select their own band; ColorChecker light and
+    /// dark skin select Orange; the foliage medians select Green; skies select Blue.
+    /// On the old equal 45° grid sRGB orange and green were exact 50/50 seams and both
+    /// skins picked Red.
+    func testAPickSelectsTheBandAPhotographerWouldName() {
+        let srgbToWorking = RGBColorSpace.srgb.matrix(to: .rec2020)
+        func srgb(_ hsvDegrees: Double) -> RGB {
+            // Full-saturation, full-value sRGB at an HSV hue, linearised.
+            let h = hsvDegrees / 60
+            let x = 1 - abs(h.truncatingRemainder(dividingBy: 2) - 1)
+            let (r, g, b): (Double, Double, Double)
+            switch Int(h) {
+            case 0: (r, g, b) = (1, x, 0)
+            case 1: (r, g, b) = (x, 1, 0)
+            case 2: (r, g, b) = (0, 1, x)
+            case 3: (r, g, b) = (0, x, 1)
+            case 4: (r, g, b) = (x, 0, 1)
+            default: (r, g, b) = (1, 0, x)
+            }
+            func lin(_ v: Double) -> Double {
+                v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4)
+            }
+            return srgbToWorking.apply(RGB(lin(r), lin(g), lin(b))) * 0.45
+        }
+        for (hsv, band) in [(0.0, 0), (30, 1), (60, 2), (120, 3), (180, 4), (240, 5),
+                            (270, 6), (300, 7)] {
+            XCTAssertEqual(ColorEngine.dominantBand(for: srgb(hsv), arcs: canonical), band,
+                           "sRGB HSV \(hsv)° should pick \(ColorEngine.bandNames[band])")
+        }
+        // ColorChecker light and dark skin, Rec.2020 linear (corpus/synthetic/colorchecker.json).
+        let lightSkin = OKLabTransform.working.toRGB(OKLCh(L: 0.708, C: 0.068, h: 40.7))
+        let darkSkin = OKLabTransform.working.toRGB(OKLCh(L: 0.468, C: 0.052, h: 42.3))
+        XCTAssertEqual(ColorEngine.dominantBand(for: lightSkin, arcs: canonical), 1)
+        XCTAssertEqual(ColorEngine.dominantBand(for: darkSkin, arcs: canonical), 1)
+        for hue in [127.6, 134.3, 137.9] {
+            XCTAssertEqual(ColorEngine.dominantBand(hue: hue, arcs: canonical), 3,
+                           "foliage at \(hue)° should pick Green")
+        }
+        for hue in stride(from: 251.0, through: 260.0, by: 0.5) {
+            XCTAssertEqual(ColorEngine.dominantBand(hue: hue, arcs: canonical), 5,
+                           "sky at \(hue)° should pick Blue")
         }
     }
 

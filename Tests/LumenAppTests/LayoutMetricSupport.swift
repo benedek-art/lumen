@@ -421,16 +421,18 @@ enum SliderInventory {
     /// Saturation and Luminance rows.
     /// +6 for Defringe's (WS-28): Purple and Green Amount, each with Hue From and To.
     /// +3 for Point Colour's Hue, Sat and Lum range refinements (WS-32).
-    static let callSiteCount = 120
+    /// +1 for the Colour Mixer's per-attribute view (WS-31): one call site that draws a
+    /// row per band, titled by band name.
+    static let callSiteCount = 121
 
     /// Every slider the app ships, resolved through its builder where the call site is
     /// a helper rather than a literal — `MaskPanel.adjustSlider`, `LookPanel.bipolarSlider`,
     /// `CurveEditorView.parametricSlider`, `ZonesPanel`'s register — and reduced to the
     /// distinct (title, host, range, step) rows those builders produce.
     ///
-    /// Two entries carry a note rather than a literal title: `ColorPanel:696` takes
-    /// `ColorEngine.bandNames[i]` and `ZonesPanel:135` takes the zone register's name, so
-    /// the WIDEST member of each list stands for the row.
+    /// Three entries carry a note rather than a literal title: `ColorPanel:270` and
+    /// `ColorPanel:997` take `ColorEngine.bandNames` and `ZonesPanel:135` takes the zone
+    /// register's name, so the WIDEST member of each list stands for the row.
     static let all: [SliderSpec] = [
         // Basic — white balance and tone.
         // 50 K rather than 10: at 10 the row advertised 4,800 values and the best of the
@@ -458,14 +460,17 @@ enum SliderInventory {
         SliderSpec("Protect Skin", "BasicPanel.swift:743", .developTop, 0...100, step: 1),
 
         // Colour — mixer, point colour, black and white.
-        SliderSpec("Hue", "ColorPanel.swift:162", .developTop, -100...100, step: 1),
-        SliderSpec("Saturation", "ColorPanel.swift:168", .developTop, -100...100, step: 1),
-        SliderSpec("Luminance", "ColorPanel.swift:173", .developTop, -100...100, step: 1),
-        SliderSpec("Even out hues", "ColorPanel.swift:206", .developTop, 0...100, step: 1),
-        SliderSpec("Hue", "ColorPanel.swift:451", .developTop, -60...60, step: 1),
-        SliderSpec("Saturation", "ColorPanel.swift:457", .developTop, -100...100, step: 1),
-        SliderSpec("Luminance", "ColorPanel.swift:462", .developTop, -100...100, step: 1),
-        SliderSpec("Range", "ColorPanel.swift:467", .developTop, 0...100, step: 1),
+        // The mixer's Hue, Saturation and Luminance views: one row per band, titled
+        // from `ColorEngine.bandNames` — Magenta is the widest of the eight.
+        SliderSpec("Magenta", "ColorPanel.swift:270", .developTop, -100...100, step: 1),
+        SliderSpec("Hue", "ColorPanel.swift:300", .developTop, -100...100, step: 1),
+        SliderSpec("Saturation", "ColorPanel.swift:304", .developTop, -100...100, step: 1),
+        SliderSpec("Luminance", "ColorPanel.swift:308", .developTop, -100...100, step: 1),
+        SliderSpec("Even out hues", "ColorPanel.swift:363", .developTop, 0...100, step: 1),
+        SliderSpec("Hue", "ColorPanel.swift:722", .developTop, -60...60, step: 1),
+        SliderSpec("Saturation", "ColorPanel.swift:727", .developTop, -100...100, step: 1),
+        SliderSpec("Luminance", "ColorPanel.swift:731", .developTop, -100...100, step: 1),
+        SliderSpec("Range", "ColorPanel.swift:735", .developTop, 0...100, step: 1),
         // Lightroom's Range refinements (WS-32), subordinate to Range.
         SliderSpec("Hue range", "ColorPanel.swift:485", .developTop, 0...100, step: 1,
                    indented: true),
@@ -473,9 +478,9 @@ enum SliderInventory {
                    indented: true),
         SliderSpec("Lum range", "ColorPanel.swift:495", .developTop, 0...100, step: 1,
                    indented: true),
-        SliderSpec("Variance", "ColorPanel.swift:500", .developTop, -100...100, step: 1),
+        SliderSpec("Variance", "ColorPanel.swift:741", .developTop, -100...100, step: 1),
         // `ColorEngine.bandNames` — Magenta is the widest of the eight.
-        SliderSpec("Magenta", "ColorPanel.swift:764", .developTop, -100...100, step: 1),
+        SliderSpec("Magenta", "ColorPanel.swift:997", .developTop, -100...100, step: 1),
 
         // Crop.
         SliderSpec("Angle", "CropPanel.swift:488", .developTop, -45...45,
