@@ -40,8 +40,13 @@ struct CropTransformSection: View {
     @EnvironmentObject var edits: EditRevision
     @ObservedObject private var guideTool = UprightGuideTool.shared
 
-    @State private var expanded = false
+    @State private var expanded: Bool
     @State private var analysing = false
+
+    /// `initiallyExpanded` exists for the UI snapshot, which draws the fold open.
+    init(initiallyExpanded: Bool = false) {
+        _expanded = State(initialValue: initiallyExpanded)
+    }
 
     private var binder: RecipeBinder { RecipeBinder(state: state) }
     private var upright: Upright { state.currentRecipe.develop.geometry.upright ?? Upright() }

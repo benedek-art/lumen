@@ -261,10 +261,10 @@ final class PanelSnapshotTests: XCTestCase {
         }
         await recorder.settle(0.3)
         await recorder.render("panel-crop-transform-open",
-                              "Crop ▸ Crop with the Transform fold opened, Upright Vertical",
-                              width: width, press: ["Transform"]) {
+                              "Crop ▸ Transform fold opened, Upright Vertical",
+                              width: width) {
             SnapshotSectionCard(.frame, isModified: recorder.isModified(.frame)) {
-                SnapshotSectionBody(section: .frame)
+                CropTransformSection(initiallyExpanded: true)
             }
         }
     }
