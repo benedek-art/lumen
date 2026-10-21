@@ -56,14 +56,14 @@ column of radio buttons, and an editing header that said "Sun · 2 masks".
 
 | line | result | measured |
 |---|---|---|
-| S1 T1-T18 | PASS | 23/23 machine tests, every table row asserted (verifier checked) |
+| S1 T1-T18 | PASS | 23/23 machine tests, every table row asserted (verifier checked twice) |
 | S2 classification | PASS | 8/8, develop and look both covered |
 | S3 live call path | PASS | 19 call sites of `sendMaskOverlay(`/`noteMaskOverlayEdit(` across the latch, `updateRecipe`, `apply` and Auto Tone |
 | S4 one writer | PASS | 1 assignment, `AppState.swift` `sendMaskOverlay` |
 | S5 no flash timer | PASS | 0 matches |
 | S6 colour, mode, opacity selectable and remembered | PASS (by code read and snapshot of the menu trigger; persistence must be tried by hand) | 4 tints, 6 modes, 4 opacities |
 | S7 LumenCoreTests | PASS | 3061 tests, exit 0, local Linux (Swift 6.0.3, with the 6.1 trailing commas in `CompareView` patched locally only, never committed) |
-| S8 CI | PASS on `aec0762` for UI snapshots, UI layout, GPU parity and Proof sweep; CI result for the final commit in the reply | |
+| S8 CI | UI snapshots, UI layout, GPU parity, Proof sweep, build-macos, app-bundle and engine-linux green on `aec0762` | `aec0762` failed two jobs I caused, both fixed in the next commit: `LayoutMetricSelfTests` (43 slider citations into MaskPanel moved with my edits, remapped by diff against base) and the Swift-surface checker (it could not parse a two-pattern `case` or a variadic call). fixtures-linux stays red on pre-existing findings that also fail on base `a93efb2` (`set(_:forKey:)` labels, `Font` target, `Range` inits) |
 | V1 rows | PASS | evidence 02: Sky row lost its empty chip, the selected Sun row keeps it as the control |
 | V2 header | PASS | evidence 03: "2 masks" → "Radial Gradient" |
 | V3 after drag | PASS | evidence 01: red wash gone after Exposure 0.30 → 0.60, Overlay button reads off |
@@ -80,7 +80,13 @@ could defeat it:
 - A selection edit after an adjustment in the same gesture did the same.
 
 Also, a photo switch mid-drag dropped `inGesture`. All five are fixed, and the two machine
-defects have regression tests. Round 2 result is recorded below.
+defects have regression tests.
+
+Round 2: **PASS**. 31/31 tests. Every round-1 defect was traced as fixed, no macOS compile
+errors were found by reading, and no path was found that leaves the overlay up during or
+after an adjustment drag. Its one in-lane nit is fixed: the row menu's Rename now selects
+through `selectMask`. Known and accepted: `O` pressed mid-drag on a pinned overlay keeps the
+pin, so the overlay returns on release rather than turning off.
 
 ## Not fixed here
 

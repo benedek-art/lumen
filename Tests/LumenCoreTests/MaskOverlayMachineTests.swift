@@ -325,14 +325,14 @@ final class MaskOverlayMachineTests: XCTestCase {
              .masksPresent(["a"])]
         var states: [MaskOverlayMachine] = [MaskOverlayMachine()]
         for _ in 0..<3 {
-            states = states.flatMap { s in alphabet.map { s.sending($0) } }
+            states = states.flatMap { s in alphabet.map { s.sending([$0]) } }
         }
         for s in states {
-            let mid = s.sending(.gestureBegan, .edited(.adjustment))
+            let mid = s.sending([.gestureBegan, .edited(.adjustment)])
             XCTAssertNil(mid.visibleID)
-            let hovered = mid.sending(.hoverBegan("b"))
+            let hovered = mid.sending([.hoverBegan("b")])
             XCTAssertNil(hovered.visibleID)
-            let released = mid.sending(.gestureEnded)
+            let released = mid.sending([.gestureEnded])
             XCTAssertEqual(released.visibleID, s.pinned ? s.pinnedID : nil)
         }
     }

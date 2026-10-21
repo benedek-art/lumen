@@ -1166,7 +1166,7 @@ struct MaskPanel: View {
                          help: "Rename, reorder, invert, duplicate, delete") {
             LumenMenuHeader(title: "This mask")
             LumenMenuItem(title: "Rename", symbol: "pencil") {
-                selectedMaskID = mask.id
+                state.selectMask(mask.id)
                 renamingMaskID = mask.id
             }
             LumenMenuItem(title: mask.invert ? "Stop inverting" : "Invert selection",

@@ -150,13 +150,15 @@ public struct MaskOverlayMachine: Equatable, Sendable {
             hoverID = nil
             if inGesture { suppressed = true }
 
-        case .edited(.selection(let id)), .selectionWork(let id):
+        case .edited(.selection(let id)):
             // Painting, dragging a gradient, refining an edge: the overlay is the only
             // view of what is being made, so it shows, mid-gesture or not.
             // Not `suppressed = false`: an adjustment already moved in this gesture,
             // and its pixels are still being judged until release.
-            litID = id
-            if pinned { pinnedID = id }
+            noteSelectionWork(id)
+
+        case .selectionWork(let id):
+            noteSelectionWork(id)
 
         case .toggle(let selected):
             if visibleID != nil {
@@ -194,8 +196,13 @@ public struct MaskOverlayMachine: Equatable, Sendable {
         }
     }
 
+    private mutating func noteSelectionWork(_ id: String) {
+        litID = id
+        if pinned { pinnedID = id }
+    }
+
     /// `send`, returning self, for tests and one-line call sites.
-    public func sending(_ events: Event...) -> MaskOverlayMachine {
+    public func sending(_ events: [Event]) -> MaskOverlayMachine {
         var copy = self
         for e in events { copy.send(e) }
         return copy
