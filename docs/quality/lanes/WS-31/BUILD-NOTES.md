@@ -104,3 +104,14 @@ No golden file changed. `scripts/check-swift-surface.py`: no new failures agains
 - `hue_wheel_green_hue_before_after.png`: Green hue −100…+100 on the hue wheel.
 - `skin_orange_lum_before_after.png`: Orange lum −100 / 0 / +100 on `skin_tones`.
 - `hue_ramp_fold_green_before_after.png`: displayed hue shift against input hue for Green ±100 on the ramp row L 0.6 C 0.06; ticks mark local slope < 0.1 (folds) — present before, none after.
+
+## UI test changes
+
+Made in the UI fix round (after 49cf99b), with the reason for each.
+
+- `CurveMathTests.testTheMixerGroupRowMovesTheWholeSetTogether` → `testTheMixerRowsEachWriteTheirOwnBand`. The old test read ColorPanel.swift and required `GroupMove.moved(`/`GroupMove.mean(`, which encoded the All-bands group-offset mode. WS-31 removed that mode on purpose (U4; reasons in `ColorPanel.mixerHeaderRow` and NEEDS "## UI" item 3). The replacement states the new contract: the mixer binding writes exactly its own band, clamped to ±100, under the per-band undo key `mixer.<attr>.<band>`. It also asserts that no `GroupMove.` call and no `state.mixerAllBands` read remain, and that the Hue, Saturation, Luminance and Band views all exist. `GroupMove`'s own tests (`CurveAdversarialTests`) are untouched.
+- New `MixerRingWireTests` (in `ColorPanelReachTests.swift`, 3 tests), for E-4. `ColorPanel.moveHandle` now reads the drawn arc through `ColorEngine.bandArcs` and moves one side in degrees (`ColorPanel.draggedArc`, clamped to `bandCore/FeatherMin/MaxDegrees`). It writes back through `ColorEngine.wireHandles`. The three tests are:
+  - a source scan pinning that route, including that `MixerBand.defaultCore` is no longer treated as degrees;
+  - a round trip over every band, all four handles and drag targets ±80° around the centre in 2.5° steps: `bandArcs(wireHandles(dragged))` equals the dragged arc, with the feather only ever widened to `bandMinReach`;
+  - a check that the canonical arc written back, and `resetArc`'s wire defaults, both resolve exactly to `canonicalArcs`, so the Band range "reshaped" dot cannot light from a no-op.
+- `Tests/LumenAppTests/LayoutMetricSupport.swift`: the ColorPanel slider citations moved with the lines `moveHandle`'s rewrite added.

@@ -428,7 +428,7 @@ enum SliderInventory {
     /// distinct (title, host, range, step) rows those builders produce.
     ///
     /// Three entries carry a note rather than a literal title: `ColorPanel:273` and
-    /// `ColorPanel:966` take `ColorEngine.bandNames` and `ZonesPanel:135` takes the zone
+    /// `ColorPanel:993` take `ColorEngine.bandNames` and `ZonesPanel:135` takes the zone
     /// register's name, so the WIDEST member of each list stands for the row.
     static let all: [SliderSpec] = [
         // Basic — white balance and tone.
@@ -464,13 +464,13 @@ enum SliderInventory {
         SliderSpec("Saturation", "ColorPanel.swift:304", .developTop, -100...100, step: 1),
         SliderSpec("Luminance", "ColorPanel.swift:308", .developTop, -100...100, step: 1),
         SliderSpec("Even out hues", "ColorPanel.swift:361", .developTop, 0...100, step: 1),
-        SliderSpec("Hue", "ColorPanel.swift:691", .developTop, -60...60, step: 1),
-        SliderSpec("Saturation", "ColorPanel.swift:696", .developTop, -100...100, step: 1),
-        SliderSpec("Luminance", "ColorPanel.swift:700", .developTop, -100...100, step: 1),
-        SliderSpec("Range", "ColorPanel.swift:704", .developTop, 0...100, step: 1),
-        SliderSpec("Variance", "ColorPanel.swift:710", .developTop, -100...100, step: 1),
+        SliderSpec("Hue", "ColorPanel.swift:718", .developTop, -60...60, step: 1),
+        SliderSpec("Saturation", "ColorPanel.swift:723", .developTop, -100...100, step: 1),
+        SliderSpec("Luminance", "ColorPanel.swift:727", .developTop, -100...100, step: 1),
+        SliderSpec("Range", "ColorPanel.swift:731", .developTop, 0...100, step: 1),
+        SliderSpec("Variance", "ColorPanel.swift:737", .developTop, -100...100, step: 1),
         // `ColorEngine.bandNames` — Magenta is the widest of the eight.
-        SliderSpec("Magenta", "ColorPanel.swift:966", .developTop, -100...100, step: 1),
+        SliderSpec("Magenta", "ColorPanel.swift:993", .developTop, -100...100, step: 1),
 
         // Crop.
         SliderSpec("Angle", "CropPanel.swift:361", .developTop, -45...45,

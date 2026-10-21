@@ -383,40 +383,67 @@ struct ColorPanel: View {
 
     /// Write one dragged handle back into the band's wire geometry.
     ///
-    /// Everything is stored relative to the band's canonical centre, and the centre
-    /// itself never moves — it is the wire format's identity for the band. Dragging the
-    /// two inner handles to the same side is how you re-centre the band on a colour, and
-    /// `ColorEngine.BandArc.coreCentre` is what reads that back out for Uniformity.
+    /// DEGREES ON SCREEN, WIRE UNITS ON DISK, AND THE ENGINE CONVERTS BETWEEN THEM. The
+    /// wire's `core`/`feather` are relative to each band's own default (22.5 / 15 mean
+    /// "this band's default on this side", WS-31 E-4), because the bands are no longer
+    /// 45° apart and one absolute default cannot fit all eight. So the drag reads the
+    /// arc the ring is drawing (`ColorEngine.bandArcs`), moves one side of it IN
+    /// DEGREES, clamps in degrees to the engine's limits, and writes the result back
+    /// through `ColorEngine.wireHandles` — the inverse of `bandArcs`, so the arc the
+    /// render resolves is the arc the hand left. Writing degrees straight into the wire,
+    /// as this did when wire and degrees were the same number, would now scale every
+    /// handle by the band's default and throw it somewhere the pointer is not.
+    ///
+    /// The centre never moves — it is the wire format's identity for the band. Dragging
+    /// the two inner handles to the same side is how you re-centre the band on a colour,
+    /// and `ColorEngine.BandArc.coreCentre` is what reads that back out for Uniformity.
+    /// `bandArcs` re-applies the per-side minimum reach on the way back in, by widening
+    /// the feather, so a core dragged narrow cannot open a hole in the partition.
     private func moveHandle(_ band: Int, _ handle: MixerArcHandle, to degrees: Double) {
         state.updateRecipe(coalescingKey: "mixer.arc.\(band).\(handle.rawValue)") { recipe in
             var bands = ColorPanel.normalizedBands(recipe.develop.mixer.bands)
-            guard bands.indices.contains(band),
-                  ColorEngine.bandHueCentres.indices.contains(band) else { return }
-            let centre = ColorEngine.bandHueCentres[band]
-            let delta = Num.hueDelta(centre, degrees)     // signed, (−180, 180]
-            var core = ColorPanel.pair(bands[band].core, MixerBand.defaultCore)
-            var feather = ColorPanel.pair(bands[band].feather, MixerBand.defaultFeather)
-            let coreLo = ColorEngine.bandCoreMinDegrees
-            let coreHi = ColorEngine.bandCoreMaxDegrees
-            let featherLo = ColorEngine.bandFeatherMinDegrees
-            let featherHi = ColorEngine.bandFeatherMaxDegrees
-            switch handle {
-            case .coreStart:
-                core[0] = Num.clamp(-delta, coreLo, coreHi)
-            case .coreEnd:
-                core[1] = Num.clamp(delta, coreLo, coreHi)
-            case .featherStart:
-                feather[0] = Num.clamp(-delta - core[0], featherLo, featherHi)
-            case .featherEnd:
-                feather[1] = Num.clamp(delta - core[1], featherLo, featherHi)
-            }
-            bands[band].core = core
-            bands[band].feather = feather
+            let arcs = ColorEngine.bandArcs(bands)
+            guard bands.indices.contains(band), arcs.indices.contains(band) else { return }
+            let moved = ColorPanel.draggedArc(arcs[band], handle, to: degrees)
+            let wire = ColorEngine.wireHandles(for: moved, band: band)
+            bands[band].core = wire.core
+            bands[band].feather = wire.feather
             recipe.develop.mixer.bands = bands
         }
     }
 
-    /// Back to the canonical wedge, leaving the band's three sliders alone.
+    /// One handle of `arc` moved to the absolute hue `degrees`, every side in degrees and
+    /// clamped to the engine's handle limits. Static and pure, so the arithmetic the ring
+    /// writes with is one expression that can be read apart from the gesture.
+    static func draggedArc(_ arc: ColorEngine.BandArc, _ handle: MixerArcHandle,
+                           to degrees: Double) -> ColorEngine.BandArc {
+        let delta = Num.hueDelta(arc.centre, degrees)     // signed, (−180, 180]
+        let coreLo = ColorEngine.bandCoreMinDegrees
+        let coreHi = ColorEngine.bandCoreMaxDegrees
+        let featherLo = ColorEngine.bandFeatherMinDegrees
+        let featherHi = ColorEngine.bandFeatherMaxDegrees
+        var coreBelow = arc.coreBelow
+        var coreAbove = arc.coreAbove
+        var featherBelow = arc.featherBelow
+        var featherAbove = arc.featherAbove
+        switch handle {
+        case .coreStart:
+            coreBelow = Num.clamp(-delta, coreLo, coreHi)
+        case .coreEnd:
+            coreAbove = Num.clamp(delta, coreLo, coreHi)
+        case .featherStart:
+            featherBelow = Num.clamp(-delta - coreBelow, featherLo, featherHi)
+        case .featherEnd:
+            featherAbove = Num.clamp(delta - coreAbove, featherLo, featherHi)
+        }
+        return ColorEngine.BandArc(centre: arc.centre,
+                                   coreBelow: coreBelow, coreAbove: coreAbove,
+                                   featherBelow: featherBelow, featherAbove: featherAbove)
+    }
+
+    /// Back to the band's default arc, leaving its three sliders alone. The wire
+    /// defaults ARE "this band's default" under the relative wire (E-4), and `bandArcs`
+    /// resolves them exactly to `canonicalArcs[band]`, so the Band range dot clears.
     private func resetArc(_ band: Int) {
         state.updateRecipe { recipe in
             var bands = ColorPanel.normalizedBands(recipe.develop.mixer.bands)
@@ -1155,8 +1182,8 @@ struct ColorPanel: View {
 
     // THE SWATCH IS THE BAND'S CENTRE, DRAWN. These were eight hand-picked sRGB
     // triples, chosen as reference colours rather than as the centres, on the argument
-    // that the swatch labelled Orange has to look orange. Measured against the centres they sat 14–21°
-    // off: the "Mint" chip was foliage green and split 51/49 between two bands, so a
+    // that the swatch labelled Orange has to look orange. Measured against the
+    // centres they sat 14–21° off: the fourth chip was foliage green and split 51/49 between two bands, so a
     // photographer matching the chip to the sky or the leaves picked the wrong one. The
     // band IS its centre hue — that is what the engine selects with — so the colour is
     // computed from `ColorEngine.bandHueCentres` and follows them wherever they move.

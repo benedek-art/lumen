@@ -536,3 +536,107 @@ private enum Scan {
         return out
     }
 }
+
+// MARK: - WS-31 E-4, the ring writes degrees through the engine's wire inverse
+
+/// The wire's `core`/`feather` became RELATIVE to each band's default (22.5 / 15 mean
+/// "this band's default") when the bands went uneven. The ring drags in degrees, so the
+/// panel must read the arc through `ColorEngine.bandArcs`, move it in degrees, and write
+/// it back through `ColorEngine.wireHandles` — the old code wrote degrees straight into
+/// the wire, which now scales every handle by the band's default.
+///
+/// Two halves, like the classes above: the scan pins the expressions `moveHandle` and
+/// `draggedArc` decide with, and the arithmetic proves that what those expressions
+/// write round-trips through the engine to the arc the hand left on screen.
+final class MixerRingWireTests: XCTestCase {
+
+    func testTheDragReadsDegreesAndWritesThroughTheWireInverse() throws {
+        let source = Scan.squeezed(Scan.stripped(try Scan.appSource("ColorPanel.swift")))
+        let move = try Scan.between("private func moveHandle(", "static func draggedArc(",
+                                    in: source)
+        XCTAssertTrue(move.contains("ColorEngine.bandArcs(bands)"),
+                      "the drag no longer starts from the arc the ring draws")
+        XCTAssertTrue(move.contains("ColorPanel.draggedArc(arcs[band], handle, to: degrees)"))
+        XCTAssertTrue(move.contains("ColorEngine.wireHandles(for: moved, band: band)"),
+                      "the drag writes degrees into the relative wire")
+        XCTAssertFalse(move.contains("MixerBand.defaultCore"),
+                       "the drag treats the wire default as degrees again")
+        let dragged = try Scan.between("static func draggedArc(", "private func resetArc(",
+                                       in: source)
+        for limit in ["ColorEngine.bandCoreMinDegrees", "ColorEngine.bandCoreMaxDegrees",
+                      "ColorEngine.bandFeatherMinDegrees", "ColorEngine.bandFeatherMaxDegrees"] {
+            XCTAssertTrue(dragged.contains(limit), "the drag no longer clamps to \(limit)")
+        }
+    }
+
+    /// The panel's `draggedArc`, restated: one side moved to an absolute hue, in degrees,
+    /// clamped to the engine's limits. Restated because ColorPanel compiles on macOS
+    /// only; the scan above pins that the shipped function uses these same limits.
+    private static func dragged(_ arc: ColorEngine.BandArc, side: Int,
+                                to degrees: Double) -> ColorEngine.BandArc {
+        let delta = Num.hueDelta(arc.centre, degrees)
+        var cb = arc.coreBelow, ca = arc.coreAbove, fb = arc.featherBelow, fa = arc.featherAbove
+        switch side {
+        case 0: cb = Num.clamp(-delta, ColorEngine.bandCoreMinDegrees, ColorEngine.bandCoreMaxDegrees)
+        case 1: ca = Num.clamp(delta, ColorEngine.bandCoreMinDegrees, ColorEngine.bandCoreMaxDegrees)
+        case 2: fb = Num.clamp(-delta - cb, ColorEngine.bandFeatherMinDegrees,
+                               ColorEngine.bandFeatherMaxDegrees)
+        default: fa = Num.clamp(delta - ca, ColorEngine.bandFeatherMinDegrees,
+                                ColorEngine.bandFeatherMaxDegrees)
+        }
+        return ColorEngine.BandArc(centre: arc.centre, coreBelow: cb, coreAbove: ca,
+                                   featherBelow: fb, featherAbove: fa)
+    }
+
+    /// Every band, every handle, a sweep of drag targets: the arc written through
+    /// `wireHandles` resolves back through `bandArcs` to the arc that was dragged —
+    /// except that the feather may be widened to the band's minimum reach, which is the
+    /// engine's partition guard and must only ever widen.
+    func testRingDegreesRoundTripThroughTheWire() {
+        var checked = 0
+        for band in 0..<ColorEngine.bandCount {
+            let start = ColorEngine.canonicalArcs[band]
+            for side in 0..<4 {
+                for step in stride(from: -80.0, through: 80.0, by: 2.5) {
+                    let target = Num.wrapHue(start.centre + step)
+                    let moved = Self.dragged(start, side: side, to: target)
+                    let wire = ColorEngine.wireHandles(for: moved, band: band)
+                    var bands = Array(repeating: MixerBand(), count: ColorEngine.bandCount)
+                    bands[band].core = wire.core
+                    bands[band].feather = wire.feather
+                    let back = ColorEngine.bandArcs(bands)[band]
+                    let reach = ColorEngine.bandMinReach(band)
+                    XCTAssertEqual(back.centre, moved.centre)
+                    XCTAssertEqual(back.coreBelow, moved.coreBelow, accuracy: 1e-9)
+                    XCTAssertEqual(back.coreAbove, moved.coreAbove, accuracy: 1e-9)
+                    XCTAssertEqual(back.featherBelow,
+                                   max(moved.featherBelow, reach.below - moved.coreBelow),
+                                   accuracy: 1e-9)
+                    XCTAssertEqual(back.featherAbove,
+                                   max(moved.featherAbove, reach.above - moved.coreAbove),
+                                   accuracy: 1e-9)
+                    checked += 1
+                }
+            }
+        }
+        XCTAssertGreaterThan(checked, 1000)
+    }
+
+    /// An untouched band written back unchanged stays EXACTLY canonical, so the Band
+    /// range dot (`arcs != ColorEngine.canonicalArcs`) does not light from a press, and
+    /// the wire defaults `resetArc` writes resolve to the canonical arc.
+    func testTheDefaultArcIsExactlyCanonicalBothWays() {
+        for band in 0..<ColorEngine.bandCount {
+            let wire = ColorEngine.wireHandles(for: ColorEngine.canonicalArcs[band], band: band)
+            var bands = Array(repeating: MixerBand(), count: ColorEngine.bandCount)
+            bands[band].core = wire.core
+            bands[band].feather = wire.feather
+            XCTAssertEqual(ColorEngine.bandArcs(bands), ColorEngine.canonicalArcs,
+                           "band \(band): a no-op write marks the mixer reshaped")
+            var reset = Array(repeating: MixerBand(), count: ColorEngine.bandCount)
+            reset[band].core = MixerBand.defaultCore
+            reset[band].feather = MixerBand.defaultFeather
+            XCTAssertEqual(ColorEngine.bandArcs(reset), ColorEngine.canonicalArcs)
+        }
+    }
+}

@@ -344,12 +344,33 @@ final class CurveMathTests: XCTestCase {
                        + "folds two different points' drags into one undo step")
     }
 
-    func testTheMixerGroupRowMovesTheWholeSetTogether() throws {
+    /// THE MIXER'S ROWS EACH WRITE ONE BAND (WS-31). This replaced a check that the
+    /// All-bands row moved the set through `GroupMove` (B3-01). WS-31 removed that mode:
+    /// it was a rigid offset of all eight bands sitting where Lightroom puts a view of
+    /// all the sliders. The panel now draws every band's row in the Hue, Saturation and
+    /// Luminance views, and Band view shows one band's three. The contract that replaces
+    /// B3-01 is that every one of those rows edits exactly its own band, clamped to ±100,
+    /// under a per-band undo key, and that no hidden group mode survives. `GroupMove`'s
+    /// own arithmetic keeps its tests in `CurveAdversarialTests`.
+    func testTheMixerRowsEachWriteTheirOwnBand() throws {
         let source = try Self.appSource("ColorPanel.swift")
-        XCTAssertTrue(source.contains("GroupMove.moved("),
-                      "B3-01: the All-bands row must translate the set through "
-                      + "GroupMove, not clamp each band on its own")
-        XCTAssertTrue(source.contains("GroupMove.mean("))
+        XCTAssertTrue(source.contains(
+                          "private func mixerBinding(_ component: MixerComponent, band: Int)"),
+                      "the mixer binding no longer names the one band it writes")
+        XCTAssertTrue(source.contains(
+                          "component.write(&bands[i], Num.clamp(newValue, -100, 100))"),
+                      "a mixer row writes something other than its own band, clamped")
+        XCTAssertTrue(source.contains("coalescingKey: \"mixer.\\(component.rawValue).\\(band)\""),
+                      "a mixer row's drag is no longer one undo step per band")
+        XCTAssertFalse(source.contains("GroupMove."),
+                       "a group move is back in the mixer with no control that shows it")
+        XCTAssertFalse(source.contains("state.mixerAllBands"),
+                       "the panel reads the retired All-bands flag again: a mode nothing "
+                       + "on screen can show or clear")
+        for view in ["attributeRows(.hue)", "attributeRows(.sat)", "attributeRows(.lum)",
+                     "bandView(bands, arcs, index)"] {
+            XCTAssertTrue(source.contains(view), "the mixer lost a view: \(view)")
+        }
     }
 
     /// THE ANCHOR GUARD IS THE RULE, NOT AN ARITHMETIC ACCIDENT.

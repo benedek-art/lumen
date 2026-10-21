@@ -42,12 +42,10 @@ This is not built: it needs pick routing and a loupe gesture, which WS-02 owns. 
   - Each band b gets `delta × w_b / max_b w_b`, clamped to ±100, through one `updateRecipe(coalescingKey: "mixer.targeted.<attribute>")`, so a drag is one undo step. The `sliderGestureChanged(true/false)` bracket goes around the drag.
 - **Feedback.** Crosshair cursor (`lumenPickCursor`). Status text names the dominant band and the attribute ("Orange + Red · Luminance"). The panel highlights the rows it is moving, using the same `pickedRow` surface as E1.
 
-### 6. Engine builder (WS-31): the band names
+### 6. Band names (done) and WS-16: the B&W help still says "Azure"
 
-- U2 needs the rows labelled Red, Orange, Yellow, Green, Aqua, Blue, Purple, Magenta.
-- The panel reads `ColorEngine.bandNames`, which still says "Mint" and "Azure". Renaming them, along with the band geometry, makes U2 pass with no UI change.
-- `MixerBandNameTests` pins Magenta as the widest name, and that stays true.
-- `blackAndWhiteSection`'s help mentions "Azure" by name. That function is not WS-31's, so whoever owns it should update the word when the rename lands.
+- The engine commit renamed `ColorEngine.bandNames` to Red, Orange, Yellow, Green, Aqua, Blue, Purple, Magenta, so the mixer rows read as U2 asks with no UI change. `MixerBandNameTests` still pins Magenta as the widest name.
+- **WS-16** (owns `ColorPanel.blackAndWhiteSection`): its slider help reads "The classic moves: drop Azure for a dramatic sky" (ColorPanel.swift ~1000). There is no band called Azure any more; the word should be "Blue". The B&W sliders take their titles from `bandNames` while B&W stays on the legacy 45° grid (Engine E-2), so WS-16 may also want to say which hues those rows cover.
 
 ### 7. Swatch and track colours follow `ColorEngine.bandHueCentres`
 
