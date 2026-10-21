@@ -78,6 +78,7 @@ final class PanelSnapshotTests: XCTestCase {
         let recorder = SnapshotRecorder(directory: directory)
         await renderPanels(recorder, root: root)
         await renderWindow(recorder, root: root)
+        await renderRangeMasks(recorder, root: root)
         recorder.writeIndex()
         print("UI snapshots: \(recorder.entries.count) entries, "
               + "\(recorder.entries.filter { $0.file != nil }.count) files, in \(directory.path)")
@@ -252,6 +253,58 @@ final class PanelSnapshotTests: XCTestCase {
                               "Mask overlay (colour overlay, red) of a radial mask over a sample frame",
                               width: viewer.width, height: viewer.height) {
             SnapshotMaskOverlay(image: sample, overlay: overlay, container: viewer)
+        }
+    }
+
+    // MARK: - Range masks (WS-47/48): Brightness Range and Colour Range editors
+
+    @MainActor
+    private func renderRangeMasks(_ recorder: SnapshotRecorder, root: URL) async {
+        let state = AppState(catalogDirectory: { root.appendingPathComponent("range-catalog") },
+                             previewDirectory: { root.appendingPathComponent("range-previews") })
+        defer { state.prepareToQuit() }
+        recorder.attach(state)
+
+        let photo = PhotoItem(id: root.appendingPathComponent("DSC04822.arw"), iso: 3200)
+        state.developPanelWidth = Lumen.defaultPanelWidth
+        state.primarySelection = photo
+        state.selection = [photo.id]
+        PanelLayout.shared.select(.develop)
+        let width = Lumen.defaultPanelWidth
+
+        var band = MaskComponent(op: .add, kind: .lumaRange)
+        band.lo = MaskPanel.normalizedEV(-3.5)
+        band.hi = 1
+        band.smooth = 50
+        var snow = Mask(id: "snapshot-snow", name: "Snow", components: [band])
+        snow.adjust.exposure = 0.3
+
+        var colour = MaskComponent(op: .add, kind: .colorRange)
+        colour.samples = [[0.42, 0.07, 0.05], [0.30, 0.05, 0.04]]
+        colour.rangeAmount = 50
+        var can = Mask(id: "snapshot-can", name: "Red can", components: [colour])
+        can.adjust.sat = -20
+
+        state.updateRecipe(label: "Snapshot range masks") { recipe in
+            recipe.masks = [snow, can]
+        }
+        state.activeMaskID = snow.id
+        state.activeComponentIndex = 0
+        await recorder.settle(0.3)
+        await recorder.render("panel-masks-luma-range",
+                              "Masks editor, a Brightness Range (From −3.5 EV, To +4, "
+                                  + "Smooth 50) selected, with its luminance map strip",
+                              width: width) {
+            SnapshotMaskEditor()
+        }
+        state.activeMaskID = can.id
+        state.activeComponentIndex = 0
+        await recorder.settle(0.3)
+        await recorder.render("panel-masks-colour-range",
+                              "Masks editor, a Colour Range with two samples and "
+                                  + "Tolerance 50 selected",
+                              width: width) {
+            SnapshotMaskEditor()
         }
     }
 

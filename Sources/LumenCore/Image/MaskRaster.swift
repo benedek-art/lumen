@@ -43,8 +43,6 @@ public enum MaskRaster {
     private static let depthShoulder: Double = 0.15
     /// Automask OKLab ΔE tolerance; the gate fades out over [τ, 2τ].
     private static let automaskTau: Double = 0.06
-    /// Trapezoid shoulder fraction for the colour-range per-axis falloff.
-    private static let trapezoidShoulder: Double = 0.5
     /// Guided-filter regularization on the [0,1]-normalized guide. Not user-exposed —
     /// docs/08's explicit criticism of darktable is that it exposes this raw.
     private static let guidedEpsilon: Double = 1e-4
@@ -1150,35 +1148,221 @@ public enum MaskRaster {
         return p
     }
 
-    /// docs/08 §8.2: per-pixel trapezoid over the scene-referred log luminance of the
-    /// stage input, so the handles are EV-denominated and the band is stable under
-    /// display-transform changes. `lo`/`hi` are normalized on the fixed −10…+4 EV axis.
+    /// docs/08 §8.2: a band over the scene-referred log luminance of the stage input, so
+    /// the handles are EV-denominated and the band is stable under display-transform
+    /// changes. `lo`/`hi` are normalized on the fixed −10…+4 EV axis.
+    ///
+    /// THE HANDLES ARE THE EDGE. Each shoulder is centred on its handle, so a pixel
+    /// exactly at From or To is half selected at every Smooth, and Smooth softens the
+    /// edge without moving it. The shoulders used to sit entirely outside the handles,
+    /// so raising Smooth grew the selection: at the default 50 a band set at −3.2 EV
+    /// selected sky a full stop darker than the handle the photographer had put above
+    /// it (983: precision 0.46). A handle at an end of the axis is open: To at +4 takes
+    /// everything brighter as well.
+    ///
+    /// THE MEASUREMENT IS DENOISED before it is thresholded (`rangeMeasured`). Read per
+    /// pixel, a band edge that falls inside a noisy tone flickers pixel by pixel: on the
+    /// ISO 3200 jacket in 2348 a band ending at −4.6 EV was 7,900 specks per megapixel.
     static func lumaRangePlane(_ c: MaskComponent, _ w: Int, _ h: Int,
                                _ source: ImageBuffer?) -> Plane {
         var p = Plane(width: w, height: h)
         guard let src = source, let lo = c.lo, let hi = c.hi, lo.isFinite, hi.isFinite else { return p }
         let lo01 = Num.saturate(lo)
         let hi01 = Num.saturate(Swift.max(hi, lo))
-        let s = Num.clamp(c.smooth ?? 50, 0, 100) / 100
-        // Smoothness 50 → 1.0 EV shoulders. The floor keeps a hard step from becoming
-        // a zero-width smoothstep.
-        let shoulder = Swift.max(s * lumaShoulderEV / evSpan, 1e-4)
+        let smooth = c.smooth.map { $0.isFinite ? $0 : 50 } ?? 50
         let weights = RGBColorSpace.rec2020.luminanceWeights
         // Absent means luma, which is what every band written before the field means.
         let channel = c.channel ?? .luma
 
+        var ev = Plane(width: w, height: h)
         for y in 0..<h {
             for x in 0..<w {
-                let rgb = srcColor(src, x, y, w, h)
-                let measured = channel.value(rgb, weights: weights)
-                let ev = Num.safeLog2(measured.isFinite ? measured : 0, floorEV: -16)
-                let nEV = Num.saturate((ev - evMin) / (evMax - evMin))
-                let rise = smoothstep(lo01 - shoulder, lo01, nEV)
-                let fall = 1 - smoothstep(hi01, hi01 + shoulder, nEV)
-                p[x, y] = Num.saturate(rise * fall)
+                let measured = channel.value(srcColor(src, x, y, w, h), weights: weights)
+                ev[x, y] = Num.safeLog2(measured.isFinite ? measured : 0, floorEV: -16)
             }
         }
+        ev = rangeMeasured([ev], level: ev)[0]
+        for i in 0..<p.values.count {
+            let nEV = Num.saturate((Double(ev.values[i]) - evMin) / (evMax - evMin))
+            p.values[i] = Float(lumaRangeValue(nEV, lo: lo01, hi: hi01, smooth: smooth))
+        }
         return p
+    }
+
+    /// The band's arithmetic on one normalized EV, separated like `luminosityValue` so the
+    /// panel's luminance-map strip draws the curve that renders and a test can state it.
+    ///
+    /// Smooth 0 is a step at each handle; Smooth 100 ramps across `lumaShoulderEV` (2 EV)
+    /// centred on each, so nothing more than 1 EV outside the band is ever touched. A
+    /// band narrower than its shoulder gets shoulders as wide as the band, which still
+    /// reach 1 at its middle, so Smooth never empties a band the handles left open.
+    public static func lumaRangeValue(_ nEV: Double, lo: Double, hi: Double,
+                                      smooth: Double) -> Double {
+        guard nEV.isFinite, lo.isFinite, hi.isFinite else { return 0 }
+        let lo01 = Num.saturate(lo)
+        let hi01 = Num.saturate(Swift.max(hi, lo))
+        let x = Num.saturate(nEV)
+        let s = smooth.isFinite ? Num.clamp(smooth, 0, 100) / 100 : 0.5
+        let half = Swift.min(s * lumaShoulderEV / evSpan, hi01 - lo01) / 2
+        // Open ends: a handle parked at the end of the axis means "and beyond".
+        let rise = lo01 <= 0 ? 1 : (half > 1e-9
+            ? smoothstep(lo01 - half, lo01 + half, x) : (x >= lo01 ? 1 : 0))
+        let fall = hi01 >= 1 ? 1 : (half > 1e-9
+            ? 1 - smoothstep(hi01 - half, hi01 + half, x) : (x <= hi01 ? 1 : 0))
+        return Num.saturate(rise * fall)
+    }
+
+    // MARK: - Range-mask measurement (WS-47/48)
+
+    /// Box mean with the border repeated — `SpatialOps.boxBlur`'s convention — but
+    /// row-major in both passes (the vertical pass slides a row of column sums down the
+    /// frame), because the range masks run eight of these per plane per bake and the
+    /// column-at-a-time walk was most of their cost. Inputs here are always finite.
+    static func rangeBox(_ v: [Float], _ w: Int, _ h: Int, _ radius: Int) -> [Float] {
+        let r = Swift.min(radius, Swift.max(w, h))
+        guard r > 0, w > 0, h > 0 else { return v }
+        let inv = 1 / Double(2 * r + 1)
+        var tmp = [Float](repeating: 0, count: w * h)
+        v.withUnsafeBufferPointer { src in
+            tmp.withUnsafeMutableBufferPointer { dst in
+                for y in 0..<h {
+                    let row = y * w
+                    var sum = 0.0
+                    for k in -r...r { sum += Double(src[row + Swift.min(Swift.max(k, 0), w - 1)]) }
+                    dst[row] = Float(sum * inv)
+                    if w > 1 {
+                        for x in 1..<w {
+                            sum += Double(src[row + Swift.min(x + r, w - 1)])
+                            sum -= Double(src[row + Swift.max(x - r - 1, 0)])
+                            dst[row + x] = Float(sum * inv)
+                        }
+                    }
+                }
+            }
+        }
+        var out = [Float](repeating: 0, count: w * h)
+        var column = [Double](repeating: 0, count: w)
+        tmp.withUnsafeBufferPointer { src in
+            out.withUnsafeMutableBufferPointer { dst in
+                column.withUnsafeMutableBufferPointer { col in
+                    for k in -r...r {
+                        let row = Swift.min(Swift.max(k, 0), h - 1) * w
+                        for x in 0..<w { col[x] += Double(src[row + x]) }
+                    }
+                    for x in 0..<w { dst[x] = Float(col[x] * inv) }
+                    if h > 1 {
+                        for y in 1..<h {
+                            let add = Swift.min(y + r, h - 1) * w
+                            let sub = Swift.max(y - r - 1, 0) * w
+                            let row = y * w
+                            for x in 0..<w {
+                                col[x] += Double(src[add + x]) - Double(src[sub + x])
+                                dst[row + x] = Float(col[x] * inv)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    /// Box radius of the measurement denoise: 1/800 of the long edge, so the same mask
+    /// reads the same part of the frame on screen and in the export (3 px at 2400, 1 px
+    /// at the 1024 px proxy). Below 400 px it rounds to 0 and the filter is off: a frame
+    /// that small is an area-average of the photograph with little noise left, and there
+    /// a 5 × 5 high-pass mistakes fine texture for noise (ScaleHonestyTests' 48-cycle
+    /// modulation is a 6 px period at 300 px).
+    static func rangeMeasurementRadius(longEdge: Int) -> Int {
+        Int((Double(longEdge) / 800).rounded())
+    }
+
+    /// How far past the noise variance a local variance must be before the smoothing
+    /// treats it as structure (ε = 9σ²), and how many times the filter runs. One pass at
+    /// 4σ² left 4,700 specks per MP on 2348's jacket; two at 9σ² leave under 300 and
+    /// still keep 983's 1.2 EV snow/sky step to the pixel.
+    static let rangeNoiseFactor: Double = 9
+    static let rangeMeasurementPasses = 2
+
+    /// The planes a range mask thresholds, smoothed where the picture is flat and left
+    /// alone where it has edges: a self-guided filter whose ε is the frame's OWN noise
+    /// variance at that brightness.
+    ///
+    /// WHY NOISE-AWARE. A fixed ε that quiets ISO 6400 darks (σ ≈ 0.48 EV per pixel on
+    /// 2348's jacket) also flattens the 1.2 EV snow/sky step in 983, and one that keeps
+    /// that step leaves the jacket speckling. The noise is a function of brightness, so
+    /// it is estimated per half-stop bin of `level` (a robust MAD of a 5 × 5 high-pass,
+    /// on every second pixel; demosaicked noise is correlated over a pixel or two, and
+    /// a 3 × 3 high-pass sees too little of it) and each pixel gets the ε of its bin. A clean frame
+    /// estimates a tiny σ and the filter is close to identity; texture inflates the
+    /// estimate a little, which costs a selection detail finer than a few pixels.
+    ///
+    /// All planes share `level`'s bins but keep their own σ, because chroma noise and
+    /// lightness noise are different sizes.
+    static func rangeMeasured(_ planes: [Plane], level: Plane) -> [Plane] {
+        guard let first = planes.first else { return planes }
+        let w = first.width, h = first.height
+        let radius = rangeMeasurementRadius(longEdge: Swift.max(w, h))
+        guard radius > 0 else { return planes }
+        let binLo = -16.0, binWidth = 0.5
+        let bins = 46
+        @inline(__always) func bin(_ v: Float) -> Int {
+            let b = Int(((Double(v) - binLo) / binWidth).rounded(.down))
+            return Swift.min(Swift.max(b, 0), bins - 1)
+        }
+        let levelBins = level.values.map(bin)
+        return planes.map { p in
+            let local = rangeBox(p.values, w, h, 2)
+            var residuals = [[Float]](repeating: [], count: bins)
+            for y in stride(from: 2, to: h - 2, by: 2) {
+                for x in stride(from: 2, to: w - 2, by: 2) {
+                    let i = y * w + x
+                    let r = p.values[i] - local[i]
+                    if r.isFinite { residuals[levelBins[i]].append(Swift.abs(r)) }
+                }
+            }
+            // MAD → σ; the 5 × 5 high-pass keeps 24/25 of white noise's variance.
+            var sigma2 = [Double](repeating: -1, count: bins)
+            for b in 0..<bins where residuals[b].count >= 64 {
+                let k = residuals[b].count / 2
+                let mad = Double(kthSmallest(&residuals[b], k, in: 0..<residuals[b].count))
+                let s = 1.4826 * mad / (24.0 / 25.0).squareRoot()
+                sigma2[b] = s * s
+            }
+            // Thin bins borrow from the nearest measured one.
+            for b in 0..<bins where sigma2[b] < 0 {
+                var best = -1.0, distance = Int.max
+                for o in 0..<bins where sigma2[o] >= 0 && Swift.abs(o - b) < distance {
+                    best = sigma2[o]; distance = Swift.abs(o - b)
+                }
+                sigma2[b] = Swift.max(best, 0)
+            }
+            let eps = levelBins.map { Float(rangeNoiseFactor * sigma2[$0] + 1e-10) }
+            var out = p.values
+            let n = out.count
+            var a = [Float](repeating: 0, count: n)
+            var b = [Float](repeating: 0, count: n)
+            for _ in 0..<rangeMeasurementPasses {
+                let mean = rangeBox(out, w, h, radius)
+                var square = out
+                for i in 0..<n { square[i] *= square[i] }
+                let meanSq = rangeBox(square, w, h, radius)
+                for i in 0..<n {
+                    let m = mean[i]
+                    let v = Swift.max(meanSq[i] - m * m, 0)
+                    let gain = v / (v + eps[i])
+                    a[i] = gain
+                    b[i] = m * (1 - gain)
+                }
+                let meanA = rangeBox(a, w, h, radius)
+                let meanB = rangeBox(b, w, h, radius)
+                for i in 0..<n {
+                    let q = meanA[i] * out[i] + meanB[i]
+                    if q.isFinite { out[i] = q }
+                }
+            }
+            return Plane(width: w, height: h, values: out)
+        }
     }
 
     /// A closed outline, filled — the polygon and the lasso, which are one thing.
@@ -1373,48 +1557,137 @@ public enum MaskRaster {
     public static let luminosityMinLevel: Double = 1
     public static let luminosityMaxLevel: Double = 5
 
-    /// docs/08 §8.2: similarity in OKLab hue/chroma/lightness with a trapezoid falloff
-    /// per axis; multiple samples union before falloff. Per-axis tolerance fields are
-    /// not on the shipped struct, so Refine (`rangeAmount`) always drives all three —
-    /// the doc's "linked" mode.
+    /// docs/08 §8.2: everything this colour, wherever it is, in OKLab. Multiple samples
+    /// union (the best match wins). Refine (`rangeAmount`, 0…100, default 50) widens
+    /// every tolerance together.
+    ///
+    /// THE DISTANCE, and why it is not hue/chroma/lightness trapezoids any more.
+    ///
+    /// · Shading is not a different colour. Scaling linear RGB by k scales OKLab's L, a
+    ///   and b all by ∛k, so a pixel's chromaticity is compared AT THE SAMPLE'S
+    ///   LIGHTNESS — (a, b)·L₀/L — and its lightness only through a wide, separate EV
+    ///   gate. The old gate allowed ±0.15 in L at Refine 50, about ±1.3 EV, and the
+    ///   shaded underside of 8559's red can fell out of a mask sampled on its side
+    ///   (recall 0.84), behind a contour where the falloff ended.
+    /// · A near-neutral is not "any hue". The old hue test faded out as EITHER chroma
+    ///   fell, so a saturated red sample let grey bench wood through at Refine 75
+    ///   (precision 0.55). Now chromaticity is one distance, split along the sample's
+    ///   hue: across it (a hue error) at the tolerance, toward neutral at no more
+    ///   than 90 % of the sample's own chroma, so grey is never a saturated sample's colour; a grey
+    ///   SAMPLE selects greys, because then every direction is across.
+    /// · Every edge of the falloff is a smoothstep, never a corner, and the inputs are
+    ///   denoised first (`rangeMeasured`): ISO 6400 chroma noise read per pixel was
+    ///   9,900 specks per megapixel on 2062's poppies.
     static func colorRangePlane(_ c: MaskComponent, _ w: Int, _ h: Int,
                                 _ source: ImageBuffer?) -> Plane {
         var p = Plane(width: w, height: h)
         guard let src = source, let samples = c.samples, !samples.isEmpty else { return p }
         let context = OKLabTransform.working
         // §8.2 caps the picker at 8 samples; extras are ignored, not an error.
-        var refs: [OKLCh] = []
+        var refs: [OKLab] = []
         for s in samples.prefix(8) where s.count >= 3 {
             if s[0].isFinite && s[1].isFinite && s[2].isFinite {
-                refs.append(context.toLCh(RGB(s[0], s[1], s[2])))
+                let lab = context.toLab(RGB(s[0], s[1], s[2]))
+                if lab.L.isFinite && lab.a.isFinite && lab.b.isFinite { refs.append(lab) }
             }
         }
         if refs.isEmpty { return p }
+        let tol = colorRangeTolerances(refine: c.rangeAmount ?? 50)
 
-        let refine = Num.clamp(c.rangeAmount ?? 50, 0, 100)
-        let tolHue = 6.0 + 0.54 * refine        // 33° at Refine 50
-        let tolChroma = 0.02 + 0.0016 * refine  // 0.10 at Refine 50
-        let tolLuma = 0.03 + 0.0024 * refine    // 0.15 at Refine 50
-
+        // The three planes, measured, then denoised against the frame's own noise.
+        var planes = [Plane](repeating: Plane(width: w, height: h), count: 3)
+        var level = Plane(width: w, height: h)
+        let weights = RGBColorSpace.rec2020.luminanceWeights
         for y in 0..<h {
             for x in 0..<w {
-                let lch = context.toLCh(srcColor(src, x, y, w, h))
-                var best = 0.0
-                for ref in refs {
-                    let dh = abs(Num.hueDelta(ref.h, lch.h))
-                    let dc = abs(lch.C - ref.C)
-                    let dl = abs(lch.L - ref.L)
-                    // Hue is meaningless as chroma → 0; fade the hue test out there
-                    // rather than letting near-neutrals pick a random hue.
-                    let chromaWeight = smoothstep(0.01, 0.04, Swift.min(lch.C, ref.C))
-                    let hueTerm = Num.mix(1, trapezoid(dh, tolHue), chromaWeight)
-                    let a = hueTerm * trapezoid(dc, tolChroma) * trapezoid(dl, tolLuma)
-                    if a > best { best = a }
-                }
-                p[x, y] = Num.saturate(best)
+                let rgb = srcColor(src, x, y, w, h)
+                let lab = context.toLab(rgb)
+                let i = y * w + x
+                planes[0].values[i] = Float(lab.L.isFinite ? lab.L : 0)
+                planes[1].values[i] = Float(lab.a.isFinite ? lab.a : 0)
+                planes[2].values[i] = Float(lab.b.isFinite ? lab.b : 0)
+                let luminance = weights.r * rgb.r + weights.g * rgb.g + weights.b * rgb.b
+                level.values[i] = Float(Num.safeLog2(luminance.isFinite ? luminance : 0,
+                                                     floorEV: -16))
             }
         }
+        planes = rangeMeasured(planes, level: level)
+
+        for i in 0..<p.values.count {
+            let lab = OKLab(L: Double(planes[0].values[i]), a: Double(planes[1].values[i]),
+                            b: Double(planes[2].values[i]))
+            var best = 0.0
+            for ref in refs {
+                let v = colorRangeValue(lab, ref: ref, tolerances: tol)
+                if v > best { best = v }
+            }
+            p.values[i] = Float(best)
+        }
         return p
+    }
+
+    /// Refine → tolerances. Geometric in Refine so each step of the slider is the same
+    /// proportional widening: hue (chromaticity across the sample's hue) 0.0144 → 0.046 →
+    /// 0.144 in OKLab (0 / 50 / 100),
+    /// lightness ±1.5 → ±3 → ±6 EV to the zero point.
+    public static func colorRangeTolerances(refine: Double) -> (chroma: Double, ev: Double) {
+        let r = refine.isFinite ? Num.clamp(refine, 0, 100) / 100 : 0.5
+        return (chroma: 0.0144 * pow(10, r), ev: 1.5 * pow(4, r))
+    }
+
+    /// Where the falloff starts, as a fraction of each tolerance: inside it a pixel is
+    /// fully selected, between it and the tolerance it fades on a smoothstep.
+    static let colorRangeCore: Double = 0.35
+    /// Lightness keeps a wider flat core: shading is the common case, not the edge one.
+    static let colorRangeEVCore: Double = 0.5
+    /// OKLab L below which chromaticity is not rescaled any further — black has no colour
+    /// worth dividing by.
+    static let colorRangeLFloor: Double = 0.08
+    /// Saturation tolerance as a multiple of the hue tolerance.
+    /// 2.5, not 2: at 2 with a hue tolerance 25 % wider, 8559's terracotta pot (34° of
+    /// hue from the red can) took a third of a Refine 50 edit.
+    static let colorRangeSaturationReach: Double = 2.5
+    /// How far toward grey any sample may always reach, in OKLab chroma.
+    static let colorRangeNeutralReach: Double = 0.035
+
+    /// One pixel against one sample. Public so a test can state the geometry directly.
+    public static func colorRangeValue(_ lab: OKLab, ref: OKLab,
+                                       tolerances tol: (chroma: Double, ev: Double)) -> Double {
+        guard lab.L.isFinite, lab.a.isFinite, lab.b.isFinite else { return 0 }
+        let refL = Swift.max(ref.L, colorRangeLFloor)
+        let L = Swift.max(lab.L, colorRangeLFloor)
+        // Chromaticity at the sample's lightness.
+        let k = refL / L
+        let a = lab.a * k, b = lab.b * k
+        let refC = (ref.a * ref.a + ref.b * ref.b).squareRoot()
+        var across: Double
+        var along: Double
+        if refC > 1e-6 {
+            let ua = ref.a / refC, ub = ref.b / refC
+            along = a * ua + b * ub - refC
+            across = -a * ub + b * ua
+        } else {
+            along = 0
+            across = (a * a + b * b).squareRoot()
+        }
+        // Saturation (along the sample's hue) gets 2.5 × the room hue does: sheen and
+        // skylight desaturate a surface without changing what colour it is (the top of
+        // 8559's can). Toward neutral that room is capped at 90 % of the sample's chroma,
+        // so a saturated sample never reaches grey; a sample within ~1.5 JND of grey
+        // (0.035) is not capped below that, because its greys ARE its colour.
+        let saturation = colorRangeSaturationReach * tol.chroma
+        let alongTol = along < 0
+            ? Swift.min(saturation, Swift.max(0.9 * refC, colorRangeNeutralReach))
+            : saturation
+        across /= tol.chroma
+        along /= alongTol
+        let d = (across * across + along * along).squareRoot()
+        let chroma = 1 - smoothstep(colorRangeCore, 1, d)
+        if chroma <= 0 { return 0 }
+        // Lightness as EV: L ∝ ∛Y along a shading line, so 3·log₂(L/L₀) is stops.
+        let ev = 3 * Num.safeLog2(L / refL, floorEV: -40)
+        let light = 1 - smoothstep(colorRangeEVCore, 1, Swift.abs(ev) / tol.ev)
+        return Num.saturate(chroma * light)
     }
 
     /// docs/08 §8.2: alpha = spatial falloff × Gaussian similarity in OKLab chroma and
@@ -1874,17 +2147,6 @@ public enum MaskRaster {
         if !d.isFinite || abs(d) < 1e-12 { return x < e0 ? 0 : 1 }
         let u = Num.saturate((x - e0) / d)
         return u * u * (3 - 2 * u)
-    }
-
-    /// Per-axis trapezoid: flat core, smoothstep shoulder, zero past the tolerance.
-    static func trapezoid(_ delta: Double, _ tolerance: Double) -> Double {
-        guard delta.isFinite else { return 0 }
-        let tol = Swift.max(tolerance, 1e-9)
-        let d = abs(delta)
-        let core = (1 - trapezoidShoulder) * tol
-        if d <= core { return 1 }
-        if d >= tol { return 0 }
-        return smoothstep(tol, core, d)
     }
 
     /// Sample the stage input at a mask pixel. Fast path when the extents already match;
