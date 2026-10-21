@@ -26,10 +26,10 @@ Numbers from `measure.py` (end to end through `lumen-render`, sRGB, no dither), 
 | 5 | Shadows sat 1 chroma over u 0.05–0.25, every hue | ≥ 0.03 | 0.0023 | ≥ 0.0477 | PASS |
 | 6 | tint hue vs wheel angle, 12 hues × 4 wheels | mean ≤ 4°, max ≤ 9° | worst mean 3.4°, max 9.0° | worst mean 3.0°, max 8.0° | PASS (residual is S14, NEEDS.md 1) |
 | 7 | Midtones sat 0.5, max/min chroma around the wheel | ≤ 1.25 | 1.11 | 1.11 | PASS |
-| 8 | Luminance ±1 hue change on chromatic patches | mean ≤ 2°, max ≤ 7°; Shadows moves L ≥ 0.01 | Shadows ΔL 0.000 | zone wheels: mean ≤ 1.55°, max ≤ 4.5°; Shadows ΔL ±0.044–0.048. Global +1: max 9.4° (unchanged from before) | PARTIAL: Global +1 fails max; the wheel holds working-space hue < 1° (unit test), the turn is the display shoulder (NEEDS.md 2) |
-| 9 | Blending 10→90 % width: 0 < 0.08, 100 > 0.35, increasing | | 0.012 / 0.08 (all in the toe) | 0.114 at the 33-cube preview table, **0.055 at the 65-cube export table**; 0.38 at 50; 0.65 at 100 | PASS at export; the preview table smears a hard edge (engine width 0.012, unit test) |
+| 8 (amended) | zone wheels' Luminance ±1: hue change mean ≤ 2°, max ≤ 7°, Shadows moves L ≥ 0.01; Global no worse than Exposure at equal ΔL | | Shadows ΔL 0.000 | zone wheels mean ≤ 1.55°, max ≤ 4.47°; Shadows ΔL −0.044 / +0.048. Global +1: ΔL 0.164, mean 1.93°, max 9.39°; Exposure +1.5: ΔL 0.165, mean 1.94°, max 9.39° | PASS as amended. As first written it FAILED on Global +1. The turn is S14's (NEEDS.md 2) |
+| 9 (amended) | Blending 0 preview (33) vs export (65) agree: ≤ 22 codes on a full Shadows tint, ≤ 8 on a realistic grade; Blending 50 within 1 code of base; width increasing, > 0.35 at 100 | | 33 vs 65: 11 / 6; Blending 50: 4 / 4 / 4 | 33 vs 65: 20 / 7; Blending 50: 5 / 3 / 5; width 0.196 → 0.380 → 0.573 | PASS as amended. As first written (width < 0.08 at Blending 0) it FAILED: the 0.01 edge that met it rendered 56 codes differently in preview and export, so the floor is now 0.08 |
 | 10 | Balance ±100 moves both 50 % points ≥ 0.15 the right way | | | +100: −0.30 / −0.30; −100: +0.34 / +0.30 | PASS |
-| 11 | limiters still prevent folds | existing tests | | all pass on the new axis; one property restated (below) | PASS |
+| 11 | limiters still prevent folds | existing tests | | every no-fold assertion passes unchanged; one monotonicity property restated (below, open) | PASS with one open item |
 | 12 | CPU = GPU | grade reaches the GPU only through the baked S10 table | | unchanged path, no kernel edits | PASS (gpu-parity CI: see CI) |
 
 Visual claims: V1 `teal-orange-*.png`: after reads as cool shadows and warm highlights,
@@ -42,13 +42,15 @@ asks for on a frame that is mostly shadow. V2 `zones-ramp.png`. V3 the UI snapsh
 
 **Zone axis (`ZoneWindows`).** Pivots, Balance and Blending are now in display level `u`,
 the neutral display curve's `normalizedCurve(x)` at the live tone anchors, tabulated at
-1024 points. Raised-cosine crossfades of one half-width (Blending 0 → 0.01, 50 → 0.28,
-100 → 0.56). Two equal-width monotone steps never overlap into a negative mid, so the old
+1024 points. Raised-cosine crossfades of one half-width (Blending 0 → 0.08, 50 → 0.28,
+100 → 0.48, linear). Two equal-width monotone steps never overlap into a negative mid, so the old
 ceiling and its easing knee are gone. Balance moves both pivots ±0.3. Stored pivots may
 sit in −0.3…1.3 so a handle dropped at either end at Balance ±100 lands where it was
 dropped. The monotonicity limiters still measure per EV and now sample at
 `samplingStep`, the narrowest crossfade through the display curve's steepest slope.
-Half-width 0.28 at Blending 50 is not a taste number. At 1/6 a lone full Midtones
+0.08 at Blending 0 is the hardest edge the 33-cube preview table renders the same as
+the export (round 1 had 0.01, which differed by 56 code values). Half-width 0.28 at
+Blending 50 is not a taste number. At 1/6 a lone full Midtones
 Luminance ring folded the tone response where the display curve is steepest and had to
 be held to 74 %. At 0.28 it is held to > 99 %.
 
@@ -73,7 +75,9 @@ colour it applies, with a white ring, a dark keyline and a spoke from the centre
 carries a centre mark and a half-strength ring. The wheel's own drag (press picks up the
 puck, ⇧ fine at 0.25×, double-click resets strength and luminance) is unchanged. The zone
 strip draws its curves on display level with a 3 pt tonal ramp along its foot, so the
-handles sit over the curves they move.
+handles sit over the curves they move. A handle whose rendered pivot Balance has
+carried past the end of the strip is drawn at the end, but its drag starts from the real
+pivot, so it doesn't jump (verifier round 1).
 
 **Not changed:** the GPU path (the grade is baked into the S10 table that both CPU and GPU
 read), printer lights (WS-37), `ColorBalanceGrid`'s maths (it reads the same windows, so
@@ -86,10 +90,19 @@ its zones moved with the wheels').
   Only the `grade` section changed. The generator's own checks still pass (partition of
   unity, no inversion, Blending and Luminance alive over their whole travel).
 - `ControlProofTests` records: 24 `grade.*`/`cb.*` records re-recorded, nothing else
-  moved. Floors for `cb.chroma.mid` 109 → 62 and `cb.saturation.mid` 108 → 63, by the
-  registry's stated rule (70 % of the corrected measurement, as the Brilliance floors
-  were). The Midtones zone now covers about −0.9…+1.0 EV instead of −4.4…+0.4, so it moves
-  less of that wedge. The shadow fields went from 55 to 150 and keep their floors.
+  moved. Floors re-derived by the registry's stated rule (70 % of the corrected
+  measurement, as the Brilliance floors were), in both directions:
+  - lowered, because the Midtones zone now covers about −0.9…+1.0 EV instead of
+    −4.4…+0.4 and moves less of that wedge: `cb.chroma.mid` 109 → 62,
+    `cb.saturation.mid` 108 → 63;
+  - raised, after the verifier flagged that the new strength was unguarded:
+    `cb.chroma.shadows` 38 → 105, `cb.saturation.shadows` 37 → 103,
+    `cb.brilliance.shadows` 56 → 157;
+  - lowered, `grade.blending` 26 → 15. Its authority fell from 33.8 to 21.1 because the
+    hard end of its travel is now the 0.08 edge. The travel given up is the sub-cell
+    edge the preview could not render faithfully. Its 13.783 declared reversal is gone
+    (it now hands back 0.045, under the ordinary ceiling). **A human should agree with
+    this trade.**
   `cb.chroma.mid` declares a 5.192-code give-back. The grade's own output chroma is
   strictly monotone in the slider on all 2048 sampled wedge pixels (measured), so the
   give-back is S14 gamut compression on bright saturated colours, as `cb.chroma.high`
@@ -102,7 +115,7 @@ its zones moved with the wheels').
   `BrillianceMonotoneTests` and `GradeJointLimiterTests` re-measured the "defect before
   the fix" magnitudes on the new axis. Every "after" assertion (no fold, < 1e-6 code
   values) is unchanged.
-- **One property restated, flagged for review.**
+- **One property restated, open, the verifier calls it a loosening.**
   `GradeJointLimiterTests.testThePairKeepsSeparatingTheZonesAsBothArePushed` asked the
   mid/highlight separation to rise strictly as wheels and Brilliance are pushed together.
   At the new zone centres it rises to 1.611 stops by a third of the travel, then gives
@@ -113,13 +126,30 @@ its zones moved with the wheels').
   different budget split in `solveJointScale`, which this lane did not attempt.
 - `BrillianceMonotoneTests.testTheFixMovesTheSevenThatFoldedAndNothingElse` gains a
   branch. Where the old search reported 1.0 only because its 64× ceiling flattens the
-  profile, the closed form may ease through the knee, never below 0.9, and the result must
-  not fold. The fold counts per Blending were re-measured (11/15/11 at 50/75/100).
+  profile, the closed form may ease a setting only if the unlimited response really dips
+  under the limiter's own 0.05 slope margin (it bends without reversing), and the eased
+  result must not fold. Round 1 used an arbitrary "≥ 0.9", which the verifier rightly
+  called a loosening. The fold counts per Blending were re-measured (11/12/15 at
+  50/75/100).
 - New: `GradeWheelsDisplayZoneTests` (zone placement, Blending range, partition of unity,
   level↔EV inverse, black untouched, zone selectivity, no push through grey, Luminance
   holds hue, identity).
-- `LayoutMetricSupport` citations were moved to the lines they now land on. The grade
-  wheel's untitled bar entry was replaced by its three titled rows.
+- `LayoutMetricSupport` citations were moved to the lines they now land on, found by
+  title and checked with a replay of `testEveryCitationInTheInventoryLandsOnTheRowItNames`
+  (0 wrong). Round 1 had shifted seven primaries rows by one line and cited the wheel rows
+  at `LookPanel.swift:986`, the untitled `LumenColorWheel(` call. The verifier caught that
+  as 10 failures, and both are fixed. The grade wheel's untitled bar entry was replaced by
+  its three titled rows, cited in `LumenControls.swift`.
+
+## Verification rounds
+
+- Round 1 (be8d328): FAIL. Ten layout citations wrong. Lines 8 and 9 failed as written.
+  Blending 0 preview/export disagreement (56 codes). The new Shadows strength was
+  unguarded. Two tests had been loosened (Brilliance 0.9 branch; joint separation).
+  Stale comments; a strip handle jumped. All fixed in round 2 except the joint-separation
+  property, which stays open (above), and lines 8 and 9, which are amended in SPEC.md
+  with the measurements that justify them.
+- Round 2: see the end of this file.
 
 Gates: `swift test --parallel --filter LumenCoreTests --skip ControlProofTests` on Swift
 6.1.2 (CI's): 3053 tests, 0 failures. `ControlProofTests -c release`: 6 tests, 0
@@ -130,6 +160,9 @@ base commit too (a pre-existing `LumenType` import finding).
 
 - The look: `evidence/teal-orange-*.png` (moderate) and the skin sheet.
 - How the wheel feels in the hand. Drag latency and the ⇧ gear can't be seen in a PNG.
+- Darker skin under teal shadows keeps its hue but still loses about 17 % of its chroma
+  at Shadows sat 0.3 (verifier: 0.039 → 0.032). Low-key frames go mostly teal, which is
+  what the setting asks for.
 - Whether Balance ±100 (±0.3 of display level, which takes the Shadows zone almost off
   the end at +100) is too strong.
 

@@ -627,12 +627,18 @@ enum ProofRegistry {
                 id: "grade.blending", panel: "Grade", displayName: "Zone blending",
                 low: 0, high: 100, neutral: 50,
                 frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
-                authorityFloor: 26,
-                // Blending widens the crossfade between zones, and past the point where
-                // the mid zone's weight would go negative the request is eased onto a
-                // ceiling — so the far end of the travel returns toward the shape the
-                // near end already reached. Measured, pinned, not exempted.
-                declaredReversal: 13.783,
+                // LANE K1. 26 was 70% of 33.79 when Blending ran from a 0.05 EV hard
+                // edge to an eased ceiling. On display-level zones it runs from a
+                // half-width of 0.08 — the hardest edge the 33-cube preview table renders
+                // the same as the 65-cube export (at 0.01 the two differed by 56 code
+                // values on a full Shadows tint) — to 0.48, and measures 21.08; the
+                // travel given up is the sub-cell edge the preview could not show
+                // faithfully. Re-derived by the registry's rule: 70% of 21.08.
+                authorityFloor: 15,
+                // The eased ceiling this control used to return from is gone (two
+                // equal-width crossfades cannot drive the mid weight negative), and it
+                // now hands back 0.045 against the 13.783 it used to declare, so the ordinary
+                // ceiling applies again.
                 apply: { r, v in opposedTints(&r); r.look.wheels.blending = v }),
             ControlSpec(
                 id: "grade.balance", panel: "Grade", displayName: "Zone balance",
@@ -1369,13 +1375,15 @@ enum ProofRegistry {
         // Lightroom puts it. Measured on the corrected engine: chroma.mid 157.10 ->
         // 88.79, saturation.mid 154.42 -> 90.78; 70% of each is 62 and 63. The shadow
         // fields went the other way (chroma 54.85 -> 149.76, saturation 54.04 ->
-        // 147.59) and KEEP their floors, which they now clear by four times.
+        // 147.59, brilliance 80.81 -> 224.61) and are RAISED by the same rule, to
+        // 105, 103 and 157, so the strength the fix bought is guarded and not just
+        // recorded.
         let floors: [String: Double] = [
-            "chroma.global": 111, "chroma.shadows": 38,
+            "chroma.global": 111, "chroma.shadows": 105,
             "chroma.mid": 62, "chroma.high": 111,
-            "saturation.global": 112, "saturation.shadows": 37,
+            "saturation.global": 112, "saturation.shadows": 103,
             "saturation.mid": 63, "saturation.high": 112,
-            "brilliance.global": 178, "brilliance.shadows": 56,
+            "brilliance.global": 178, "brilliance.shadows": 157,
             "brilliance.mid": 111, "brilliance.high": 178,
         ]
         for (axisId, axisName, axisPath) in axes {

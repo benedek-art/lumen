@@ -76,22 +76,28 @@ import Foundation
 /// w_mid    = 1 − w_shadow − w_high       ⇒ Σ = 1 exactly, and w_mid ≥ 0 because
 ///                                          p_s < p_h and rc is monotone
 /// ```
-/// Blending scales `hw` linearly from a near-hard edge (0) through a soft overlap (50,
-/// `hw` = 0.28: the Midtones weight peaks at 0.81 at mid-level) to crossfades a whole
-/// display range wide (100), Lightroom's broad overlap at Blending 100.
+/// Blending scales `hw` linearly from the hardest edge the preview table holds (0,
+/// `hw` = 0.08) through a soft overlap (50, `hw` = 0.28: the Midtones weight peaks at
+/// 0.81 at mid-level) to crossfades nearly a whole display range wide (100, `hw` =
+/// 0.48), Lightroom's broad overlap at Blending 100.
 public struct ZoneWindows: Sendable {
 
     /// Balance translates BOTH pivots; ±100 = ∓this much display level (+ moves them
     /// DOWN, handing more of the frame to the Highlights wheel — Lightroom's direction).
     public static let balanceRange: Double = 0.3
-    /// Crossfade half-width at Blending 100, display level. Blending 50 is half of it,
-    /// 0.28: wide enough that a lone full-deflection Luminance ring does not fold the
-    /// tone response where the display curve is steepest (at 1/6 the Midtones ring had
-    /// to be held to 74 % by the limiter, at 0.25 to 98 %), and Lightroom's soft
-    /// default overlap.
-    public static let maximumHalfWidth: Double = 0.56
-    /// Never let a crossfade collapse to a hard edge; that is where banding lives.
-    public static let minimumHalfWidth: Double = 0.01
+    /// Crossfade half-width at Blending 100, display level. Blending 50 lands half way
+    /// from `minimumHalfWidth`, at 0.28: wide enough that a lone full-deflection
+    /// Luminance ring does not fold the tone response where the display curve is
+    /// steepest (at 1/6 the Midtones ring had to be held to 74 % by the limiter, at
+    /// 0.25 to 98 %), and Lightroom's soft default overlap.
+    public static let maximumHalfWidth: Double = 0.48
+    /// Crossfade half-width at Blending 0. Not smaller: the grade is baked into a
+    /// 33-cube preview table and a 65-cube export table, and an edge narrower than a
+    /// preview cell renders differently in the two. At 0.01 a full Shadows tint put the
+    /// edge 0.055 of display level apart and differed by 56 code values (base 11); at
+    /// 0.08 the edge agrees and the residual is the gamut clip of a full-strength tint
+    /// near mid-grey (20 codes at sat 1, 7 at a realistic grade). Verifier round 1.
+    public static let minimumHalfWidth: Double = 0.08
     /// Minimum separation between the pivots.
     public static let minimumPivotGap: Double = 0.02
     /// Where a STORED pivot may sit: the strip's 0…1 widened by Balance's reach.
@@ -155,8 +161,10 @@ public struct ZoneWindows: Sendable {
         self.highlightPivot = p1 + shift
 
         let b: Double = blending.isFinite ? Num.clamp(blending, 0, 100) : 50
-        let half: Double = Swift.max(ZoneWindows.maximumHalfWidth * b / 100,
-                                     ZoneWindows.minimumHalfWidth)
+        // Interpolated, not floored: `max(maximum·b, minimum)` would leave Blending
+        // 0…14 byte-identical, a dead range.
+        let half: Double = ZoneWindows.minimumHalfWidth
+            + (ZoneWindows.maximumHalfWidth - ZoneWindows.minimumHalfWidth) * b / 100
         self.shadowHalfWidth = half
         self.highlightHalfWidth = half
 
@@ -864,7 +872,9 @@ public struct GradeEngine: Sendable {
             // neutral (C = 0) gets the full tint at the wheel's hue — every
             // measurement on the grey ramp is unchanged — a tint along a colour's own
             // hue (orange highlights on skin) is untouched, and only the cancelling
-            // case is held back, by at most `antiMudStrength`.
+            // case is held back, by at most `antiMudStrength`. The WHOLE push is
+            // scaled (not just its opposing component), so the tint's hue never
+            // rotates; how much it is scaled depends on how opposed it is.
             let cIn: Double = (lab.a * lab.a + lab.b * lab.b).squareRoot()
             let dNorm: Double = (da * da + db * db).squareRoot()
             var protect: Double = 1

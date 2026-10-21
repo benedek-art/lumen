@@ -431,12 +431,28 @@ final class BrillianceMonotoneTests: XCTestCase {
                             // the old search cannot see them at all, because its 64×
                             // ceiling floors every sample and reads the flattened
                             // profile as monotone — the defect this file documents.
-                            // So the only change allowed here is the knee's: gentle,
-                            // and leaving the setting monotone.
-                            XCTAssertGreaterThan(
-                                now, 0.9,
-                                "\(label) did not fold and was limited to \(now) — more "
-                                    + "than the knee's easing")
+                            // So the closed form may only act where it has a reason: the
+                            // unlimited response's realised slope must dip under the
+                            // limiter's own 0.05 margin somewhere (it bends without
+                            // reversing), and the eased result must not fold.
+                            var minSlope: Double = .infinity
+                            var t: Double = -9
+                            while t < 5 {
+                                let a = modelledLuminance(shadows: shadows, mid: mid,
+                                                          high: high, windows: windows,
+                                                          zoneScale: 1, at: t)
+                                let b = modelledLuminance(shadows: shadows, mid: mid,
+                                                          high: high, windows: windows,
+                                                          zoneScale: 1, at: t + 0.005)
+                                if a > 1e-12, b > 1e-12 {
+                                    minSlope = Swift.min(minSlope, log2(b / a) / 0.005)
+                                }
+                                t += 0.005
+                            }
+                            XCTAssertLessThan(
+                                minSlope, 0.05 + 0.02,
+                                "\(label) never comes near the limiter's margin (min "
+                                    + "slope \(minSlope)) and was still eased to \(now)")
                             let eased = worstReversal { realisedLuminance(graded, at: $0) }
                             XCTAssertLessThan(eased.code, Self.noise,
                                               "\(label) folds after the easing")
@@ -480,10 +496,10 @@ final class BrillianceMonotoneTests: XCTestCase {
             // Seven is B2-01's count (its headline twelve counts five uniform crushes
             // whose reversal is 3e-50 of luminance on an all-black frame). On the
             // display-level zone axis (lane K1) the soft Blendings overlap far more,
-            // so more two-zone settings fold under the old search: measured 11 at 50
-            // and 100, 15 at 75. Every one of them is limited and monotone now
+            // so more two-zone settings fold under the old search: measured 11 at 50,
+            // 12 at 75, 15 at 100. Every one of them is limited and monotone now
             // (asserted above).
-            let expected: [Double: Int] = [50: 11, 75: 15, 100: 11]
+            let expected: [Double: Int] = [50: 11, 75: 12, 100: 15]
             XCTAssertEqual(folded, expected[blending] ?? 7,
                            "\(folded) of the 125 combinations folded under the old "
                                + "search at Blending \(blending)")

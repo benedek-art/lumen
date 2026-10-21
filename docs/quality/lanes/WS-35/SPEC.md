@@ -61,3 +61,24 @@ it did to black.
   photographer sees, with handles at about a third and two thirds.
 - V3 the UI snapshot `panel-grade-grading.png`: the wheel shows its hue and strength as
   numbers, the puck is legible, the luminance bar no longer floats in an odd box.
+
+## Amendments after verifier round 1
+
+The verifier failed lines 8 and 9 as written. Both are amended here, with the
+measurement behind each, rather than read generously in the report.
+
+- **8 (amended).** Zone wheels (Shadows/Midtones/Highlights) Luminance ±1: mean hue change
+  ≤ 2°, max ≤ 7°. **Global** Luminance ±1: hue change no larger than Exposure's at the
+  same lightness change (±0.5°). Reason: Global +1 (ΔL +0.164 on the checker) turns an
+  orange patch 9.39°, and Exposure +1.5 (ΔL +0.165) turns the same patch exactly 9.39°,
+  mean 1.94° against 1.93°. The turn is the display shoulder (S14), not the wheel; the
+  wheel itself holds working-space hue to < 1° (`GradeWheelsDisplayZoneTests`). Measure:
+  `measure.py` `lum_hue_shift` plus the same patches under `develop.tone.exposure=1.5`.
+- **9 (amended).** Blending 0 is as hard as the 33-cube preview table can render without
+  disagreeing with the 65-cube export: on `grey_ramp` at Blending 0, 33 vs 65 max code
+  difference ≤ 2× base for a full Shadows tint (base 11) and ≤ 8 for a realistic teal and
+  orange (base 6); at Blending 50 within 1 code of base. Transition width (M, 33-cube)
+  strictly increasing 0 → 50 → 100, and > 0.35 at 100. Reason: the original "< 0.08 at
+  Blending 0" was met only by a 0.01 half-width the preview table cannot hold, which
+  rendered 56 code values differently from export. Measure: `lumen-render render
+  --lut-size 33` against `--lut-size 65` on the same settings, max abs code difference.

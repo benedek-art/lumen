@@ -1813,11 +1813,11 @@ struct ZoneWeightStrip: View {
             GeometryReader { geometry in
                 ZStack(alignment: .topLeading) {
                     handle(index: 0,
-                           position: Num.saturate(windows.shadowPivot),
+                           position: windows.shadowPivot,
                            width: geometry.size.width,
                            height: geometry.size.height)
                     handle(index: 1,
-                           position: Num.saturate(windows.highlightPivot),
+                           position: windows.highlightPivot,
                            width: geometry.size.width,
                            height: geometry.size.height)
                 }
@@ -1827,9 +1827,12 @@ struct ZoneWeightStrip: View {
         .padding(.vertical, 2)
     }
 
+    /// `position` is the rendered pivot, which Balance can carry past either end of
+    /// the strip. The handle is DRAWN clamped to the strip but the drag starts from the
+    /// real pivot, so the first move of a parked handle does not jump it by up to 0.3.
     private func handle(index: Int, position: Double,
                         width: CGFloat, height: CGFloat) -> some View {
-        let x = CGFloat(position) * width
+        let x = CGFloat(Num.saturate(position)) * width
         return ZStack {
             Rectangle()
                 .fill(Color.clear)
@@ -1849,7 +1852,7 @@ struct ZoneWeightStrip: View {
                     let start = dragOrigin ?? position
                     if dragOrigin == nil { dragOrigin = start }
                     let moved = start + Double(drag.translation.width / width)
-                    onPivotChanged(index, Num.saturate(moved))
+                    onPivotChanged(index, moved)
                 }
                 .onEnded { _ in
                     dragOrigin = nil
