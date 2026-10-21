@@ -15,13 +15,13 @@
 // every step, and coverage is MONOTONE in Edge across the whole travel. A slider that
 // is not monotone in the quantity it names has no reading a photographer can hold.
 //
-// THE ONE PROPERTY THAT IS NOT A SWEEP is the first test: a mask whose edges all share
-// one ramp width renders BIT-FOR-BIT as it did before this change. That is not a
-// nicety — the reconstruction is what every mask in every catalog has been rendered
-// through, and a fix that also moved the masks that were fine would be a silent edit to
-// work already delivered. The reference implementation is kept here verbatim so the
-// claim is checked rather than asserted; if it ever has to change, the diff has to say
-// so out loud.
+// THE RECONSTRUCTION IS GONE (docs/quality/lanes/WS-50/REPORT.md). Edge is now a flat
+// greyscale dilation / erosion by a disc (an octagon, `MaskRaster.octagonMorphology`),
+// which is monotone per pixel by construction and keeps every profile it is given. The
+// tests that pinned the old reconstruction bit-for-bit, and the ramp-width statistics
+// that decided when to use it, went with it: they asserted the machinery, and the
+// machinery was what rebuilt a smooth radial as a linear ramp and tore thin features.
+// The sweeps below are unchanged — they assert the label, and the label has not moved.
 
 import XCTest
 @testable import LumenCore
@@ -84,57 +84,6 @@ final class MaskEdgeShiftTests: XCTestCase {
                                          -10, -8, -6, -5, -4, -3, -2, -1, 0,
                                          1, 2, 3, 4, 5, 6, 8, 10, 12, 14, 16, 18, 22,
                                          26, 32, 38, 44, 50]
-
-    // MARK: - 1. Identity
-
-    /// A MASK WHOSE EDGES SHARE ONE WIDTH RENDERS EXACTLY AS IT DID.
-    ///
-    /// Bit-for-bit, on the Float values, at every setting of the slider — not "within a
-    /// tolerance", because the question is not whether the difference is small but
-    /// whether there is one. `rampCoherence` saturates at exactly 1 for these masks and
-    /// the reconstruction branch is then the reconstruction that shipped.
-    func testASingleWidthMaskIsBitIdenticalToTheShippedReconstruction() {
-        let cases: [(String, [MaskComponent])] = [
-            ("radial feather 0", [radial(0.5, 0.5, 0.22, 0.22, feather: 0)]),
-            ("radial feather 10", [radial(0.5, 0.5, 0.25, 0.25, feather: 10)]),
-            ("radial feather 50", [radial(0.5, 0.5, 0.22, 0.22, feather: 50)]),
-            ("radial feather 100", [radial(0.5, 0.5, 0.22, 0.22, feather: 100)]),
-            ("ellipse 3:1 at 45°", [radial(0.5, 0.5, 0.30, 0.10, feather: 60, rotation: 45)]),
-            ("ellipse 5:1 at 45°", [radial(0.5, 0.5, 0.30, 0.06, feather: 100, rotation: 45)]),
-            ("radial clipped by the frame", [radial(0.15, 0.15, 0.35, 0.35, feather: 60)]),
-            ("polygon feather 0", [polygon(feather: 0)]),
-            ("polygon feather 60", [polygon(feather: 60)]),
-            ("linear", [linear()]),
-            ("two hard radials", [radial(0.3, 0.5, 0.15, 0.15, feather: 0),
-                                  radial(0.7, 0.5, 0.15, 0.15, feather: 0)]),
-            ("two soft radials, one width", [radial(0.3, 0.5, 0.15, 0.15, feather: 100),
-                                             radial(0.7, 0.5, 0.15, 0.15, feather: 100)]),
-        ]
-        let rasters = [(64, 64), (96, 96), (160, 160), (320, 320), (480, 320)]
-        // The whole travel at the small rasters, its ends and its middle at the two
-        // large ones — the cost is in the EDT, which is per pixel, and a setting that
-        // diverges does so at every size.
-        let edges: [Double] = [-50, -26, -12, -6, -2, -0.4, 0.4, 2, 6, 12, 26, 50]
-        let coarse: [Double] = [-50, -12, -0.4, 0.4, 12, 50]
-
-        for (name, components) in cases {
-            for (w, h) in rasters {
-                let base = folded(components, w, h)
-                let longEdge = Swift.max(w, h)
-                XCTAssertEqual(MaskRaster.rampCoherence(base), 1, accuracy: 0,
-                               "\(name) at \(w)×\(h) is no longer read as one ramp width — "
-                               + "spread \(MaskRaster.rampWidthSpread(base).spread), "
-                               + "knee \(MaskRaster.rampSpreadKnee)")
-                for edge in (Swift.max(w, h) > 200 ? coarse : edges) {
-                    let shipped = Self.shippedEdgeShifted(base, edge: edge, longEdge: longEdge)
-                    let now = MaskRaster.edgeShifted(base, edge: edge, longEdge: longEdge)
-                    XCTAssertEqual(now.values, shipped.values,
-                                   "\(name) at \(w)×\(h), Edge \(edge) is no longer the "
-                                   + "reconstruction that shipped")
-                }
-            }
-        }
-    }
 
     // MARK: - 2. The defect
 
@@ -237,13 +186,7 @@ final class MaskEdgeShiftTests: XCTestCase {
         ]
         for (name, components) in mixes {
             for (w, h) in [(96, 96), (160, 160), (320, 320)] {
-                let plane = folded(components, w, h)
-                let spread = MaskRaster.rampWidthSpread(plane).spread
-                XCTAssertGreaterThan(spread, MaskRaster.rampSpreadKnee,
-                                     "\(name) at \(w)×\(h) is not a mixed-width fixture "
-                                     + "any more (spread \(spread)) — the sweep below "
-                                     + "would be measuring the identity path")
-                let base = coverage(plane)
+                let base = coverage(folded(components, w, h))
                 var previous = -Double.infinity
                 // Every step of the panel's own travel where a raster is cheap; every
                 // other one at 320², where the sign and the ordering are the same
@@ -272,110 +215,26 @@ final class MaskEdgeShiftTests: XCTestCase {
         }
     }
 
-    // MARK: - 4. What is NOT fixed, stated rather than hidden
+    // MARK: - 4. The single soft radial
 
-    /// THE SINGLE SOFT RADIAL STILL RISES ON THE FIRST DOZEN STEPS OF ERODE, and this
-    /// test is here so that stays visible.
-    ///
-    /// One radial at feather 100 is a mask with ONE ramp width, so `rampCoherence` reads
-    /// 1 and it goes through the reconstruction untouched — which is the identity
-    /// property in the first test, working exactly as specified. The reconstruction's
-    /// own approximation error is what remains: a smoothstep profile is not the linear
-    /// ramp the rebuild assumes, and rebuilding it at a matched width still redistributes
-    /// a little alpha outward. Measured at 160², Edge −6 grows the mask by 0.33%.
-    ///
-    /// It is bounded and it is one thirtieth of the defect this suite was written for
-    /// (8.6%), and removing it means either abandoning bit-identity or giving the
-    /// reconstruction a per-pixel profile. Both are decisions to take deliberately, not
-    /// side effects to absorb. What this test refuses is DRIFT: if that 0.33% ever
-    /// starts growing, something has changed and nobody meant it to.
-    func testTheSingleSoftRadialsResidualRiseIsBoundedAndRecorded() {
+    /// THE SINGLE SOFT RADIAL USED TO RISE ON THE FIRST DOZEN STEPS OF ERODE — 0.33 % at
+    /// Edge −6, 160² — because the old reconstruction rebuilt its smoothstep as a linear
+    /// ramp. A flat erosion cannot raise any pixel, so the bound that recorded the
+    /// residual is now the property itself: no erode setting grows it at all.
+    func testTheSingleSoftRadialNeverRisesUnderErosion() {
         let soft = [softComponent]
         for n in [96, 160, 320] {
             let base = coverage(folded(soft, n, n))
-            var worst = 1.0
             for edge in sliderSweep where edge < 0 {
-                worst = Swift.max(worst, coverage(folded(soft, n, n, edge: edge)) / base)
+                XCTAssertLessThan(coverage(folded(soft, n, n, edge: edge)), base,
+                                  "Edge \(edge) did not shrink the single soft radial at \(n)²")
             }
-            XCTAssertLessThan(worst, 1.008,
-                              "the single soft radial's residual rise at \(n)² is now "
-                              + "\(worst)× — it was 1.008× when this was written")
             XCTAssertLessThan(coverage(folded(soft, n, n, edge: -40)) / base, 0.95,
                               "Edge −40 no longer erodes the single soft radial at \(n)²")
         }
     }
 
-    // MARK: - 5. The statistic
-
-    /// THE OBVIOUS STATISTIC IS BLIND TO THE DEFECT, and this pins why the code does not
-    /// use it. Dispersion of |∇α| over the transition band cannot see a hard edge,
-    /// because a hard edge puts no pixel in that band: the soft radial alone and the
-    /// soft radial beside a hard one measure the same to three digits, while the mask
-    /// went from one ramp width to two.
-    func testTheTransitionBandCannotSeeAHardEdge() {
-        let soft = folded([softComponent], 320, 320)
-        let mixed = folded(mixedMask, 320, 320)
-
-        func bandDispersion(_ p: Plane) -> Double {
-            var sum = 0.0, squares = 0.0, count = 0
-            for y in 0..<p.height {
-                for x in 0..<p.width {
-                    let v = p[x, y]
-                    guard v > 0.02, v < 0.98 else { continue }
-                    let gx = (p.clampedSample(x + 1, y) - p.clampedSample(x - 1, y)) * 0.5
-                    let gy = (p.clampedSample(x, y + 1) - p.clampedSample(x, y - 1)) * 0.5
-                    let m = (gx * gx + gy * gy).squareRoot()
-                    sum += m; squares += m * m; count += 1
-                }
-            }
-            guard count > 1 else { return 0 }
-            let mean = sum / Double(count)
-            return Swift.max(squares / Double(count) - mean * mean, 0).squareRoot() / mean
-        }
-
-        XCTAssertEqual(bandDispersion(soft), bandDispersion(mixed), accuracy: 0.005,
-                       "the band statistic can now tell the two apart — if that is real, "
-                       + "the cheaper statistic is available and this file should say so")
-        // The boundary statistic, which is what the fix uses, separates them by more
-        // than the whole width of its own ramp.
-        XCTAssertLessThan(MaskRaster.rampWidthSpread(soft).spread, MaskRaster.rampSpreadKnee)
-        XCTAssertGreaterThan(MaskRaster.rampWidthSpread(mixed).spread,
-                             MaskRaster.rampSpreadLimit)
-        XCTAssertEqual(MaskRaster.rampCoherence(soft), 1, accuracy: 0)
-        XCTAssertEqual(MaskRaster.rampCoherence(mixed), 0, accuracy: 0)
-    }
-
-    /// The knee has to be a dead band with room in it, or the identity property is one
-    /// unusual shape away from failing. Every single-edge mask measured sits at or below
-    /// 0.33; the knee is at 0.45.
-    func testEverySingleEdgeMaskSitsUnderTheKneeWithMargin() {
-        var worst = 0.0
-        var worstName = ""
-        for aspect in [1.0, 2, 3, 5, 8] {
-            for feather in [0.0, 10, 30, 60, 100] {
-                for rotation in [0.0, 30, 45] {
-                    let c = radial(0.5, 0.5, 0.30, 0.30 / aspect,
-                                   feather: feather, rotation: rotation)
-                    for (w, h) in [(96, 96), (320, 320), (480, 320), (320, 480)] {
-                        let s = MaskRaster.rampWidthSpread(folded([c], w, h)).spread
-                        if s > worst {
-                            worst = s
-                            worstName = "\(Int(aspect)):1 feather \(feather) at "
-                                + "\(Int(rotation))°, \(w)×\(h)"
-                        }
-                    }
-                }
-            }
-        }
-        XCTAssertLessThan(worst, MaskRaster.rampSpreadKnee,
-                          "\(worstName) reads as more than one ramp width (\(worst)) and "
-                          + "would stop rendering the way it always has")
-        XCTAssertGreaterThan(MaskRaster.rampSpreadKnee - worst, 0.1,
-                             "the dead band under the knee is down to "
-                             + "\(MaskRaster.rampSpreadKnee - worst) (worst: \(worstName))")
-    }
-
-    // MARK: - 6. The invariants the chain rests on
+    // MARK: - 5. The invariants the chain rests on
 
     func testEdgeZeroAndNonFiniteLeaveTheMaskAlone() {
         for components in [mixedMask, [softComponent]] {
@@ -401,8 +260,8 @@ final class MaskEdgeShiftTests: XCTestCase {
         }
     }
 
-    /// A plane with no boundary has nothing to shift, whatever the coherence machinery
-    /// says about it, and an empty mask must not come back as anything else.
+    /// A plane with no boundary has nothing to shift, and an empty mask must not come
+    /// back as anything else.
     func testMasksWithNoBoundaryAreUntouched() {
         for fill in [0.0, 1.0, 0.5] {
             let flat = Plane(width: 64, height: 64, fill: fill)
@@ -414,10 +273,9 @@ final class MaskEdgeShiftTests: XCTestCase {
         }
     }
 
-    /// The fallback's actual claim: each edge moves by the SHIFT, whatever its own width
-    /// is. Measured as the radius of the α = 0.5 crossing on each component separately,
+    /// Each edge moves by the SHIFT, whatever its own width is. Measured as the radius of the α = 0.5 crossing on each component separately,
     /// which is where a boundary is by definition.
-    func testAdvectionMovesTheHardAndSoftBoundariesByTheSameDistance() {
+    func testExpandMovesTheHardAndSoftBoundariesByTheSameDistance() {
         let n = 320
         let shift = (40.0 / 50) * 0.01 * Double(n)   // Edge −40 ⇒ 2.56 px
         let base = folded(mixedMask, n, n)
@@ -442,67 +300,5 @@ final class MaskEdgeShiftTests: XCTestCase {
                        "the HARD boundary moved by \(hardBefore - hardAfter) px, not \(shift)")
         XCTAssertEqual(softBefore - softAfter, shift, accuracy: 1.5,
                        "the SOFT boundary moved by \(softBefore - softAfter) px, not \(shift)")
-    }
-
-    // MARK: - The reference implementation
-
-    /// `MaskRaster.edgeShifted` as it stood before the coherence bound, kept verbatim so
-    /// the identity claim above is a MEASUREMENT and not a promise. Nothing else may
-    /// call this; when the reconstruction itself is deliberately changed, this copy and
-    /// the test that reads it are the two places that have to say so.
-    private static func shippedEdgeShifted(_ a: Plane, edge: Double,
-                                           longEdge: Int) -> Plane {
-        guard edge.isFinite else { return a }
-        let e = Num.clamp(edge, -50, 50)
-        let shift = (e / 50) * 0.01 * Double(longEdge)
-        let engagement = Num.saturate(abs(shift))
-        guard engagement > 0 else { return a }
-
-        let w = a.width, h = a.height
-        let n = w * h
-
-        var gradSum = 0.0
-        var gradCount = 0
-        for y in 0..<h {
-            for x in 0..<w {
-                let v = a[x, y]
-                if v > 0.02 && v < 0.98 {
-                    let gx = (a.clampedSample(x + 1, y) - a.clampedSample(x - 1, y)) * 0.5
-                    let gy = (a.clampedSample(x, y + 1) - a.clampedSample(x, y - 1)) * 0.5
-                    let m = (gx * gx + gy * gy).squareRoot()
-                    if m.isFinite { gradSum += m; gradCount += 1 }
-                }
-            }
-        }
-        let meanGrad = gradCount > 0 ? gradSum / Double(gradCount) : 1.0
-        let rampWidth = Num.clamp(meanGrad > 1e-6 ? 1.0 / meanGrad : 1.0,
-                                  1.0, Double(Swift.max(longEdge, 2)))
-
-        let big: Double = 1e12
-        var fInside = [Double](repeating: 0, count: n)
-        var fOutside = [Double](repeating: 0, count: n)
-        var anyInside = false
-        var anyOutside = false
-        for i in 0..<n {
-            let inside = Double(a.values[i]) >= 0.5
-            fInside[i] = inside ? 0 : big
-            fOutside[i] = inside ? big : 0
-            if inside { anyInside = true } else { anyOutside = true }
-        }
-        if !anyInside || !anyOutside { return a }
-
-        let dToInside = MaskRaster.edt2D(fInside, w, h)
-        let dToOutside = MaskRaster.edt2D(fOutside, w, h)
-
-        var out = a
-        for i in 0..<n {
-            let inside = Double(a.values[i]) >= 0.5
-            let phi = inside
-                ? -(dToOutside[i].squareRoot() - 0.5)
-                : (dToInside[i].squareRoot() - 0.5)
-            let rebuilt = Num.saturate(0.5 + (shift - phi) / rampWidth)
-            out.values[i] = Float(Num.mix(Double(a.values[i]), rebuilt, engagement))
-        }
-        return out
     }
 }

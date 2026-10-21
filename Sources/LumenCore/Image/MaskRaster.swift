@@ -454,15 +454,16 @@ public enum MaskRaster {
         // 0. Whole-mask invert, before the chain.
         if invert { a = a.map { 1 - Num.saturate($0.isFinite ? $0 : 0) } }
 
-        // 1. Guided-filter refine — edge-aware snap against the stage input's structure.
+        // 1. Guided-filter refine — edge-aware snap against the stage input's structure,
+        // in colour: brightness and OKLab chroma together (`colourGuidedFilter`).
         let r = refineRadius(feather: refine.feather, longEdge: longEdge)
         if r >= 1, let src = source {
-            let guide = guidePlane(source: src, width: a.width, height: a.height)
-            a = SpatialOps.guidedFilter(input: a, guide: guide, radius: r, epsilon: guidedEpsilon)
+            let guide = colourGuide(source: src, width: a.width, height: a.height)
+            a = colourGuidedFilter(a, guide: guide, radius: r, epsilon: guidedEpsilon)
             a = a.map { Num.saturate($0.isFinite ? $0 : 0) }
         }
 
-        // 2. Edge shift — signed-distance dilate/erode, ±50 ≈ ±1% long edge.
+        // 2. Edge shift — flat dilate/erode by a disc, ±50 ≈ ±1% long edge.
         a = edgeShifted(a, edge: refine.edge, longEdge: longEdge)
 
         // 3. Gaussian feather — σ ≈ Feather × 1% long edge.
@@ -525,6 +526,138 @@ public enum MaskRaster {
         return g.map { Num.saturate(($0 - lo) / span) }
     }
 
+    /// How much the two OKLab chroma axes weigh in the refine guide against the
+    /// normalized log-luminance. OKLab a/b span about ±0.3 on real colours, so ×2 puts a
+    /// saturated hue change on the same footing as a full-range brightness edge. [D]
+    static let chromaGuideScale: Double = 2
+
+    /// Follow's guide: `guidePlane`'s normalized log-luminance, plus OKLab a and b.
+    ///
+    /// A brightness-only guide cannot tell a red watering can from the green twigs seen
+    /// through its handle when the two are equally bright, so a guided filter on it
+    /// pulled those twigs into the selection at Follow 50 and up (measured on 8559:
+    /// docs/quality/lanes/WS-50/REPORT.md). Chroma is exactly what separates them, and
+    /// it is what every colour-aware matting refinement guides on.
+    static func colourGuide(source: ImageBuffer, width: Int, height: Int) -> [Plane] {
+        let luma = guidePlane(source: source, width: width, height: height)
+        var ca = Plane(width: width, height: height)
+        var cb = Plane(width: width, height: height)
+        let lab = OKLabTransform.working
+        ca.values.withUnsafeMutableBufferPointer { pa in
+            cb.values.withUnsafeMutableBufferPointer { pb in
+                let oa = pa.baseAddress!, ob = pb.baseAddress!
+                DispatchQueue.concurrentPerform(iterations: height) { y in
+                    for x in 0..<width {
+                        let c = srcColor(source, x, y, width, height)
+                        let o = lab.toLab(RGB(Swift.max(c.r, 0), Swift.max(c.g, 0),
+                                              Swift.max(c.b, 0)))
+                        oa[y * width + x] = Float(o.a.isFinite ? o.a * chromaGuideScale : 0)
+                        ob[y * width + x] = Float(o.b.isFinite ? o.b * chromaGuideScale : 0)
+                    }
+                }
+            }
+        }
+        return [luma, ca, cb]
+    }
+
+    /// He, Sun & Tang's guided filter with a three-channel guide: per window, the
+    /// alpha is modelled as an affine function of the guide colour, `q = aᵀI + b`, with
+    /// `a = (Σ + εU)⁻¹ cov(I, p)`. With one channel this is exactly
+    /// `SpatialOps.guidedFilter`; the extra two are what let the model see a hue edge.
+    static func colourGuidedFilter(_ p: Plane, guide: [Plane], radius: Int,
+                                   epsilon: Double) -> Plane {
+        let w = p.width, h = p.height
+        guard radius > 0, guide.count == 3,
+              guide.allSatisfy({ $0.width == w && $0.height == h }) else { return p }
+        let i0 = guide[0], i1 = guide[1], i2 = guide[2]
+        let n = w * h
+        // The thirteen window means are independent of one another, so they run
+        // concurrently; each is the same `boxBlur` the one-channel filter uses.
+        let sources: [() -> Plane] = [
+            { i0 }, { i1 }, { i2 }, { p },
+            { i0.zip(i0) { $0 * $1 } }, { i0.zip(i1) { $0 * $1 } }, { i0.zip(i2) { $0 * $1 } },
+            { i1.zip(i1) { $0 * $1 } }, { i1.zip(i2) { $0 * $1 } }, { i2.zip(i2) { $0 * $1 } },
+            { i0.zip(p) { $0 * $1 } }, { i1.zip(p) { $0 * $1 } }, { i2.zip(p) { $0 * $1 } },
+        ]
+        let means = concurrentBoxBlurs(sources, radius: radius)
+        let m0 = means[0].values, m1 = means[1].values, m2 = means[2].values
+        let mp = means[3].values
+        let s00 = means[4].values, s01 = means[5].values, s02 = means[6].values
+        let s11 = means[7].values, s12 = means[8].values, s22 = means[9].values
+        let c0 = means[10].values, c1 = means[11].values, c2 = means[12].values
+        let eps = Swift.max(epsilon, 1e-12)
+
+        var a0 = Plane(width: w, height: h), a1 = a0, a2 = a0, b = a0
+        a0.values.withUnsafeMutableBufferPointer { pa0 in
+        a1.values.withUnsafeMutableBufferPointer { pa1 in
+        a2.values.withUnsafeMutableBufferPointer { pa2 in
+        b.values.withUnsafeMutableBufferPointer { pb in
+            let o0 = pa0.baseAddress!, o1 = pa1.baseAddress!, o2 = pa2.baseAddress!
+            let ob = pb.baseAddress!
+            DispatchQueue.concurrentPerform(iterations: h) { y in
+                for i in (y * w)..<(y * w + w) {
+                    let u0 = Double(m0[i]), u1 = Double(m1[i]), u2 = Double(m2[i])
+                    let up = Double(mp[i])
+                    // Covariance of the guide (regularized) and its covariance with
+                    // the alpha.
+                    let v00 = Double(s00[i]) - u0 * u0 + eps
+                    let v01 = Double(s01[i]) - u0 * u1
+                    let v02 = Double(s02[i]) - u0 * u2
+                    let v11 = Double(s11[i]) - u1 * u1 + eps
+                    let v12 = Double(s12[i]) - u1 * u2
+                    let v22 = Double(s22[i]) - u2 * u2 + eps
+                    let k0 = Double(c0[i]) - u0 * up
+                    let k1 = Double(c1[i]) - u1 * up
+                    let k2 = Double(c2[i]) - u2 * up
+                    // Symmetric 3×3 solve by cofactors. ε on the diagonal keeps it
+                    // positive definite; a non-finite answer (only reachable from a
+                    // poisoned input) degrades to the box mean, which is the
+                    // one-channel filter's flat answer.
+                    let d00 = v11 * v22 - v12 * v12
+                    let d01 = v02 * v12 - v01 * v22
+                    let d02 = v01 * v12 - v02 * v11
+                    let det = v00 * d00 + v01 * d01 + v02 * d02
+                    var x0 = 0.0, x1 = 0.0, x2 = 0.0
+                    if det.isFinite, abs(det) > 1e-30 {
+                        let d11 = v00 * v22 - v02 * v02
+                        let d12 = v01 * v02 - v00 * v12
+                        let d22 = v00 * v11 - v01 * v01
+                        x0 = (d00 * k0 + d01 * k1 + d02 * k2) / det
+                        x1 = (d01 * k0 + d11 * k1 + d12 * k2) / det
+                        x2 = (d02 * k0 + d12 * k1 + d22 * k2) / det
+                        if !(x0.isFinite && x1.isFinite && x2.isFinite) { x0 = 0; x1 = 0; x2 = 0 }
+                    }
+                    o0[i] = Float(x0)
+                    o1[i] = Float(x1)
+                    o2[i] = Float(x2)
+                    ob[i] = Float(up - x0 * u0 - x1 * u1 - x2 * u2)
+                }
+            }
+        }}}}
+        let coefficients = concurrentBoxBlurs([{ a0 }, { a1 }, { a2 }, { b }], radius: radius)
+        let ma0 = coefficients[0].values, ma1 = coefficients[1].values
+        let ma2 = coefficients[2].values, mb = coefficients[3].values
+        let g0 = i0.values, g1 = i1.values, g2 = i2.values
+        var out = Plane(width: w, height: h)
+        for i in 0..<n {
+            out.values[i] = ma0[i] * g0[i] + ma1[i] * g1[i] + ma2[i] * g2[i] + mb[i]
+        }
+        return out
+    }
+
+    /// `SpatialOps.boxBlur` of each plane, run concurrently. The planes are built
+    /// inside the worker so a product plane exists only while its blur needs it.
+    private static func concurrentBoxBlurs(_ sources: [() -> Plane], radius: Int) -> [Plane] {
+        var out = [Plane](repeating: Plane(width: 1, height: 1), count: sources.count)
+        out.withUnsafeMutableBufferPointer { o in
+            let base = o.baseAddress!
+            DispatchQueue.concurrentPerform(iterations: sources.count) { k in
+                base[k] = SpatialOps.boxBlur(sources[k](), radius: radius)
+            }
+        }
+        return out
+    }
+
     /// The value `a.sorted()[k]` would hold, found by introselect over `range` (k is an
     /// absolute index into `a`). On return `a[range]` is partitioned about index k:
     /// every element below it is ≤ the result and every element above it ≥, which is
@@ -583,354 +716,239 @@ public enum MaskRaster {
         }
     }
 
-    /// Signed-distance dilate/erode. The α ≥ 0.5 set's exact Euclidean distance
-    /// transform (Felzenszwalb–Huttenlocher, two separable O(n) passes) gives the
-    /// signed distance φ; the boundary moves by `shift` and the measured ramp width
-    /// is preserved. Level-set advection along ‖∇α‖ cannot do this — for a near-binary
-    /// AI matte that gradient saturates and a 20 px shift would move the edge by one
-    /// pixel. Advection along ∇φ can, and does, below: a distance field's gradient is
-    /// a unit normal everywhere, however hard or soft the alpha it was built from.
+    /// Expand / Contract: a flat greyscale dilation (Edge > 0) or erosion (Edge < 0) by
+    /// a disc whose radius is the shift. ±50 ≈ ±1 % of the long edge.
     ///
-    /// ONE GLOBAL RAMP WIDTH IS A CLAIM ABOUT THE WHOLE PLANE, and on a stack it is
-    /// routinely false. `rampWidth` is the mean gradient over the transition band, and
-    /// a HARD edge contributes NO samples to that mean — no pixel of it lands strictly
-    /// inside 0.02…0.98 — so on a mask holding one hard component and one soft one the
-    /// soft component's ramp wins outright and the hard boundary is rebuilt as a ramp
-    /// tens of pixels wide. Measured on `MaskEdgeShiftTests`' own fixture — two `.add`
-    /// radials at feather 0 and feather 100, 320² raster — the width is 1.00 px for the
-    /// hard radial alone (nothing in the band at all), 54.6 px for the soft one alone,
-    /// and 54.6 px for the two of them together.
+    /// WHY MORPHOLOGY, after two rounds of distance-field arithmetic. A flat dilation by
+    /// a disc of radius s moves EVERY level set of the alpha outward by s, so it does
+    /// the one thing the label promises and nothing else, on any mask:
     ///
-    /// What that costs is not a softer edge, it is THE WRONG DIRECTION. The rebuild
-    /// puts a ramp of width W symmetrically about φ = shift, and for a convex region
-    /// the area it adds outside exceeds the area it removes inside by πW²/12 — so an
-    /// EROSION GREW the mask: on that fixture at 320², Edge −12 came back 3.9% LARGER
-    /// than Edge 0, and the whole erode half from −30 to −1 sat above where it started,
-    /// so the slider rose to a hump at −12 and came back down instead of shrinking
-    /// anything. It is worse at higher resolution, because W scales with the frame:
-    /// the same Edge −12 is +1.2% at 96², +1.8% at 160², +3.9% at 320² — which means
-    /// worse in the delivered file than in the loupe, on the same recipe.
+    ///   · it is monotone per pixel by construction — a bigger disc contains a smaller
+    ///     one, so raising Edge can never lower a pixel and lowering it can never raise
+    ///     one;
+    ///   · it keeps the profile the mask already has: hard stays hard, a smoothstep
+    ///     radial stays a smoothstep, a 0.6 plateau stays 0.6 and moves as a plateau;
+    ///   · it cannot make speckle: dilation only closes holes and erosion only removes
+    ///     islands, so a noisy range mask gets cleaner as the slider moves, not dirtier.
     ///
-    /// So the reconstruction is now bounded by how well one width actually describes
-    /// this plane (`rampWidthSpread`), and where it does not, the boundary is moved by
-    /// ADVECTING the alpha the mask already has instead of rebuilding a new one:
+    /// What it replaced was a reconstruction from the α = 0.5 set's signed distance and
+    /// one global ramp width, with an "advection" fallback for masks that had more than
+    /// one width. The reconstruction swapped every profile for a linear ramp (so the
+    /// first pixel of travel re-shaped a smooth radial), and the advection sampled the
+    /// alpha a shift's distance along the distance field's normal — which lands OFF any
+    /// feature thinner than the shift. On a colour-range mask, a texture made of exactly
+    /// such features, that measured 2–13 % of pixels moving the wrong way at every step
+    /// (up to a full 1 → 0), five times the speckle at Edge +50, and visible rings,
+    /// bubbles and torn stripes (docs/quality/lanes/WS-50/REPORT.md).
     ///
-    ///   · coherent (one width) → `rebuilt`, bit-for-bit what this function always did;
-    ///   · incoherent (two or more) → `advected`, each edge shifted by `shift` along
-    ///     the distance field's own normal, which preserves whatever profile that edge
-    ///     has — hard stays hard, soft stays soft — and therefore cannot invert the
-    ///     sign of the control;
-    ///   · in between → a blend, so nothing about the slider steps.
+    /// THE DISC IS EXACT UP TO 8 PX AND A REGULAR OCTAGON BEYOND. An exact disc costs
+    /// one row pass per row of the disc, which is cheap while the disc is small — and
+    /// small is where an octagon is a poor disc (radius 1 is a 3 × 3 square, 41 % too
+    /// big on the diagonals). Past 8 px the octagon, the Minkowski sum of a horizontal,
+    /// a vertical and two diagonal segments, costs four passes whatever the radius, and
+    /// scaled by `octagonScale` its radius runs 0.96…1.04× by direction: ±1 px at full
+    /// travel on a 2400-px frame, against an exact disc that would cost O(n·r).
     ///
-    /// WHY NOT SIMPLY FADE THE RECONSTRUCTION OUT on a mixed mask, which is the smaller
-    /// change: because it cannot work, and the arithmetic says so rather than a taste.
-    /// The output is `mix(a, rebuilt, e)`, so coverage is `(1−e)·cov(a) + e·cov(rebuilt)`
-    /// — LINEAR in the engagement. Wherever the defect is (Edge −30…−1 on the fixture
-    /// above) `cov(rebuilt) > cov(a)`, so EVERY `e > 0` grows the mask and `e = 0`
-    /// leaves it exactly where it was. Fading can reach "Edge does nothing"; it cannot
-    /// reach "Edge −12 erodes", which is the only answer the label permits. A fallback
-    /// that still moves the boundary is not a nicety here, it is the requirement.
-    ///
-    /// EVERY CONSTANT ABOVE IS RELATIVE TO THE MASK'S PEAK, not to 1. A component at
-    /// amount 60 is a hard 0.6 plateau, and read against 1 it broke all three: the
-    /// plateau sits inside 0.02…0.98 with a gradient of zero, so the mean collapsed and
-    /// a 1 px edge measured ~45 px; the rebuild then filled the interior to 1.0 and laid
-    /// a halo outside the edge at Edge +25 AND at Edge −25; and at amount 40 nothing
-    /// reached 0.5, so the slider did nothing. Against `densityPeak` the boundary is at
-    /// half the peak, the band is the peak's 2…98%, and the rebuild tops out at the
-    /// peak. For a mask that reaches 1 every scaling is by exactly 1, so this is the
-    /// same arithmetic to the last bit. A mask holding TWO plateaus — 0.6 beside 1.0 —
-    /// has no single peak to rebuild to, and goes to `advected`, which carries each
-    /// plateau's own density with it: a plateau is told apart from a ramp by having no
-    /// gradient at all, and a 0…1 mask's plateaus are at 0 and 1, outside the band.
+    /// Sub-pixel shifts blend the two integer radii either side, `mix(D⌊s⌋, D⌈s⌉, frac)`.
+    /// Every structuring element in the family contains the one before it (checked by
+    /// brute force to radius 120; `octagonMorphology` says why), so that blend is still
+    /// monotone in s and continuous through every integer, and Edge 1 on a loupe-sized
+    /// raster is a half-pixel move rather than a dead step.
     static func edgeShifted(_ a: Plane, edge: Double, longEdge: Int) -> Plane {
         guard edge.isFinite else { return a }
         let e = Num.clamp(edge, -50, 50)
         let shift = (e / 50) * 0.01 * Double(longEdge)
-        // Blend the reconstruction in over the first pixel of shift rather than
-        // switching it on. On a 2560-px frame a shift of half a pixel is Edge ≈ 0.98,
-        // so the old threshold made Edge 0 → 1 a visible jump: the reconstruction does
-        // not shift the existing alpha, it rebuilds one from the signed distance and a
-        // single global ramp width, which only reproduces a mask that was already a
-        // uniform linear ramp. For a Gaussian-blurred edge the profile differs by
-        // ~0.1 alpha across the transition band, and that arrived all at once.
-        let engagement = Num.saturate(abs(shift))
-        guard engagement > 0 else { return a }
+        guard shift != 0, a.width > 0, a.height > 0 else { return a }
+        let grow = shift > 0
+        // The radius in structuring-element steps: pixels while the disc is exact, and
+        // past that the octagon's apothem, which is 0.96 of the radius it averages to.
+        // Continuous at the switch and increasing, so the family stays nested in s.
+        let limit = Double(exactDiscRadius)
+        let s = abs(shift) <= limit ? abs(shift) : limit + (abs(shift) - limit) * octagonScale
+        var clean = a
+        for i in 0..<clean.values.count where !clean.values[i].isFinite { clean.values[i] = 0 }
 
+        let k = Int(s.rounded(.down))
+        let frac = Float(s - Double(k))
+        let inner = k > 0 ? flatMorphology(clean, radius: k, dilate: grow) : clean
+        guard frac > 0 else { return inner }
+        let outer = flatMorphology(clean, radius: k + 1, dilate: grow)
+        var out = inner
+        for i in 0..<out.values.count {
+            let lo = inner.values[i]
+            // `lo + (hi − lo)·f`, not `lo·(1 − f) + hi·f`: where the two agree — every
+            // plateau, every pixel the boundary is nowhere near — this returns `lo`
+            // exactly, so a flat region stays bit-identical.
+            out.values[i] = lo + (outer.values[i] - lo) * frac
+        }
+        return out
+    }
+
+    /// Up to this radius the structuring element is an exact lattice disc.
+    static let exactDiscRadius = 8
+
+    /// The octagon's apothem per pixel of radius: 2 / (1 + sec 22.5°), which puts its
+    /// flats at 0.96 and its vertices at 1.04 of the radius asked for.
+    static let octagonScale: Double = 2 / (1 + 1 / cos(Double.pi / 8))
+
+    /// Flat dilation (or erosion) by a disc of `radius` px: exact up to
+    /// `exactDiscRadius`, a regular octagon beyond.
+    static func flatMorphology(_ a: Plane, radius r: Int, dilate: Bool) -> Plane {
+        guard r > 0 else { return a }
+        return r <= exactDiscRadius
+            ? discMorphology(a, radius: r, dilate: dilate)
+            : octagonMorphology(a, radius: r, dilate: dilate)
+    }
+
+    /// The lattice disc x² + y² ≤ r², as its rows: row dy is a horizontal segment of
+    /// half-width ⌊√(r² − dy²)⌋, so the dilation is the extreme, over dy, of the
+    /// horizontally filtered plane read dy rows away. Reading past the frame clamps to
+    /// the edge row, which the row's own window already covers, so it equals clipping.
+    static func discMorphology(_ a: Plane, radius r: Int, dilate: Bool) -> Plane {
         let w = a.width, h = a.height
-        let n = w * h
-
-        // An all-but-empty mask has no density to shift a boundary of.
-        let peak = densityPeak(a)
-        guard peak > 1e-6 else { return a }
-        let threshold = 0.5 * peak
-
-        // Ramp width from the mean gradient over the transition band: a ramp of width
-        // W px has |∇α| = peak/W, and a hard edge lands at ~1 px. A pixel with NO
-        // gradient is on a plateau, not on a ramp, and is left out of the mean; a 0…1
-        // mask's plateaus are at 0 and 1, outside the band, so it has none to leave.
-        var gradSum = 0.0
-        var gradCount = 0
-        var plateauCount = 0
-        for y in 0..<h {
-            for x in 0..<w {
-                let v = a[x, y]
-                if v > 0.02 * peak && v < 0.98 * peak {
-                    let gx = (a.clampedSample(x + 1, y) - a.clampedSample(x - 1, y)) * 0.5
-                    let gy = (a.clampedSample(x, y + 1) - a.clampedSample(x, y - 1)) * 0.5
-                    let m = (gx * gx + gy * gy).squareRoot()
-                    if m == 0 { plateauCount += 1; continue }
-                    if m.isFinite { gradSum += m; gradCount += 1 }
-                }
-            }
+        var halfWidth = [Int](repeating: 0, count: 2 * r + 1)
+        for dy in -r...r {
+            var x = 0
+            while (x + 1) * (x + 1) + dy * dy <= r * r { x += 1 }
+            halfWidth[dy + r] = x
         }
-        let meanGrad = gradCount > 0 ? gradSum / Double(gradCount) / peak : 1.0
-        let rampWidth = Num.clamp(meanGrad > 1e-6 ? 1.0 / meanGrad : 1.0, 1.0, Double(Swift.max(longEdge, 2)))
-
-        // A finite sentinel, not infinity: the transform adds squared distances, and
-        // inf − inf is NaN. 1e12 dominates any real squared distance while leaving
-        // ulp ≪ 1 px, so the arithmetic stays exact.
-        let big: Double = 1e12
-        var fInside = [Double](repeating: 0, count: n)
-        var fOutside = [Double](repeating: 0, count: n)
-        var anyInside = false
-        var anyOutside = false
-        for i in 0..<n {
-            let inside = Double(a.values[i]) >= threshold
-            fInside[i] = inside ? 0 : big
-            fOutside[i] = inside ? big : 0
-            if inside { anyInside = true } else { anyOutside = true }
+        var filtered: [Int: Plane] = [:]
+        for half in Set(halfWidth) {
+            var p = a
+            slidingExtreme(&p, dx: 1, dy: 0, half: half, max: dilate)
+            filtered[half] = p
         }
-        // A wholly empty or wholly full mask has no boundary to move.
-        if !anyInside || !anyOutside { return a }
-
-        let dToInside = edt2D(fInside, w, h)
-        let dToOutside = edt2D(fOutside, w, h)
-
-        // How much of the reconstruction this plane has earned. Exactly 1 — and so
-        // exactly the arithmetic that shipped — for every mask whose edges share one
-        // width, which is what keeps this change bounded to the masks that were broken.
-        // Measured after the boundary guard above, because a plane with no boundary has
-        // already returned and there is nothing there to measure.
-        //
-        // A plateau inside the band is a second density (0.6 beside 1.0): the rebuild
-        // can only reach one peak, so that mask is moved by advection alone.
-        let coherence = plateauCount >= minimumBoundarySamples
-            ? 0 : rampCoherence(a, peak: peak)
-
-        // φ, held rather than recomputed inline, because the advection below needs its
-        // GRADIENT and a gradient needs the neighbours. The two indicator planes are
-        // released first: they have been consumed, and holding them while φ is allocated
-        // would raise this function's peak by a full plane of doubles on an export-sized
-        // mask for no reason.
-        fInside = []
-        fOutside = []
-        var phi = [Double](repeating: 0, count: n)
-        for i in 0..<n {
-            let inside = Double(a.values[i]) >= threshold
-            phi[i] = inside
-                ? -(dToOutside[i].squareRoot() - 0.5)
-                : (dToInside[i].squareRoot() - 0.5)
-        }
-
         var out = a
-        for y in 0..<h {
-            for x in 0..<w {
-                let i = y * w + x
-                let rebuilt = peak * Num.saturate(0.5 + (shift - phi[i]) / rampWidth)
-                // `coherence < 1` is a guard on the ARITHMETIC, not only on the cost:
-                // `Num.mix(v, rebuilt, 1)` is `v + (rebuilt − v)`, which is not
-                // guaranteed to be `rebuilt` to the last bit, and the one property this
-                // change is required to keep is that a single-width mask renders
-                // exactly as it did before.
-                var target = rebuilt
-                if coherence < 1 {
-                    let moved = advected(a, phi, x, y, w, h, shift)
-                    target = Num.mix(moved, rebuilt, coherence)
+        out.values.withUnsafeMutableBufferPointer { o in
+            for dy in -r...r {
+                guard let rows = filtered[halfWidth[dy + r]] else { continue }
+                rows.values.withUnsafeBufferPointer { v in
+                    for y in 0..<h {
+                        let src = Swift.min(Swift.max(y + dy, 0), h - 1) * w
+                        let dst = y * w
+                        if dilate {
+                            for x in 0..<w where v[src + x] > o[dst + x] { o[dst + x] = v[src + x] }
+                        } else {
+                            for x in 0..<w where v[src + x] < o[dst + x] { o[dst + x] = v[src + x] }
+                        }
+                    }
                 }
-                out.values[i] = Float(Num.mix(Double(a.values[i]), target, engagement))
             }
         }
         return out
     }
 
-    /// The density every Edge Shift constant is measured against: the largest finite
-    /// alpha, held at 1 for any mask that reaches 1 so those masks' arithmetic is
-    /// scaled by exactly 1.
-    static func densityPeak(_ a: Plane) -> Double {
-        var peak: Float = 0
-        for v in a.values where v.isFinite && v > peak { peak = v }
-        return Swift.min(Double(peak), 1)
+    /// Flat dilation (or erosion) by a regular octagon of apothem `radius` px.
+    ///
+    /// A horizontal and a vertical segment of half-length `ax` make a square; the two
+    /// diagonals of half-length `d` make a diamond of half-width 2d; their sum has
+    /// support `ax + 2d` along the axes and `√2(ax + d)` along the diagonals, equal when
+    /// ax = √2·d — the regular octagon. `d` is that ratio rounded and `ax = r − 2d`,
+    /// which keeps the axis support exactly r.
+    ///
+    /// `ax` IS NEVER ZERO. Two lattice diagonals reach only the pixels whose x + y is
+    /// even — a checkerboard — and it is the horizontal and vertical segments that fill
+    /// it in. At r = 2 the plain rounding gives ax = 0, a structuring element with holes
+    /// that does not contain the r = 1 one, and Edge stopped being monotone there. With
+    /// ax ≥ 1 every element in the family contains the one before it, which a brute-force
+    /// check of the lattice sets confirms to r = 120.
+    static func octagonMorphology(_ a: Plane, radius r: Int, dilate: Bool) -> Plane {
+        guard r > 0 else { return a }
+        let d = Swift.min(Int((Double(r) / (2 + 2.0.squareRoot())).rounded()), (r - 1) / 2)
+        let ax = r - 2 * d
+        var p = a
+        slidingExtreme(&p, dx: 1, dy: 0, half: ax, max: dilate)
+        slidingExtreme(&p, dx: 0, dy: 1, half: ax, max: dilate)
+        slidingExtreme(&p, dx: 1, dy: 1, half: d, max: dilate)
+        slidingExtreme(&p, dx: 1, dy: -1, half: d, max: dilate)
+        return p
     }
 
-    /// The alpha this pixel would be holding if the boundary had already moved by
-    /// `shift`, read off the mask itself rather than rebuilt from a model of it.
+    /// In place: every pixel becomes the max (or min) of the pixels within `half` steps
+    /// of it along direction (dx, dy), the window clipped at the frame — which is the
+    /// same answer a replicated border gives, because the replicated value is already
+    /// in the window.
     ///
-    /// φ is a signed distance, so ∇φ is a UNIT normal — pointing away from the boundary
-    /// — everywhere except on the medial axis, where the alpha is saturated anyway and
-    /// nothing observable depends on the direction. Stepping `−shift` along it lands on
-    /// the point whose current distance is `φ − shift`; sampling the alpha there moves
-    /// every level set by exactly `shift` and moves NO level set relative to any other.
-    /// That is the whole difference from the reconstruction: this transports the
-    /// profile the mask has, and cannot invent one it does not.
-    ///
-    /// Bilinear, because `shift` is a real number of pixels — Edge ±1 on a 2560 frame
-    /// is half a pixel, and a nearest-neighbour read there would quantize the slider
-    /// into steps the reconstruction never had.
-    static func advected(_ a: Plane, _ phi: [Double],
-                         _ x: Int, _ y: Int, _ w: Int, _ h: Int,
-                         _ shift: Double) -> Double {
-        let row = y * w
-        let rowAbove = (y > 0 ? y - 1 : 0) * w
-        let rowBelow = (y < h - 1 ? y + 1 : h - 1) * w
-        let gx = (phi[row + (x < w - 1 ? x + 1 : w - 1)]
-                  - phi[row + (x > 0 ? x - 1 : 0)]) * 0.5
-        let gy = (phi[rowBelow + x] - phi[rowAbove + x]) * 0.5
-        let m = (gx * gx + gy * gy).squareRoot()
-        // A vanishing gradient is the medial axis (or a one-pixel island): there is no
-        // normal to travel along, and the honest answer is the alpha already here.
-        guard m.isFinite, m > 1e-6 else { return Double(a.values[row + x]) }
-        let sample = a.bilinear(Double(x) + 0.5 - shift * gx / m,
-                                Double(y) + 0.5 - shift * gy / m)
-        return Num.saturate(sample.isFinite ? sample : Double(a.values[row + x]))
-    }
-
-    /// How well ONE ramp width describes this plane: 1 when every edge shares a width,
-    /// falling to 0 when the mask holds edges of wildly different widths.
-    ///
-    /// MEASURED ON THE BOUNDARY, NOT ON THE TRANSITION BAND, and that is the whole
-    /// design. The obvious statistic — the variance of |∇α| over the same 0.02…0.98
-    /// band `rampWidth` averages — is BLIND TO EXACTLY THE CASE THAT BREAKS, because a
-    /// hard edge puts no pixel in that band: measured on the two-radial mask above at
-    /// 320², the band's coefficient of variation is 0.269 for the soft radial alone and
-    /// 0.268 for the soft and hard radials together. The same number to two digits,
-    /// while the mask it is describing went from one ramp width to two.
-    /// `testTheTransitionBandCannotSeeAHardEdge` holds that refutation in place.
-    ///
-    /// Every edge has a boundary, hard or soft, so that is where the question is asked:
-    /// the pixels straddling α = 0.5, each carrying a local width from its own gradient,
-    /// and the spread of the logarithm of those widths as the answer. A log spread is
-    /// the right shape because what matters is the RATIO of the widths present — 1 px
-    /// against 55 px is the same defect at any resolution — and because it is scale-free
-    /// the same two constants hold from a 96 px loupe tile to a 61 MP export.
-    ///
-    /// `peak` is the mask's density (`densityPeak`): the boundary is at half of it and
-    /// the widths are read against it, so a plateau at 0.4 has a boundary at all.
-    static func rampCoherence(_ a: Plane, peak: Double = 1) -> Double {
-        let measured = rampWidthSpread(a, peak: peak)
-        // Too little boundary to say anything: keep the shipped behaviour rather than
-        // let a four-pixel mask's arithmetic noise disengage the control.
-        guard measured.samples >= minimumBoundarySamples else { return 1 }
-        let s = measured.spread
-        guard s.isFinite else { return 1 }
-        return Num.saturate((rampSpreadLimit - s) / (rampSpreadLimit - rampSpreadKnee))
-    }
-
-    /// Mean absolute deviation of the log local width over the boundary, and how many
-    /// boundary pixels it was measured on.
-    ///
-    /// MEAN ABSOLUTE deviation rather than standard deviation, because one pixel must
-    /// not be able to disengage the control: a plateau grazing α = 0.5 produces a
-    /// boundary pixel whose gradient is 1e-4 and whose width clamps to the frame, and
-    /// squaring that deviation would let a single such pixel outvote a thousand honest
-    /// ones. Under MAD it contributes its share and no more.
-    ///
-    /// TWO PASSES, NOT ONE ARRAY. A deviation about the mean needs the mean first, and
-    /// the alternative — collecting the boundary's widths and reducing them afterwards —
-    /// is a per-pixel allocation on a plane whose boundary is normally O(perimeter) and
-    /// pathologically O(pixels). Two sweeps of arithmetic beat one sweep that can ask
-    /// for half a gigabyte on a 61 MP mask whose alpha happens to hover around 0.5.
-    static func rampWidthSpread(_ a: Plane, peak: Double = 1) -> (spread: Double, samples: Int) {
-        let cap = Double(Swift.max(Swift.max(a.width, a.height), 2))
-        var sum = 0.0
-        var count = 0
-        forEachBoundaryLogWidth(a, cap, peak) { l in
-            sum += l
-            count += 1
-        }
-        guard count > 0 else { return (0, 0) }
-        let mean = sum / Double(count)
-        var deviation = 0.0
-        forEachBoundaryLogWidth(a, cap, peak) { deviation += abs($0 - mean) }
-        return (deviation / Double(count), count)
-    }
-
-    /// Every boundary pixel's local ramp width, logged.
-    ///
-    /// A pixel is on the boundary when one of its four neighbours is on the other side
-    /// of α = 0.5 — the frame's edge repeats rather than reflecting, the same convention
-    /// `clampedSample` gives the rest of this file, so a mask running off the frame does
-    /// not acquire a boundary there that the picture does not have.
-    ///
-    /// THE GRADIENT IS THE LARGER OF TWO ESTIMATES, and it has to be. A central
-    /// difference is rotation-invariant on a smooth ramp — which is why the soft cases
-    /// measure a spread near zero — but on a hard step it reads 0.5 across a face and
-    /// 0.707 across a corner, so a plain hard mask would look 1.4× self-inconsistent
-    /// for no better reason than the pixel grid. A one-sided difference reads exactly 1
-    /// on every hard boundary pixel and understates a smooth ramp by up to √2. Taking
-    /// the maximum takes the estimate each is good at: 1 px for a hard edge, ≈W/1.5 for
-    /// a smooth one, and a spread inside a single edge that stays near zero for both.
-    ///
-    /// Indexed directly rather than through `clampedSample`, and the body is called only
-    /// for the boundary: this runs twice over every pixel of every mask that reaches the
-    /// Edge slider, including the ones it will decide to leave alone.
-    private static func forEachBoundaryLogWidth(_ a: Plane, _ cap: Double, _ peak: Double,
-                                                _ body: (Double) -> Void) {
-        let w = a.width, h = a.height
+    /// van Herk / Gil-Werman: the padded line is cut into blocks of the window's length,
+    /// a running extreme is taken forward and backward inside each block, and every
+    /// window is exactly one backward tail plus one forward head — three comparisons
+    /// per pixel whatever the radius. Lines are independent, so they run concurrently;
+    /// each writes only its own pixels, so the result does not depend on the schedule.
+    static func slidingExtreme(_ p: inout Plane, dx: Int, dy: Int, half: Int, max useMax: Bool) {
+        guard half > 0 else { return }
+        let w = p.width, h = p.height
         guard w > 0, h > 0 else { return }
-        let t = 0.5 * peak
-        a.values.withUnsafeBufferPointer { v in
-            for y in 0..<h {
-                let row = y * w
-                let rowAbove = (y > 0 ? y - 1 : 0) * w
-                let rowBelow = (y < h - 1 ? y + 1 : h - 1) * w
-                for x in 0..<w {
-                    let centre = Double(v[row + x])
-                    let inside = centre >= t
-                    let left = Double(v[row + (x > 0 ? x - 1 : 0)])
-                    let right = Double(v[row + (x < w - 1 ? x + 1 : w - 1)])
-                    let above = Double(v[rowAbove + x])
-                    let below = Double(v[rowBelow + x])
-                    guard (left >= t) != inside || (right >= t) != inside
-                        || (above >= t) != inside || (below >= t) != inside
-                    else { continue }
-                    let gx = (right - left) * 0.5
-                    let gy = (below - above) * 0.5
-                    var g = (gx * gx + gy * gy).squareRoot()
-                    g = Swift.max(g, Swift.max(abs(right - centre), abs(left - centre)))
-                    g = Swift.max(g, Swift.max(abs(below - centre), abs(above - centre)))
-                    guard g.isFinite, g > 0 else { continue }
-                    body(log(Num.clamp(peak / g, 1, cap)))
+        // Each line starts on the frame's first row or column (last row for an
+        // up-going diagonal) and runs until it leaves the frame.
+        var starts: [(Int, Int)] = []
+        if dy == 0 {
+            for y in 0..<h { starts.append((0, y)) }
+        } else if dx == 0 {
+            for x in 0..<w { starts.append((x, 0)) }
+        } else {
+            let y0 = dy > 0 ? 0 : h - 1
+            for x in 0..<w { starts.append((x, y0)) }
+            for y in 0..<h where y != y0 { starts.append((0, y)) }
+        }
+        let window = 2 * half + 1
+        let pad: Float = useMax ? -.infinity : .infinity
+        let step = dy * w + dx
+        let chunks = Swift.min(starts.count, 64)
+        p.values.withUnsafeMutableBufferPointer { v in
+            let base = v.baseAddress!
+            starts.withUnsafeBufferPointer { lines in
+                DispatchQueue.concurrentPerform(iterations: chunks) { chunk in
+                    let longest = Swift.max(w, h)
+                    let padded = longest + 2 * half
+                    let blocks = (padded + window - 1) / window * window
+                    var line = [Float](repeating: pad, count: blocks)
+                    var fwd = [Float](repeating: pad, count: blocks)
+                    var bwd = [Float](repeating: pad, count: blocks)
+                    var li = chunk
+                    while li < lines.count {
+                        defer { li += chunks }
+                        let (sx, sy) = lines[li]
+                        // Pixels on this line: until x or y leaves the frame.
+                        var n = Int.max
+                        if dx > 0 { n = Swift.min(n, w - sx) }
+                        if dy > 0 { n = Swift.min(n, h - sy) }
+                        if dy < 0 { n = Swift.min(n, sy + 1) }
+                        guard n > 1 else { continue }
+                        let first = sy * w + sx
+                        let m = (n + 2 * half + window - 1) / window * window
+                        for j in 0..<half { line[j] = pad }
+                        for j in 0..<n { line[half + j] = base[first + j * step] }
+                        for j in (half + n)..<m { line[j] = pad }
+                        var j = 0
+                        while j < m {
+                            var f = line[j]
+                            fwd[j] = f
+                            for t in (j + 1)..<(j + window) {
+                                let x = line[t]
+                                f = useMax ? Swift.max(f, x) : Swift.min(f, x)
+                                fwd[t] = f
+                            }
+                            var g = line[j + window - 1]
+                            bwd[j + window - 1] = g
+                            var t = j + window - 2
+                            while t >= j {
+                                let x = line[t]
+                                g = useMax ? Swift.max(g, x) : Swift.min(g, x)
+                                bwd[t] = g
+                                t -= 1
+                            }
+                            j += window
+                        }
+                        // Output pixel i covers padded [i, i + 2·half].
+                        for i in 0..<n {
+                            let lo = bwd[i], hi = fwd[i + 2 * half]
+                            base[first + i * step] = useMax ? Swift.max(lo, hi) : Swift.min(lo, hi)
+                        }
+                    }
                 }
             }
         }
     }
-
-    /// Where the reconstruction starts being withdrawn, and where it is gone, in mean
-    /// absolute deviation of log width. [D]
-    ///
-    /// The knee is a DEAD BAND and that is what makes the identity property hold: below
-    /// it `rampCoherence` saturates at exactly 1 and this file's arithmetic is the
-    /// arithmetic that shipped.
-    ///
-    /// It sits at 0.45 because 0.32 is the widest spread any single-edge mask produced
-    /// across a 150-configuration survey — radial, ellipse to 8:1 at every rotation,
-    /// polygon with a spike, linear, feather 0…100, rasters 64…512, both aspects — and
-    /// the widest of those is a strongly eccentric feathered ellipse, whose ramp really
-    /// is wider across the ends than the sides. A knee under that would disengage the
-    /// reconstruction on a shape that has been rendering the same way for a year, which
-    /// is the regression this bound exists to avoid.
-    ///
-    /// The limit at 0.75 is where the reconstruction is gone and the boundary is moved
-    /// by advection alone. It is set by the hardest case rather than the loudest one: a
-    /// SMALL hard component beside a large soft one contributes little to the spread and
-    /// still grew the mask under erosion at 0.386 engagement, so the limit is pulled
-    /// down to the 0.75 that case measures. The two-radial mask that named this defect
-    /// is past it at every raster from 64 px up.
-    static let rampSpreadKnee: Double = 0.45
-    static let rampSpreadLimit: Double = 0.75
-    /// Below this many boundary pixels the spread is noise, not a measurement.
-    static let minimumBoundarySamples: Int = 16
 
     // MARK: - Component rasterizers
 
@@ -1900,69 +1918,6 @@ public enum MaskRaster {
     static func fitted(_ plane: Plane, _ w: Int, _ h: Int) -> Plane {
         if plane.width == w && plane.height == h { return plane }
         return plane.resized(width: w, height: h)
-    }
-
-    // MARK: - Exact Euclidean distance transform (Felzenszwalb–Huttenlocher)
-
-    /// Squared distance transform of a sampled function, two separable O(n) passes.
-    static func edt2D(_ f: [Double], _ w: Int, _ h: Int) -> [Double] {
-        var d = f
-        if w <= 0 || h <= 0 || d.count != w * h { return d }
-
-        var column = [Double](repeating: 0, count: h)
-        for x in 0..<w {
-            for y in 0..<h { column[y] = d[y * w + x] }
-            let t = edt1D(column)
-            for y in 0..<h { d[y * w + x] = t[y] }
-        }
-        var row = [Double](repeating: 0, count: w)
-        for y in 0..<h {
-            for x in 0..<w { row[x] = d[y * w + x] }
-            let t = edt1D(row)
-            for x in 0..<w { d[y * w + x] = t[x] }
-        }
-        return d
-    }
-
-    /// The 1-D lower envelope of parabolas rooted at each sample.
-    static func edt1D(_ f: [Double]) -> [Double] {
-        let n = f.count
-        if n <= 1 { return f }
-        var v = [Int](repeating: 0, count: n)
-        var z = [Double](repeating: 0, count: n + 1)
-        var k = 0
-        v[0] = 0
-        z[0] = -Double.infinity
-        z[1] = Double.infinity
-
-        for q in 1..<n {
-            var s = parabolaIntersection(f, q, v[k])
-            while k > 0 && s <= z[k] {
-                k -= 1
-                s = parabolaIntersection(f, q, v[k])
-            }
-            k += 1
-            v[k] = q
-            z[k] = s
-            z[k + 1] = Double.infinity
-        }
-
-        var d = [Double](repeating: 0, count: n)
-        k = 0
-        for q in 0..<n {
-            while k < n - 1 && z[k + 1] < Double(q) { k += 1 }
-            let dq = Double(q - v[k])
-            d[q] = dq * dq + f[v[k]]
-        }
-        return d
-    }
-
-    private static func parabolaIntersection(_ f: [Double], _ q: Int, _ vk: Int) -> Double {
-        let den = Double(2 * q - 2 * vk)
-        if den == 0 { return Double.infinity }
-        let num = (f[q] + Double(q * q)) - (f[vk] + Double(vk * vk))
-        let s = num / den
-        return s.isFinite ? s : Double.infinity
     }
 }
 
