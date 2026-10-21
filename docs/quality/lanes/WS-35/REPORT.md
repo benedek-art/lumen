@@ -27,7 +27,7 @@ Numbers from `measure.py` (end to end through `lumen-render`, sRGB, no dither), 
 | 6 | tint hue vs wheel angle, 12 hues × 4 wheels | mean ≤ 4°, max ≤ 9° | worst mean 3.4°, max 9.0° | worst mean 3.0°, max 8.0° | PASS (residual is S14, NEEDS.md 1) |
 | 7 | Midtones sat 0.5, max/min chroma around the wheel | ≤ 1.25 | 1.11 | 1.11 | PASS |
 | 8 (amended) | zone wheels' Luminance ±1: hue change mean ≤ 2°, max ≤ 7°, Shadows moves L ≥ 0.01; Global no worse than Exposure at equal ΔL | | Shadows ΔL 0.000 | zone wheels mean ≤ 1.55°, max ≤ 4.47°; Shadows ΔL −0.044 / +0.048. Global +1: ΔL 0.164, mean 1.93°, max 9.39°; Exposure +1.5: ΔL 0.165, mean 1.94°, max 9.39° | PASS as amended. As first written it FAILED on Global +1. The turn is S14's (NEEDS.md 2) |
-| 9 (amended) | Blending 0: preview (33) vs export (65) ≤ 2× base on three settings; Blending 50 within 1 code of base; width increasing, > 0.35 at 100 | | Blending 0: 11 / 6 / 4; Blending 50: 4 / 4 / 4 | Blending 0: 17 / 5 / 6 (limits 22 / 12 / 8); Blending 50: 5 / 3 / 5; width 0.200 → 0.380 → 0.565 | PASS as amended. As first written (< 0.08 at Blending 0) no engine setting can pass: the preview table renders that edge ≈ 0.19 wide regardless (NEEDS.md 4) |
+| 9 (amended) | Blending 0: preview (33) vs export (65) ≤ 2× base on three settings; Blending 50 within 1 code of base; width increasing, > 0.35 at 100 | | Blending 0: 11 / 6 / 4; Blending 50: 4 / 4 / 4 | Blending 0: 17 / 5 / 6 (limits 22 / 12 / 8); Blending 50: 5 / 3 / 5; width 0.200 → 0.380 → 0.565 | PASS as amended. As first written (< 0.08 at Blending 0) no engine setting can pass: the preview table renders that edge 0.114 wide even at half-width 0.01 and ≈ 0.19 from 0.04 up (NEEDS.md 4) |
 | 10 | Balance ±100 moves both 50 % points ≥ 0.15 the right way | | | +100: −0.30 / −0.30; −100: +0.34 / +0.30 | PASS |
 | 11 | limiters still prevent folds | existing tests | | every no-fold assertion passes unchanged; one monotonicity property restated (below, open) | PASS with one open item |
 | 12 | CPU = GPU | grade reaches the GPU only through the baked S10 table | | unchanged path, no kernel edits | PASS (gpu-parity CI: see CI) |
@@ -48,9 +48,10 @@ ceiling and its easing knee are gone. Balance moves both pivots ±0.3. Stored pi
 sit in −0.3…1.3 so a handle dropped at either end at Balance ±100 lands where it was
 dropped. The monotonicity limiters still measure per EV and now sample at
 `samplingStep`, the narrowest crossfade through the display curve's steepest slope.
-0.12 at Blending 0: the preview table renders a Blending 0 edge about 0.19 wide
-whatever the floor, and a narrower floor only makes the export disagree with the preview
-(56 code values at 0.01, 20 at 0.08, 17 at 0.12, base 11). Round 1 shipped 0.01 and round 2
+0.12 at Blending 0: the preview table renders a Blending 0 edge about 0.19 wide from a
+half-width of 0.04 up (0.114 at 0.01), and a narrower floor buys a harder preview at the
+price of the export disagreeing with it (56 code values at 0.01, 20 at 0.08, 17 at 0.12,
+base 11). Round 1 shipped 0.01 and round 2
 shipped 0.08 with a comment claiming the edge "agrees" there, which the round-2 verifier
 measured as false (preview width 0.196 against export 0.106). Half-width 0.28 at
 Blending 50 is not a taste number. At 1/6 a lone full Midtones
@@ -126,7 +127,9 @@ its zones moved with the wheels').
   back 0.013 stops (about a third of a code value) by full deflection. The test's own doc
   comment already prices this drift as the cost of the proportional shared budget. The old
   measurement points happened to show it at 1e-5. Now pinned as "strictly rising to the
-  bound, then never more than 0.02 stops below its best". Removing the drift needs a
+  bound, then never more than 0.02 stops below its best". The 1.6 at which the test
+  switches from "strictly rising" to "drift allowed" sits just under the measured peak
+  of 1.611. Removing the drift needs a
   different budget split in `solveJointScale`, which this lane did not attempt.
 - `BrillianceMonotoneTests.testTheFixMovesTheSevenThatFoldedAndNothingElse` gains a
   branch. Where the old search reported 1.0 only because its 64× ceiling flattens the
@@ -136,6 +139,9 @@ its zones moved with the wheels').
   verifier rightly called a loosening. Round 2's "within 0.02 of the 0.05 margin" ignored
   that the knee starts easing at 80 % of the cap. Fold counts per Blending re-measured:
   7 / 10 / 11 / 11 / 17 at 0 / 25 / 50 / 75 / 100.
+- `scripts/gen-fixtures.py`'s own check that the hard-crossover case "needs scaling"
+  went from `< 0.2` to `< 1.0` (measured 0.546 at the 0.12 floor). Its message always
+  claimed "needs scaling at all"; the 0.2 assumed the old 0.05 EV edge.
 - New: `GradeWheelsDisplayZoneTests` (zone placement, Blending range, partition of unity,
   level↔EV inverse, black untouched, zone selectivity, no push through grey, Luminance
   holds hue, identity).
@@ -159,7 +165,10 @@ its zones moved with the wheels').
   host, and help text split across two literals. The line-9 reasoning was wrong (above).
   Round 1's other fixes were confirmed. Line 8's amendment was judged justified. All
   fixed in round 3.
-- Round 3: see the end of this file.
+- Round 3 (fcda14f): PASS, on condition that macOS CI goes green. Its findings
+  (overstated "0.19 whatever the floor", stale ProofRegistry comment, undisclosed
+  gen-fixtures check change, the 1.6 cutoff) are fixed in the final commit's wording; no
+  code changed after round 3.
 
 Gates: `swift test --parallel --filter LumenCoreTests --skip ControlProofTests` on Swift
 6.1.2 (CI's): 3053 tests, 0 failures. `ControlProofTests -c release`: 6 tests, 0

@@ -94,16 +94,15 @@ public struct ZoneWindows: Sendable {
     /// Crossfade half-width at Blending 0, display level.
     ///
     /// The grade is baked into a 33-cube preview table and a 65-cube export table, and
-    /// the preview cannot show an edge narrower than its cells: whatever this is set to,
-    /// the preview's Blending 0 transition (10→90 %) measures about 0.19 of display level
-    /// on the grey ramp (0.184 at half-width 0.04, 0.196 at 0.08, 0.200 at 0.12). What the
-    /// floor does decide is how differently the EXPORT renders the same edge: a full
-    /// Shadows tint at Blending 0 differed between the tables by 56 code values at 0.01,
-    /// 28 at 0.05, 20 at 0.08 and 17 at 0.12 (base 11), a realistic teal and orange by
-    /// 12 / 9 / 7 / 5 (base 6). 0.12 is the narrowest floor at which the two tables agree
-    /// about as well as the base did while the preview looks no softer. The rest of the
-    /// gap is the preview table's resolution, which only a finer preview table can close
-    /// (NEEDS.md). Verifier rounds 1 and 2.
+    /// the preview cannot show an edge much narrower than its cells: the preview's
+    /// Blending 0 transition (10→90 %) measures 0.114 of display level at half-width
+    /// 0.01 and about 0.19 from 0.04 up (0.184 / 0.196 / 0.200 at 0.04 / 0.08 / 0.12). A
+    /// narrower floor buys a harder preview at the price of the export rendering a
+    /// different picture: a full Shadows tint at Blending 0 differed between the tables
+    /// by 56 code values at 0.01, 28 at 0.05, 20 at 0.08 and 17 at 0.12 (base 11), a
+    /// realistic teal and orange by 12 / 9 / 7 / 5 (base 6). 0.12 keeps the two tables
+    /// within twice the base's disagreement. A finer preview table is what would let
+    /// Blending 0 be harder without that price (NEEDS.md). Verifier rounds 1–3.
     public static let minimumHalfWidth: Double = 0.12
     /// Minimum separation between the pivots.
     public static let minimumPivotGap: Double = 0.02

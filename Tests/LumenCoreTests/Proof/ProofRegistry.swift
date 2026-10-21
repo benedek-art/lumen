@@ -638,7 +638,7 @@ enum ProofRegistry {
                 authorityFloor: 15,
                 // The eased ceiling this control used to return from is gone (two
                 // equal-width crossfades cannot drive the mid weight negative), and it
-                // now hands back 0.045 against the 13.783 it used to declare, so the ordinary
+                // is monotone now against the 13.783 it used to declare, so the ordinary
                 // ceiling applies again.
                 apply: { r, v in opposedTints(&r); r.look.wheels.blending = v }),
             ControlSpec(

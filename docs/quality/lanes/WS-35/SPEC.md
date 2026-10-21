@@ -76,8 +76,9 @@ measurement behind each, rather than read generously in the report.
   `measure.py` `lum_hue_shift` plus the same patches under `develop.tone.exposure=1.5`.
 - **9 (amended, corrected in round 3).** The original "< 0.08 at Blending 0" cannot be
   met by any engine setting: the 33-cube preview table renders the Blending 0 transition
-  about 0.19 of display level wide whatever the half-width (0.184 / 0.196 / 0.200 at
-  0.04 / 0.08 / 0.12, verifier round 2). What the engine controls is how far the export
+  about 0.19 of display level wide from a half-width of 0.04 up (0.184 / 0.196 / 0.200 at
+  0.04 / 0.08 / 0.12) and 0.114 even at 0.01, where preview and export differ by 56 codes
+  (verifier rounds 2–3). What the engine controls is how far the export
   (65-cube) disagrees with the preview. Amended line: at Blending 0 on `grey_ramp`, the
   33 vs 65 max code difference is at most 2× base for each of a full Shadows tint (base
   11), a realistic teal and orange (base 6) and Midtones Luminance +1 (base 4); at
