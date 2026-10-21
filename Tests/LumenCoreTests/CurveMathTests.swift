@@ -103,15 +103,15 @@ final class CurveMathTests: XCTestCase {
 
     func testTheHitTargetIsLargerThanTheDrawnPoint() {
         // The plot is 292 pt wide in the develop column at its 320 pt minimum; the dot
-        // is drawn at radius 3 and the tolerance is 8. A press 6 pt away — clean off the
-        // ink — must still take the point, and one 10 pt away must not.
+        // is drawn at radius 4 and the tolerance is 10. A press 8 pt away — clean off
+        // the ink — must still take the point, and one 12 pt away must not.
         let plot = 292.0
-        let tolerance = 8.0 / plot
+        let tolerance = 10.0 / plot
         let points: [[Double]] = [[0, 0], [0.5, 0.5], [1, 1]]
-        XCTAssertEqual(CurveEditing.hitIndex(points, x: 0.5 + 6 / plot, y: 0.5,
+        XCTAssertEqual(CurveEditing.hitIndex(points, x: 0.5 + 8 / plot, y: 0.5,
                                              toleranceX: tolerance,
                                              toleranceY: tolerance), 1)
-        XCTAssertNil(CurveEditing.hitIndex(points, x: 0.5 + 10 / plot, y: 0.5,
+        XCTAssertNil(CurveEditing.hitIndex(points, x: 0.5 + 12 / plot, y: 0.5,
                                            toleranceX: tolerance, toleranceY: tolerance))
     }
 
@@ -299,7 +299,7 @@ final class CurveMathTests: XCTestCase {
                        "CurveEditing.sanitizedSplits(", "CurveEditing.escapes(",
                        "CurveEditing.pointCoalescingKey(", "CurveEditing.readout(",
                        "CurveEditing.isIdentity(", "CurveEditing.clampedSplit(",
-                       "CurveEditing.nearestIndexByX(", "CurveEditing.splitReadout("] {
+                       "CurveEditing.placing(", "CurveEditing.splitReadout("] {
             XCTAssertTrue(source.contains(symbol),
                           "CurveEditorView no longer calls \(symbol) — the rule is in "
                           + "LumenCore where it is tested, and a view that stopped "
@@ -385,17 +385,20 @@ final class CurveMathTests: XCTestCase {
 
     /// The ink and the target, pinned where the arithmetic test above assumes them.
     ///
-    /// `testTheHitTargetIsLargerThanTheDrawnPoint` proves 8 catches a press 6 pt off a
-    /// dot of radius 3. That proof is about the editor only while the editor still draws
-    /// at 3 and presses at 8, and neither number is reachable from LumenCore.
+    /// `testTheHitTargetIsLargerThanTheDrawnPoint` proves 10 catches a press 8 pt off a
+    /// dot of radius 4. That proof is about the editor only while the editor still draws
+    /// at 4 and presses at 10, and neither number is reachable from LumenCore.
     func testTheDrawnPointStaysSmallerThanThePressItAnswersTo() throws {
         let source = try Self.appSource("CurveEditorView.swift")
-        XCTAssertTrue(source.contains("hitRadius: CGFloat = 8"),
+        XCTAssertTrue(source.contains("hitRadius: CGFloat = 10"),
                       "the press radius moved; re-derive testTheHitTargetIsLarger…")
-        XCTAssertTrue(source.contains("width: 6, height: 6"),
-                      "the control dot is drawn from a 6 pt box (radius 3) — a dot that "
-                      + "grew past the tolerance would make the target smaller than the "
-                      + "ink, which is the defect the two numbers are stated apart for")
+        XCTAssertTrue(source.contains("pointRadius: CGFloat = 4"),
+                      "the control dot is drawn at radius 4 — a dot that grew past the "
+                      + "tolerance would make the target smaller than the ink, which is "
+                      + "the defect the two numbers are stated apart for")
+        XCTAssertTrue(source.contains("activePointRadius: CGFloat = 5.5"),
+                      "the lit dot (hovered or dragged) is radius 5.5, still inside the "
+                      + "10 pt press radius")
     }
 
     // MARK: - The Zones register's quantum
@@ -457,7 +460,7 @@ final class CurveMathTests: XCTestCase {
         return Double(digits)
     }
 
-    private static func appSource(_ name: String) throws -> String {
+    static func appSource(_ name: String) throws -> String {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()      // LumenCoreTests
             .deletingLastPathComponent()      // Tests

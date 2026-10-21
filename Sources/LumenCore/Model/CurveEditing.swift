@@ -235,6 +235,99 @@ public enum CurveEditing {
         return x < -marginX || y < -marginY || x > 1 + marginX || y > 1 + marginY
     }
 
+    // MARK: - Placing a point
+
+    /// How close in x a click on empty graph may land to an existing point before it
+    /// takes hold of that point instead of adding a second one beside it. Two minimum
+    /// gaps: closer than that, the new point could not move at all without crossing.
+    public static let placementGrabGap: Double = 2 * minimumPointGap
+
+    /// A click on empty graph: a new point ON THE CURVE at `x`, or the existing point
+    /// already there. Returns the new list and the index the drag should hold.
+    ///
+    /// `curveY` is the curve's current value at `x`, so placing a point does not move
+    /// the curve. The editor used to put the point under the pointer instead, through
+    /// `CurveStack.settingPoint` — and that helper's 0.02 snap moved an EXISTING point
+    /// to the click's height whenever the click was within 2 % of it in x, however far
+    /// away it was vertically. A press 6 pt beside a point and 100 pt below it yanked
+    /// the point (and the picture) 100 pt before the hand had moved. Placement and
+    /// adjustment are now two halves of one gesture: the press pins the curve where it
+    /// is, the drag that follows moves it, by the distance the hand moves.
+    public static func placing(_ points: [[Double]], x: Double,
+                               curveY: Double) -> (points: [[Double]], index: Int) {
+        let clean = sanitized(points)
+        let cx = clamp01(x)
+        if let near = nearestIndexByX(clean, x: cx), abs(clean[near][0] - cx) < placementGrabGap {
+            return (clean, near)
+        }
+        var out = clean
+        out.append([cx, clamp01(curveY)])
+        out.sort { $0[0] < $1[0] }
+        let index = out.firstIndex { $0[0] == cx } ?? 0
+        return (out, index)
+    }
+
+    // MARK: - Dragging a point
+
+    /// The fraction of the hand's movement a point follows in fine-adjust mode (⌥ held
+    /// during the drag, Lightroom's modifier for the same thing). One tenth: on the
+    /// develop column's 292 pt plot a 1 pt hand movement is then 0.034 % of the axis,
+    /// under a tenth of an 8-bit code value per point of travel.
+    public static let fineDragScale: Double = 0.1
+
+    /// A drag in progress, in the graph's unit square.
+    ///
+    /// The point moves by the POINTER'S DISPLACEMENT, never to the pointer. Grabbing a
+    /// point 6 pt off its centre therefore does not snap it 6 pt sideways, and the fine
+    /// mode is a gain on that displacement. Changing the gain mid-drag re-anchors at the
+    /// current position, so pressing or releasing ⌥ while dragging never makes the point
+    /// jump — the property every precision mode has to have or nobody can use it.
+    public struct DragAnchor: Equatable, Sendable {
+        public private(set) var originX: Double
+        public private(set) var originY: Double
+        public private(set) var pointerX: Double
+        public private(set) var pointerY: Double
+        public private(set) var fine: Bool
+        /// The farthest the pointer has been from the press, in the unit square, at
+        /// full gain. A press that never travels is a click, not a drag.
+        public private(set) var travel: Double = 0
+        private let pressX: Double
+        private let pressY: Double
+
+        public init(pointX: Double, pointY: Double, pointerX: Double, pointerY: Double,
+                    fine: Bool = false) {
+            self.originX = pointX
+            self.originY = pointY
+            self.pointerX = pointerX
+            self.pointerY = pointerY
+            self.pressX = pointerX
+            self.pressY = pointerY
+            self.fine = fine
+        }
+
+        /// Where the point is for a pointer at (`x`, `y`), unclamped — the caller clamps
+        /// against the neighbours. Mutating because a change of `fine` re-anchors.
+        public mutating func position(pointerX x: Double, pointerY y: Double,
+                                      fine: Bool) -> (x: Double, y: Double) {
+            let dx = (x - pressX), dy = (y - pressY)
+            travel = Swift.max(travel, (dx * dx + dy * dy).squareRoot())
+            if fine != self.fine {
+                let here = current(x: x, y: y)
+                originX = here.x
+                originY = here.y
+                pointerX = x
+                pointerY = y
+                self.fine = fine
+            }
+            return current(x: x, y: y)
+        }
+
+        private func current(x: Double, y: Double) -> (x: Double, y: Double) {
+            let gain = fine ? CurveEditing.fineDragScale : 1
+            return (originX + (x - pointerX) * gain, originY + (y - pointerY) * gain)
+        }
+    }
+
     // MARK: - Parametric splits
 
     /// Three ascending splits inside the panel's own bounds, whatever arrived.
