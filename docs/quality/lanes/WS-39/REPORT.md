@@ -35,7 +35,7 @@ Numbers from `measure.py --corpus` at `150c4df` and the builder's run (the verif
 
 Visual lines: V1 PASS (`03_1192_glass_100pct.png`: the gold halo glass bleeds warm into the lead lines, wall and blue glass unchanged; subtle at the default). V2 PASS (`02_…`: snow, sky and chart whites unchanged; faint outlines only at chart-white edges). V3 PASS (`01_…`).
 
-Verifier: round 1 FAIL on M9 (read before the band amendment), M10 (WS-38) and CI pending, plus one real finding (Film Lab Exposure ignored), fixed in `150c4df`. Round 2: see the end of this file.
+Verifier: round 1 FAIL on M9 (read before the band amendment), M10 (WS-38) and CI pending, plus one real finding (Film Lab Exposure ignored), fixed in `150c4df`. Round 2 at `150c4df`: **PASS for the lane's own work**, M10 honestly BLOCKED on WS-38, conditional on macOS CI. It re-measured exposure on a clipped lamp: −2 EV ring 10.2 → 2.7 codes mean, 0 EV unchanged (byte-identical), +3 EV at Amount 100 a strong bloom (8× the light; extreme but consistent). It accepted the M9 band amendment because the stage's linearity is held exactly by the unit test; the integrator should still know the band was widened after the first numbers.
 
 ## What changed and why
 
@@ -51,7 +51,7 @@ All in owned functions: `HalationProfile`, `FilmChain.halation/halationProfile`,
 
 ## Tests changed and why
 
-- `HalationControlTests`: removed `testNormalizingTheBouncesMovesNoPixel` (it pinned the old pixels byte for byte) and the flat-field form of `testTheRendererAppliesBounceWeightsThatSumToOne` (it required a flat field to glow). Added 8 tests for M1–M6, M9 and the exposure coupling. 16/16 pass.
+- `HalationControlTests`: removed `testNormalizingTheBouncesMovesNoPixel` (it pinned the old pixels byte for byte) and the flat-field form of `testTheRendererAppliesBounceWeightsThatSumToOne` (it required a flat field to glow). Added 8 tests for M1–M6, M9 and the exposure coupling. Renamed `testTheDefaultHaloIsExactlyWhatShippedBeforeTheControlExisted` to `testTheDefaultHaloKeysAreNilAndTheFirstBounceIsTheEmulsions`, since the default halo did change. 16/16 pass.
 - `KernelGoldenTests` (macOS): the halation width and gate goldens measured on flat fields or against a closed-form prediction of the old field. They now compare GPU against reference on a block source (spread within 10%, mass within 3%, the gate's closed end zero on both), same tolerances as before.
 - Proof records `film.halation*.json` re-recorded. `ProofRegistry` floors on my two rows lowered (Amount 17 → 9, Size 11 → 4.5): on `wideStepEdge` the old 24.71 authority was mostly the cast over the bright side (mean separation 0.942 → 0.021). That frame's bright side is a diffuse white half a stop under the clip, so it is now correctly a small glow. **Integrator / WS-58: these are edits to existing rows of your registry, not appends.**
 

@@ -47,9 +47,10 @@ final class HalationControlTests: XCTestCase {
         }
     }
 
-    /// And the DEFAULT is what shipped, to the bit. This is the assertion that says the
-    /// control was added without changing a single existing photograph.
-    func testTheDefaultHaloIsExactlyWhatShippedBeforeTheControlExisted() {
+    /// The new keys default to nil (no bytes written into existing recipes) and the
+    /// first bounce is the emulsion's 65 µm at the gate. WS-39 changed the halo itself;
+    /// this pins only what the control's defaults mean.
+    func testTheDefaultHaloKeysAreNilAndTheFirstBounceIsTheEmulsions() {
         let shipped = chain().halation(longEdgePixels: 4000)
         XCTAssertEqual(shipped.sizeMultiplier, 1.0)
         XCTAssertNil(FilmLab(stock: "lumen/portra400").halationSize,
