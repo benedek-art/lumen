@@ -1,64 +1,95 @@
 # WS-56/57 report: heal and clone spots, heal strokes, dust
 
 Branch `quality/ws-56-57-heal` from `claude/inspiring-dirac-ulgpch` (c1c8e23). One lane
-folder for both workstreams; WS-57's lines are S8, S9 and C4.
+folder for both workstreams; WS-57's lines are S8, S9 and C4. Round 1 (2d67087) failed
+verification; this is round 2.
 
 ## For the owner
 
-1. Before, a default spot (Feather 50) blended half the blemish back in and left a visible ring. Now the circle is always fully replaced, and the feather sits outside it (`evidence/spots-texture.png`, first column vs fourth).
-2. Heal no longer smears sky grain and no longer pastes a flat disc, a sky hole or a wall pit on foliage and plaster. Every sky/skin case reads ΔE ≤ 0.06, and texture heals sit inside the photo's own patch-to-patch variation.
-3. New: drag a painted stroke's dashed source line, `/` re-picks it, and **Remove Dust** in the Heal bar heals every soft speck on smooth areas in one undo step.
-4. Try by hand on a Mac: a stroke source drag and `/` on a stroke, then Remove Dust on a real dusty sky at f/16. Look at what it does on walls: it can mark plaster pits (10 on 6929, image `dust-false-6929.png`).
-5. Recipes made before this branch render slightly differently: feathered spots now reach further out than before, at the same inner sharpness.
+1. A default spot used to blend half the blemish back in and leave a ring. The circle is now always fully replaced, and the feather sits outside it (`spots-texture.png`, heal_before vs heal_after).
+2. Sky dust and skin blemishes heal invisibly (ΔE ≤ 0.07, grain kept). Spots that straddle a branch, a trunk or an object's edge still get a plausible-but-wrong patch (`spots-edges.png`). A patch copier can't continue a trunk; Lightroom uses generative Remove for that.
+3. New: drag a painted stroke's dashed source line, press `/` on a stroke to re-pick it, and use **Remove Dust** in the Heal bar. Remove Dust found 8 of 9 planted sky specks and made 2 false detections across 10 clean photos.
+4. Try on a Mac: a stroke source drag, `/` on a stroke, and Remove Dust on a real dusty f/16 sky.
+5. Spots in recipes made before this branch reach further out when feathered (the feather moved outside the circle).
 
 ## Verdict per spec line
 
-Measured on this branch (2d67087), Linux, CPU reference. "Base" = c1c8e23 with the same harness.
+Measured on this branch, Linux CPU reference. "Base" is c1c8e23 run through the same harness.
 
 | # | result | number |
 |---|---|---|
 | S1 | PASS | identity tests green; nothing moves beyond the reach |
-| S2 | PASS | syn sky: ΔE 0.01/0.00, blotch 0.07/0.04, seamStep −0.01/0.00, texture 0.92/0.95 (base texture 0.49/0.67) |
-| S3 | PASS | < 0.01 stop of a circle-filling speck left at Feather 0, 50, 100 |
-| S4 | PASS | cloned noise keeps ≥ 0.95 of its std |
+| S2 | PASS | syn sky ΔE 0.01/0.02, blotch 0.07/0.06, seamStep −0.01/0.00, texture 0.92/0.94 (base texture 0.49/0.67) |
+| S3 | PASS | < 0.01 stop of a circle-filling speck left at Feather 0/50/100 (Heal) |
+| S4 | PASS | cloned noise keeps ≥ 0.95 of its std (worst offset only just: 0.950) |
 | S5 | PASS | 2-stop-darker source: texture > 0.8; exponential ramp within 0.01 stop |
-| S6 | PASS | syn foliage Heal ΔE 1.23 vs natural 2.69, blotch 8.7 vs 11.3, texture 0.96 |
+| S6 | PASS | syn foliage Heal ΔE 1.31 vs natural 2.69, blotch 5.8 vs 11.3, texture 1.03 |
 | S7 | PASS | healed core never below 0.9 of clean with pits everywhere but one band |
-| S8 | PASS | syn sky wire: ΔE 0.01, blotch 0.17, texture 0.98 |
+| S8 | PASS | syn sky wire ΔE 0.01, blotch 0.17, texture 0.98 |
 | S9 | PASS | `StrokeSourceRepickTests` 4/4 |
-| S10 | PASS | 10/10 synthetic specks, 0 on clean sky, foliage, edge and line; windowed search finds each once |
-| S11 | Linux model PASS (< 1e-6); macOS: see "CI" below |
-| C1 | PASS | 983 a/b/treeline ΔE 0.05/0.02/0.06, 1840 a/b 0.01/0.02; texture 0.94–1.02 (base 0.60–0.89); abs(seamStep) ≤ 0.01 |
-| C2 | PASS | skin_tones light/mid/edge ΔE 0.00 (base 0.09: the inside feather blended the blemish back) |
-| C3 | **2 of 5 over the line** | ΔE vs natural: 6929 foliage 3.34 vs 2.85, 1840 field 2.57 vs 2.46 (over by 17 % and 4 %); ivy 0.49 vs 6.15, wall 0.13 vs 2.07, canopy 0.73 vs 12.2. Blotch under natural on all 5. Both over-line cases are clean by eye (`spots-texture.png`); base on the same two: 0.63 and 3.04, with a visible ring on the first |
-| C4 | PASS | 983/1840 sky wire ΔE 0.01/0.00, texture 0.96/0.98; skin 0.00; wall blotch 5.58 vs base 5.51 |
-| C5 | PASS | planted sky dust found: 983 5/5, 1840 4/4 (texture-placed ones skipped by design); false detections: 983 3, 1840 0, GX85 0. 6929: 10 (plaster pits; human judgement) |
+| S10 | PASS | 10/10 synthetic specks; 0 on clean sky, foliage, edges, lines |
+| S11 | Linux model PASS; macOS parity green on 2d67087 (same kernels as this round) |
+| S12 | PASS | noisy-sky dust 3/3, 0 false |
+| C1 | PASS | 983 a/b/treeline ΔE 0.05/0.02/0.07, 1840 a/b 0.01/0.02; texture 0.94–1.02 (base 0.60–0.89) |
+| C2 | PASS (trivial) | skin_tones ΔE 0.00; the swatches are flat, so this only proves the blemish is gone (base left 0.09) |
+| C3 | **FAIL, 2 of 5** | 6929 foliage 3.34 vs natural 2.85; 1840 field 2.57 vs 2.46. Under natural: ivy 0.67 vs 6.15, wall 0.13 vs 2.07, canopy 0.73 vs 12.2. Blotch under natural on all 5 |
+| C3b | judged by eye, mixed | 6933 leaf 5.94 vs 4.53 (over), branch 4.44 vs 5.20, trunk 3.58 vs 5.46, 1192 mound 5.15 vs 6.75; see below |
+| C4 | PASS | sky wires ΔE 0.01/0.00, texture 0.96/0.98; skin 0.00; wall blotch 5.05 vs base 5.51 |
+| C5 | **FAIL by one speck** | planted sky specks 8/9 (983 4/5, 1840 4/4). The miss sits 30 px from the mountain's soft edge. False detections on 983/1840/GX85: 0 |
+| C6 | PASS | 2 false detections on 10 clean frames (6933 1, R5 II 7881 1); round 1 had 107 |
+
+## What I tried for C3 and C3b, and why it stays
+
+Round 2 swept seven variants of the source scorer: without the energy, consistency, outlier or level terms; level split into luma and chroma; the context ring measured from the circle instead of the reach; and a hybrid ring. Results are in the scratch `sweep*.txt` files.
+
+The circle-relative ring put every texture case under natural variation on ΔE. At 2× zoom, though, it pasted a second branch into 6933 and a striped object onto the 1192 mound. A lower ΔE against the truth came with a worse picture. The hybrid ring continued the 6933 trunk correctly, but pasted a sky hole into the 1840 canopy.
+
+No variant was better everywhere by eye, so round 1's ring stays. The one change kept is the full-disc outlier grid, which fixes a real defect: a wall pit was pasted when the grid stopped at 0.95. This was the ceiling of patch-copy heal on spots that straddle structure. A structure-aware or generative fill is the fix, and it is out of this lane's scope.
 
 ## What changed and why
 
-Ground truth first. Every audit case is a clean corpus or synthetic frame plus a synthesised defect: dust on 983/1840 sky, blemishes on `skin_tones`, specks on 6929 foliage, ivy and wall, plus 1840 canopy and field. That makes ΔE, seam step, blotch and grain measurable against the real pixels. The audit found five defects, all now fixed on CPU and GPU together:
+Every audit case is a clean frame plus a synthesised defect, so ΔE, seam, blotch and grain are measured against the real pixels. Defects found and fixed, CPU and GPU together:
 
-1. **Inside feather.** `rin = 1 − feather` put the soft edge inside the circle, so at Feather 50 the blemish was 50 % mixed back in at ρ = 0.75: a visible ring around every healed speck. The feather now extends `featherReach` (1.0) radii outside the circle (`SpotRetouch.resolve`, `StrokeHeal.resolve`), and the geometry's `radius` is the reach. At 0.5 the transition was half as wide as before and Clone strokes on sky showed a step (seamGrad 1.6), so 1.0 keeps the old transition width.
-2. **Bilinear sources.** Sub-pixel source offsets averaged four pixels and halved the grain (texture 0.49 on syn sky). Offsets are rounded to whole pixels at resolve.
-3. **Additive membrane.** Re-lighting by adding a constant in linear light keeps the source's absolute contrast, which turned a gappy canopy into a milky disc and could drive pixels negative. The membrane now lives in `LumenLog`'s domain (multiplicative; toe-safe at zero). The rim is low-passed (16 Hann-weighted points over 4 rim spacings, means taken before the log) and sampled 1 px outside the reach.
-4. **Flat-source bias.** A raw ring SSD scores a flat candidate σ² and a matched but uncorrelated texture 2σ², so on texture the search picked shadow and pasted a smooth disc (1840 canopy, texture 0.30). `Scorer.contextCost` adds texture energy, interior consistency, a Heal level term and an outlier term on a dense interior grid (1.5 px), shared by spots and strokes.
-5. **Overlap clearance** is now reach + circle, not 2× reach. Requiring 2× reach pushed the wall stroke's source past the window and pasted a second window edge.
+1. **Inside feather.** At Feather 50 the blemish was 50 % mixed back in at ρ 0.75, leaving a visible ring. The feather now extends `featherReach` (1.0) radii outside the circle or tube.
+2. **Bilinear sources.** A sub-pixel offset averaged four pixels and halved the grain (texture 0.49). Offsets are rounded to whole pixels.
+3. **Additive membrane.** It kept the source's absolute contrast, which turned a gappy canopy milky. Heal now re-lights multiplicatively in `LumenLog`'s domain. The rim is low-passed (16 Hann points over 4 spacings) and sampled 1 px outside the reach.
+4. **Flat-source bias.** A raw ring SSD prefers a flat patch on texture (1840 canopy, texture 0.30). `Scorer.contextCost` adds texture energy, interior consistency, a Heal level term and an outlier term on a grid covering the full disc. Strokes share it.
+5. **Clearance** is reach + circle: 2× reach pushed the wall stroke's source past the window.
 
-New: `StrokeSourceSearch.rankedOffsets/nextOffset`, `StrokeHandles.hitSource/draggedSource`, and the HealCanvas stroke-source drag and `/`. Also `DustDetection` (difference of boxes in log luma at 5 scales; deep enough, round, soft, on a smooth surround) with `RenderCoordinator.dustSpots` and the Remove Dust button. The dust search uses the heal search's existing S5 tap, tiled with `DustDetection.probes`, so no renderer code changed.
+New features:
+
+- Strokes: `StrokeSourceSearch.rankedOffsets/nextOffset` and `StrokeHandles.hitSource/draggedSource`, plus the HealCanvas drag and `/`. During the drag the set lives in the stroke cache under its future content hash, and the blob is written once at the end.
+- Dust: `DustDetection`, a difference of boxes in log luma at 5 scales. A hit must be deep enough, round, soft, on a smooth local surround, and on a surround smooth over a wide window measured on a band-pass plane. The band-pass keeps a gradient and pixel noise from counting as roughness, so a speckled bowl, wallpaper or plaster isn't searched.
+- Remove Dust (HealCanvas): one window per coordinator call (`RenderCoordinator.dustWindow`), so the actor is free between windows. Detection runs off the actors and the source search runs per speck. Pressing the button again stops it.
 
 ## Tests changed, and why
 
-- `SpotRetouchCoreImageModelTests.testTheModelReproducesTheMacOSLane` pinned the lane's 2026-10 numbers for the old arithmetic. It now holds the property the lane found (the margin smear) on every case and size. The old numbers are in git at c1c8e23.
-- `SpotRetouchTests`: the outside-untouched radius is now the reach. The linear-ramp heal bound went from 1e-5 to 1e-3 and the slope test from 0.004 to 0.006, because a ramp linear in light is not harmonic in log; it misses by 0.0014 and 0.0041 against a 0.06 flat fill. Exactness moved to a new exponential-ramp test. The long-edge radius test now pins Feather 0 and checks the reach separately.
+- `SpotRetouchCoreImageModelTests.testTheModelReproducesTheMacOSLane` pinned the 2026-10 lane numbers for the old arithmetic. It now holds the property the lane found (the margin smear) on every case and size. The old numbers are in git at c1c8e23.
+- `SpotRetouchTests`:
+  - The outside-untouched radius is now the reach.
+  - The linear-ramp bound went from 1e-5 to 1e-3, and the slope bound from 0.004 to 0.006: a ramp linear in light isn't harmonic in log. They miss by 0.0014 and 0.0041 against a 0.06 flat fill, and exactness moved to a new exponential-ramp test.
+  - The long-edge radius test now pins Feather 0.
 - `SpotSourceSearchTests`: the window scale is set by the reach (900 px, not 600).
+- `Tests/LumenAppTests/LayoutMetricSupport.swift`: the four Heal bar slider citations now point at their moved lines. This was the round-1 CI failure. It is a mechanical re-point, following `d0f518f`'s precedent, in a file outside the lane's rows.
+
+## Ownership
+
+Edited outside the WS-56/57 rows, all additive, for the integrator to sign off:
+
+- `StrokeHandles.swift` (stroke handles) and `RenderCoordinator.swift` (`healStrokeOffsetCandidates`, `dustWindow`, beside the existing heal taps).
+- The new `DustDetection.swift`.
+- The Remove Dust button, inside the HealCanvas panel body, which WS-56 owns.
+- `LayoutMetricSupport.swift` (citations only).
 
 ## Not fixed / for a human
 
-- **Clone on texture** can paste a gap: on the 1840 canopy, Clone ΔE is 6.61 with a sky hole. Clone copies verbatim, and the canopy's own ring has gaps, so it isn't an outlier. Heal on the same spot is 0.73.
-- **Dust on plaster**: 10 detections on 6929's wall are real pits; LR's Visualize Spots shows them too. Remove Dust skips texture by design but not smooth walls.
-- The spec was written after the first fixes, not before them. The audit numbers came first and are the "base" column above.
-- Interaction (drag latency, the Remove Dust wait on a 45 MP file: about 20 window renders plus one source search per speck) needs a Mac.
+- **Spots straddling an edge** (C3b, `spots-edges.png`) get a wrong-but-plausible patch, the same class of failure for Heal and Clone.
+- **Clone on texture** can paste a gap where Heal doesn't. The 1840 canopy and syn foliage show it: Clone ΔE 4.50 vs Heal 1.31.
+- **A source dragged into deep shadow** comes back with its grain amplified (the verifier measured about 10× relative std from a 1e-4 source). That is what multiplicative re-light does. Auto-sourcing never picks such a source; a hand drag can.
+- **Remove Dust skips dust beside a strong edge**: the mountain-edge speck in C5.
+- **SPEC.md was written after the first fixes**, and round 2 added amendments (S12, C3b, C6), marked as such.
+- **Full LumenCoreTests on Linux** didn't finish: one "C" class ran for 4 hours on Swift 6.0.3 debug before I killed it. macOS `ci.yml` test-fast ran the whole suite on 2d67087: 3783 of 3784, with the one failure the layout citation fixed here. Spot/stroke/heal/dust classes: 117 tests, 0 failures. The surface checker is clean.
 
 ## CI
 
-PENDING
+2d67087 (round 1): GPU parity, UI layout, UI snapshots and Proof sweep green; `ci.yml` red on `LayoutMetricSelfTests`, fixed in 098a57c. Round 2: see the final commit's runs.
