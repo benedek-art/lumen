@@ -161,9 +161,10 @@ final class SliderContractTests: XCTestCase {
             context.toLCh(engine.apply(
                 context.toRGB(OKLCh(L: 0.55, C: 0.10, h: h)))).h
         }
-        // The canonical geometry: centres at 29.23 + 45k, seams 22.5° off-centre.
+        // The canonical geometry (WS-31: uneven), each seam at the crossover where the
+        // band hands over to the next.
         for k in 0..<8 {
-            let centre = Num.wrapHue(29.23 + 45.0 * Double(k))
+            let centre = ColorEngine.bandHueCentres[k]
             let a = outHue(Num.wrapHue(centre - 4))
             let b = outHue(Num.wrapHue(centre + 4))
             let spread = abs(Num.hueDelta(a, b))
@@ -171,7 +172,7 @@ final class SliderContractTests: XCTestCase {
                 "an 8° pair around the \(centre)° centre converged to only "
                     + "\(spread)° at uniformity 100 — the flats are where "
                     + "convergence lives and they must deliver")
-            let seam = Num.wrapHue(centre + 22.5)
+            let seam = Num.wrapHue(ColorEngine.bandCrossoverDegrees[k])
             let seamMove = abs(Num.hueDelta(seam, outHue(seam)))
             XCTAssertLessThan(seamMove, 2.5,
                 "the seam hue \(seam)° moved \(seamMove)° — a boundary colour "

@@ -865,15 +865,16 @@ final class ColorScienceTests: XCTestCase {
         bands[1].feather = [.infinity, -5]
         bands[2].core = []
         bands[2].feather = [7]
-        for arc in ColorEngine.bandArcs(bands) {
+        for (i, arc) in ColorEngine.bandArcs(bands).enumerated() {
             for core in [arc.coreBelow, arc.coreAbove] {
                 XCTAssertGreaterThanOrEqual(core, ColorEngine.bandCoreMinDegrees)
                 XCTAssertLessThanOrEqual(core, ColorEngine.bandCoreMaxDegrees)
             }
-            XCTAssertGreaterThanOrEqual(arc.coreBelow + arc.featherBelow,
-                                        ColorEngine.bandMinReachDegrees - 1e-9)
-            XCTAssertGreaterThanOrEqual(arc.coreAbove + arc.featherAbove,
-                                        ColorEngine.bandMinReachDegrees - 1e-9)
+            // WS-31: the reach floor is per band and side (half the gap plus a margin),
+            // since the gaps are no longer all 45°.
+            let reach = ColorEngine.bandMinReach(i)
+            XCTAssertGreaterThanOrEqual(arc.coreBelow + arc.featherBelow, reach.below - 1e-9)
+            XCTAssertGreaterThanOrEqual(arc.coreAbove + arc.featherAbove, reach.above - 1e-9)
         }
     }
 
@@ -883,14 +884,16 @@ final class ColorScienceTests: XCTestCase {
     /// its legal minimum, adjacent bands must still overlap at every midpoint, so the
     /// branch stays unreachable from the ring.
     func testShrunkBandsStillOverlapEverywhere() {
-        let arcs = ColorEngine.bandArcs(
-            Self.flatBands(core: [ColorEngine.bandCoreMinDegrees,
-                                  ColorEngine.bandCoreMinDegrees],
-                           feather: [ColorEngine.bandFeatherMinDegrees,
-                                     ColorEngine.bandFeatherMinDegrees]))
+        // The wire values are relative to each band's default (WS-31), so 0 asks for less
+        // than the legal minimum on every band and the sanitizer has to supply it.
+        let arcs = ColorEngine.bandArcs(Self.flatBands(core: [0, 0], feather: [0, 0]))
+        for arc in arcs {
+            XCTAssertEqual(arc.coreBelow, ColorEngine.bandCoreMinDegrees)
+            XCTAssertEqual(arc.coreAbove, ColorEngine.bandCoreMinDegrees)
+        }
         for i in 0..<ColorEngine.bandCount {
             let midpoint = ColorEngine.bandHueCentres[i]
-                + ColorEngine.bandSpacingDegrees / 2
+                + ColorEngine.bandGapAbove(i) / 2
             let w = ColorEngine.bandWeights(hue: midpoint, arcs: arcs)
             let next = (i + 1) % ColorEngine.bandCount
             XCTAssertGreaterThan(w[i], 0, "band \(i) fell off its own midpoint")
@@ -901,7 +904,12 @@ final class ColorScienceTests: XCTestCase {
 
     func testCoreCentreIsTheMidpointOfTheInnerHandles() {
         var bands = [MixerBand](repeating: MixerBand(), count: ColorEngine.bandCount)
-        bands[5].core = [5, 40]
+        // Degrees through `wireHandles`: the wire is relative to the band's default now.
+        let d = ColorEngine.defaultArc(5)
+        bands[5].core = ColorEngine.wireHandles(
+            for: ColorEngine.BandArc(centre: d.centre, coreBelow: 5, coreAbove: 40,
+                                     featherBelow: d.featherBelow, featherAbove: d.featherAbove),
+            band: 5).core
         let arc = ColorEngine.bandArcs(bands)[5]
         XCTAssertEqual(Num.hueDelta(ColorEngine.bandHueCentres[5], arc.coreCentre),
                        17.5, accuracy: 1e-9)
@@ -938,7 +946,11 @@ final class ColorScienceTests: XCTestCase {
                        "a colour already at the band's target was moved anyway")
 
         var reshaped = mixer
-        reshaped.bands[5].core = [5, 40]                     // core midpoint +17.5°
+        let d = ColorEngine.defaultArc(5)                     // core midpoint +17.5°
+        reshaped.bands[5].core = ColorEngine.wireHandles(
+            for: ColorEngine.BandArc(centre: d.centre, coreBelow: 5, coreAbove: 40,
+                                     featherBelow: d.featherBelow, featherAbove: d.featherAbove),
+            band: 5).core
         let engine = uniformityEngine(reshaped)
         let moved = Num.hueDelta(centre, hue(of: engine.apply(colour)))
         XCTAssertEqual(moved, 17.5, accuracy: 1.5,
@@ -1008,15 +1020,20 @@ final class ColorScienceTests: XCTestCase {
     /// Hue wraps, and an arithmetic mean of 350° and 10° is 180° — the opposite colour.
     /// The measurement is a chroma-weighted CIRCULAR mean for exactly this reason.
     func testMeasuredMeanHueIsCircular() {
-        let colours = [swatch(hue: 350), swatch(hue: 10)]
+        // WS-31: with uneven bands the 0° wrap sits inside the Magenta→Red hand-over, so
+        // both bands see both colours; the pair is 355°/5° (10° apart across the wrap,
+        // as 350°/10° was on the old grid's Magenta core) and both means are checked.
+        let colours = [swatch(hue: 355), swatch(hue: 5)]
         guard let means = ColorEngine.measureBandMeanHues(colours) else {
             return XCTFail("measured nothing from two saturated colours")
         }
-        let magenta = means[7]        // the band whose core spans the 0° wrap
-        XCTAssertLessThan(abs(Num.hueDelta(0, magenta)), 10,
-                          "the mean of 350° and 10° landed at \(magenta)°")
-        XCTAssertGreaterThan(abs(Num.hueDelta(180, magenta)), 90,
-                             "the mean wrapped to the opposite colour")
+        for band in [0, 7] {
+            let mean = means[band]
+            XCTAssertLessThan(abs(Num.hueDelta(0, mean)), 5,
+                              "band \(band): the mean of 355° and 5° landed at \(mean)°")
+            XCTAssertGreaterThan(abs(Num.hueDelta(180, mean)), 90,
+                                 "the mean wrapped to the opposite colour")
+        }
     }
 
     /// The measurement is chroma-weighted, so a frame that is mostly grey does not drag

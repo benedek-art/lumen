@@ -255,6 +255,55 @@ final class ExactColorStageTests: XCTestCase {
         XCTAssertEqual(failures, [])
     }
 
+    /// WS-31 T1: every single Mixer slider at both endpoints, engine against twin, on a
+    /// 1° hue sweep at four lightness × chroma rows — the band edges and the hue warp's
+    /// knots are where a twin that read a uniform differently would show — held to the
+    /// same gate as the family-endpoint test above.
+    func testTheMixerTwinMatchesTheEngineOnAOneDegreeHueSweepAtEverySliderEndpoint() {
+        let context = OKLabTransform.working
+        var sweep: [RGB] = []
+        for hue in 0..<360 {
+            for (L, C) in [(0.4, 0.03), (0.6, 0.06), (0.8, 0.12), (0.6, 0.2)] {
+                let c = context.toRGB(OKLCh(L: L, C: C, h: Double(hue)))
+                sweep.append(RGB(Double(Float(c.r)), Double(Float(c.g)), Double(Float(c.b))))
+            }
+        }
+        var failures: [String] = []
+        var overall = 0.0
+        for band in 0..<ColorEngine.bandCount {
+            for attribute in ["hue", "sat", "lum"] {
+                for v in [-100.0, 100] {
+                    var r = Recipe()
+                    switch attribute {
+                    case "hue": r.develop.mixer.bands[band].hue = v
+                    case "sat": r.develop.mixer.bands[band].sat = v
+                    default: r.develop.mixer.bands[band].lum = v
+                    }
+                    let e = Self.engine(r)
+                    let stage = e.exactStage
+                    for c in sweep {
+                        let expected = e.apply(c)
+                        let actual = stage.apply(c)
+                        let scale = Swift.max(1, Swift.max(abs(c.r), abs(c.g), abs(c.b)),
+                                              Swift.max(abs(expected.r), abs(expected.g),
+                                                        abs(expected.b)))
+                        let error = actual.maxAbsDifference(expected) / scale
+                        var gate = 3e-5
+                        if error > gate {
+                            gate += Self.conditionNumber(e, at: c, scale: scale) * 5e-7
+                        }
+                        overall = Swift.max(overall, error / gate)
+                        if !(error <= gate) {
+                            failures.append("mixer\(band).\(attribute)\(v): \(error) at \(c)")
+                        }
+                    }
+                }
+            }
+        }
+        print("EXACT_STAGE mixer sweep worst gate ratio \(overall) over \(sweep.count) inputs × 48")
+        XCTAssertEqual(Array(failures.prefix(10)), [])
+    }
+
     // MARK: - Identity is exact, and identity is the engine's
 
     func testAnUntouchedStageIsAnExactNoOpWithNoPasses() {

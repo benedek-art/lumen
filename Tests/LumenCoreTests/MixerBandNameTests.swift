@@ -20,10 +20,9 @@ import XCTest
 /// X11 values where they exist. They are opinions about language, not measurements of the
 /// engine, which is why they live in a test and not in `ColorEngine`.
 ///
-/// THE RULE IS HALF A BAND. Centres are 45° apart, so a name more than 22.5° from its own
-/// centre is describing the neighbouring band's territory, and at that point the label is
-/// worse than no label. Inside half a band the name is the closest ordinary word for where
-/// the band sits, and arguing about the last few degrees is taste.
+/// THE RULE WAS HALF A BAND while centres were 45° apart. WS-31 made the bands uneven, and
+/// the rule is now the one the half-band test stood in for: the colour a name means belongs
+/// to the band of that name (see `testEveryBandIsNamedForTheColourAtItsOwnCentre`).
 ///
 /// This is the assertion that would have caught B1-08 on the day the names were written.
 final class MixerBandNameTests: XCTestCase {
@@ -68,15 +67,21 @@ final class MixerBandNameTests: XCTestCase {
         abs((a - b + 540).truncatingRemainder(dividingBy: 360) - 180)
     }
 
-    /// Half of the 45° band spacing. Past this, the name belongs to the next band along.
-    private static let halfBand = 22.5
-
+    /// THE RULE, SINCE WS-31: THE COLOUR A NAME MEANS MUST BELONG TO THAT BAND.
+    ///
+    /// It was "the name sits within half the 45° spacing of the band's centre", which was
+    /// the right rule for equal bands and is meaningless for uneven ones — the Blue band is
+    /// centred on sky blue (OKLCh 251.5°, HSV ≈ 213°) and still owns pure blue outright.
+    /// What a photographer relies on is the direction that test was standing in for: the
+    /// slider marked Green grades green. So the conventional sRGB of each band's name,
+    /// through the engine's own membership, must have that band as its dominant band,
+    /// and hold at least 0.8 of its weight there.
     func testEveryBandIsNamedForTheColourAtItsOwnCentre() {
-        XCTAssertEqual(ColorEngine.bandNames.count, ProofFrames.bandCentreSRGB.count,
-                       "the name list and the centre table have come apart")
-
         var report = ""
-        var worst = (name: "", drift: 0.0)
+        let toWorking = RGBColorSpace.srgb.matrix(to: .rec2020)
+        func lin(_ v: Double) -> Double {
+            v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4)
+        }
         for i in 0..<ColorEngine.bandCount {
             let name = ColorEngine.bandNames[i]
             guard let word = Self.conventional[name] else {
@@ -86,39 +91,36 @@ final class MixerBandNameTests: XCTestCase {
                             + "because that entry is what the name is then judged against")
                 continue
             }
-            let centre = Self.hueDegrees(ProofFrames.bandCentreSRGB[i])
-            let drift = Self.separation(centre, Self.hueDegrees(word))
-            report += String(format: "  band %d  %-8s centre %6.1f°  name %6.1f°  off %5.1f°\n",
-                             i, (name as NSString).utf8String!, centre,
-                             Self.hueDegrees(word), drift)
-            if drift > worst.drift { worst = (name, drift) }
-
-            XCTAssertLessThan(
-                drift, Self.halfBand,
-                "band \(i) is called \"\(name)\" but its centre sits \(drift)° away — "
-                    + "more than half of the 45° spacing, so the name is describing the "
-                    + "band next door. Either rename it for where it sits, or, if the "
-                    + "centre is what is wrong, that is a `pipelineVersion` bump and a "
-                    + "migration (see `ColorEngine.bandNames`) and not a quiet edit")
+            let c = toWorking.apply(RGB(lin(word.0 / 255), lin(word.1 / 255), lin(word.2 / 255)))
+            let hue = OKLabTransform.working.toLCh(c).h
+            let w = ColorEngine.bandWeights(hue: hue)
+            report += String(format: "  band %d  %-8s name at OKLCh %6.1f°  centre %6.1f°  weight %.2f\n",
+                             i, (name as NSString).utf8String!, hue,
+                             ColorEngine.bandHueCentres[i], w[i])
+            XCTAssertEqual(ColorEngine.dominantBand(hue: hue, arcs: ColorEngine.canonicalArcs), i,
+                           "the colour called \"\(name)\" belongs to another band")
+            XCTAssertGreaterThanOrEqual(w[i], 0.8,
+                                        "the colour called \"\(name)\" is only \(w[i]) in its band")
         }
-        print("MIXERNAMES worst \(worst.name) at \(worst.drift)°, limit \(Self.halfBand)°\n"
-              + report)
+        print("MIXERNAMES\n" + report)
     }
 
-    /// A rename must not be a re-anchor wearing a rename's clothes.
-    ///
-    /// The centres are golden-locked: moving one changes what every saved mixer edit
-    /// renders as. The B1-08 rename was affordable precisely because it left them alone,
-    /// so the thing that made it cheap is worth pinning next to the thing it enabled.
+    /// A rename must not be a re-anchor wearing a rename's clothes — and a re-anchor must
+    /// be a deliberate one. WS-31 moved the centres (docs/quality/lanes/WS-31); this pins
+    /// where they are now, and the legacy grid the B&W mix and pre-WS-31 recipes use.
     func testTheBandCentresAreWhereTheGoldenLockSaysTheyAre() {
+        let pinned = [17.2, 60.925, 102.25, 143.225, 203.7, 253.25, 295.75, 336.3]
+        for i in 0..<ColorEngine.bandCount {
+            XCTAssertEqual(ColorEngine.bandHueCentres[i], pinned[i], accuracy: 1e-9,
+                           "band \(i)'s centre moved. If that is deliberate it is a "
+                               + "pipelineVersion bump, because every recipe that touched "
+                               + "the mixer re-renders")
+        }
         XCTAssertEqual(ColorEngine.bandAnchorDegrees, 29.23, accuracy: 1e-12)
         XCTAssertEqual(ColorEngine.bandSpacingDegrees, 45.0, accuracy: 1e-12)
         for i in 0..<ColorEngine.bandCount {
             let expected = (29.23 + 45.0 * Double(i)).truncatingRemainder(dividingBy: 360)
-            XCTAssertEqual(ColorEngine.bandHueCentres[i], expected, accuracy: 1e-9,
-                           "band \(i)'s centre moved. If that is deliberate it is a "
-                               + "pipelineVersion bump with a badged migration, because "
-                               + "every recipe that touched the mixer re-renders")
+            XCTAssertEqual(ColorEngine.uniformBandHueCentres[i], expected, accuracy: 1e-9)
         }
     }
 
