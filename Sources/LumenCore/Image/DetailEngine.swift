@@ -698,6 +698,9 @@ public struct DetailEngine: Sendable {
     /// The width at feather 25. As wide as it can be while every 10 of feather above it
     /// still widens the 10-90 % span by at least 0.02 half-diagonals (0.0036 per unit).
     public static let vignetteQuarterFeatherWidth: Double = 0.535
+    /// The width's slope (per unit of feather) at feather 10, where the gentle hard end
+    /// hands over to the bump that reaches `vignetteQuarterFeatherWidth`.
+    public static let vignetteFeatherLowSlope: Double = 0.015
     /// The narrowest the transition may be, in OUTPUT PIXELS measured along the gradient
     /// of ρ at the pixel itself: feather 0 is a hard edge anti-aliased over 0.608 × 2.5
     /// = 1.5 px (10-90 %) in every direction, on every crop aspect. It used to be 2.5 px
@@ -747,6 +750,13 @@ public struct DetailEngine: Sendable {
     /// The lift key's fade from the brightest sRGB channel (below) to luminance (above),
     /// in EV over mid-grey (`vignetteLiftKey`).
     public static let vignetteColourKeyEV: ClosedRange<Double> = 0.8...1.5
+    /// Paint Overlay's white: a lift paints toward it, so above it nothing is lifted and
+    /// between mid-grey and it the lift tapers in log space (contrast compressed toward
+    /// white). Below mid-grey a PO lift is exactly HP's — never more — so a near-black or
+    /// negative-luminance pixel cannot be multiplied past 2^Amount (VERIFY-R2 D4, SPEC
+    /// line 33: the old cover grew without bound as Y fell, ×2^14 at the floor). 2.5 EV
+    /// over mid-grey is scene 1.02, about display white on the default transform.
+    public static let vignettePaintWhiteEV: Double = 2.5
     /// The display shoulder, in EV over mid-grey of the lifted scene luminance, across
     /// which the lift's chroma restoration fades in.
     public static let vignetteColourShoulderEV: ClosedRange<Double> = 1.5...4.5
@@ -791,23 +801,35 @@ public struct DetailEngine: Sendable {
     }
 
     /// The transition's width in ρ (lower to upper edge of the smoothstep) for a feather
-    /// in 0…100, before anti-aliasing: 0 at feather 0, rising as (f/25)² to
-    /// `vignetteQuarterFeatherWidth` at 25, linear to 0.625 at 50 (exactly) and to 1.0 at
-    /// 100. The square keeps the first units of travel as gentle as the rest of the
-    /// slider (SPEC line 30: the old square root changed the width 14× the median step
-    /// between feather 0 and 1) while still reaching 0.535 by 25, where a narrower
-    /// transition steps 2 codes per pixel on a −4 EV 8-bit ramp.
+    /// in 0…100, before anti-aliasing. Defined by its SLOPE, which is continuous
+    /// everywhere, so the width has no kink (SPEC line 34) — the round-2 curve met its
+    /// linear segment at 25 with a 12× slope break:
+    ///
+    ///   · 0…10: slope rises as (f/10)² to `vignetteFeatherLowSlope` — the hard end is
+    ///     gentle (line 30: a unit there moves the width at most ~2× the median unit);
+    ///   · 10…25: a smooth bump (half a sine on top of a linear blend) that carries the
+    ///     width to `vignetteQuarterFeatherWidth` at 25, wide enough that a −4 EV ramp
+    ///     steps at most 1 code per pixel in 8-bit (line 21);
+    ///   · 25…50: constant slope to exactly 0.625 at 50, the historical default;
+    ///   · 50…100: slope rising linearly so the width reaches 1.0 at 100.
     public static func vignetteFeatherWidth(feather: Double) -> Double {
         let f = feather.isFinite ? Num.clamp(feather, 0, 100) : Look.vignetteFeatherDefault
+        let quarter = vignetteQuarterFeatherWidth
+        let mid = (vignetteDefaultWidth - quarter) / 25
         if f >= 50 {
-            return vignetteDefaultWidth
-                + (vignetteMaxWidth - vignetteDefaultWidth) * (f - 50) / 50
+            let top = 2 * (vignetteMaxWidth - vignetteDefaultWidth) / 50 - mid
+            return vignetteDefaultWidth + mid * (f - 50) + (top - mid) * (f - 50) * (f - 50) / 100
         }
-        if f >= 25 {
-            return vignetteDefaultWidth
-                - (vignetteDefaultWidth - vignetteQuarterFeatherWidth) * (50 - f) / 25
+        if f >= 25 { return quarter + mid * (f - 25) }
+        let low = vignetteFeatherLowSlope
+        let atTen = low * 10 / 3
+        if f >= 10 {
+            let t = (f - 10) / 15
+            let bump = (quarter - atTen - 15 * (mid + (low - mid) / 2)) * Double.pi / 30
+            return atTen + 15 * (mid * t + (low - mid) * (t - t * t / 2)
+                                 + bump * (1 - cos(Double.pi * t)) / Double.pi)
         }
-        return vignetteQuarterFeatherWidth * (f / 25) * (f / 25)
+        return low * f * f * f / 300
     }
 
     /// The width a pixel actually gets: the feather's, or `vignetteHardEdgePixels` output
@@ -816,7 +838,9 @@ public struct DetailEngine: Sendable {
     /// exactly — at the default it is exactly 0.625.
     @inline(__always)
     public static func vignetteEffectiveWidth(_ width: Double, gradient: Double) -> Double {
-        Swift.max(Swift.max(width, vignetteHardEdgePixels * gradient), vignetteMinimumWidth)
+        Swift.max(Swift.max(width, Swift.min(vignetteHardEdgePixels * gradient,
+                                             vignetteDefaultWidth)),
+                  vignetteMinimumWidth)
     }
 
     /// The width along a ray where |∇ρ| is one over the crop's half-diagonal (the
@@ -946,7 +970,7 @@ public struct DetailEngine: Sendable {
         let log2Mid = log2(vignetteMidGrey)
         let h = s.highlights.isFinite ? Num.clamp(s.highlights, 0, 100) / 100 : 0
         let log2Black = log2Mid + ToneEngine.defaultBlackAnchorEV
-        let log2White = log2Mid + ToneEngine.defaultWhiteAnchorEV
+        let log2White = log2Mid + vignettePaintWhiteEV
         return VignetteUniforms(
             amount: amount, style: s.style,
             centre: vignetteCentre(midpoint: s.midpoint),
@@ -1001,7 +1025,8 @@ public struct DetailEngine: Sendable {
         case .paintOverlay:
             let l2 = log2(Swift.max(lum, vignetteLuminanceFloor))
             let cover = ev < 0 ? Swift.max(l2 - k.log2Black, 0) * k.burnSpanInverse
-                               : Swift.max(k.log2White - l2, 0) * k.liftSpanInverse
+                               : Swift.min(Swift.max(k.log2White - l2, 0) * k.liftSpanInverse,
+                                           1)
             return ev * falloff * cover
         case .colorPriority where ev > 0:
             let key = colour.map { vignetteLiftKey($0, luminance: lum, k) } ?? lum
@@ -1053,8 +1078,25 @@ public struct DetailEngine: Sendable {
                     lightness + phi * (n.b - lightness))
         let out = vignetteColourLMSToRGB.apply(RGB(m.r * m.r * m.r, m.g * m.g * m.g,
                                                    m.b * m.b * m.b))
-        return RGB(Swift.max(out.r, Swift.min(c.r, 0)), Swift.max(out.g, Swift.min(c.g, 0)),
-                   Swift.max(out.b, Swift.min(c.b, 0)))
+        return vignetteFitGamut(out, floor: Swift.min(Swift.min(c.r, Swift.min(c.g, c.b)), 0))
+    }
+
+    /// `c` pulled straight toward its own luminance, in linear RGB, just far enough that
+    /// no channel is below `floor` — luminance kept exactly, so a lift that pushed a
+    /// saturated colour's minor channels negative can no longer DARKEN it.
+    ///
+    /// It replaced a per-channel clamp to zero, which threw the negative part away: on a
+    /// bright red under the CP lift that removed luminance and turned the hue 12° in one
+    /// 0.25 EV step (VERIFY-R2 D2, SPEC line 31). The straight line to the neutral of the
+    /// same luminance is the closed-form answer — one division, no search — and the same
+    /// arithmetic is the kernel's.
+    @inline(__always)
+    public static func vignetteFitGamut(_ c: RGB, floor: Double) -> RGB {
+        let y = RGBColorSpace.rec2020.luminance(c)
+        let lowest = Swift.min(c.r, Swift.min(c.g, c.b))
+        guard lowest < floor, y - lowest > 1e-12 else { return c }
+        let beta = Swift.max(y - floor, 0) / (y - lowest)
+        return RGB(y + beta * (c.r - y), y + beta * (c.g - y), y + beta * (c.b - y))
     }
 
     /// Working (Rec.2020) linear → sRGB linear, for Color Priority's lift key: the

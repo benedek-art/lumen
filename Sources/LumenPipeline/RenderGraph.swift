@@ -1704,7 +1704,8 @@ public struct RenderGraph {
                                z: DetailEngine.vignetteLuminanceFloor,
                                w: DetailEngine.vignetteHardEdgePixels)
         let edge = CIVector(x: DetailEngine.vignetteGradientRadiusFloor,
-                            y: DetailEngine.vignetteMinimumWidth)
+                            y: DetailEngine.vignetteMinimumWidth,
+                            z: DetailEngine.vignetteDefaultWidth)
         let weights = RGBColorSpace.rec2020.luminanceWeights
         let tone = CIVector(x: k.threshold, y: k.protection, z: k.highlights,
                             w: k.log2MidGrey)

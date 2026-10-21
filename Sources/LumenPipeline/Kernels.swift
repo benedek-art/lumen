@@ -905,7 +905,7 @@ public enum KernelLibrary {
     static let vignetteSource = """
     kernel vec4 lumenVignette(__sample image, __sample noise, vec2 centre,
                               vec2 invHalf, vec3 axisX, vec3 axisY,
-                              vec4 profile, vec4 control, vec2 edge, vec3 lumaWeights,
+                              vec4 profile, vec4 control, vec3 edge, vec3 lumaWeights,
                               vec4 tone, vec4 knee, vec4 paint, vec4 chroma,
                               vec3 lms0, vec3 lms1, vec3 lms2, vec3 lightRow,
                               vec3 rgb0, vec3 rgb1, vec3 rgb2, vec3 lift,
@@ -918,7 +918,7 @@ public enum KernelLibrary {
         float rhoFloor = max(rho, edge.x);
         vec2 slope = pow(uv, vec2(profile.z - 1.0)) * vec2(1.0, profile.w)
             * (pow(rhoFloor, 1.0 - profile.z) / (1.0 + profile.w)) * invHalf;
-        float width = max(max(profile.y, control.w * length(slope)), edge.y);
+        float width = max(max(profile.y, min(control.w * length(slope), edge.z)), edge.y);
         float t = smoothstep(profile.x - width * 0.5, profile.x + width * 0.5, rho);
         float ev = control.x;
         float lum = dot(image.rgb, lumaWeights);
@@ -926,7 +926,7 @@ public enum KernelLibrary {
         float stops;
         if (control.y > 1.5) {
             float cover = (ev < 0.0) ? max(l2 - paint.x, 0.0) * paint.y
-                                     : max(paint.z - l2, 0.0) * paint.w;
+                                     : min(max(paint.z - l2, 0.0) * paint.w, 1.0);
             stops = ev * t * cover;
         } else if (control.y > 0.5 && ev > 0.0) {
             vec3 shown = vec3(dot(srgb0, image.rgb), dot(srgb1, image.rgb),
@@ -963,7 +963,14 @@ public enum KernelLibrary {
             vec3 m = vec3(light) + phi * (n - vec3(light));
             vec3 cube = m * m * m;
             vec3 kept = vec3(dot(rgb0, cube), dot(rgb1, cube), dot(rgb2, cube));
-            rgb = max(kept, min(rgb, vec3(0.0)));
+            float floorv = min(min(rgb.r, min(rgb.g, rgb.b)), 0.0);
+            float yk = dot(kept, lumaWeights);
+            float lowest = min(kept.r, min(kept.g, kept.b));
+            if (lowest < floorv && yk - lowest > 1e-12) {
+                float beta = max(yk - floorv, 0.0) / (yk - lowest);
+                kept = vec3(yk) + beta * (kept - vec3(yk));
+            }
+            rgb = kept;
         }
         return vec4(rgb * gain, image.a);
     }
