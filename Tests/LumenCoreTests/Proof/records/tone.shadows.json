@@ -2,13 +2,13 @@
   "authority" : 47.1866911907563,
   "deadSteps" : 0,
   "frame" : "neutralRamp",
-  "frontLoading" : 0.4079560847431767,
+  "frontLoading" : 0.4079559628730675,
   "givenBack" : 0,
   "id" : "tone.shadows",
   "isMonotone" : true,
-  "meanSeparation" : 13.642185368585173,
+  "meanSeparation" : 13.642094404176637,
   "panel" : "Basic",
-  "smallestLiveStep" : 1.5518752123299215,
+  "smallestLiveStep" : 1.551875598260672,
   "travelHigh" : 100,
   "travelLow" : -100
 }

@@ -2,13 +2,13 @@
   "authority" : 163.97180761406563,
   "deadSteps" : 0,
   "frame" : "neutralRamp",
-  "frontLoading" : 0.32519787257224103,
+  "frontLoading" : 0.3251981359176364,
   "givenBack" : 0,
   "id" : "zones.shadow.ev",
   "isMonotone" : true,
-  "meanSeparation" : 31.67402899264206,
+  "meanSeparation" : 31.674372626240128,
   "panel" : "Zones",
-  "smallestLiveStep" : 3.255995966853,
+  "smallestLiveStep" : 3.256003941103522,
   "travelHigh" : 3,
   "travelLow" : -3
 }
