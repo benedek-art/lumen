@@ -316,15 +316,16 @@ public enum MaskHandles {
         case startHandle
         /// The dot at the far end. Same freedom, other end.
         case endHandle
-        /// The band line through the start end, away from its dot: the endpoint slides
-        /// ALONG the axis, so the falloff widens or narrows and the gradient does not
-        /// turn. Dragging a line that is drawn straight across the picture should move
-        /// that line, not swing it.
+        /// The OUTER line through the start end, away from its dot: it slides ALONG the
+        /// axis, so the falloff widens or narrows and the gradient does not turn — and
+        /// the other outer line moves the same amount the other way, about the centre
+        /// line (`featheredLine`; ⌥ moves this one alone).
         case startBand
         /// The band line through the far end.
         case endBand
-        /// Turn the whole gradient about its midpoint. The band OUTSIDE the strip, on
-        /// either side — the same span, and for the same reason, as the radial's.
+        /// Turn the whole gradient about its midpoint: the CENTRE LINE either side of its
+        /// pin (Lightroom's handle), and the band OUTSIDE the strip on either side — the
+        /// same span, and for the same reason, as the radial's.
         ///
         /// THE GRADIENT HAD NO ROTATE AFFORDANCE AT ALL, and that is the finding this
         /// case closes. Turning it meant grabbing one of the two 11 pt endpoint dots,
@@ -361,50 +362,156 @@ public enum MaskHandles {
         }
 
         // Position along the axis in POINTS from `start`. The perpendicular distance is
-        // deliberately not consulted: a band line is drawn all the way across the frame
-        // and is grabbable all the way across, and the strip between them is the
-        // gradient's whole extent however far off-axis the press lands.
+        // deliberately not consulted: all three lines are drawn the whole way across the
+        // frame and are grabbable the whole way across, and the strip between the outer
+        // two is the gradient's whole extent however far off-axis the press lands.
         let along = (px * wx + py * wy) / length
+        let half = length / 2
 
-        // The central half of the axis is a move whatever else is true, for the reason
-        // `interiorMoveFraction` gives: on a short gradient the two band lines' grab
-        // bands overlap and would otherwise leave the thing with no move target at all.
-        let t = along / length
-        if abs(t - 0.5) <= interiorMoveFraction / 2 { return .move }
+        // On a SHORT gradient the central half of the axis is a move whatever else is
+        // true, for the reason `interiorMoveFraction` gives: the line and dot bands
+        // overlap there and would otherwise leave it with no move target at all. A long
+        // gradient has its pin and its strip for that, and its centre line to turn.
+        if length < centreLineMinimumLength,
+           abs(along / length - 0.5) <= interiorMoveFraction / 2 { return .move }
 
-        // The dots first, then the lines they sit on. Both endpoints resolve to the same
-        // end of the gradient; the dot is the free one and the line is the constrained
-        // one, and the dot wins where they overlap because it is the smaller, more
-        // deliberate target.
+        // The dots first: they sit where the outer lines cross the axis and are the free
+        // handles (that end follows the pointer). NEAREST WINS BETWEEN THE TWO, rather
+        // than the first one written down: on a gradient shorter than one grab radius a
+        // press dead on the FAR dot is still inside the near dot's tolerance, and the end
+        // you were pointing at could not be grabbed at all.
         let toStart = (px * px + py * py).squareRoot()
         let ex = Double(press.x - end.x)
         let ey = Double(press.y - end.y)
         let toEnd = (ex * ex + ey * ey).squareRoot()
-        // NEAREST WINS BETWEEN THE TWO DOTS, rather than the first one written down.
-        // The two tests used to run in source order, so on a gradient drawn shorter than
-        // one grab radius — which is exactly what the caller's `minimumSpan` clamp
-        // allows, it stops the two ends at `grabRadius` apart and no closer — a press
-        // dead on the FAR dot was still inside the near dot's tolerance and answered
-        // `.startHandle`. The end you were pointing at could not be grabbed at all, and
-        // which one you got depended on which line came first in this function rather
-        // than on where your hand was. Ordering by distance is the same rule
-        // `MaskCanvas.grabbedPoint` and `grabbedVertex` already use for overlapping
-        // targets: among things you are on, the nearest is the one you meant.
         if toStart <= grabRadius || toEnd <= grabRadius {
             return toStart <= toEnd ? .startHandle : .endHandle
         }
-        if abs(along) <= grabRadius { return .startBand }
-        if abs(along - length) <= grabRadius { return .endBand }
 
-        // Inside the strip: still this gradient, and a press there moves it.
+        // THE PIN, on the centre line. Lightroom's grammar, and the one this gradient was
+        // missing: the pin moves the gradient, the CENTRE LINE either side of it turns
+        // it, the two OUTER lines feather it. The gradient used to be two lines and an
+        // axis stub, with turning parked on a band outside the strip that nothing drew.
+        let mx = px - wx / 2, my = py - wy / 2
+        if (mx * mx + my * my).squareRoot() <= grabRadius { return .move }
+
+        // The three lines, nearest first. The centre line only exists as a target when
+        // the strip has room for it: below `centreLineMinimumLength` its band would cover
+        // the strip and a short gradient would have no move target left (see
+        // `testShortGradientKeepsAMoveTarget`); it then turns from outside the strip, as
+        // it always could.
+        let toStartLine = abs(along)
+        let toEndLine = abs(along - length)
+        let toCentreLine = length >= centreLineMinimumLength
+            ? abs(along - half) : Double.greatestFiniteMagnitude
+        let nearest = Swift.min(toStartLine, toEndLine, toCentreLine)
+        if nearest <= grabRadius {
+            if nearest == toCentreLine { return .rotate }
+            return toStartLine <= toEndLine ? .startBand : .endBand
+        }
+
+        // The rest of a SHORT strip is a move, for the reason `interiorMoveFraction`
+        // gives; on a long one the same test is simply "inside the strip".
         if along > 0, along < length { return .move }
-        // Outside it by less than the buffer: TURN IT. See `LinearGrab.rotate` — this is
-        // the radial's band, arrived at by the radial's argument, on the shape that was
-        // left out of it.
+        // Outside it by less than the buffer: TURN IT. See `LinearGrab.rotate`.
         if along >= -newShapeClearance, along <= length + newShapeClearance {
             return .rotate
         }
         return .create
+    }
+
+    /// The shortest gradient, in view points, whose centre line is offered as a turn
+    /// target: six grab radii. The three ±11 pt bands then leave a strip of move at
+    /// least one grab radius wide between each pair (66 pt: bands at 0, 33, 66, move in
+    /// 11…22 and 44…55). At four radii the bands touched and the off-axis move target
+    /// vanished at exactly the length where the centre line appeared.
+    public static let centreLineMinimumLength: Double = 6 * grabRadius
+
+    // MARK: - Feathering a gradient from its outer lines
+
+    /// The two endpoints after an outer line is slid `slide` points along the axis.
+    ///
+    /// SYMMETRIC BY DEFAULT, which is Lightroom's behaviour and the one a photographer
+    /// expects: the centre line is where the gradient is AIMED (the horizon), and
+    /// dragging an outer line widens or narrows the falloff about it rather than
+    /// dragging the aim off the horizon as well. The other line moves by the same
+    /// amount the other way. `oneSided` (⌥) is the old behaviour — only the grabbed line
+    /// moves — kept for the photographer who wants a lopsided falloff.
+    ///
+    /// `slide` is positive toward `end`. The span never falls below `minimumSpan`, so
+    /// the lines cannot pass each other or meet; the clamp is applied to the slide
+    /// rather than to the result so the line stays under the hand until it stops.
+    public static func featheredLine(start: CGPoint, end: CGPoint, grabbedStart: Bool,
+                                     slide: Double, oneSided: Bool,
+                                     minimumSpan: Double = grabRadius)
+        -> (start: CGPoint, end: CGPoint) {
+        let wx = Double(end.x - start.x), wy = Double(end.y - start.y)
+        let length = (wx * wx + wy * wy).squareRoot()
+        guard length > 1e-9, slide.isFinite, length.isFinite else { return (start, end) }
+        let ux = wx / length, uy = wy / length
+        // How far the grabbed line moves AWAY from the other one (positive widens).
+        var outward = grabbedStart ? -slide : slide
+        let spanChange = oneSided ? outward : 2 * outward
+        if length + spanChange < minimumSpan {
+            outward = (minimumSpan - length) / (oneSided ? 1 : 2)
+        }
+        let s = grabbedStart || !oneSided ? outward : 0
+        let e = !grabbedStart || !oneSided ? outward : 0
+        return (CGPoint(x: start.x - CGFloat(ux * s), y: start.y - CGFloat(uy * s)),
+                CGPoint(x: end.x + CGFloat(ux * e), y: end.y + CGFloat(uy * e)))
+    }
+
+    // MARK: - Drawing a gradient: which end is full
+
+    /// The stored line for a create drag: `(start, end)` in the order `linearPlane`
+    /// reads them, alpha 0 at `start` and 1 at `end`.
+    ///
+    /// THE FULL EFFECT IS WHERE THE DRAG BEGAN, which is Lightroom's convention, every
+    /// Lightroom user's habit, and the opposite of what shipped. The drawn line was
+    /// stored press-first, so a sky darkened by dragging from the top of the frame down
+    /// to the horizon — the gesture every Lightroom tutorial teaches — darkened the
+    /// GROUND and left the sky alone. With ⌥ (from the centre) the full side is the
+    /// mirrored one: the effect still fades in the direction the hand moved.
+    public static func drawnGradient(from press: CGPoint, to pointer: CGPoint,
+                                     fromCentre: Bool, snap: Bool)
+        -> (start: CGPoint, end: CGPoint) {
+        let drawn = drawnLine(from: press, to: pointer, fromCentre: fromCentre, snap: snap)
+        return (drawn.end, drawn.start)
+    }
+
+    // MARK: - Drawing an ellipse
+
+    /// The centre and per-axis radii a create drag lays down, in whatever units the two
+    /// points are in (the canvas passes source-normalized ones).
+    ///
+    /// FROM THE CENTRE BY DEFAULT, as Lightroom's Radial Gradient draws: the press is
+    /// where the subject is, and the drag says how big. ⌥ (`cornerToCorner`) draws the
+    /// bounding box instead, which is what this tool used to do by default — so the
+    /// modifier swapped, the meaning of "⌥ is the other way" did not.
+    public static func drawnEllipse(from press: (x: Double, y: Double),
+                                    to pointer: (x: Double, y: Double),
+                                    cornerToCorner: Bool)
+        -> (centre: [Double], radii: [Double]) {
+        if cornerToCorner {
+            return ([(press.x + pointer.x) / 2, (press.y + pointer.y) / 2],
+                    [abs(pointer.x - press.x) / 2, abs(pointer.y - press.y) / 2])
+        }
+        return ([press.x, press.y], [abs(pointer.x - press.x), abs(pointer.y - press.y)])
+    }
+
+    /// How many segments the drawn ellipse needs so the polyline stays within
+    /// `tolerance` points of the true curve: the sagitta of a chord, r·(1 − cos(π/n)),
+    /// at the longest on-screen radius.
+    ///
+    /// It was a fixed 72, which is 0.1 % of the radius — invisible at fit, and 5 pt off
+    /// the rendered rim on an ellipse 5000 pt across at 1:1, i.e. half a grab radius
+    /// between the line you aim at and the edge of the mask.
+    public static func ellipseSteps(longestRadius r: Double,
+                                    tolerance: Double = 0.25) -> Int {
+        guard r.isFinite, r > tolerance, tolerance > 0 else { return 72 }
+        let n = Double.pi / acos(1 - tolerance / r)
+        guard n.isFinite else { return 4096 }
+        return Swift.min(Swift.max(Int(n.rounded(.up)), 72), 4096)
     }
 
     // MARK: - Precedence against another mask's pin

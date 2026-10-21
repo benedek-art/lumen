@@ -980,11 +980,26 @@ public enum MaskRaster {
         let long = Double(Swift.max(w, h))
         let sx = Double(w) / long
         let sy = Double(h) / long
-        let x0 = line[0] * sx, y0 = line[1] * sy
+        var x0 = line[0] * sx
+        var y0 = line[1] * sy
         let x1 = line[2] * sx, y1 = line[3] * sy
-        let dx = x1 - x0, dy = y1 - y0
-        let dd = dx * dx + dy * dy
+        var dx = x1 - x0, dy = y1 - y0
+        var dd = dx * dx + dy * dy
         guard dd.isFinite, dd > 1e-12 else { return p }
+        // NEVER SHORTER THAN `antialiasPixels`. Two lines dragged together read as a hard edge,
+        // and a ramp narrower than a pixel is not a hard edge, it is a staircase: every
+        // pixel lands at 0 or 1 and the line aliases. Widened about its midpoint, so the
+        // edge stays exactly where the centre line is drawn. `maskLinearSource` does the
+        // same in the shader.
+        let span = antialiasPixels / long
+        if dd < span * span {
+            let k = span / dd.squareRoot()
+            x0 = (x0 + x1) / 2 - dx * k / 2
+            y0 = (y0 + y1) / 2 - dy * k / 2
+            dx *= k
+            dy *= k
+            dd = span * span
+        }
 
         for y in 0..<h {
             let py = (Double(y) + 0.5) / long
@@ -1058,6 +1073,40 @@ public enum MaskRaster {
         return ((dx * c - dy * s) / sx, (dx * s + dy * c) / sy)
     }
 
+    /// The radius, as a fraction of the rim, inside which a radial is fully on: the
+    /// one number Feather sets. Public because `MaskGPU` hands it to the shader: one
+    /// copy of the policy, so the two renderers cannot disagree about where the core is.
+    /// At Feather 100 the core is at least one pixel (on the shorter axis), so it does
+    /// not collapse to a point. The Feather 0 end is `radialRampStart`'s job, per pixel.
+    public static func radialCore(radii: (Double, Double), feather: Double?,
+                                  width w: Int, height h: Int) -> Double {
+        let f = Num.clamp(feather ?? 50, 0, 100) / 100
+        let rxPx = Swift.max(abs(radii.0) * Double(w), 1e-6)
+        let ryPx = Swift.max(abs(radii.1) * Double(h), 1e-6)
+        let pixel = Num.saturate(1.0 / Swift.max(Swift.min(rxPx, ryPx), 1))
+        return Num.clamp(Swift.max(1 - f, pixel), 0, 1 - 1e-6)
+    }
+
+    /// Where the falloff starts AT THIS PIXEL: the core, pulled in just far enough that
+    /// the ramp to the rim is `antialiasPixels` wide in this direction.
+    ///
+    /// Feather 0 used to put the ramp at 1e-6 of the radius — on a 400 px radius,
+    /// 0.0004 px — so every pixel landed at exactly 0 or 1 and the rim was a staircase.
+    /// The floor is PER PIXEL, from the local gradient of the normalized radius, because
+    /// one number for the whole ellipse is wrong on an elongated one: set on the short
+    /// axis, a 1000 × 20 px ellipse got a 75 px soft ramp at the ends of its long axis.
+    /// `gradient` is |∇r| per pixel; the shader computes the same expression.
+    @inline(__always)
+    static func radialRampStart(core: Double, gradient: Double) -> Double {
+        Swift.max(0, Swift.min(core, 1 - antialiasPixels * gradient))
+    }
+
+    /// The narrowest ramp a gradient renders, in pixels: 1.5, because a smoothstep's
+    /// steepest slope is 1.5 / width, so 1.5 px of it is as steep as a one-pixel box
+    /// filter — the coverage an anti-aliased edge is supposed to have. One pixel of
+    /// smoothstep looked half-aliased at 12×: most rim pixels still landed at 0 or 1.
+    public static let antialiasPixels: Double = 1.5
+
     static func radialPlane(_ c: MaskComponent, _ w: Int, _ h: Int) -> Plane {
         var p = Plane(width: w, height: h)
         guard let center = c.center, center.count == 2,
@@ -1068,12 +1117,7 @@ public enum MaskRaster {
 
         let theta = -(c.rotation ?? 0) * Double.pi / 180
         let ct = cos(theta), st = sin(theta)
-        let f = Num.clamp(c.feather ?? 50, 0, 100) / 100
-        // ≥1 px inner guard: at Feather 100 the core must not collapse to a point.
-        let rxPx = Swift.max(rx * Double(w), 1e-6)
-        let ryPx = Swift.max(ry * Double(h), 1e-6)
-        let pixelGuard = Num.saturate(1.0 / Swift.max(Swift.min(rxPx, ryPx), 1))
-        let rin = Num.clamp(Swift.max(1 - f, pixelGuard), 0, 1 - 1e-6)
+        let rin = radialCore(radii: (rx, ry), feather: c.feather, width: w, height: h)
 
         // Rotate in long-edge units, for the reason `linearPlane` gives above: pixels
         // are square and normalized coordinates are not, so a rotation matrix applied
@@ -1095,10 +1139,17 @@ public enum MaskRaster {
                 let qy = du * st + dv * ct
                 let nx = qx / rxL, ny = qy / ryL
                 let r = (nx * nx + ny * ny).squareRoot()
-                if r <= rin {
-                    p[x, y] = 1
-                } else if r >= 1 {
+                if r >= 1 {
                     p[x, y] = 0
+                    continue
+                }
+                // |∇r| in pixels: ∇(r²)/2r, with r² = (qx/rx)² + (qy/ry)² in long-edge
+                // units, so its length is |(nx/rx, ny/ry)| / r, and one pixel is 1/long.
+                let gx = nx / rxL, gy = ny / ryL
+                let g = (gx * gx + gy * gy).squareRoot() / Swift.max(r, 1e-12) / long
+                let start = radialRampStart(core: rin, gradient: g)
+                if r <= start {
+                    p[x, y] = 1
                 } else {
                     // `1 - smoothstep(rin, 1, r)`, NOT `smoothstep(1, rin, r)`.
                     // `Num.smoothstep` guards a degenerate edge pair with
@@ -1107,7 +1158,7 @@ public enum MaskRaster {
                     // and returned 0 for the entire falloff. The mask was hard-edged:
                     // 1 inside `rin`, 0 outside it, and Feather did nothing but shrink
                     // the core. Both endpoints still meet the branches above exactly.
-                    p[x, y] = 1 - smoothstep(rin, 1, r)
+                    p[x, y] = 1 - smoothstep(start, 1, r)
                 }
             }
         }
