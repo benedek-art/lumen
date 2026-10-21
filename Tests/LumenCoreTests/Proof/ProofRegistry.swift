@@ -724,31 +724,25 @@ enum ProofRegistry {
     /// numbers, which is the comparison a Primaries panel is read as.
     ///
     /// All eight are ±100 in the panel and in `primariesMatrix`'s own clamp. At full
-    /// deflection a hue is a 20° rotation of a primary's chromaticity about the white
-    /// point and a purity is a 50% rescale of its distance from it.
+    /// deflection a hue turns a primary's chroma 12° in linear opponent space and a
+    /// purity scales it by `2^±primaryPurityStops` (WS-33).
     /// Two floors, not one and not eight. The six remap axes share the weakest of their
-    /// own — green purity at 63.35 — and the two tint axes share theirs, tint hue at
-    /// 23.39, because the tint acts through a window pinned to the shadows and is a
-    /// different control wearing the same panel. One floor across all eight would be the
-    /// tint's, and the remap's six could each lose two thirds of their authority without
-    /// anything going red.
+    /// own and the two tint axes share theirs, because the tint acts through a window
+    /// pinned to the shadows and is a different control wearing the same panel. One
+    /// floor across all eight would be the tint's, and the remap's six could each lose
+    /// two thirds of their authority without anything going red.
     ///
-    /// Measured: rHue 102.24, rPurity 77.96, gHue 90.24, gPurity 63.35, bHue 130.69,
-    /// bPurity 114.68, tintHue 23.39, tintPurity 42.17.
-    ///
-    /// **`rPurity` declares a plateau, and the reason is worth reading before anyone
-    /// tries to widen it.** Rec.2020's red primary sits at x + y = 1.000, exactly on the
-    /// line `safeChromaticity` refuses to cross, so pushing red further from the white
-    /// point has nowhere to go: the bisection shrinks the offset back to nothing and the
-    /// positive half of that slider is a clamp. It delivers 100% of its travel by about
-    /// +10 and renders one step byte-identical to the one before it. Green has some
-    /// headroom (x + y = 0.967) and blue runs into `y > 0.002` instead; both saturate
-    /// too, at 96% and 92% front-loading, without quite producing an identical pair.
-    /// Recorded rather than fixed — see PROOF-03 in docs/audit/found-while-fixing.md.
+    /// **`rPurity` no longer declares a plateau.** It did (PROOF-03): Rec.2020's red
+    /// primary sits at x + y = 1.000, exactly on the line the old xy construction's
+    /// `safeChromaticity` refused to cross, so the positive half of that slider was a
+    /// clamp — 100% of its travel delivered by about +10 and every step after it
+    /// byte-identical. Green and blue saturated the same way at 96% and 92%
+    /// front-loading. The remap is built in linear opponent space now, where a primary
+    /// can move anywhere, and the equality below is what proves the plateau is gone.
     static let primaries: [ControlSpec] = {
         let axes: [(String, String, WritableKeyPath<Primaries, Double>, Double, Int)] = [
             ("rHue", "Red hue", \.rHue, 44, 0),
-            ("rPurity", "Red purity", \.rPurity, 44, 1),
+            ("rPurity", "Red purity", \.rPurity, 44, 0),
             ("gHue", "Green hue", \.gHue, 44, 0),
             ("gPurity", "Green purity", \.gPurity, 44, 0),
             ("bHue", "Blue hue", \.bHue, 44, 0),

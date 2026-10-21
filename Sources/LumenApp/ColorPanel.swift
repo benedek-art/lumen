@@ -440,17 +440,28 @@ struct ColorPanel: View {
                 // the whole message; a sentence defining what a swatch would do is
                 // answering a question nobody asks with an empty row in front of them.
                 if let index {
+                    // The three move rows carry the SWATCH's own colour on their
+                    // tracks — the same colour-axis exception the Mixer's three rows
+                    // use (docs/00 Law 7), and for the same reason: the track says
+                    // which way the row moves this colour before it is touched. Built
+                    // from the sample alone, so a drag on any of them does not
+                    // rebuild its own track.
+                    let swatch = swatches[index]
+                    let stops = ColorPanel.pointTrackStops(swatch)
                     LumenSlider(title: "Hue", value: pointBinding(index, .hue),
                                 range: -60...60, defaultValue: 0, step: 1, decimals: 0,
+                                trackStops: stops.hue,
                                 help: "Turns the picked colour toward a neighbouring "
                                     + "hue, up to 60° either way — only pixels near the "
                                     + "swatch follow.")
                     LumenSlider(title: "Saturation", value: pointBinding(index, .sat),
                                 range: -100...100, defaultValue: 0, step: 1, decimals: 0,
+                                trackStops: stops.saturation,
                                 help: "Strengthens or mutes just the picked colour — "
                                     + "the rest of the photograph is untouched.")
                     LumenSlider(title: "Luminance", value: pointBinding(index, .lum),
                                 range: -100...100, defaultValue: 0, step: 1, decimals: 0,
+                                trackStops: stops.luminance,
                                 help: "Lightens or darkens the picked colour without "
                                     + "washing it out.")
                     LumenSlider(title: "Range", value: pointBinding(index, .range),
@@ -458,19 +469,46 @@ struct ColorPanel: View {
                                 bipolar: false,
                                 help: "How far around the picked colour the edit "
                                     + "reaches — low is surgical, high feathers into "
-                                    + "the neighbours.")
+                                    + "the neighbours. The strip below shows what is "
+                                    + "selected.")
+                    // WHAT IS SELECTED, DRAWN. Lightroom hides this behind a "visualize"
+                    // toggle on the photograph; here it is always on, as three strips
+                    // through the picked colour — round the wheel, from grey to vivid,
+                    // from dark to light — each painted at the strength the swatch
+                    // applies there. It reads the engine's own weight, so it cannot
+                    // disagree with the render.
+                    PointSelectionStrip(swatch: swatch)
+                    // Lightroom's Range refinements, under the master and subordinate
+                    // to it: each multiplies the master's reach on its own axis, half
+                    // at 0 and double at 100, and its strip above widens or narrows
+                    // with it.
+                    LumenSlider(title: "Hue range", value: pointBinding(index, .hueRange),
+                                range: 0...100, defaultValue: 50, step: 1, decimals: 0,
+                                bipolar: false, indented: true,
+                                help: "How far round the wheel the selection reaches, "
+                                    + "on top of Range — the top strip.")
+                    LumenSlider(title: "Sat range", value: pointBinding(index, .satRange),
+                                range: 0...100, defaultValue: 50, step: 1, decimals: 0,
+                                bipolar: false, indented: true,
+                                help: "How much paler or more vivid a colour can be and "
+                                    + "still be selected — the middle strip.")
+                    LumenSlider(title: "Lum range", value: pointBinding(index, .lumRange),
+                                range: 0...100, defaultValue: 50, step: 1, decimals: 0,
+                                bipolar: false, indented: true,
+                                help: "How much darker or lighter a colour can be and "
+                                    + "still be selected — the bottom strip.")
                     LumenSlider(title: "Variance", value: pointBinding(index, .variance),
                                 range: -100...100, defaultValue: 0, step: 1, decimals: 0,
-                                // AI-08, interim: per pixel, like Even out hues —
-                                // at −100, inputs at 24°/29°/34° around a 29° swatch
-                                // all leave at 29°.
-                                help: "Negative gathers the nearby hues in toward the "
-                                    + "swatch, evening them out; positive spreads them "
-                                    + "apart. For now it works pixel by pixel, not on "
-                                    + "the neighbourhood: at −100 colours well inside "
-                                    + "its range take the swatch's hue and colourfulness "
-                                    + "and move halfway to its lightness, so fine colour "
-                                    + "texture flattens too; positive amplifies it, "
+                                // Per pixel, like Even out hues. Lightness is left
+                                // alone (WS-32): on the flat path converging it took
+                                // pore texture with it.
+                                help: "Negative gathers the selected colours in toward "
+                                    + "the swatch's hue and colourfulness, evening out "
+                                    + "blotchy skin or a patchy sky; positive spreads "
+                                    + "them apart. It works pixel by pixel, so at −100 fine "
+                                    + "colour variation evens out with the blotches — "
+                                    + "lightness, and with it texture, is never "
+                                    + "touched; positive amplifies colour variation, "
                                     + "noise included.")
                 }
             }
@@ -518,9 +556,17 @@ struct ColorPanel: View {
                 + "Click it to edit this one; the ring marks the "
                 + "swatch the sliders and the − button act on."
         }
-        return RoundedRectangle(cornerRadius: Lumen.radiusChip, style: .continuous)
-            .fill(ColorPanel.chipColor(color))
+        // BEFORE AND AFTER, as Lightroom's swatch shows them: the picked colour on the
+        // left, the colour it now renders as on the right — so a row of chips says
+        // what each swatch is doing without selecting it.
+        let before = ColorPanel.chipColor(color)
+        let after = ColorPanel.shiftedChipColor(color) ?? before
+        return HStack(spacing: 0) {
+            Rectangle().fill(before)
+            Rectangle().fill(after)
+        }
             .frame(width: 22, height: 16)
+            .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip, style: .continuous))
             .overlay(
                 // The armed state has to be visible ON the chip: the ring alone says
                 // "selected", and a photographer who cannot see which pick is armed
@@ -820,7 +866,7 @@ struct ColorPanel: View {
     }
 
     private enum PointComponent: String {
-        case hue, sat, lum, range, variance
+        case hue, sat, lum, range, variance, hueRange, satRange, lumRange
 
         func value(_ p: PointColor) -> Double {
             switch self {
@@ -829,16 +875,25 @@ struct ColorPanel: View {
             case .lum: return p.shift.l
             case .range: return p.range
             case .variance: return p.variance
+            case .hueRange: return p.hueRange ?? 50
+            case .satRange: return p.satRange ?? 50
+            case .lumRange: return p.lumRange ?? 50
             }
         }
 
         func write(_ p: inout PointColor, _ v: Double) {
+            // A refinement back at 50 is stored as ABSENT, which is what 50 means: a
+            // reset leaves the swatch byte-identical to one never refined.
+            let refined: Double? = v == 50 ? nil : Num.clamp(v, 0, 100)
             switch self {
             case .hue: p.shift.h = Num.clamp(v, -60, 60)
             case .sat: p.shift.s = Num.clamp(v, -100, 100)
             case .lum: p.shift.l = Num.clamp(v, -100, 100)
             case .range: p.range = Num.clamp(v, 0, 100)
             case .variance: p.variance = Num.clamp(v, -100, 100)
+            case .hueRange: p.hueRange = refined
+            case .satRange: p.satRange = refined
+            case .lumRange: p.lumRange = refined
             }
         }
     }
@@ -1117,10 +1172,59 @@ struct ColorPanel: View {
     /// a rough encode before it is shown — otherwise every swatch reads as too dark.
     static func chipColor(_ point: PointColor) -> Color {
         guard point.sample.count >= 3 else { return Lumen.controlBackground }
-        let r = Num.saturate(pow(Num.saturate(point.sample[0]), 1.0 / 2.2))
-        let g = Num.saturate(pow(Num.saturate(point.sample[1]), 1.0 / 2.2))
-        let b = Num.saturate(pow(Num.saturate(point.sample[2]), 1.0 / 2.2))
-        return Color(red: r, green: g, blue: b)
+        return pointDisplayColor(RGB(point.sample[0], point.sample[1], point.sample[2]))
+    }
+
+    /// The swatch's sample after its own Hue, Saturation and Luminance — the right
+    /// half of its chip. Nil when the swatch has moved nothing.
+    static func shiftedChipColor(_ point: PointColor) -> Color? {
+        guard point.sample.count >= 3, point.shift != HSLShift() else { return nil }
+        var probe = point
+        probe.variance = 0
+        let sample = RGB(point.sample[0], point.sample[1], point.sample[2])
+        let engine = ColorEngine(mixer: Mixer(), pointColors: [probe], color: ColorAdjust(),
+                                 primaries: Primaries(), bw: nil, bandMeanHues: nil)
+        return pointDisplayColor(engine.apply(sample))
+    }
+
+    /// A colour-stage value (linear Rec.2020, scene-referred) as the panel can paint
+    /// it: through the real Rec.2020 → sRGB matrix and the sRGB curve. The chip used
+    /// to raise the Rec.2020 values to 1/2.2 as if they were sRGB, which drew every
+    /// picked colour greyer than it is — the wider primaries read as duller ones.
+    static func pointDisplayColor(_ c: RGB) -> Color {
+        let s = rec2020ToSRGB.apply(c)
+        func encode(_ v: Double) -> Double {
+            let x = Num.saturate(v)
+            return x <= 0.0031308 ? 12.92 * x : 1.055 * pow(x, 1 / 2.4) - 0.055
+        }
+        return Color(red: encode(s.r), green: encode(s.g), blue: encode(s.b))
+    }
+
+    private static let rec2020ToSRGB: Mat3 = RGBColorSpace.rec2020.matrix(to: .srgb)
+
+    /// Track colours for the swatch's three move rows, from its sample: Hue turns it
+    /// ±60° (the row's own travel), Saturation runs grey → sample → twice as vivid,
+    /// Luminance darker → sample → lighter.
+    static func pointTrackStops(_ point: PointColor)
+        -> (hue: [LumenTrackStop]?, saturation: [LumenTrackStop]?, luminance: [LumenTrackStop]?) {
+        guard point.sample.count >= 3 else { return (nil, nil, nil) }
+        let space = OKLabTransform.working
+        let t = space.toLCh(RGB(point.sample[0], point.sample[1], point.sample[2]))
+        guard t.L.isFinite, t.C.isFinite else { return (nil, nil, nil) }
+        func paint(_ L: Double, _ C: Double, _ h: Double) -> Color {
+            pointDisplayColor(space.toRGB(OKLCh(L: Num.clamp(L, 0.05, 0.97),
+                                                C: max(C, 0), h: Num.wrapHue(h))))
+        }
+        let hue = [LumenTrackStop(value: -60, color: paint(t.L, t.C, t.h - 60)),
+                   LumenTrackStop(value: 0, color: paint(t.L, t.C, t.h)),
+                   LumenTrackStop(value: 60, color: paint(t.L, t.C, t.h + 60))]
+        let saturation = [LumenTrackStop(value: -100, color: paint(t.L, 0, t.h)),
+                          LumenTrackStop(value: 0, color: paint(t.L, t.C, t.h)),
+                          LumenTrackStop(value: 100, color: paint(t.L, 2 * t.C, t.h))]
+        let luminance = [LumenTrackStop(value: -100, color: paint(t.L - 0.3, t.C, t.h)),
+                         LumenTrackStop(value: 0, color: paint(t.L, t.C, t.h)),
+                         LumenTrackStop(value: 100, color: paint(t.L + 0.3, t.C, t.h))]
+        return (hue, saturation, luminance)
     }
 }
 
@@ -1427,6 +1531,57 @@ struct MixerHueRing: View {
             if i == 0 { path.move(to: p) } else { path.addLine(to: p) }
         }
         return path
+    }
+}
+
+// MARK: - Point Colour selection strip
+
+/// What a Point Colour swatch selects, drawn on three axes through its sample: round the
+/// wheel (±90°), grey to vivid, dark to light. Each strip is the axis's colours painted
+/// at the strength the swatch applies to them — full where it is fully selected, a
+/// faint ghost where it is not — with a tick at the sample. The weights are
+/// `ColorEngine.pointSelectionStrip`'s, which reads the render's own selection, so the
+/// picture moves with Range and the three refinements exactly as the photograph does.
+struct PointSelectionStrip: View {
+    let swatch: PointColor
+
+    var body: some View {
+        let rows = ColorEngine.PointAxis.allCases.map {
+            ColorEngine.pointSelectionStrip(swatch, axis: $0, steps: 48)
+        }
+        let painted: [[Color]] = rows.map { row in row.colours.map(ColorPanel.pointDisplayColor) }
+        let weights: [[Double]] = rows.map(\.weights)
+        let ticks: [Double] = rows.map(\.samplePosition)
+
+        return Canvas { context, size in
+            let gap: CGFloat = 2
+            let rowHeight = (size.height - gap * 2) / 3
+            guard rowHeight > 1, size.width > 0 else { return }
+            for (r, colours) in painted.enumerated() {
+                let n = colours.count
+                guard n > 1 else { continue }
+                let top = CGFloat(r) * (rowHeight + gap)
+                let cell = size.width / CGFloat(n)
+                for i in 0..<n {
+                    let w = min(max(weights[r][i], 0), 1)
+                    let rect = CGRect(x: CGFloat(i) * cell, y: top,
+                                      width: cell + 0.5, height: rowHeight)
+                    context.fill(Path(rect), with: .color(colours[i].opacity(0.16 + 0.84 * w)))
+                }
+                let x = size.width * CGFloat(ticks[r])
+                var tick = Path()
+                tick.move(to: CGPoint(x: x, y: top))
+                tick.addLine(to: CGPoint(x: x, y: top + rowHeight))
+                context.stroke(tick, with: .color(Lumen.primaryText.opacity(0.9)), lineWidth: 1)
+            }
+        }
+        .frame(height: 30)
+        .background(Lumen.controlBackground)
+        .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusControl, style: .continuous))
+        .help("What this swatch selects — round the wheel, grey to vivid, dark to "
+              + "light — painted at the strength the edit applies there. The tick is "
+              + "the picked colour.")
+        .accessibilityLabel("Point colour selection")
     }
 }
 

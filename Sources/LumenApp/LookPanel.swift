@@ -1167,18 +1167,29 @@ struct LookPanel: View {
                 // is ALLOWED to move neutrals. The old single paragraph answered "how
                 // is this not the mixer" for all eight and nothing else; that clause
                 // survives inside the hue/purity texts, where it belongs.
+                // "Saturation", as Lightroom's Calibration panel names it — the row
+                // was "Purity", which is the same thing in a word no photographer uses
+                // for it. The recipe keys keep `Purity`. Each track is the primary's own
+                // axis: the two hues it turns between, and grey to vivid (docs/00 Law
+                // 7's colour-axis exception, as the Mixer's rows use it).
                 bipolarSlider("Red Hue", \Look.primaries.rHue, "prim.rHue",
-                              LookPanel.primaryHueHelp("red"))
-                bipolarSlider("Red Purity", \Look.primaries.rPurity, "prim.rPurity",
-                              LookPanel.primaryPurityHelp("red"))
+                              LookPanel.primaryHueHelp("red", toward: ("magenta", "orange")),
+                              stops: LookPanel.primaryHueStops[0])
+                bipolarSlider("Red Saturation", \Look.primaries.rPurity, "prim.rPurity",
+                              LookPanel.primaryPurityHelp("red"),
+                              stops: LookPanel.primarySaturationStops[0])
                 bipolarSlider("Green Hue", \Look.primaries.gHue, "prim.gHue",
-                              LookPanel.primaryHueHelp("green"))
-                bipolarSlider("Green Purity", \Look.primaries.gPurity, "prim.gPurity",
-                              LookPanel.primaryPurityHelp("green"))
+                              LookPanel.primaryHueHelp("green", toward: ("yellow", "cyan")),
+                              stops: LookPanel.primaryHueStops[1])
+                bipolarSlider("Green Saturation", \Look.primaries.gPurity, "prim.gPurity",
+                              LookPanel.primaryPurityHelp("green"),
+                              stops: LookPanel.primarySaturationStops[1])
                 bipolarSlider("Blue Hue", \Look.primaries.bHue, "prim.bHue",
-                              LookPanel.primaryHueHelp("blue"))
-                bipolarSlider("Blue Purity", \Look.primaries.bPurity, "prim.bPurity",
-                              LookPanel.primaryPurityHelp("blue"))
+                              LookPanel.primaryHueHelp("blue", toward: ("cyan", "purple")),
+                              stops: LookPanel.primaryHueStops[2])
+                bipolarSlider("Blue Saturation", \Look.primaries.bPurity, "prim.bPurity",
+                              LookPanel.primaryPurityHelp("blue"),
+                              stops: LookPanel.primarySaturationStops[2])
                 bipolarSlider("Shadow Tint", \Look.primaries.tintHue, "prim.tintHue",
                               LookPanel.shadowTintHelp)
                 bipolarSlider("Tint Purity", \Look.primaries.tintPurity,
@@ -1650,29 +1661,59 @@ struct LookPanel: View {
     private func bipolarSlider(_ title: String,
                                _ path: WritableKeyPath<Look, Double>,
                                _ key: String,
-                               _ help: String) -> some View {
+                               _ help: String,
+                               stops: [LumenTrackStop]? = nil) -> some View {
         LumenSlider(title: title, value: bindLook(path, key: key),
                     range: -100...100, defaultValue: 0, step: 1, decimals: 0,
-                    help: help)
+                    trackStops: stops, help: help)
     }
 
-    // The primaries' help, per kind of row (docs/24 §11 is the source: rotation up to
-    // ±20° and purity ±50% at full throw, greys preserved by the matrix construction;
-    // the shadow tint is an opponent-axis offset windowed to about −3 EV). Functions
-    // rather than one string, because "how is this not the mixer" is the question all
-    // six matrix rows raise and the colour name is the only thing that varies.
+    /// The hues each primary turns between at −100 and +100 — the direction Lightroom's
+    /// Calibration tracks show (red: magenta ↔ orange, green: yellow ↔ cyan, blue:
+    /// cyan ↔ purple), static so no drag rebuilds a track.
+    static let primaryHueStops: [[LumenTrackStop]] = [
+        [(0.80, 0.22, 0.42), (0.84, 0.24, 0.22), (0.88, 0.48, 0.18)],
+        [(0.62, 0.72, 0.24), (0.34, 0.69, 0.34), (0.24, 0.68, 0.62)],
+        [(0.24, 0.58, 0.80), (0.28, 0.46, 0.84), (0.52, 0.36, 0.84)],
+    ].map { row in
+        zip([-100.0, 0, 100], row).map { value, c in
+            LumenTrackStop(value: value, color: Color(red: c.0, green: c.1, blue: c.2))
+        }
+    }
 
-    private static func primaryHueHelp(_ colour: String) -> String {
+    /// Grey to vivid in each primary's own colour, the grey at the colour's luma.
+    static let primarySaturationStops: [[LumenTrackStop]] = [
+        (0.84, 0.24, 0.22), (0.34, 0.69, 0.34), (0.28, 0.46, 0.84),
+    ].map { c in
+        let y = 0.2126 * c.0 + 0.7152 * c.1 + 0.0722 * c.2
+        func toward(_ t: Double) -> Color {
+            Color(red: y + (c.0 - y) * t, green: y + (c.1 - y) * t, blue: y + (c.2 - y) * t)
+        }
+        return [LumenTrackStop(value: -100, color: toward(0.15)),
+                LumenTrackStop(value: 0, color: toward(0.6)),
+                LumenTrackStop(value: 100, color: toward(1.0))]
+    }
+
+    // The primaries' help, per kind of row. Measured on the colour chart (WS-33): ±100
+    // Hue turns a primary's own colour about 15–25° toward the named neighbour, ±100
+    // Saturation scales its colourfulness by roughly a quarter either way, and greys are
+    // preserved exactly by the matrix construction. Functions rather than one string,
+    // because "how is this not the mixer" is the question all six matrix rows raise and
+    // the colour name is the only thing that varies.
+
+    private static func primaryHueHelp(_ colour: String,
+                                       toward: (String, String)) -> String {
         "Redefines what \(colour) means for this image by turning the \(colour) "
-        + "primary itself around the wheel — up to 20° at full throw. The mixer "
-        + "targets pixels that look \(colour); this moves every pixel containing "
-        + "\(colour) — global, smooth, unable to posterize. Greys cannot move."
+        + "primary itself — toward \(toward.0) on the left, \(toward.1) on the right. "
+        + "The mixer targets pixels that look \(colour); this moves every colour "
+        + "containing \(colour), skin included — global, smooth, unable to posterize. "
+        + "Greys cannot move."
     }
 
     private static func primaryPurityHelp(_ colour: String) -> String {
-        "Pulls the \(colour) primary toward grey or half again further from it, "
-        + "gently and globally — every pixel containing \(colour) follows, where the "
-        + "mixer only reaches pixels that look \(colour). Greys cannot move."
+        "Makes the \(colour) primary more or less colourful, across its whole travel — "
+        + "every colour containing \(colour) follows, where the mixer only reaches "
+        + "pixels that look \(colour). Greys cannot move."
     }
 
     private static let shadowTintHelp =

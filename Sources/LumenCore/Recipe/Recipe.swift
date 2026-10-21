@@ -893,17 +893,35 @@ public struct PointColor: Codable, Equatable, Sendable {
     public var range: Double        // 0…100 master falloff
     public var variance: Double     // −100…+100 (negative converges, positive expands)
     public var shift: HSLShift
+    /// Lightroom's Range refinements: 0…100 per axis, nil (or 50) = follow the master
+    /// Range alone. Each multiplies the master's tolerance on its own axis by
+    /// `axisFactor` — half at 0, double at 100. Optional so a swatch nobody refined
+    /// encodes exactly as it always did.
+    public var hueRange: Double?
+    public var satRange: Double?
+    public var lumRange: Double?
 
     public init(sample: [Double], range: Double = 50, variance: Double = 0,
-                shift: HSLShift = HSLShift()) {
+                shift: HSLShift = HSLShift(), hueRange: Double? = nil,
+                satRange: Double? = nil, lumRange: Double? = nil) {
         self.sample = sample
         self.range = range
         self.variance = variance
         self.shift = shift
+        self.hueRange = hueRange
+        self.satRange = satRange
+        self.lumRange = lumRange
+    }
+
+    /// What a refinement does to its axis's tolerance: `2^((v − 50)/50)`, so 50 (and
+    /// nil) is exactly ×1 and the travel is symmetric in ratio, ×0.5 … ×2.
+    public static func axisFactor(_ value: Double?) -> Double {
+        guard let value, value.isFinite else { return 1 }
+        return Foundation.pow(2, (Num.clamp(value, 0, 100) - 50) / 50)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case sample, range, variance, shift
+        case sample, range, variance, shift, hueRange, satRange, lumRange
     }
 
     /// Tolerant of an absent key, with one fallback that the memberwise initializer above
@@ -921,6 +939,9 @@ public struct PointColor: Codable, Equatable, Sendable {
         self.range = try c.decodeIfPresent(Double.self, forKey: .range) ?? 50
         self.variance = try c.decodeIfPresent(Double.self, forKey: .variance) ?? 0
         self.shift = try c.decodeIfPresent(HSLShift.self, forKey: .shift) ?? HSLShift()
+        self.hueRange = try c.decodeIfPresent(Double.self, forKey: .hueRange)
+        self.satRange = try c.decodeIfPresent(Double.self, forKey: .satRange)
+        self.lumRange = try c.decodeIfPresent(Double.self, forKey: .lumRange)
     }
 }
 
