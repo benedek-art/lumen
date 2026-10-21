@@ -6,7 +6,8 @@ once with the same control inside a full-frame radial mask, and reports CIEDE200
 between the two outputs. Usage:
 
   measure.py parity  <input.lfi> <global-set> <local-set> [--as-shot-kelvin K ...]
-  measure.py suite   <input.lfi>                # every control's parity, as-shot from sidecar
+  measure.py suite   <input.lfi> [--global-temp K T]
+                     # every control's parity, as-shot from sidecar; CASES="a|b" selects
   measure.py feather <input.lfi> <global-set> <local-set> [out.png]
                      # radial r=0.3 feather 60: overshoot and monotonicity across the ramp
 
@@ -122,7 +123,8 @@ def suite_cases(K, T, base_g=None):
     base_g = dict(base_g or {})
     bk, bt = base_g.get("develop.raw.temp", K), base_g.get("develop.raw.tint", T)
     def wb(t, g):
-        return {**base_g, "develop.raw.temp": 1e6 / (1e6 / bk - 0.5 * t),
+        mired = min(max(1e6 / bk - 0.5 * t, 20.0), 500.0)   # the engine's own clamp
+        return {**base_g, "develop.raw.temp": 1e6 / mired,
                 "develop.raw.tint": bt + 1.5 * g}
     c = [("exposure+1", {"develop.tone.exposure": 1}, {"exposure": 1}),
          ("exposure-1.5", {"develop.tone.exposure": -1.5}, {"exposure": -1.5}),
@@ -180,12 +182,15 @@ def main():
         bi, _ = render(inp, recipe(), sets=base_sets, extra=extra)
         only = os.environ.get("CASES")
         for name, g, l in suite_cases(K, T, base_g):
-            if only and name not in only.split(","): continue
+            if only and name not in only.split("|"): continue
             gi, _ = render(inp, recipe(), sets=list(g.items()), extra=extra)
             li, _ = render(inp, recipe(local=l), sets=base_sets, extra=extra)
+            moved = stats(de(gi, bi))
+            # A control that did not move the picture makes parity vacuous (SPEC).
             print(json.dumps({"input": os.path.basename(inp), "asShot": [K, T], "case": name,
                               "dE_local_vs_global": stats(de(gi, li)),
-                              "dE_global_vs_base": stats(de(gi, bi))}), flush=True)
+                              "dE_global_vs_base": moved,
+                              "vacuous": moved["mean"] <= 0.5}), flush=True)
     if mode == "feather":
         g = "FULL" if sys.argv[3] == "FULL" else parse(sys.argv[3])
         l = parse(sys.argv[4])

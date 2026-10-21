@@ -239,8 +239,12 @@ final class MaskWhiteBalanceTests: XCTestCase {
 
     func testTheShiftAndKelvinSpellingsAreOneEditAtEveryAmount() {
         // What makes the panel's Shift/Kelvin switch move no pixel.
+        // Strength runs to 200, and both spellings scale past 1 along the same line:
+        // the Kelvin one used to stop at amount 1 (ΔE 3.4 on the switch at 200).
         let balanced = neutral(4300, 18)
-        for (temp, tint) in [(40.0, -30.0), (-100, 100), (0, 0), (75, 0)] {
+        for (temp, tint, amounts) in [(40.0, -30.0, [0.0, 0.3, 1.0, 1.5, 2.0]),
+                                      (-100, 100, [0.0, 0.3, 1.0]), (0, 0, [1.0, 2.0]),
+                                      (50, 0, [0.7, 2.0])] {
             var relative = LocalAdjust()
             relative.temp = temp
             relative.tint = tint
@@ -249,7 +253,7 @@ final class MaskWhiteBalanceTests: XCTestCase {
             var absoluteAdjust = LocalAdjust()
             absoluteAdjust.kelvin = k.kelvin
             absoluteAdjust.kelvinTint = k.tint
-            for amount in [0.0, 0.3, 1.0] {
+            for amount in amounts {
                 let a = ReferenceRenderer.LocalWhiteBalance.resolve(
                     relative, amount: amount, balanced: balanced, space: space)
                 let b = ReferenceRenderer.LocalWhiteBalance.resolve(

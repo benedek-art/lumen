@@ -551,16 +551,19 @@ public enum ReferenceRenderer {
         /// which is already a linear axis, interpolates directly.
         ///
         /// At `amount` 0 this is exactly the identity: the endpoint IS `balanced`, so
-        /// the engine is asked to adapt a neutral to itself.
+        /// the engine is asked to adapt a neutral to itself. Above 1 (mask Strength
+        /// past 100) it extrapolates along the same mired line, as the relative spelling
+        /// and every other mask slider do. It used to stop at 1, so the panel's
+        /// Shift → Kelvin switch moved the picture by ΔE 3.4 at Strength 200.
         public init(kelvin: Double, tint: Double?, amount: Double,
                     balanced: WhiteBalanceEngine.Neutral,
                     space: RGBColorSpace = .rec2020) {
-            let scale = Num.saturate(amount)
+            let scale = Num.clamp(amount, 0, 2)
             let target = Num.clamp(kelvin, ColorTemperature.minKelvin,
                                    ColorTemperature.maxKelvin)
             let fromMired = 1e6 / Swift.max(balanced.kelvin, 1)
             let toMired = 1e6 / Swift.max(target, 1)
-            let mired = fromMired + (toMired - fromMired) * scale
+            let mired = Num.clamp(fromMired + (toMired - fromMired) * scale, 20, 500)
             let toTint = Num.clamp(tint ?? balanced.tint, -300, 300)
             let effectiveTint = balanced.tint + (toTint - balanced.tint) * scale
             let engine = WhiteBalanceEngine(asShotKelvin: balanced.kelvin,
@@ -579,12 +582,13 @@ public enum ReferenceRenderer {
             -> (kelvin: Double, tint: Double) {
             let t = Num.clamp(temp, -100, 100), g = Num.clamp(tint, -100, 100)
             let mired = Num.clamp(1e6 / Swift.max(balanced.kelvin, 1) - t * 0.5, 20, 500)
-            return (1e6 / mired, balanced.tint + g * 1.5)
+            return (1e6 / mired, Num.clamp(balanced.tint + g * 1.5, -300, 300))
         }
 
         /// The inverse, for Kelvin → Shift. Exact while the Kelvin is within ±50 mired
-        /// and the Tint within ±150 of the balance; past that the slider's ±100 ends are
-        /// the nearest a relative shift can reach.
+        /// and the Tint within ±150 of the balance (both after Strength); past that the
+        /// slider's ±100 ends are the nearest a relative shift can reach, so the switch
+        /// moves the picture there and only there.
         public static func shiftEquivalent(kelvin: Double, tint: Double?,
                                            balanced: WhiteBalanceEngine.Neutral)
             -> (temp: Double, tint: Double) {
