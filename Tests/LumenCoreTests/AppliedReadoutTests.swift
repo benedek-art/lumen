@@ -126,12 +126,20 @@ final class EngineLimitReadoutTests: XCTestCase {
             tone: Tone(highlights: -100, shadows: 100)))
     }
 
-    /// The caption carries the number the render uses. Measured: Highlights −100 at
-    /// Contrast −100 applies −94; Blacks +100 there applies +91 on its shelf.
+    /// The caption carries the number the render uses.
+    ///
+    /// This used to be Highlights −100 at Contrast −100 (applied −94) and Blacks +100 at
+    /// Contrast −100 (+91). WS-06 rebuilt the Contrast curve so the zonal windows can
+    /// borrow its slope everywhere instead of losing it to one flat shoulder, and neither
+    /// recipe is eased any more: there is nothing left there to caption. The test is
+    /// re-pointed at a recipe that still binds, the four-way corner (all four zonal
+    /// sliders at their ends against Contrast +100), and asserts the engine's own applied
+    /// amounts. Measured: Highlights −100 applies −75 and Blacks +100 applies +63.
     ///
     /// SUBSTITUTION: make `easedToneSliders` return `[]` and both unwraps fail.
     func testAnEasedSliderIsNamedWithTheAmountTheRenderApplies() throws {
-        let tone = Tone(contrast: -100, highlights: -100)
+        let tone = Tone(contrast: 100, highlights: -100, shadows: 100, whites: -100,
+                        blacks: 100)
         let engine = ToneEngine(tone: tone)
         let caption = try XCTUnwrap(AppliedReadout.toneEasingCaption(tone: tone),
                                     "Highlights is eased to \(engine.effectiveHighlights) "
@@ -139,11 +147,18 @@ final class EngineLimitReadoutTests: XCTestCase {
         let shown = "Highlights \(AppliedReadout.signed(engine.effectiveHighlights * 100)) "
             + "of \u{2212}100"
         XCTAssertTrue(caption.contains(shown), caption)
-        XCTAssertTrue(caption.contains("\u{2212}94"), caption)
+        XCTAssertTrue(caption.contains("Highlights \u{2212}75 of \u{2212}100"), caption)
+        let shelf = "Blacks (tone shelf) \(AppliedReadout.signed(engine.effectiveBlacks * 100)) "
+            + "of +100"
+        XCTAssertTrue(caption.contains(shelf), caption)
+        XCTAssertTrue(caption.contains("Blacks (tone shelf) +63 of +100"), caption)
 
-        let blacks = Tone(contrast: -100, blacks: 100)
-        let shelf = try XCTUnwrap(AppliedReadout.toneEasingCaption(tone: blacks))
-        XCTAssertTrue(shelf.contains("Blacks (tone shelf) +91 of +100"), shelf)
+        // And the two recipes this test used to name are now applied as set, which is
+        // the improvement, so the readout is silent about them.
+        XCTAssertNil(AppliedReadout.toneEasingCaption(tone: Tone(contrast: -100,
+                                                                 highlights: -100)))
+        XCTAssertNil(AppliedReadout.toneEasingCaption(tone: Tone(contrast: -100,
+                                                                 blacks: 100)))
     }
 
     /// Every row the readout reports is the engine's own applied value, and every

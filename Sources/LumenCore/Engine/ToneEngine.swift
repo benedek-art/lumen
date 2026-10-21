@@ -530,120 +530,153 @@ public struct ToneEngine: Sendable {
         return Num.smoothstep(-lo * Self.blackShelfStart, -lo * Self.blackShelfEnd, -t)
     }
 
+    /// Contrast's slope law at the pivot, the three terms of
+    /// `log2 σ(u) = a·u − b·u² + k·u³` with `u = contrast/100`.
+    ///
+    /// σ(+100) = 2^0.91 = 1.879, σ(+50) = 1.368, σ(−50) = 0.689, σ(−100) = 2^−1.25 =
+    /// 0.420. The derivative of the exponent, `a − 2b·u + 3k·u²`, is smallest at
+    /// u = b/3k ≈ 0.47 where it is 0.88, so the slope rises with every unit of the slider.
+    ///
+    /// WHY NOT `1 + 0.6u`, the old law. In log-slope, the unit a photographer's eye works
+    /// in, it made −100 about twice as strong as +100: log2 1.6 = +0.68 against
+    /// log2 0.4 = −1.32.
+    ///
+    /// WHY NOT PLAIN LOG-SYMMETRY (b = 0), the obvious repair. It was tried. With the eased
+    /// profile below it makes +100 about 1.8× stronger ON SCREEN than −100: the ratio
+    /// dRMS(+100)/|dRMS(−100)| on the A7 IV and GX85 frames came out at 1.70-1.87. The
+    /// display transform absorbs positive and negative log-slope differently, so equal
+    /// log-slope is not equal on screen. The quadratic term gives up log-symmetry
+    /// (log2 σ(+100) + log2 σ(−100) = −0.34) to get symmetry on screen, which is what a
+    /// photographer sees and what WS-06 SPEC S17 measures: 1.02 / 1.19 at ±100 and
+    /// 0.99 / 1.06 at ±50 on those two frames.
+    ///
+    /// WHY THE CUBIC TERM. With a quadratic alone the exponent is steepest at u = 0, so
+    /// the first ten units of travel did the most and the proof ramp's `frontLoading`
+    /// (the share of the −100 … +100 travel already delivered at +10) came out at 0.589,
+    /// against WS-06's band of 0.42-0.58. The cubic term moves slope from the middle of
+    /// the slider to its ends with both end values held, which brings it to 0.576 and
+    /// evens the per-10-unit steps (peak step ratio 1.14 on the ramp).
+    ///
+    /// WHY THESE ENDS. σ(+100) is bounded above by the zonal limiter: Highlights, Shadows,
+    /// Whites and Blacks all at ±100 against Contrast +100 (the "four-way corner") borrow
+    /// slope from the curve's flattest stretch, and the generator's floor of 0.62 falls
+    /// through at σ(+100) ≈ 1.9 (measured 0.627 here, 0.622 at 1.892). σ(−100) is bounded
+    /// below by the proof authority of `tone.contrast` (58.5 here, floor 55) and above by
+    /// the rendered midtone slope at −100, which must stay at or under 26 codes/EV (23).
+    public static let contrastSlopeLinear: Double = 0.96
+    public static let contrastSlopeQuadratic: Double = 0.17
+    public static let contrastSlopeCubic: Double = 0.12
+
+    /// σ(u), the slope at the pivot for `u = contrast/100` in [−1, 1].
+    static func contrastPivotSlope(_ u: Double) -> Double {
+        pow(2, u * (contrastSlopeLinear + u * (contrastSlopeCubic * u - contrastSlopeQuadratic)))
+    }
+
+    /// The shape of one side of the contrast curve, as fractions of that side's reach R
+    /// (the distance from the pivot to the live anchor on that side). See
+    /// `contrastMapped` for how they are used.
+    ///
+    /// - `easeStart`, `easeEnd`: where the slope eases from the pivot slope σ to the
+    ///   side's solved level β. The ease is at least min(1, R/2) EV wide.
+    /// - `returnStart`: where the slope starts returning from β to exactly 1, which it
+    ///   reaches at the anchor. The return is at least min(1.5, R/2) EV wide.
+    struct ContrastSide {
+        let easeStart: Double
+        let easeEnd: Double
+        let returnStart: Double
+    }
+
+    /// The highlight side eases from the pivot itself (0 … 0.4R) and returns over the
+    /// last fifth of the reach (0.8R … R), or over the last min(1.5, R/2) EV if that is
+    /// wider. On the default +5 EV anchor: σ eases to β over 0 … +2 EV and returns to 1
+    /// over +3.5 … +5 EV.
+    ///
+    /// Starting the ease at the pivot is what keeps the top two stops apart. The old
+    /// curve held σ undiluted out to 0.2R and paid for it with a dip to slope 0.41 at
+    /// 0.77R, and +2 … +4 EV rendered across 18 sRGB codes where contrast 0 renders 43.
+    static let contrastHighlightSide = ContrastSide(easeStart: 0, easeEnd: 0.4, returnStart: 0.8)
+
+    /// The shadow side holds σ for the first 5% of the reach, eases to β by 0.45R, and
+    /// starts its return at 0.6R. On the default −9 EV anchor: σ to −0.45 EV, eased to β
+    /// by −4.05 EV, and back toward 1 over −5.4 … −9 EV.
+    ///
+    /// The early return is the softer toe. The deep shadows, −5 EV and below where a
+    /// photograph keeps its last texture, end up close to where they were: at +100 the
+    /// old curve dragged −6 EV down by 1.35 EV and −7 EV by 0.79 EV, which put the
+    /// leaf separation of a dark foliage frame at code 0.
+    static let contrastShadowSide = ContrastSide(easeStart: 0.05, easeEnd: 0.45, returnStart: 0.6)
+
     /// No room between the pivot and an anchor means that side of the picture is
     /// already past the end of the scale, and contrast leaves it alone rather than
     /// dividing by a reach of zero. Reachable in the shipped ranges: the pivot clamps
     /// to ±4 and Whites +100 pulls the white anchor down to +3.5.
     public static let minContrastReachEV: Double = 1e-6
 
-    /// How far toward the anchor the full slope holds before the shoulder starts, as a
-    /// fraction of the reach. This is the number that decides whether Contrast still
-    /// FEELS like contrast, so it is set from measurements and not from taste.
+    /// Contrast: a slope profile around an explicit pivot in log-exposure space,
+    /// integrated, so that the pivot and both live anchors are fixed points and the
+    /// curve is monotone BY CONSTRUCTION rather than by a tuned constant.
     ///
-    /// WHY IT IS NOT ZERO. The first version of the A1-01 fix started the shoulder at
-    /// the pivot (`smoothstep(0, 1, u)`). That pins the anchor correctly, but it dilutes
-    /// the slope everywhere — including the midtones, where the subject of a photograph
-    /// lives — and the proof priced it: `tone.contrast` authority 81.42 → 54.83, mean
-    /// separation 45.25 → 24.63. 54.83 is BELOW this control's own declared
-    /// `authorityFloor` of 55. The registry rejected the fix, which is what a floor is
-    /// for: a control may not be quietly weakened to make a different bug go away.
+    /// THE CONSTRUCTION. On each side of the pivot, with `x = |t − pivot|` and R the
+    /// distance to the live anchor on that side, the log-slope is
     ///
-    /// So the slope holds undiluted across the inner fraction of the reach and eases
-    /// only over the outer part — the straight section, shoulder and toe a film curve
-    /// has always had. At 0.2 the straight section runs to +1.0 EV of a default +5 EV
-    /// white anchor and to −1.8 EV of a −9 EV black one.
+    ///     s(x) = σ + (β − σ)·r₁(x) + (1 − β)·r₂(x)
     ///
-    /// WHY IT IS NOT MORE, and this is the real cost, stated in full because the first
-    /// version of this comment understated a regression and that is how it got shipped.
-    /// A steeper middle with the ends nailed down means a flatter shoulder, and a
-    /// flatter shoulder is slope the four zonal windows can no longer borrow, so
-    /// `solveZonalLimits` scales Highlights, Shadows, Whites and Blacks down further:
+    /// - σ is the slope law's value at the pivot (`contrastPivotSlope`).
+    /// - r₁ is a smoothstep that eases σ into a level β, and r₂ is a smoothstep that
+    ///   carries β back to exactly 1 at the anchor. r₂ starts where r₁ ends, so the two
+    ///   never overlap and s is a sum of three terms, not a product.
+    /// - The mapped value is `pivot ± ∫₀ˣ s`. The integral of a smoothstep has a closed
+    ///   form (`Self.smoothstepIntegral`), so this is a handful of multiplies per call.
+    ///   That matters: the limiter sweeps it, the 1024-entry gain LUT samples it, and
+    ///   masked local Contrast runs it through the same engine.
+    /// - β is SOLVED, once per side, so that ∫₀ᴿ s = R. Then the anchor maps to itself:
+    ///   that is the fixed point, and it is an equation, not a window wide enough.
+    ///   Beyond the anchor s = 1, and the code returns `t` itself there.
     ///
-    ///     hold   authority   Highlights −100    Shadows +100    four-way
-    ///                        at contrast +100   at contrast −100  corner
-    ///     0.00      54.83         0.9894            0.8439        0.7565
-    ///     0.15      64.88         0.9067            0.6833        0.6841
-    ///     0.20      68.38         0.8460            0.6192        0.6468
-    ///     0.30      74.96         0.6347            0.5937        0.5272
+    /// WHY IT IS MONOTONE. s is a convex combination of σ, β and 1 at every x (each
+    /// smoothstep is in [0, 1] and r₂ > 0 only where r₁ = 1), so s ≥ min(σ, β, 1). σ > 0
+    /// by the slope law. β > 0 follows from the closed form below: β is positive exactly
+    /// when σ < (R + a₂)/(a₁ + b₁), and with the side fractions shipped that ratio is at
+    /// least 2.58 at every reach (3 on the highlight side), against σ ≤ 1.879. So the
+    /// smallest slope anywhere is min(σ(−100), β at +100) — 0.420 at contrast −100 (the
+    /// pivot slope itself), and for c > 0 the β of the shortest reach that can occur:
+    /// 1.5 − 0.5σ = 0.560 on the highlight side when the pivot is within 2 EV of the
+    /// white anchor. On the default anchors β at +100 is 0.73 above the pivot and
+    /// 0.60 below it.
     ///
-    /// The paired case falls through 0.60 at a hold of about 0.225, so 0.2 is the last
-    /// setting where a single tone control pushed to its end against contrast pushed to
-    /// its end still applies more than 60% of what it asks. Inside the daily-use band
-    /// (five sliders within ±60, the end points within ±40) the limiter takes 0.6% at
-    /// its worst — which is to say, nothing. The generator asserts all three numbers.
+    /// WHY THIS SHAPE, and what it replaced. The old curve was
+    /// `d·mix(slope, 1, smoothstep(0.2, 1, |d|/R))`: the full slope undiluted out to a
+    /// fifth of the reach, then a shoulder. It pinned the anchors, but the compensation
+    /// for its steep middle all landed in one dip to slope 0.41 at 77% of the reach. That
+    /// flattened the top two stops by 2.3×, crushed −4 … −7 EV to code 0, and cost
+    /// Highlights and Shadows 15-38% of their travel through the zonal limiter, because a
+    /// flat shoulder is slope the zonal windows can no longer borrow. Spreading the
+    /// compensation over the whole side (β) instead of one dip is what fixes all three.
     ///
-    /// That the limiter binds at all is not slack being given away. It solves for the
-    /// LARGEST scale that keeps the composed tone map monotone and `RobustnessTests`
-    /// checks the response stops rising 2% above the solved limit, so a bigger number
-    /// there would be an inverting picture, not a stronger slider.
+    /// The limiter, measured on this curve (old curve in brackets): Highlights −100
+    /// against Contrast +100 applies 0.998 of its travel (0.846); Shadows +100 against
+    /// Contrast −100 applies 0.909 (0.619); the worst single slider at ±100 against
+    /// Contrast ±100 applies 0.884 (0.619); all four zonal sliders at their ends against
+    /// Contrast +80/+100 apply 0.627 (0.647), the one number that fell, and still above
+    /// the generator's floor of 0.62; and inside the daily-use band (five sliders within
+    /// ±60, the end points within ±40) the limiter does not bind at all (0.994). The
+    /// generator (`scripts/gen-fixtures.py`) asserts the floors, and `ContrastCurveTests`
+    /// asserts these numbers.
     ///
-    /// Monotonicity is what bounds the hold from above. With
-    /// `f(d) = d·mix(slope, 1, S(u))` and `S = smoothstep(hold, 1, u)`, the derivative
-    /// in u is `slope + (1−slope)·[S + u·S′]`, and the bracket's maximum grows with the
-    /// hold: 1.687 at 0.0, 1.983 at 0.2, 2.519 at 0.4. At contrast +100 (slope 1.6) the
-    /// derivative is `1.6 − 0.6·max`, so it reaches zero just past a hold of 0.44 and a
-    /// hold of 0.5 INVERTS the picture. At 0.2 the minimum derivative is 0.41, which is
-    /// the same order as the 0.4 contrast −100 has always had at the pivot.
-    /// `testContrastIsMonotoneAcrossTheWholeScaleAtEverySetting` measures it rather than
-    /// trusting this paragraph.
-    public static let contrastShoulderStart: Double = 0.2
-
-    /// Contrast: slope around an explicit pivot in log-exposure space, relaxing back to
-    /// 1 as it approaches the anchor so the ends of the scale are FIXED POINTS.
+    /// WHY EVERY TRANSITION IS AT LEAST ABOUT 1 EV WIDE. The GPU multiplies by a gain
+    /// cube with 32 or 65 knots over the log domain, one knot per 0.77 or 0.37 EV. A
+    /// slope change narrower than that is a corner the cube cuts, and the CPU and GPU
+    /// renders part. The ease is at least min(1, R/2) EV wide and the return at least
+    /// min(1.5, R/2), so the cube follows the curve; WS-06 SPEC S15 measures it.
     ///
-    /// A1-01, and the fix is a change of denomination. The relax window used to be two
-    /// constants — 4 stops to 12 stops from the pivot — while the thing that decides
-    /// where a highlight actually clips is the DISPLAY ANCHOR, +5 EV by default and as
-    /// low as +3.5 under Whites +100. Those two numbers had nothing to do with each
-    /// other, so at contrast +100 the white anchor mapped to +7.87 EV and everything
-    /// from +3.125 EV upward landed at or beyond white: measured on the proof ramp, 34
-    /// of 256 columns rendered at exactly 255.0 against 0 of 256 at contrast 0, and 40
-    /// tied at the darkest value. 1.875 stops of highlight and 3.037 stops of shadow,
-    /// flattened to one value each.
+    /// WHAT IT DOES NOT DO. The white and black points are fixed, so a grey is never
+    /// pushed past either. A ratio-preserving gain with a pinned white must still
+    /// brighten bright colours between the pivot and white, so strong settings can clip a
+    /// bright saturated colour's largest channel. And it is one scalar gain per pixel:
+    /// colours keep their chroma-to-lightness ratio, they are not saturated.
     ///
-    /// Three things in the tree said that could not happen: this control's own tooltip
-    /// ("the ends of the scale stay pinned, so it cannot clip a highlight"), docs/04,
-    /// and a green test. The test probed ±`LumenLog.maxEV` — ±12 EV, the extreme of the
-    /// log scale, four stops past the anchor and seven past where a photograph lives —
-    /// where the old window had relaxed to 1 by construction. It asserted a true thing
-    /// about a place nothing renders.
-    ///
-    /// So the reach is the distance to the anchor on the side being mapped, and the
-    /// slope relaxes to exactly 1 there. `d * 1 == d` makes the anchor map to itself, so
-    /// the promise is now geometry rather than a wide-enough window: contrast cannot
-    /// move a pixel across the end of the scale because the end of the scale is a fixed
-    /// point of the mapping.
-    ///
-    /// AND IT STILL HAS TO FEEL LIKE CONTRAST. Relaxing from the pivot outward pins the
-    /// anchor but dilutes the midtones, and the proof said so: authority 81.42 → 54.83
-    /// against a declared floor of 55. So the slope holds undiluted across the inner
-    /// `contrastShoulderStart` of the reach and eases only over the outer part — the
-    /// straight section, shoulder and toe a film curve has always had. See that
-    /// constant for why the hold is 0.2 and not more.
-    ///
-    /// STILL MONOTONE, which is what the old window was wide for. With
-    /// `f(d) = d·mix(slope, 1, s(u))` and `u = d/reach`, the derivative in u is
-    /// `slope + (1−slope)·[s(u) + u·s'(u)]`, whose bracket peaks at 1.9825 at the
-    /// shipped hold of 0.2. At contrast +100 (slope 1.6) the minimum derivative is
-    /// 1.6 − 0.6·1.9825 = 0.4105, reached at |d|/reach = 0.770 — on the default anchors,
-    /// +3.85 EV. At contrast −100 (slope 0.4) the derivative is smallest at the pivot at
-    /// 0.4. Positive across the whole range, so the inversion the old comment feared
-    /// ("a brighter input darker, an inversion, never a look") cannot occur here either.
-    /// `EngineTests.testContrastIsMonotoneAcrossTheWholeScaleAtEverySetting` measures it
-    /// rather than trusting this paragraph — there is no `ToneMonotoneTests`, which is
-    /// what this line named until the atlas run went looking for it.
-    ///
-    /// BOTH NUMBERS IN THIS PARAGRAPH USED TO BE THE ONES FOR A HOLD OF 0.3 — bracket
-    /// 2.2069, minimum derivative 0.276 — left behind when the hold was settled at 0.2
-    /// and the trade table above was written. Two independent measurements agree on
-    /// 0.410481 at +3.8508 EV (140,001 central differences at h = 1e-6 over the default
-    /// [−9, +5] EV), which back-solves the bracket to 1.982532 and matches the constant's
-    /// own paragraph. A comment that explains a control is part of the control, and this
-    /// one was explaining a curve the engine does not run.
-    ///
-    /// Above the anchor `u` saturates and the mapping is the identity, which is correct
-    /// and is the same answer the old window gave: a pixel already past the end of the
-    /// scale is not somewhere contrast should be pushing further.
+    /// Above the anchor the mapping is the identity, which is the correct answer: a pixel
+    /// already past the end of the scale is not somewhere contrast should push further.
     public func contrastMapped(_ t: Double) -> Double {
         let c = Num.clamp(tone.contrast, -100, 100)
         guard c != 0 else { return t }
@@ -654,16 +687,52 @@ public struct ToneEngine: Sendable {
         // and both anchors stay fixed points.
         let pivot = Num.clamp(tone.contrastPivot, Swift.max(-4, blackAnchorEV),
                               Swift.min(4, whiteAnchorEV))
-        let slope = 1 + 0.6 * (c / 100)
         let d = t - pivot
         // The LIVE anchors, not the defaults: Whites and Blacks move them, and a reach
         // measured against a default anchor would put the fixed point somewhere the
         // display transform no longer clips.
         let reach = d >= 0 ? whiteAnchorEV - pivot : pivot - blackAnchorEV
         guard reach > Self.minContrastReachEV else { return t }
-        let shoulder = Num.smoothstep(Self.contrastShoulderStart, 1, abs(d) / reach)
-        let effective = Num.mix(slope, 1, shoulder)
-        return pivot + d * effective
+        let x = abs(d)
+        // Beyond the anchor the slope is exactly 1, and returning `t` itself keeps that
+        // exact instead of within the rounding of the integral.
+        guard x < reach else { return t }
+        let u = c / 100
+        let sigma = Self.contrastPivotSlope(u)
+        let side = d >= 0 ? Self.contrastHighlightSide : Self.contrastShadowSide
+        let (a1, b1, a2) = Self.contrastTransitions(side, reach: reach)
+        // ∫₀ᴿ s = R, solved for β. With J₁ = ∫₀ᴿ r₁ = R − (a₁ + b₁)/2 and
+        // J₂ = ∫₀ᴿ r₂ = (R − a₂)/2, the condition σR + (β − σ)J₁ + (1 − β)J₂ = R gives
+        // β = (R + a₂ − σ(a₁ + b₁)) / (R + a₂ − a₁ − b₁). The denominator is positive
+        // because a₂ ≥ b₁ and a₁ < R.
+        let beta = (reach + a2 - sigma * (a1 + b1)) / (reach + a2 - a1 - b1)
+        let mappedX = sigma * x
+            + (beta - sigma) * Self.smoothstepIntegral(a1, b1, x)
+            + (1 - beta) * Self.smoothstepIntegral(a2, reach, x)
+        return d >= 0 ? pivot + mappedX : pivot - mappedX
+    }
+
+    /// The three transition points of one side, in EV from the pivot: the ease runs
+    /// a₁ … b₁ and the return a₂ … R. The minimum widths keep the transitions wide enough
+    /// for the GPU cube on long reaches and keep them inside the reach on short ones
+    /// (b₁ ≤ 0.55R and a₂ ≤ R − R/2 whenever the R/2 terms are the ones that bind).
+    static func contrastTransitions(_ side: ContrastSide,
+                                    reach r: Double) -> (Double, Double, Double) {
+        let a1 = side.easeStart * r
+        let b1 = Swift.max(side.easeEnd * r, a1 + Swift.min(1, r / 2))
+        let a2 = Swift.max(Swift.min(side.returnStart * r, r - Swift.min(1.5, r / 2)), b1)
+        return (a1, b1, a2)
+    }
+
+    /// `∫₀ˣ smoothstep(a, b, y) dy` for 0 ≤ a ≤ b, in closed form: 0 below a; the
+    /// Hermite's antiderivative `w·(v³ − v⁴/2)`, with `v = (x − a)/w` and `w = b − a`,
+    /// across the ramp; and `w/2 + (x − b)` above it.
+    static func smoothstepIntegral(_ a: Double, _ b: Double, _ x: Double) -> Double {
+        if x <= a { return 0 }
+        let w = b - a
+        if x >= b { return w / 2 + (x - b) }
+        let v = (x - a) / w
+        return w * v * v * v * (1 - v / 2)
     }
 
     /// Position on the normalized tonal axis the Zones panel and the grading wheels

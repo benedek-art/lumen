@@ -1178,11 +1178,13 @@ final class RobustnessTests: XCTestCase {
                     let e = ToneEngine(tone: tone)
                     // One tone control at its end against contrast at its end is an
                     // ordinary look — hard contrast with the highlights pulled back —
-                    // and it has to keep most of its travel. The binding pairs are
-                    // Highlights −100 against contrast +100 (0.846) and Shadows +100
-                    // against contrast −100 (0.619); the second crosses this floor at a
-                    // `contrastShoulderStart` of about 0.225, so THIS is the assertion
-                    // that stops the hold being raised for more contrast authority.
+                    // and it has to keep most of its travel. On the WS-06 slope-profile
+                    // curve the worst pair applies 0.884 and Highlights −100 against
+                    // contrast +100 applies 0.998 (the old held-slope curve: Shadows
+                    // +100 against contrast −100 at 0.619, Highlights at 0.846). The
+                    // measured numbers are pinned in `ContrastCurveTests`; THIS is the
+                    // floor that stops the slope law being steepened for more contrast
+                    // authority at the zonal sliders' expense.
                     XCTAssertGreaterThanOrEqual(
                         e.zonalScale, 0.60,
                         "\(name) \(v) against contrast \(contrast) scaled to "
@@ -1227,8 +1229,14 @@ final class RobustnessTests: XCTestCase {
         //
         // Each half is probed on its own, because each half has its own limit and
         // pushing both at once would credit either one with the other's inversion.
+        //
+        // The middle case was Blacks +100 alone against contrast −100. On the WS-06
+        // curve that no longer binds at all (the shadow side's level above 1 lies under
+        // the Blacks shelf), so it would skip the 2% probe instead of running it. Shadows
+        // +100 alone against contrast −100 is the lower-half single-slider case that
+        // still binds (0.909), and it is probed in its place.
         for (c, h, sh, w, b) in [(-100.0, -100.0, 100.0, -100.0, 100.0),
-                                 (-100.0, 0.0, 0.0, 0.0, 100.0),
+                                 (-100.0, 0.0, 100.0, 0.0, 0.0),
                                  (0.0, -100.0, 100.0, -100.0, 100.0)] {
             let tone = Tone(contrast: c, highlights: h, shadows: sh,
                             whites: w, blacks: b)
@@ -1276,16 +1284,26 @@ final class RobustnessTests: XCTestCase {
         // the second half of the fix and it is what makes the applied amount rise over
         // the whole slider: Whites at +20 keeps every bit of its 0.26 EV while
         // Highlights is being held back, instead of being cut down alongside it.
+        //
+        // Pivot +1 is swept for coverage, not as a new claim. On the old held-slope
+        // curve Highlights −100 bound the limiter at pivot 0, contrast −100. The WS-06
+        // curve eases away from the pivot slope at once on the highlight side, so at
+        // pivot 0 none of these bind any more and the property would only be checked
+        // where it cannot fail. With the pivot at +1 the flat stretch next to it sits
+        // under the Highlights shelf, and it binds. Mirrored in scripts/gen-fixtures.py.
         var helperBound = 0
         for contrast in [-100.0, -60, 0] {
             for whites in [20.0, 100] {
-                let e = ToneEngine(tone: Tone(contrast: contrast, highlights: -100,
-                                              whites: whites))
-                if e.zonalScale < 1 - 1e-12 { helperBound += 1 }
-                XCTAssertEqual(e.effectiveWhites, whites / 100, accuracy: 1e-12,
-                               "Whites \(whites) rises everywhere it acts, so it cannot "
-                                   + "invert anything, but it was eased to "
-                                   + "\(e.effectiveWhites) at contrast \(contrast)")
+                for pivot in [0.0, 1] {
+                    let e = ToneEngine(tone: Tone(contrast: contrast, contrastPivot: pivot,
+                                                  highlights: -100, whites: whites))
+                    if e.zonalScale < 1 - 1e-12 { helperBound += 1 }
+                    XCTAssertEqual(e.effectiveWhites, whites / 100, accuracy: 1e-12,
+                                   "Whites \(whites) rises everywhere it acts, so it "
+                                       + "cannot invert anything, but it was eased to "
+                                       + "\(e.effectiveWhites) at contrast \(contrast), "
+                                       + "pivot \(pivot)")
+                }
             }
         }
         XCTAssertGreaterThan(helperBound, 0,

@@ -1466,45 +1466,77 @@ def lum_sat_rolloff(brightness):
     return smoothstep(SAT_ROLLOFF_LO0, SAT_ROLLOFF_LO1, brightness) * taper
 
 
-# A1-01. The relax window used to be two constants — 4 stops to 12 stops from the pivot
-# — while the thing that decides where a highlight clips is the DISPLAY ANCHOR, +5 EV by
-# default and as low as +3.5 under Whites +100. At contrast +100 the white anchor mapped
-# to +7.87 EV, so 1.875 stops of highlight and 3.037 stops of shadow flattened to one
-# value each, while the control's tooltip, docs/04 and a green test all said it could not.
+# A1-01, then WS-06. The relax window used to be two constants — 4 stops to 12 stops
+# from the pivot — while the thing that decides where a highlight clips is the DISPLAY
+# ANCHOR, +5 EV by default and as low as +3.5 under Whites +100. The reach is now the
+# distance to the live anchor on the side being mapped, and the anchor is a fixed point.
 #
-# The reach is now the distance to the anchor on the side being mapped, and the slope
-# relaxes to exactly 1 there, so the anchor is a fixed point: d * 1 == d.
+# WS-06 rebuilt the curve from a slope profile. On each side, with x = |t - pivot| and R
+# the reach, the log-slope is s(x) = sigma + (beta - sigma) r1(x) + (1 - beta) r2(x):
+# r1 a smoothstep that eases the pivot slope sigma into a level beta, r2 a smoothstep that
+# starts where r1 ends and carries beta back to 1 at the anchor. mapped = pivot +- the
+# integral of s, which is closed-form, and beta is solved so that the integral over the
+# whole reach is R: the anchor maps to itself by construction. s is a convex combination
+# of sigma, beta and 1, all positive, so the curve is monotone by construction too.
 #
 # Kept in step with `ToneEngine.contrastMapped` deliberately. This file is the
 # independent reference the `fixtures-linux` lane checks the Swift against, so the two
 # implementations agreeing is the evidence — which is exactly why a behaviour change has
 # to be made twice, by hand, in two languages.
 MIN_CONTRAST_REACH_EV = 1e-6
-# How far toward the anchor the full slope holds before the shoulder starts, as a
-# fraction of the reach. Bounded above by monotonicity: the derivative in u is
-# `slope + (1 - slope) * [S + u*S']`, whose bracket peaks at 2.2069 for a hold of 0.3,
-# and at contrast +100 (slope 1.6) the derivative `1.6 - 0.6*bracket` reaches zero just
-# past a hold of 0.44. See ToneEngine.contrastShoulderStart for the whole argument.
-CONTRAST_SHOULDER_START = 0.2
+# Slope law at the pivot: log2 sigma(u) = a u - b u^2 + k u^3, u = contrast / 100.
+# sigma(+100) = 1.879, sigma(+50) = 1.368, sigma(-50) = 0.689, sigma(-100) = 0.420.
+CONTRAST_SLOPE_LINEAR = 0.96
+CONTRAST_SLOPE_QUADRATIC = 0.17
+CONTRAST_SLOPE_CUBIC = 0.12
+# (ease start, ease end, return start) as fractions of the reach, per side.
+CONTRAST_HIGHLIGHT_SIDE = (0.0, 0.4, 0.8)
+CONTRAST_SHADOW_SIDE = (0.05, 0.45, 0.6)
+
+
+def contrast_pivot_slope(u):
+    return 2.0 ** (u * (CONTRAST_SLOPE_LINEAR
+                        + u * (CONTRAST_SLOPE_CUBIC * u - CONTRAST_SLOPE_QUADRATIC)))
+
+
+def smoothstep_integral(a, b, x):
+    """Integral of smoothstep(a, b, y) dy from 0 to x, for 0 <= a <= b."""
+    if x <= a:
+        return 0.0
+    w = b - a
+    if x >= b:
+        return w / 2 + (x - b)
+    v = (x - a) / w
+    return w * v * v * v * (1 - v / 2)
 
 
 def contrast_mapped(t, contrast, pivot=0.0,
                     white_anchor_ev=None, black_anchor_ev=None):
     if contrast == 0:
         return t
+    contrast = min(max(contrast, -100.0), 100.0)
     # Resolved at call time rather than as default arguments: these constants are
     # defined further down this file than this function is.
     hi = DEFAULT_WHITE_ANCHOR_EV if white_anchor_ev is None else white_anchor_ev
     lo = DEFAULT_BLACK_ANCHOR_EV if black_anchor_ev is None else black_anchor_ev
     # Mirrors ToneEngine.contrastMapped: the pivot stays inside the live anchors.
     pivot = min(max(pivot, max(-4.0, lo)), min(4.0, hi))
-    slope = 1 + 0.6 * (contrast / 100.0)
     d = t - pivot
     reach = (hi - pivot) if d >= 0 else (pivot - lo)
     if reach <= MIN_CONTRAST_REACH_EV:
         return t
-    relax = smoothstep(CONTRAST_SHOULDER_START, 1.0, abs(d) / reach)
-    return pivot + d * (slope + (1 - slope) * relax)
+    x = abs(d)
+    if x >= reach:
+        return t
+    sigma = contrast_pivot_slope(contrast / 100.0)
+    f0, f1, m = CONTRAST_HIGHLIGHT_SIDE if d >= 0 else CONTRAST_SHADOW_SIDE
+    a1 = f0 * reach
+    b1 = max(f1 * reach, a1 + min(1.0, reach / 2))
+    a2 = max(min(m * reach, reach - min(1.5, reach / 2)), b1)
+    beta = (reach + a2 - sigma * (a1 + b1)) / (reach + a2 - a1 - b1)
+    mapped_x = (sigma * x + (beta - sigma) * smoothstep_integral(a1, b1, x)
+                + (1 - beta) * smoothstep_integral(a2, reach, x))
+    return pivot + mapped_x if d >= 0 else pivot - mapped_x
 
 
 def band_weight(level, center, half_width):
@@ -1571,7 +1603,8 @@ def gen_engine_checks():
             check(m >= prev - 1e-9, f"contrast {c} inverted at {t} EV")
             prev = m
             t += 0.05
-    for c, expected in [(100, 1.6), (50, 1.3), (-100, 0.4)]:
+    # The slope law at the pivot (WS-06): log2 sigma = 0.96u - 0.17u^2 + 0.12u^3.
+    for c, expected in [(100, 1.879), (50, 1.368), (-100, 0.420)]:
         s = (contrast_mapped(0.05, c) - contrast_mapped(-0.05, c)) / 0.1
         check(abs(s - expected) < 0.01, f"contrast {c} slope at pivot was {s}")
 
@@ -3157,14 +3190,22 @@ def gen_tone_checks():
     # window with no amount at all, and taking it down alongside Highlights was what
     # made the applied Highlights amount fall back at the top of the slider.
     helper_bound = 0
+    # Pivot +1 is in the list for coverage, not as a new claim. On the old held-slope
+    # curve Highlights −100 bound the limiter at pivot 0, contrast −100 (slope 0.4 held
+    # out to a fifth of the reach). The WS-06 curve eases away from the pivot slope at
+    # once on the highlight side, so at pivot 0 nothing here binds any more and the
+    # property would be checked only where it cannot fail. With the pivot raised to +1
+    # the flat stretch next to it sits under the Highlights shelf, and it binds.
     for contrast in (-100.0, -60.0, 0.0):
         for whites in (20.0, 100.0):
-            e = ToneEngine(contrast=contrast, highlights=-100, whites=whites)
-            if e.zonal_scale < 1 - 1e-12:
-                helper_bound += 1
-            check(abs(e.effective_whites - whites / 100) < 1e-12,
-                  f"Whites {whites} rises everywhere it acts but was eased to "
-                  f"{e.effective_whites:.9f} at contrast {contrast}")
+            for pivot in (0.0, 1.0):
+                e = ToneEngine(contrast=contrast, pivot=pivot, highlights=-100,
+                               whites=whites)
+                if e.zonal_scale < 1 - 1e-12:
+                    helper_bound += 1
+                check(abs(e.effective_whites - whites / 100) < 1e-12,
+                      f"Whites {whites} rises everywhere it acts but was eased to "
+                      f"{e.effective_whites:.9f} at contrast {contrast}, pivot {pivot}")
     check(helper_bound > 0,
           "Highlights -100 alongside Whites never bound the limiter, so nothing above "
           "was measured under easing")
@@ -3243,10 +3284,10 @@ def gen_tone_checks():
     #
     # One tone control at its end, against contrast at its end: this is reachable — hard
     # contrast with the highlights pulled back is an ordinary look — and it must still
-    # deliver most of its travel. The binding pairs are Highlights −100 against contrast
-    # +100 (0.8460) and Shadows +100 against contrast −100 (0.6192). Both sit above 0.60
-    # at ToneEngine.contrastShoulderStart = 0.2 and the second crosses it at about 0.225,
-    # so this floor is what stops the hold being raised for more contrast authority.
+    # deliver most of its travel. On the WS-06 slope-profile curve the worst pair applies
+    # 0.884 and Highlights −100 against contrast +100 applies 0.998 (the old held-slope
+    # curve: 0.6192 and 0.8460). This floor is what stops the slope law being steepened
+    # for more contrast authority at the zonal sliders' expense.
     for contrast in (100.0, -100.0):
         for name in ("highlights", "shadows", "whites", "blacks"):
             for v in (-100.0, 100.0):
@@ -3297,7 +3338,11 @@ def gen_tone_checks():
     # The limiter takes as LITTLE as possible: at the solved limit the response is still
     # non-decreasing, and 2% above it is not. Without this the whole thing could be
     # passing every other check by being timid.
-    for c, h, sh, w, b in ((-100, -100, 100, -100, 100), (-100, 0, 0, 0, 100),
+    # The second case was Blacks +100 alone against contrast -100, which no longer
+    # brings the scale under 1 on the WS-06 curve; Shadows +100 alone against contrast
+    # -100 is the lower-half single-slider case that still binds. RobustnessTests
+    # mirrors the list.
+    for c, h, sh, w, b in ((-100, -100, 100, -100, 100), (-100, 0, 100, 0, 0),
                            (-60, -60, 60, 0, 40), (0, -100, 100, -100, 100)):
         e = ToneEngine(contrast=c, highlights=h, shadows=sh, whites=w, blacks=b)
         limits = dict(e.zonal_limits)
