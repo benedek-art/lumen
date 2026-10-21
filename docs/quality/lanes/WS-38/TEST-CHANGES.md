@@ -51,3 +51,15 @@ None was skipped or disabled. The only thresholds that moved are the proof-regis
 
 - `EngineIntegrationTests`: every-stock mid-grey anchor, the no-inversion sweep, the convex Strength blend, the solve memo
 - `FilmLabHDRMidGreyTests`, `FilmLabDisplayTransformTests` and `RobustnessTests`
+
+## Round 2
+
+- **`enginemath.json` `"film"` rows were regenerated.** The Python mirror (`scripts/gen-fixtures.py`) follows the round-2 tables (`FILM_STOCKS`), the pull rates (`pullGammaPerStop`, `printToePerPullStop`) and `FILM_NEUTRAL_BLACK_SPAN` = 20. The tolerance is unchanged, and all Linux-side verifications pass.
+- **`FilmStockLookTests`: no test was changed.**
+  - Two tests failed on an intermediate round-2 build: the neutral paper black (spread 1.2e-4 > 1e-4) and Portra's deep-skin hue (4.6° > 4°). Both were fixed in the code, not the tests: `neutralBlackSpan` 15 → 20, and Portra's red-skin lobe 2.0 → 0.5.
+- **The 13 `film.*` proof records were re-recorded** with the round-2 chain. No floor or declared reversal moved, because every measurement is above its floor:
+  - strength authority: Portra 16.8 (floor 8), Gold 18.5 (11), Ektar 23.9 (18), Velvia 57.0 (40), Cine 26.2 (13), Tri-X 139.6 (97)
+  - film.exposure: authority 78.2 (53), gave back 17.5, declared reversal 22.805
+  - film.pushPull: authority 52.8 (22)
+  - film.grain.size: gave back 21.6, declared reversal 22.262
+  - halation and grain entries: unchanged in substance

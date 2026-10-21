@@ -113,3 +113,59 @@ commit: 28 of 39 lines pass. The sheets are in the builder's scratchpad (`after/
   - S2: Cine contrast 1.25–1.48 around neutral's 1.32
 - **What the build does.** It pushes Portra's and Cine's authored differences (contrast, warm/teal crossover, olive greens, cyan-leaning sky) to the edges of those bands, and the remaining distance is what those bands allow. A 3.0 ΔE2000 mean against neutral is a large visible shift on every patch. It cannot coexist with "Portra skin within 4° and 1.20× of neutral".
 - **Proposal:** distinctness ≥ 3.0 between the saturated stocks and ≥ 1.5 for pairs involving Portra, Cine or neutral. Or drop the neutral column.
+
+---
+
+# Round 2
+
+The lead accepted §1 (S6), §3 (S24), §4 (S26), §5 (S33) and §6 (S37 at 65³, pending NEEDS.md). The lead rejected §2 and §7 as written and set new targets. SPEC.md ("Amendments") and `measure.py` record every amendment, with the old threshold kept visible. Final measurement: **36 of 39 lines pass**. S37, S38 and S39 fail.
+
+## 8. S38 / S39 at the lead's amended bar (≥ 2.5 vs neutral; photo pairs ≥ 2.0): the measured bound
+
+- **Measured, final build** (mean ΔE2000):
+  - chart vs neutral: Portra 1.5, Cine 1.8 (Gold 3.0, Ektar 4.1, Velvia 7.2 pass)
+  - photos vs neutral: Cine 1.6, Portra 1.9, Gold 2.0 (Ektar 2.9, Velvia 3.8 pass)
+  - photo pairs: Ektar–Velvia 1.7, Portra–Gold 2.0; every other pair is ≥ 2.3
+- **Where the photo distance lives.** The six photos are dark, and the pixels below L* 25 carry 60–90 % of every stock's ΔE (per-photo decomposition in the builder's mirror). That band is held by lines the lead did not amend:
+  - S1: mid-grey within 1 code
+  - S7: p1 within ±4 codes
+  - S8: black floor
+  - S10: Portra casts ≤ 3 codes over −6…+3.5 EV
+  - S11: Gold R−B ≤ 8, now at 7. Cine shadow B−R ≤ 6, now at 5.5. Portra R−B ≤ 6.
+  
+  The colour lines bound the rest:
+  - S14: Gold ≤ 1.30 and ≤ Ektar − 0.08; Portra ≤ 1.15; Cine ≥ 0.92
+  - S16: Portra skin within 4° and 1.20×
+  - S17: Gold skin hue ≤ +8°, now at +7.7
+  - S21: gamut-edge hue, p90 ≤ 8°
+- **Experiments, each run on all lines** (results in the builder's mirror, which reproduces the CLI):
+
+  | change | S39 effect | what it broke |
+  |---|---|---|
+  | Gold chroma 1.9 → 2.1, stronger warm lobes | Gold vs neutral 1.9 → 2.2 | S14 (Gold 1.31 > 1.30), S17 (Gold skin +9°), S19 |
+  | Gold shadow tint ×1.4 | +0.1 | S9 (crushed shadows) |
+  | Cine chroma 1.15 → 1.05, teal-green shadow, warmer skin | Cine 1.6 → 1.95 | S11 (shadow B−R 6.5 > 6), S12 (0.90 < 0.92), S17 (Cine skin +7°), S21 (dh90 8.6) |
+  | Portra stronger warm/olive/cyan lobes, pastel 0.3 | Portra 1.9 → 2.0 | S16 (skin dh −6.6), S19, S21 |
+  | Portra γ × 0.90 (round-2 probe) | Portra 2.5 | S7 (p1 +6.7 codes) |
+  | Velvia hue lobes stronger | Ektar–Velvia 1.7 → 1.8 | S13/S14 (Velvia 1.44), S18 (blue +9.5° > +8) |
+
+- **What the build keeps.** Each stock sits at the edge of the lines above: Gold's R−B 7 of 8, Cine's shadow 5.5 of 6, Gold skin +7.7 of 8, Portra p1 +3.7 of 4. Ektar–Velvia is close on photos because both are saturated stocks in dark scenes. They are 4.5 apart on the chart, and the sheets tell them apart: Velvia is denser, violet in the sky and emerald in the greens.
+- **Proposal.** Keep S38/S39 at the lead's bar for Gold, Ektar and Velvia. For Portra and Cine, the bar is reachable only if S1/S7/S10/S11/S16 move: a visible global cast, or a lower Portra contrast. The measured bound is chart ≥ 1.5 and photos ≥ 1.6 vs neutral, and photo pairs ≥ 1.7. That decision is the lead's.
+
+## 9. S37 at 65³ for Velvia
+
+The lead's amended S37 at 65³ passes for every stock except Velvia: p99 1.04 (passes), max **4.9**, where the bar is 4.0. The photo saturation the lead asked for (Velvia ≥ 1.45 on photos) needs a muted-colour gain of 3.4. The cube spreads that gain over a 0.375-EV cell, and the max error comes from near-neutral pixels in that cell. The lane tapered the hue and chroma lobes near neutral (`FilmColor.lobeChromaTaper`), which took Ektar from 4.7 to 3.8 (now passing) and Velvia from 5.5 to 4.9. A lower `saturationFalloff` would interpolate better but collapses the radial gradation at the gamut edge (S21: 12–25 % against neutral's 7.9 %). The mirror measures Velvia at 97³ against the exact chain as max 3.04. NEEDS.md now asks for 97³ for film plans with a saturating stock.
+
+## Round-2 changes in the lane
+
+- **Saturation is gamut-relative headroom.** The gain is `1 + (k − 1)(1 − x)^saturationFalloff`, where x is the share of the sRGB edge already used. Muted colours get the full stock gain and colours at the edge get none, so photos read punchy while skies keep their gradation (S20/S21 pass).
+- **`highlightPastel`.** Portra (0.22) and Cine (0.10) take part of the gain back in the light tones: soft, pastel highlights.
+- **`lobeChromaTaper`.** Ektar and Velvia fade their hue and chroma lobes toward the film's own hue below OKLab C 0.05 / 0.04 (S37).
+- **Pull has its own rates** (`FilmPushResponse.pullGammaPerStop`, `printToePerPullStop`). Pull −1 prints a softer highlight roll-off (S33 pull clause): 0.82 × the push gamma rate and a 0.32 print toe per stop.
+- **`FilmChain.neutralBlackSpan` 15 → 20.** Paper black stays neutral now that Portra's lower contrast leaves scene black a few floors above paper black.
+- **Per stock:**
+  - Portra: γ × 0.96, warm golden skin lobes, olive greens, softer slightly cyan sky
+  - Gold: chroma 1.95, golden lobes
+  - Ektar: chroma 2.75 with red/blue/green lobes
+  - Velvia: chroma 3.4 with violet/emerald lobes and a light-skin lobe (S17); the blue-sky chroma lobe is at 0.8 (S15)
+  - Cine: chroma 1.15, teal greens and shadows, warm skin and highlights

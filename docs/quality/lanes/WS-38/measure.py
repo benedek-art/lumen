@@ -452,13 +452,20 @@ def pstats(r, pid, s):
     return _PS[k]
 
 
-@line("S6", "real photos: p99.9 luminance within 6 codes of neutral (Velvia: >= neutral - 6) on 6929 2545 4694 7881 983 1840")
+# S6 AMENDED BY LEAD (round 2). Reason: S2 asks Gold/Ektar/Tri-X for more contrast than neutral, and p99.9
+# sits at +1.4..+2.5 EV; a punchy stock prints brighter highlights (SPEC-CHANGES.md 1).
+# Old threshold: |d| <= 6 for every stock except Velvia (>= -6 only). New: Portra and Cine keep
+# |d| <= 6; Gold, Ektar, Tri-X and Velvia keep only the lower bound (no grey whites).
+S6_TWO_SIDED = ("portra400", "cine250d")
+
+
+@line("S6", "real photos: p99.9 luminance >= neutral - 6 codes on every stock, and <= neutral + 6 for Portra and Cine (amended by lead: upper bound dropped for the high-contrast stocks; old: within 6 codes, Velvia lower bound only)")
 def s6(r):
     det, ok = {}, {}
     for s in STOCKS:
         d = [pstats(r, p, s)["p999"] - pstats(r, p, "neutral")["p999"] for p in PHOTOS]
         det[s] = {p: round(v, 1) for p, v in zip(PHOTOS, d)}
-        ok[s] = all(v >= -6 for v in d) and (s == "velvia50" or all(v <= 6 for v in d))
+        ok[s] = all(v >= -6 for v in d) and (s not in S6_TWO_SIDED or all(v <= 6 for v in d))
     return all_ok(ok), " ".join(f"{SHORT[s]}:[{min(d.values()):+.1f},{max(d.values()):+.1f}]" for s, d in det.items()), det
 
 
@@ -522,7 +529,7 @@ def s10(r):
     return all_ok(ok), " ".join(f"{SHORT[k]}={v:.1f}" for k, v in det.items()), det
 
 
-@line("S11", "authored crossover, bounded and of the documented sign (grey_ramp): Gold warm everywhere (R-B in [0,+8] over -4..+3 EV, mean R-B over +1..+3 >= +2); Cine cool shadows (mean B-R over -4..-2 in [+1,+6]) and warm-neutral highlights (mean R-B over +1..+3 in [0,+6]); both |G-(R+B)/2| <= 3")
+@line("S11", "authored crossover, bounded and of the documented sign (grey_ramp): Gold warm everywhere (R-B in [0,+8] over -4..+3 EV, mean R-B over +1..+3 >= +2); Cine cool shadows (mean B-R over -4..-2 in [+1,+6]) and warm-neutral highlights (mean R-B over +1..+3 in [0,+6]); both |G-(R+B)/2| <= 3. Portra (added by lead, round 2): warm-neutral, R-B in [0,+6] over -4..+3 EV, mean R-B over +1..+3 >= +1, |G-(R+B)/2| <= 3")
 def s11(r):
     det, ok = {}, {}
     _, _, rb, gm = cast(gramp(r, "gold200"), -4, 3)
@@ -535,16 +542,30 @@ def s11(r):
     det["cine"] = {"B-R shadow mean": float(-rbs.mean()), "R-B hi mean": float(rbh.mean()),
                    "|G-m| max": float(max(np.abs(gm1).max(), np.abs(gm2).max()))}
     ok["cine"] = 1 <= -rbs.mean() <= 6 and 0 <= rbh.mean() <= 6 and det["cine"]["|G-m| max"] <= 3
+    # Portra added by lead (round 2): warm-neutral, documented sign: R-B in [0, +6] over -4..+3 EV
+    # with a warm highlight mean R-B over +1..+3 >= +1, and no green or magenta (|G-m| <= 3).
+    _, _, rb, gm = cast(gramp(r, "portra400"), -4, 3)
+    _, _, rbh, _ = cast(gramp(r, "portra400"), 1, 3)
+    det["portra"] = {"R-B min": float(rb.min()), "R-B max": float(rb.max()), "R-B hi mean": float(rbh.mean()),
+                     "|G-m| max": float(np.abs(gm).max())}
+    ok["portra"] = rb.min() >= 0 and rb.max() <= 6 and rbh.mean() >= 1 and np.abs(gm).max() <= 3
     return all_ok(ok), "Gold " + ", ".join(f"{k}={v:+.1f}" for k, v in det["gold"].items()) + \
-        "; Cine " + ", ".join(f"{k}={v:+.1f}" for k, v in det["cine"].items()), det
+        "; Cine " + ", ".join(f"{k}={v:+.1f}" for k, v in det["cine"].items()) + \
+        "; Portra " + ", ".join(f"{k}={v:+.1f}" for k, v in det["portra"].items()), det
 
 
 # ---- S12..S21 colour ---------------------------------------------------------------
 
-CHROMA_CC = {"portra400": (1.00, 1.15), "cine250d": (0.95, 1.15), "gold200": (1.12, 1.30),
-             "ektar100": (1.25, 1.45), "velvia50": (1.35, 1.60)}
-CHROMA_PH = {"portra400": (1.00, 1.20), "cine250d": (0.95, 1.20), "gold200": (1.10, 1.35),
-             "ektar100": (1.25, 1.50), "velvia50": (1.35, 1.70)}
+# S12-S15 AMENDED BY LEAD (round 2). Reason: the chart is gamut-limited (its patches sit at
+# 0.27..0.99 of the sRGB boundary in the neutral render, so a saturated patch can gain only
+# 1/x without clipping, SPEC-CHANGES.md 2); the saturation targets move to PHOTOS and the
+# chart keeps the order with bands set to what the gamut allows.
+# Old chart bands: Portra 1.00-1.15, Cine 0.95-1.15, Gold 1.12-1.30, Ektar 1.25-1.45, Velvia 1.35-1.60.
+# Old photo bands: Portra 1.00-1.20, Cine 0.95-1.20, Gold 1.10-1.35, Ektar 1.25-1.50, Velvia 1.35-1.70.
+CHROMA_CC = {"portra400": (0.95, 1.15), "cine250d": (0.92, 1.10), "gold200": (1.08, 1.25),
+             "ektar100": (1.18, 1.40), "velvia50": (1.22, 1.45)}
+CHROMA_PH = {"portra400": (1.00, 1.15), "cine250d": (0.92, 1.10), "gold200": (1.15, 1.30),
+             "ektar100": (1.38, 1.60), "velvia50": (1.45, 1.80)}
 
 
 def cc_lch(r, s, img="colorchecker"):
@@ -559,7 +580,7 @@ def cc_ratios(r, s):
     return (C1 / C0)[:18], dhue(h1, h0)[:18], (L1 - L0)[:18]
 
 
-@line("S12", "colorchecker mean chroma ratio vs neutral (OKLab C, 18 chromatic patches) in band: Portra 1.00-1.15, Cine 0.95-1.15, Gold 1.12-1.30, Ektar 1.25-1.45, Velvia 1.35-1.60")
+@line("S12", "colorchecker mean chroma ratio vs neutral (OKLab C, 18 chromatic patches) in band (amended by lead, gamut-limited chart; Portra mutes its greens and blues by design): Portra 0.95-1.15, Cine 0.92-1.10, Gold 1.08-1.25, Ektar 1.18-1.40, Velvia 1.22-1.45 (old: 1.00-1.15, 0.95-1.15, 1.12-1.30, 1.25-1.45, 1.35-1.60)")
 def s12(r):
     det, ok = {}, {}
     for s in COLOUR:
@@ -572,19 +593,23 @@ def photo_chroma(r, s):
     return float(np.exp(np.mean([math.log(pstats(r, p, s)["C"] / pstats(r, p, "neutral")["C"]) for p in PHOTOS])))
 
 
-@line("S13", "chroma order on the colorchecker AND on photos: Velvia > Ektar > Gold > Portra with gaps >= 0.05, Cine <= Portra + 0.03")
+@line("S13", "chroma order (amended by lead): photos Velvia >= Ektar + 0.05, Ektar >= Gold + 0.08, Gold >= Portra + 0.05, Cine <= Portra + 0.03; chart keeps the order Velvia > Ektar > Gold > Portra with gaps >= 0.03 (old: gaps >= 0.05 on both)")
 def s13(r):
     det, ok = {}, {}
     for tag, f in (("cc", lambda s: float(cc_ratios(r, s)[0].mean())), ("photo", lambda s: photo_chroma(r, s))):
         c = {s: f(s) for s in COLOUR}
         det[tag] = c
-        ok[tag] = (c["velvia50"] >= c["ektar100"] + 0.05 and c["ektar100"] >= c["gold200"] + 0.05
-                   and c["gold200"] >= c["portra400"] + 0.05 and c["cine250d"] <= c["portra400"] + 0.03)
+        if tag == "photo":
+            ok[tag] = (c["velvia50"] >= c["ektar100"] + 0.05 and c["ektar100"] >= c["gold200"] + 0.08
+                       and c["gold200"] >= c["portra400"] + 0.05 and c["cine250d"] <= c["portra400"] + 0.03)
+        else:
+            ok[tag] = (c["velvia50"] >= c["ektar100"] + 0.03 and c["ektar100"] >= c["gold200"] + 0.03
+                       and c["gold200"] >= c["portra400"] + 0.03 and c["cine250d"] <= c["portra400"] + 0.03)
     return all_ok(ok), " | ".join(f"{t}: " + ">".join(f"{SHORT[s]}{v:.2f}" for s, v in sorted(c.items(), key=lambda x: -x[1]))
                                   for t, c in det.items()), det
 
 
-@line("S14", "real-photo mean chroma ratio vs neutral (geometric mean over 6 photos) in band: Portra 1.00-1.20, Cine 0.95-1.20, Gold 1.10-1.35, Ektar 1.25-1.50, Velvia 1.35-1.70")
+@line("S14", "real-photo mean chroma ratio vs neutral (geometric mean over 6 photos) in band (amended by lead): Portra 1.00-1.15, Cine 0.92-1.10, Gold 1.15-1.30, Ektar 1.38-1.60, Velvia 1.45-1.80 (old: 1.00-1.20, 0.95-1.20, 1.10-1.35, 1.25-1.50, 1.35-1.70)")
 def s14(r):
     det, ok = {}, {}
     for s in COLOUR:
@@ -593,13 +618,21 @@ def s14(r):
     return all_ok(ok), " ".join(f"{SHORT[k]}={v:.2f}" for k, v in det.items()), det
 
 
-@line("S15", "chroma is stock colour, not vibrance: max/min per-patch chroma ratio over the 18 colorchecker patches <= 1.40")
+# S15 AMENDED BY LEAD (round 2). Reason: with saturation held inside the sRGB boundary, the
+# most saturated chart patches (cyan 0.99, yellow 0.92 of the boundary) can gain ~x1.0-1.1
+# while muted ones take the stock's full gain, so a punchy stock's spread is gamut-bound.
+# Old: <= 1.40 for every colour stock. New: <= 1.40 Portra, Gold, Cine; <= 1.80 Ektar, Velvia
+# (the bound measured with photo chroma at the lead's targets, Ektar >= 1.38 and Velvia >= 1.45).
+S15_LIMIT = {"portra400": 1.40, "gold200": 1.40, "cine250d": 1.40, "ektar100": 1.80, "velvia50": 1.80}
+
+
+@line("S15", "chroma is stock colour, not vibrance: max/min per-patch chroma ratio over the 18 colorchecker patches <= 1.40 (amended by lead: <= 1.80 for Ektar and Velvia, gamut-bound; old 1.40 for all)")
 def s15(r):
     det, ok = {}, {}
     for s in COLOUR:
         c = cc_ratios(r, s)[0]
         det[s] = float(c.max() / c.min())
-        ok[s] = det[s] <= 1.40
+        ok[s] = det[s] <= S15_LIMIT[s]
     return all_ok(ok), " ".join(f"{SHORT[k]}={v:.2f}" for k, v in det.items()), det
 
 
@@ -778,7 +811,9 @@ def s23(r):
     return max(worst.values()) <= 1, "worst " + " ".join(f"{k}={v:.0f}" for k, v in worst.items()), worst
 
 
-@line("S24", "Tri-X tonal separation on 4694: lemon minus lit green dish >= 42 codes (neutral colour render: 37; x Tri-X/neutral contrast) AND tomato >= 0.75 x its neutral-render luminance (not black)")
+# S24 AMENDED BY LEAD (round 2). Reason: S22's panchromatic blue sensitivity lifts the
+# cyan-green dish against the yellow lemon (SPEC-CHANGES.md 3). Old: lemon - dish >= 42.
+@line("S24", "Tri-X tonal separation on 4694: lemon minus lit green dish >= neutral's separation - 2 codes (amended by lead; old: >= 42) AND tomato >= 0.75 x its neutral-render luminance (not black)")
 def s24(r):
     det = {}
     for s in ("neutral", "trix400"):
@@ -786,7 +821,7 @@ def s24(r):
         det[s] = {k: float(lum_code(region(im, R)).mean()) for k, R in
                   (("lemon", R_4694_LEMON), ("dish", R_4694_DISH), ("tomato", R_4694_TOMATO))}
     t, n = det["trix400"], det["neutral"]
-    ok = t["lemon"] - t["dish"] >= 42 and t["tomato"] >= 0.75 * n["tomato"]
+    ok = t["lemon"] - t["dish"] >= (n["lemon"] - n["dish"]) - 2 and t["tomato"] >= 0.75 * n["tomato"]
     return bool(ok), f"Tri-X lemon-dish={t['lemon']-t['dish']:.1f} tomato={t['tomato']:.1f} (neutral lemon-dish={n['lemon']-n['dish']:.1f} tomato={n['tomato']:.1f})", det
 
 
@@ -807,7 +842,10 @@ def mean_de(a, b):
     return float(de2000(cielab(a), cielab(b)).mean())
 
 
-@line("S26", "amount is monotone and near-linear: mean CIEDE2000 from neutral on 2545 at 10/25/50/75 within +-0.10 of amount/100 of the amount-100 value, strictly increasing, every stock")
+# S26 AMENDED BY LEAD (round 2). Reason: the 8-bit encode adds a ~0.25 dE floor at small
+# amounts, which dominates the fraction when dE at amount 100 is small (SPEC-CHANGES.md 4).
+# Old: fraction within +-0.10. New: within +-max(0.10, 0.25 / dE100).
+@line("S26", "amount is monotone and near-linear: mean CIEDE2000 from neutral on 2545 at 10/25/50/75 within +-max(0.10, 0.25 dE / dE100) of amount/100 of the amount-100 value, strictly increasing, every stock (amended by lead; old: +-0.10)")
 def s26(r):
     n = r.img("2545")
     det, ok = {}, {}
@@ -815,7 +853,8 @@ def s26(r):
         d = [mean_de(r.img("2545", s, amount=a), n) for a in AMOUNTS]
         frac = [x / d[-1] for x in d]
         det[s] = {"de100": d[-1], "frac": [round(f, 3) for f in frac]}
-        ok[s] = all(np.diff(d) > 0) and all(abs(f - a / 100) <= 0.10 for f, a in zip(frac, AMOUNTS))
+        tol = max(0.10, 0.25 / d[-1])
+        ok[s] = all(np.diff(d) > 0) and all(abs(f - a / 100) <= tol for f, a in zip(frac, AMOUNTS))
     return all_ok(ok), " ".join(f"{SHORT[s]}:dE100={v['de100']:.2f},frac50={v['frac'][3]:.2f}" for s, v in det.items()), det
 
 
@@ -914,14 +953,20 @@ def s32(r):
     return all_ok(ok), " ".join(f"{SHORT[s]}:{v['delta'][-1]:+.2f}/{v['delta'][1]:+.2f}/{v['delta'][2]:+.2f}" for s, v in det.items()), det
 
 
-@line("S33", "push hardens highlights, pull softens (negatives): code/EV over +1..+2.5 at push +2 >= push 0 + 3, at pull -1 <= push 0 - 3")
+# S33 AMENDED BY LEAD (round 2). Reason: at push +2 the +1..+2.5 EV window already lies in the
+# shoulder, so harder highlights show as white arriving sooner (SPEC-CHANGES.md 5).
+# Old: code/EV over +1..+2.5 at push +2 >= push 0 + 3. New: EV(code 250) at push +2 <= push 0 - 0.75
+# and at pull -1 >= push 0. The pull half (code/EV at pull -1 <= push 0 - 3) is kept.
+@line("S33", "push hardens highlights, pull softens (negatives): EV where luminance reaches 250 at push +2 <= push 0 - 0.75 and at pull -1 >= push 0 (amended by lead; old: code/EV over +1..+2.5 at push +2 >= push 0 + 3); code/EV over +1..+2.5 at pull -1 <= push 0 - 3 (kept)")
 def s33(r):
     det, ok = {}, {}
     for s in NEGATIVES:
         h = {p: xramp(r, s, push=p).code_slope(1, 2.5) for p in (-1, 0, 2)}
-        det[s] = h
-        ok[s] = h[2] >= h[0] + 3 and h[-1] <= h[0] - 3
-    return all_ok(ok), " ".join(f"{SHORT[s]}:{v[-1]:.1f}/{v[0]:.1f}/{v[2]:.1f}" for s, v in det.items()), det
+        w = {p: xramp(r, s, push=p).first_ev(250) for p in (-1, 0, 2)}
+        det[s] = {"slope": h, "ev250": w}
+        ok[s] = (w[2] is not None and w[0] is not None and w[2] <= w[0] - 0.75
+                 and (w[-1] is None or w[-1] >= w[0]) and h[-1] <= h[0] - 3)
+    return all_ok(ok), " ".join(f"{SHORT[s]}:ev250 {fmt(v['ev250'][-1])}/{fmt(v['ev250'][0])}/{fmt(v['ev250'][2])} slope {v['slope'][-1]:.1f}/{v['slope'][0]:.1f}" for s, v in det.items()), det
 
 
 @line("S34", "Velvia push range follows the datasheet (-1/2..+1 stop): extended ramp at push +2 equals push +1, push -1 equals push -0.5, within 1 code everywhere")
@@ -968,13 +1013,21 @@ def s36(r):
     return all_ok(ok), " ".join(f"{SHORT[s]}:{'ok' if ok[s] else 'NO'}" for s in STOCKS), det
 
 
-@line("S37", "finish-LUT accuracy (what the GPU uses): CIEDE2000 between --lut-size 33 and 129 (proxy for exact) over colorchecker+skin_tones+hue_wheel: p99 <= neutral p99 + 0.5 and max <= 4.0 (8-bit quantisation included)")
+# S37 AMENDED BY LEAD (round 2). Reason: a slide-film gamma between finish-table nodes 0.75 EV
+# apart is past what a 33-point table interpolates; the fix is a finer table for film plans,
+# requested in NEEDS.md (SPEC-CHANGES.md 6). Old: film stocks measured at --lut-size 33.
+# New: film stocks measured at the 65-point export size (what NEEDS.md asks film plans to
+# bake), against the same thresholds; neutral stays at 33.
+S37_FILM_LUT = 65
+
+
+@line("S37", "finish-LUT accuracy (what the GPU uses): CIEDE2000 between --lut-size 33 (film stocks: 65, amended by lead pending NEEDS.md; old: 33) and 129 (proxy for exact) over colorchecker+skin_tones+hue_wheel: p99 <= neutral p99 + 0.5 and max <= 4.0 (8-bit quantisation included)")
 def s37(r):
     det, ok = {}, {}
     for s in ["neutral"] + STOCKS:
         ds = []
         for img in ("colorchecker", "skin_tones", "hue_wheel"):
-            a = r.img(img, None if s == "neutral" else s, lut=33)
+            a = r.img(img, None if s == "neutral" else s, lut=33 if s == "neutral" else S37_FILM_LUT)
             b = r.img(img, None if s == "neutral" else s, lut=129)
             ds.append(de2000(cielab(a), cielab(b)).ravel())
         d = np.concatenate(ds)
@@ -986,7 +1039,11 @@ def s37(r):
 
 # ---- S38..S39 distinctness --------------------------------------------------------------------
 
-@line("S38", "distinct stocks on the colorchecker: mean CIEDE2000 over the 24 patch means >= 3.0 for every pair of colour stocks and for every colour stock vs neutral")
+# S38/S39 AMENDED BY LEAD (round 2). Old: S38 >= 3.0 for every pair and vs neutral on the
+# chart; S39 >= 2.0 for every pair and vs neutral on photos. New: every colour stock vs neutral
+# >= 2.5 on the chart and on photos; every pair of colour stocks >= 2.0 on photos (chart pairs
+# reported, not gated).
+@line("S38", "distinct stocks on the colorchecker: mean CIEDE2000 over the 24 patch means >= 2.5 for every colour stock vs neutral (amended by lead; old: >= 3.0 for every pair and vs neutral)")
 def s38(r):
     labs = {s: cielab(cc_lch(r, s)[1]) for s in ["neutral"] + COLOUR}
     det = {}
@@ -994,11 +1051,12 @@ def s38(r):
     for i in range(len(keys)):
         for j in range(i + 1, len(keys)):
             det[f"{SHORT[keys[i]]}-{SHORT[keys[j]]}"] = float(de2000(labs[keys[i]], labs[keys[j]]).mean())
-    worst = min(det, key=det.get)
-    return det[worst] >= 3.0, f"min {worst}={det[worst]:.2f}; " + " ".join(f"{k}={v:.1f}" for k, v in det.items()), det
+    vsn = {k: v for k, v in det.items() if k.startswith("neutral-")}
+    worst = min(vsn, key=vsn.get)
+    return vsn[worst] >= 2.5, f"min vs neutral {worst}={vsn[worst]:.2f}; " + " ".join(f"{k}={v:.1f}" for k, v in det.items()), det
 
 
-@line("S39", "distinct stocks on real photos: per-pixel mean CIEDE2000, averaged over the 6 photos, >= 2.0 for every pair of colour stocks and every colour stock vs neutral")
+@line("S39", "distinct stocks on real photos: per-pixel mean CIEDE2000, averaged over the 6 photos, >= 2.5 for every colour stock vs neutral and >= 2.0 for every pair of colour stocks (amended by lead; old: >= 2.0 for both)")
 def s39(r):
     keys = ["neutral"] + COLOUR
     labs = {p: {s: cielab(r.img(p, None if s == "neutral" else s)) for s in keys} for p in PHOTOS}
@@ -1006,8 +1064,10 @@ def s39(r):
     for i in range(len(keys)):
         for j in range(i + 1, len(keys)):
             det[f"{SHORT[keys[i]]}-{SHORT[keys[j]]}"] = float(np.mean([de2000(labs[p][keys[i]], labs[p][keys[j]]).mean() for p in PHOTOS]))
-    worst = min(det, key=det.get)
-    return det[worst] >= 2.0, f"min {worst}={det[worst]:.2f}; " + " ".join(f"{k}={v:.1f}" for k, v in det.items()), det
+    vsn = {k: v for k, v in det.items() if k.startswith("neutral-")}
+    pairs = {k: v for k, v in det.items() if not k.startswith("neutral-")}
+    wn, wp = min(vsn, key=vsn.get), min(pairs, key=pairs.get)
+    return vsn[wn] >= 2.5 and pairs[wp] >= 2.0, f"min vs neutral {wn}={vsn[wn]:.2f}, min pair {wp}={pairs[wp]:.2f}; " + " ".join(f"{k}={v:.1f}" for k, v in det.items()), det
 
 
 # --------------------------------------------------------------------------- sheets
@@ -1065,6 +1125,7 @@ def prefetch(r, ids):
             q("xramp", s, **v)
         for img in ("colorchecker", "skin_tones", "hue_wheel"):
             q(img, s, lut=129)
+            q(img, s, lut=S37_FILM_LUT)
         for a in AMOUNTS:
             q("2545", s, amount=a)
         for img in ("6929", "colorchecker"):

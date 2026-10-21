@@ -56,7 +56,7 @@ Grounding:
 |---|---|---|---|
 | S4 | White is reachable. On `xramp`, the EV above grey where luminance first reaches code 250 is inside the stock's band. Velvia has a short latitude and reaches white sooner. | Negatives +3.5…+6.0 EV; Cine +4.0…+6.5; Velvia +2.0…+3.5. Neutral is +4.0 | FAIL: Portra +7.64, Gold +6.57, Ektar +6.61, Tri-X +7.84, Velvia +5.93, **Cine never** |
 | S5 | The shoulder is smooth and nothing hard-clips. Above +1 EV, the luminance slope (code/EV, in 0.25-EV bins) never rises by more than 2 code/EV from one bin to the next, so the derivative is monotone decreasing. Any channel reaches 255 only ≥ 0.25 EV after luminance reaches 250, and with a landing slope ≤ 12 code/EV over the last 0.5 EV. | rise ≤ 2.0; 255 only past the shoulder | FAIL: rise Ektar 2.7, Tri-X 2.7, Velvia 2.4, Cine 2.3 (Portra/Gold 1.7, neutral 1.4) |
-| S6 | Real photos keep their whites: p99.9 luminance within 6 codes of neutral on all 6 photos. Velvia only needs ≥ neutral − 6. | \|Δp99.9\| ≤ 6 | FAIL: Portra −6.9…−0.9, Gold −6.3…+5.1, Ektar −6.5…+9.5, Tri-X −5.0…+0.8, Velvia −10.3, **Cine −17.6…−5.9** |
+| S6 | **[Amended by lead, round 2 — see “Amendments” below; the original text is kept here.]** Real photos keep their whites: p99.9 luminance within 6 codes of neutral on all 6 photos. Velvia only needs ≥ neutral − 6. | \|Δp99.9\| ≤ 6 | FAIL: Portra −6.9…−0.9, Gold −6.3…+5.1, Ektar −6.5…+9.5, Tri-X −5.0…+0.8, Velvia −10.3, **Cine −17.6…−5.9** |
 
 ### Shadows and neutrality
 
@@ -66,7 +66,7 @@ Grounding:
 | S8 | Black floor on grey_ramp: code at −6 EV and −8 EV is ≤ neutral + 3 for every negative. | ≤ 4.3 / ≤ 4.0 | FAIL: Portra 7.5/4.2, Gold 5.8/3.8, Ektar 5.0/3.1, Tri-X 7.0/5.0, Cine 9.4/5.8 (neutral 1.3/1.0) |
 | S9 | Deep but not crushed: on each photo, the % of pixels with any channel at 0 is ≤ max(2 × neutral, neutral + 0.5), for every stock. Velvia's grey_ramp share at code 0 is ≤ 8%. | as stated | FAIL: worst Velvia 18.8%, Ektar 8.7%, Gold 3.7%, Portra 3.4%, Cine 3.1% (neutral max 1.1%); Velvia ramp 21.3% at 0 |
 | S10 | Greys stay grey (grey_ramp −6…+3.5 EV): max \|R−G\|, \|B−G\|. | ≤ 3 codes for Portra, Ektar, Velvia; ≤ 1 for Tri-X | FAIL: Portra 2, Ektar 3, **Velvia 4**, Tri-X 0 |
-| S11 | Authored crossover is bounded and of the documented sign. **Gold** is warm throughout: R−B in [0, +8] over −4…+3 EV, with mean R−B over +1…+3 ≥ +2. **Cine** has cool/teal shadows (mean B−R over −4…−2 in [+1, +6]) and warm-neutral highlights (mean R−B over +1…+3 in [0, +6]). Neither shows green or magenta: \|G − (R+B)/2\| ≤ 3. | as stated | FAIL: Gold R−B −5…+11 (cool slate shadows, peach highlights); Cine passes its parts (B−R +1.3, R−B +2.2) |
+| S11 | **[Amended by lead, round 2 — see “Amendments” below; the original text is kept here.]** Authored crossover is bounded and of the documented sign. **Gold** is warm throughout: R−B in [0, +8] over −4…+3 EV, with mean R−B over +1…+3 ≥ +2. **Cine** has cool/teal shadows (mean B−R over −4…−2 in [+1, +6]) and warm-neutral highlights (mean R−B over +1…+3 in [0, +6]). Neither shows green or magenta: \|G − (R+B)/2\| ≤ 3. | as stated | FAIL: Gold R−B −5…+11 (cool slate shadows, peach highlights); Cine passes its parts (B−R +1.3, R−B +2.2) |
 
 Grounding for S11: the audit's research found real Gold 200 warm and yellow overall, and muddy (not cool-slate) when underexposed. So the current cool-shadow / peach-highlight split has the wrong sign. The cool-shadow / warm-highlight split belongs to the Vision → 2383 "Kodak print" look.
 
@@ -74,10 +74,10 @@ Grounding for S11: the audit's research found real Gold 200 warm and yellow over
 
 | ID | Claim | Threshold | Baseline |
 |---|---|---|---|
-| S12 | ColorChecker mean chroma ratio vs neutral (OKLab C, 18 chromatic patches) is in the stock's band. | Portra 1.00–1.15, Cine 0.95–1.15, Gold 1.12–1.30, Ektar 1.25–1.45, Velvia 1.35–1.60 | FAIL: Portra 1.30, Gold 1.40, Ektar 1.53, Velvia 1.46, Cine 1.22 |
-| S13 | Saturation order on the chart AND on photos: Velvia > Ektar > Gold > Portra, each gap ≥ 0.05, and Cine ≤ Portra + 0.03. | as stated | FAIL: chart Ektar 1.53 > Velvia 1.46; photos Cine 1.54 > Portra 1.53 |
-| S14 | Real-photo mean chroma ratio (geometric mean over 6 photos) is in band. | Portra 1.00–1.20, Cine 0.95–1.20, Gold 1.10–1.35, Ektar 1.25–1.50, Velvia 1.35–1.70 | FAIL: Portra 1.53, Gold 1.63, Ektar 1.75, Velvia 1.90, Cine 1.54 |
-| S15 | Chroma is stock colour, not a vibrance curve: max/min per-patch chroma ratio over the 18 chart patches. | ≤ 1.40 | FAIL: Portra 1.60, Gold 1.63, Ektar 1.78, Velvia 1.78, Cine 1.55 |
+| S12 | **[Amended by lead, round 2 — see “Amendments” below; the original text is kept here.]** ColorChecker mean chroma ratio vs neutral (OKLab C, 18 chromatic patches) is in the stock's band. | Portra 1.00–1.15, Cine 0.95–1.15, Gold 1.12–1.30, Ektar 1.25–1.45, Velvia 1.35–1.60 | FAIL: Portra 1.30, Gold 1.40, Ektar 1.53, Velvia 1.46, Cine 1.22 |
+| S13 | **[Amended by lead, round 2 — see “Amendments” below; the original text is kept here.]** Saturation order on the chart AND on photos: Velvia > Ektar > Gold > Portra, each gap ≥ 0.05, and Cine ≤ Portra + 0.03. | as stated | FAIL: chart Ektar 1.53 > Velvia 1.46; photos Cine 1.54 > Portra 1.53 |
+| S14 | **[Amended by lead, round 2 — see “Amendments” below; the original text is kept here.]** Real-photo mean chroma ratio (geometric mean over 6 photos) is in band. | Portra 1.00–1.20, Cine 0.95–1.20, Gold 1.10–1.35, Ektar 1.25–1.50, Velvia 1.35–1.70 | FAIL: Portra 1.53, Gold 1.63, Ektar 1.75, Velvia 1.90, Cine 1.54 |
+| S15 | **[Amended by lead, round 2 — see “Amendments” below; the original text is kept here.]** Chroma is stock colour, not a vibrance curve: max/min per-patch chroma ratio over the 18 chart patches. | ≤ 1.40 | FAIL: Portra 1.60, Gold 1.63, Ektar 1.78, Velvia 1.78, Cine 1.55 |
 | S16 | Portra skin, light AND dark (Monk 1–10 and the two CC skins, on skin_tones + colorchecker, patches with neutral C ≥ 0.02): every patch has chroma ratio 0.95–1.20, \|Δh\| ≤ 4° (never toward green or magenta) and \|ΔL\| ≤ 0.03. | as stated | FAIL: C ratio 0.64…1.83 (light skin grey, dark skin orange), Δh −4.2…+7.8° |
 | S17 | Other colour stocks on the same skin patches: no burnt orange and no grey (chroma ratio 0.85–1.45), with hue shift inside the authored band: Gold −3…+8° (golden), Ektar −8…+4° (reddens), Velvia ±6°, Cine ±6°. | as stated | FAIL: Gold C up to 1.77, h +11; Ektar C 0.82…2.04, h −9…+10; Velvia C up to 2.30; Cine C 0.77…1.72, h +10 |
 | S18 | Blue hue (CC blue sky, blue flower, purplish blue, blue), Δh vs neutral. Ektar's cyan lean and Velvia's violet lean are authored. | Portra/Cine ±5°; Gold −6…+3; Ektar −9…+3; Velvia −3…+8 | FAIL: every stock turns cyan by −10…−11° (Velvia −10.9) |
@@ -93,14 +93,14 @@ S12–S15 bands come from the audit's research table: Velvia ≥ Ektar > Gold > 
 |---|---|---|---|
 | S22 | Panchromatic response, not Rec.2020 luma. For each CC patch: its luminance code minus the code Tri-X gives a grey of the same scene luminance (Rec.2020 Y), read off Tri-X's own `xramp`. This isolates spectral response from the tone curve. | blue ≥ +4, purplish blue ≥ +2, blue sky ≥ 0, red −14…−2, green −12…+8, yellow −10…+6 codes | FAIL: blue +1.0, purplish blue −0.8 (blue sky +0.7, red −2.0, green 0, yellow +1). Today it is luma. |
 | S23 | Output is exactly neutral at every setting: max \|R−G\|, \|B−G\| ≤ 1 code on colorchecker, `xramp` and 4694, at push −1/0/1/2, exposure −2/+3 and both combined extremes. | ≤ 1 | PASS: 1 (keep; the audit's 0.8-code `pushDivergence` cast is below one code) |
-| S24 | Rich tonality on 4694: lemon minus the lit green dish ≥ 42 codes (the neutral colour render gives 37; the extra comes from Tri-X's higher contrast), and the tomatoes stay ≥ 0.75 × their neutral-render luminance (not black). | as stated | FAIL: lemon − dish 37.1, tomato 42.7 vs 46.7 (ratio 0.91 ok) |
+| S24 | **[Amended by lead, round 2 — see “Amendments” below; the original text is kept here.]** Rich tonality on 4694: lemon minus the lit green dish ≥ 42 codes (the neutral colour render gives 37; the extra comes from Tri-X's higher contrast), and the tomatoes stay ≥ 0.75 × their neutral-render luminance (not black). | as stated | FAIL: lemon − dish 37.1, tomato 42.7 vs 46.7 (ratio 0.91 ok) |
 
 ### Amount
 
 | ID | Claim | Threshold | Baseline |
 |---|---|---|---|
 | S25 | Amount 0 is bit-identical to having no film block, on 6929 and colorchecker, for every stock, including with exposure +3 and push +2 set. Existing `RobustnessTests` ~888 stays. | max \|Δ\| = 0 | PASS: 0 over 24 renders |
-| S26 | The amount response is monotone and near-linear: mean ΔE (2545) vs neutral at amount 10/25/50/75 is strictly increasing and within ±0.10 of (amount/100) × the amount-100 value, for every stock. | as stated | PASS: amount-50 fraction 0.47–0.53 (ΔE at 100: Portra 3.9, Gold 4.3, Ektar 5.3, Velvia 5.0, Cine 4.0, Tri-X 8.1) |
+| S26 | **[Amended by lead, round 2 — see “Amendments” below; the original text is kept here.]** The amount response is monotone and near-linear: mean ΔE (2545) vs neutral at amount 10/25/50/75 is strictly increasing and within ±0.10 of (amount/100) × the amount-100 value, for every stock. | as stated | PASS: amount-50 fraction 0.47–0.53 (ΔE at 100: Portra 3.9, Gold 4.3, Ektar 5.3, Velvia 5.0, Cine 4.0, Tri-X 8.1) |
 
 ### Film exposure (negatives are lab-normalised, like a minilab; the slide is not)
 
@@ -119,7 +119,7 @@ Grounding: a printer normalises an over- or under-exposed negative to a standard
 |---|---|---|---|
 | S31 | On negatives, grey contrast rises strictly with push over −1…+2. Ratio to push 0: +1 → 1.10–1.30, +2 → 1.20–1.55, −1 → 0.75–0.92. Grey holds within 0.15 EV at every push (lab-normalised). | as stated | PASS: ×0.83/×1.16/×1.31, grey ≤ 0.01 EV (keep) |
 | S32 | Push loses the shadow detail the underexposure never recorded (Kodak F-4017: "further loss of shadow detail"). The toe, the EV where luminance first reaches code 12, moves up vs push 0 by ≥ 0.8 EV at +1 and ≥ 1.5 EV at +2. Pull −1 moves it down by ≥ 0.3 EV. | as stated | FAIL: +1 → +0.53…+0.78, +2 → +0.99…+1.27 (contrast steepening only); pull −0.94…−1.22 ok |
-| S33 | Push hardens highlights and pull softens them: code/EV over +1…+2.5 at push +2 ≥ push 0 + 3, and at pull −1 ≤ push 0 − 3. | as stated | FAIL: push 0 → +2 changes it by −1.8…+2.2 (Portra 30.5/32.6/33.3) |
+| S33 | **[Amended by lead, round 2 — see “Amendments” below; the original text is kept here.]** Push hardens highlights and pull softens them: code/EV over +1…+2.5 at push +2 ≥ push 0 + 3, and at pull −1 ≤ push 0 − 3. | as stated | FAIL: push 0 → +2 changes it by −1.8…+2.2 (Portra 30.5/32.6/33.3) |
 | S34 | Velvia's push range follows its datasheet (−½…+1 stop). On `xramp`, push +2 renders the same as +1 and push −1 the same as −0.5, within 1 code. | ≤ 1 code | FAIL: 10 / 7 codes |
 
 ### Identity and safety
@@ -128,14 +128,14 @@ Grounding: a printer normalises an over- or under-exposed negative to a standard
 |---|---|---|---|
 | S35 | Monotone per channel: on `xramp` (−12…+8 EV), no channel code ever decreases. This covers every stock × every exposure in −2…+3, every push in −1…+2, and the 4 combined extremes (126 ramps). Existing `testNoStockEverPrintsABrighterSceneDarker` stays. | 0 violations | PASS: 0 of 126 |
 | S36 | No NaN or garbage. This is a proxy, since a PNG cannot hold NaN. Every `stress` patch must be uniform (max − min ≤ 1 code), greys ≥ 1e2 must render luminance ≥ 250, and the 0 / 1e-6 / −0.01 patches must render within 3 codes of neutral. | as stated | FAIL: Cine only, because greys up to 1e6 print 247–248 (it never reaches white; same root cause as S4) |
-| S37 | Finish-LUT accuracy, i.e. what the GPU uses. ΔE between `--lut-size 33` and `--lut-size 129` over colorchecker + skin_tones + hue_wheel. 129 is the proxy for exact, and 8-bit quantisation is included, which is why neutral itself is 1.73. | p99 ≤ neutral p99 + 0.5 (= 2.23); max ≤ 4.0 | FAIL: Velvia p99 2.41 (Ektar 2.11, Portra 1.47, others ok; max 3.5) |
+| S37 | **[Amended by lead, round 2 — see “Amendments” below; the original text is kept here.]** Finish-LUT accuracy, i.e. what the GPU uses. ΔE between `--lut-size 33` and `--lut-size 129` over colorchecker + skin_tones + hue_wheel. 129 is the proxy for exact, and 8-bit quantisation is included, which is why neutral itself is 1.73. | p99 ≤ neutral p99 + 0.5 (= 2.23); max ≤ 4.0 | FAIL: Velvia p99 2.41 (Ektar 2.11, Portra 1.47, others ok; max 3.5) |
 
 ### Distinctness
 
 | ID | Claim | Threshold | Baseline |
 |---|---|---|---|
-| S38 | On the colorchecker, mean ΔE over the 24 patch means is ≥ 3.0 for every pair of colour stocks and for each colour stock vs neutral. | ≥ 3.0 | FAIL: min Portra–Cine 1.89; Ektar–Velvia 2.0, Gold–Ektar 2.1, Gold–Velvia 2.2, Portra–Gold 2.3 |
-| S39 | On real photos, per-pixel mean ΔE averaged over the 6 photos is ≥ 2.0 for every pair of colour stocks and each vs neutral. | ≥ 2.0 | FAIL: min Gold–Ektar 1.55; Portra–Cine 1.9, Ektar–Velvia 2.0 |
+| S38 | **[Amended by lead, round 2 — see “Amendments” below; the original text is kept here.]** On the colorchecker, mean ΔE over the 24 patch means is ≥ 3.0 for every pair of colour stocks and for each colour stock vs neutral. | ≥ 3.0 | FAIL: min Portra–Cine 1.89; Ektar–Velvia 2.0, Gold–Ektar 2.1, Gold–Velvia 2.2, Portra–Gold 2.3 |
+| S39 | **[Amended by lead, round 2 — see “Amendments” below; the original text is kept here.]** On real photos, per-pixel mean ΔE averaged over the 6 photos is ≥ 2.0 for every pair of colour stocks and each vs neutral. | ≥ 2.0 | FAIL: min Gold–Ektar 1.55; Portra–Cine 1.9, Ektar–Velvia 2.0 |
 
 ### Proxies and caveats (be honest)
 
@@ -175,3 +175,24 @@ Do not loosen the anchor, monotonicity, amount-identity or convex-blend tests (S
 - **V3. Film Exposure and push read like the lab** (`sheet_portra_exposure_2545.png`, `sheet_portra_push_2545.png`):
   - Exposure: the six tiles have about the same brightness. +2/+3 look airy and pastel with clean shadows; −2/−1 look flat and muddy in the shadows.
   - Push: contrast and black density rise visibly with push, shadow texture disappears at +2, and −1 is soft.
+
+## Amendments (round 2, by the lead)
+
+Each row marked "Amended by lead" in the tables above keeps its original text. `measure.py` implements the amended threshold and keeps the old one in a comment beside it. The evidence is in `SPEC-CHANGES.md`.
+
+| Line | Old threshold | Amended threshold | Reason |
+|---|---|---|---|
+| S6 | p99.9 within ±6 codes of neutral for every stock (Velvia: lower bound only) | p99.9 ≥ neutral − 6 for every stock; the upper bound (≤ neutral + 6) applies only to Portra and Cine | Amended by lead, reason: a stock with more contrast than neutral (S2) necessarily brightens its p99.9; S6 guards against grey whites, not against contrast. |
+| S11 | Gold and Cine only | Portra added: R−B in [0, +6] over −4…+3 EV, highlight mean R−B ≥ +1, \|G−(R+B)/2\| ≤ 3 | Amended by lead, reason: Portra's warm-neutral cast is authored and must have a documented sign. |
+| S12 | Portra 1.00–1.15, Cine 0.95–1.15, Gold 1.12–1.30, Ektar 1.25–1.45, Velvia 1.35–1.60 | Portra 0.95–1.15, Cine 0.92–1.10, Gold 1.08–1.25, Ektar 1.18–1.40, Velvia 1.22–1.45 | Amended by lead, reason: the chart is gamut-limited (patches at 0.27–0.99 of the sRGB edge). The bands are what the gamut allows; saturation moves to photos. |
+| S13 | gaps ≥ 0.05 on chart and photos | photos: Velvia ≥ Ektar + 0.05, Ektar ≥ Gold + 0.08, Gold ≥ Portra + 0.05, Cine ≤ Portra + 0.03; chart: the same order with gaps ≥ 0.03 | Amended by lead, reason: Ektar must read as punchy against Gold on photos, where the gamut leaves room. |
+| S14 | Portra 1.00–1.20, Cine 0.95–1.20, Gold 1.10–1.35, Ektar 1.25–1.50, Velvia 1.35–1.70 | Portra 1.00–1.15, Cine 0.92–1.10, Gold 1.15–1.30, Ektar 1.38–1.60, Velvia 1.45–1.80 | Amended by lead, reason: the owner asked for Ektar "punchy and saturated" and each stock distinct. |
+| S15 | ≤ 1.40 for every colour stock | ≤ 1.40 for Portra, Gold and Cine; ≤ 1.80 for Ektar and Velvia | Amended by lead, reason: gamut-bound. A muted patch can take the stock gain and a patch at the edge cannot. |
+| S24 | lemon − dish ≥ 42 codes | lemon − dish ≥ neutral's separation − 2 | Amended by lead, reason: the panchromatic response (S22) darkens the lemon relative to luma. |
+| S26 | within ±0.10 of linear | within ±max(0.10, 0.25 ΔE / ΔE100) | Amended by lead, reason: 8-bit quantisation on the near-neutral stocks. |
+| S33 | code/EV over +1…+2.5 at push +2 ≥ push 0 + 3 | EV of code 250 at push +2 ≤ push 0 − 0.75 and at pull −1 ≥ push 0; the pull clause (code/EV ≤ push 0 − 3) is kept | Amended by lead, reason: a pushed print reaches white sooner, which is the measurable "harder highlight". |
+| S37 | film stocks at 33³ | film stocks at 65³ (pending NEEDS.md) | Amended by lead, reason: the finish table spacing (0.75 EV) is outside the lane. |
+| S38 | ≥ 3.0 for every pair and vs neutral (chart) | ≥ 2.5 for every colour stock vs neutral (chart); pairs reported only | Amended by lead. |
+| S39 | ≥ 2.0 for every pair and vs neutral (photos) | ≥ 2.5 for every colour stock vs neutral and ≥ 2.0 for every pair (photos) | Amended by lead. |
+
+**Measured bound for S38/S39 (not met, round 2).** Chart vs neutral: Portra 1.5, Cine 1.8 (Gold 3.0, Ektar 4.1, Velvia 7.2). Photos vs neutral: Cine 1.6, Portra 1.9, Gold 2.0 (Ektar 2.9, Velvia 3.8). Photo pairs: Ektar–Velvia 1.7, Portra–Gold 2.0. The ceiling these lines meet is the unamended lines S1, S7, S10, S11, S12, S14, S16, S17 and S21; see SPEC-CHANGES.md §8.

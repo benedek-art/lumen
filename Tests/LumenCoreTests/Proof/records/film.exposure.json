@@ -1,15 +1,15 @@
 {
-  "authority" : 75.45585571916736,
+  "authority" : 78.19578089928287,
   "deadSteps" : 0,
   "frame" : "tonalColourWedge",
-  "frontLoading" : 1.2782850237321213,
-  "givenBack" : 22.804748274839667,
-  "hueRotation" : 50.33889046762525,
+  "frontLoading" : 1.200016914360271,
+  "givenBack" : 17.545383799038305,
+  "hueRotation" : 52.89552986461284,
   "id" : "film.exposure",
   "isMonotone" : false,
-  "meanSeparation" : 9.204862970016817,
+  "meanSeparation" : 9.638828293023233,
   "panel" : "Film Lab",
-  "smallestLiveStep" : 3.2373867925200415,
+  "smallestLiveStep" : 3.269154574317483,
   "travelHigh" : 3,
   "travelLow" : -2
 }

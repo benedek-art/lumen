@@ -3724,7 +3724,7 @@ FILM_LUMA = tuple(_REC2020_TO_XYZ[1])     # the Y row: Rec.2020 luminance weight
 FILM_BLACK_FLOOR = 0.0152 / 100.0         # FilmChain.blackFloor
 FILM_TINT_REACH = 1.2                     # FilmChain.tintReach
 FILM_CRUSH_SOFTNESS = 0.7                 # FilmChain.crushSoftness
-FILM_NEUTRAL_BLACK_SPAN = 15.0            # FilmChain.neutralBlackSpan
+FILM_NEUTRAL_BLACK_SPAN = 20.0            # FilmChain.neutralBlackSpan
 FILM_REVERSAL_GREY_DENSITY = MID_GREY_ANCHOR
 FILM_LOG2 = math.log10(2.0)
 
@@ -3901,7 +3901,7 @@ def film_chain(stock, push=0.0, exposure=0.0, white=1.0):
     s.reversal = stock["kind"] == "reversal"
     s.monochrome = stock["monochrome"]
     s.panchromatic = stock["panchromatic"]
-    scale = 1.0 + stock["gammaPerStop"] * push
+    scale = 1.0 + (stock["gammaPerStop"] if push >= 0 else stock["pullGammaPerStop"]) * push
     s.gamma = [max(g * scale, 0.02) for g in stock["gamma"]]
     s.d_min = list(stock["dMin"])
     s.low, s.high = stock["low"], stock["high"]
@@ -3928,7 +3928,7 @@ def film_chain(stock, push=0.0, exposure=0.0, white=1.0):
         p = stock["print"]
         s.print_gamma = list(p["gamma"])
         s.print_d_min, s.print_d_max = list(p["dMin"]), list(p["dMax"])
-        s.print_low = p["low"] * (1.0 - stock["printToePerStop"] * push)
+        s.print_low = p["low"] * (1.0 - (stock["printToePerStop"] if push >= 0 else stock["printToePerPullStop"]) * push)
         s.print_high = p["high"]
         grey_x = math.log10(0.18) + s.shift * FILM_LOG2
         dg = [film_negative_density(grey_x, s, i) for i in range(3)]
@@ -3944,15 +3944,16 @@ def film_chain(stock, push=0.0, exposure=0.0, white=1.0):
 FILM_STOCKS = {
     "lumen/portra400": dict(
         kind="negative", monochrome=False,
-        gamma=(0.5706, 0.5706, 0.5706), dMin=(0.06, 0.14, 0.22),
+        gamma=(0.5478, 0.5478, 0.5478), dMin=(0.06, 0.14, 0.22),
         toeStops=5.432, shoulderStops=5.207, logOffset=(-0.8, 0.0, 0.0),
         low=0.1881, high=0.4158, ceiling=None,
         print=dict(gamma=(2.6388, 2.6388, 2.6388), dMin=(0.05, 0.06, 0.07), dMax=(2.15, 2.2, 2.25),
                    low=0.8981, high=0.9646), whiteDelta=0.008,
-        shadowTint=(0.018, 0.004, -0.018), highlightTint=(0.006, 0.004, -0.008),
+        shadowTint=(0.035, 0.01, -0.035), highlightTint=(0.03, 0.016, -0.025),
         pushTint=(-0.01, 0.005, 0.012), interlayer=0.1, coupler=0.0,
         pushRange=(-1.0, 2.0), gammaPerStop=0.1737,
         printToePerStop=0.1, shadowCrushPerStop=0.0065,
+        pullGammaPerStop=0.1425, printToePerPullStop=0.32,
         underexposurePerStop=1.0, panchromatic=None,
         insetAttenuation=(0.14, 0.18, 0.12), insetRotation=(0.02, -0.03, 0.06)),
     "lumen/gold200": dict(
@@ -3962,10 +3963,11 @@ FILM_STOCKS = {
         low=0.4514, high=0.434, ceiling=None,
         print=dict(gamma=(2.72, 2.72, 2.72), dMin=(0.05, 0.06, 0.07), dMax=(2.1, 2.15, 2.2),
                    low=1.0423, high=1.2986), whiteDelta=0.0038,
-        shadowTint=(0.025, 0.006, -0.022), highlightTint=(0.03, 0.01, -0.035),
+        shadowTint=(0.036, 0.012, -0.036), highlightTint=(0.055, 0.02, -0.06),
         pushTint=(-0.01, 0.005, 0.012), interlayer=0.1, coupler=0.0,
         pushRange=(-1.0, 2.0), gammaPerStop=0.1909,
         printToePerStop=0.1, shadowCrushPerStop=0.0057,
+        pullGammaPerStop=0.1565, printToePerPullStop=0.32,
         underexposurePerStop=1.0, panchromatic=None,
         insetAttenuation=(0.14, 0.18, 0.12), insetRotation=(0.02, -0.03, 0.06)),
     "lumen/ektar100": dict(
@@ -3979,6 +3981,7 @@ FILM_STOCKS = {
         pushTint=(-0.01, 0.005, 0.012), interlayer=0.1, coupler=0.0,
         pushRange=(-1.0, 2.0), gammaPerStop=0.2,
         printToePerStop=0.1, shadowCrushPerStop=0.0075,
+        pullGammaPerStop=0.164, printToePerPullStop=0.32,
         underexposurePerStop=1.0, panchromatic=None,
         insetAttenuation=(0.14, 0.18, 0.12), insetRotation=(0.02, -0.03, 0.06)),
     "lumen/trix400": dict(
@@ -3992,6 +3995,7 @@ FILM_STOCKS = {
         pushTint=(0.0, 0.0, 0.0), interlayer=0.1, coupler=0.0,
         pushRange=(-1.0, 2.0), gammaPerStop=0.19,
         printToePerStop=0.1, shadowCrushPerStop=0.0065,
+        pullGammaPerStop=0.1558, printToePerPullStop=0.32,
         underexposurePerStop=1.0, panchromatic=(0.25, 0.55, 0.2),
         insetAttenuation=(0.14, 0.18, 0.12), insetRotation=(0.02, -0.03, 0.06)),
     "lumen/velvia50": dict(
@@ -4000,10 +4004,11 @@ FILM_STOCKS = {
         toeStops=4.0, shoulderStops=7.0, logOffset=(0.0, 0.0, 0.0),
         low=0.6312, high=-2.35, ceiling=(3.9878, 4.0377, 4.0877),
         print=None, whiteDelta=0.004,
-        shadowTint=(-0.01, 0.01, -0.01), highlightTint=(0.0, 0.0, 0.0),
+        shadowTint=(-0.012, 0.012, -0.012), highlightTint=(0.0, 0.0, 0.0),
         pushTint=(0.0, 0.0, 0.0), interlayer=0.1, coupler=0.0,
         pushRange=(-0.5, 1.0), gammaPerStop=0.12,
         printToePerStop=0.0, shadowCrushPerStop=0.006,
+        pullGammaPerStop=0.12, printToePerPullStop=0.0,
         underexposurePerStop=0.0, panchromatic=None,
         insetAttenuation=(0.14, 0.18, 0.12), insetRotation=(0.02, -0.03, 0.06)),
     "lumen/cine250d": dict(
@@ -4013,13 +4018,15 @@ FILM_STOCKS = {
         low=0.3857, high=0.383, ceiling=None,
         print=dict(gamma=(2.395, 2.395, 2.395), dMin=(0.06, 0.06, 0.07), dMax=(2.6, 2.65, 2.7),
                    low=1.05, high=0.9586), whiteDelta=0.007,
-        shadowTint=(-0.05, -0.005, 0.05), highlightTint=(0.03, 0.012, -0.03),
+        shadowTint=(-0.05, -0.005, 0.05), highlightTint=(0.045, 0.016, -0.045),
         pushTint=(-0.01, 0.005, 0.012), interlayer=0.1, coupler=0.0,
         pushRange=(-1.0, 2.0), gammaPerStop=0.1781,
         printToePerStop=0.1, shadowCrushPerStop=0.005,
+        pullGammaPerStop=0.1461, printToePerPullStop=0.32,
         underexposurePerStop=1.0, panchromatic=None,
         insetAttenuation=(0.14, 0.18, 0.12), insetRotation=(0.02, -0.03, 0.06)),
 }
+
 
 FILM_PUSH_SETTINGS = (-1.0, -0.5, 0.0, 1.0, 2.0)
 FILM_EXPOSURE_SETTINGS = (-2.0, 0.0, 1.5, 3.0)

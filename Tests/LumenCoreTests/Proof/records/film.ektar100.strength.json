@@ -1,15 +1,15 @@
 {
-  "authority" : 25.879578422423222,
+  "authority" : 23.908213007542287,
   "deadSteps" : 0,
   "frame" : "tonalColourWedge",
-  "frontLoading" : 0.6047900440921401,
+  "frontLoading" : 0.576091919107177,
   "givenBack" : 0,
-  "hueRotation" : 9.580346013942346,
+  "hueRotation" : 8.539633189437723,
   "id" : "film.ektar100.strength",
   "isMonotone" : true,
-  "meanSeparation" : 4.6980265428605055,
+  "meanSeparation" : 4.589483293209814,
   "panel" : "Film Lab",
-  "smallestLiveStep" : 1.1317172673186349,
+  "smallestLiveStep" : 1.1045923729626281,
   "travelHigh" : 100,
   "travelLow" : 0
 }

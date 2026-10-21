@@ -196,14 +196,20 @@ public struct FilmHueLobe: Sendable, Equatable {
 ///     stock's authored lobes (`hueShifts`: Velvia's violet blues, Ektar's cyan sky,
 ///     Gold's golden skin);
 ///   · chroma is the film's own, scaled by `chroma` (× `chromaShifts`) relative to the
-///     sRGB gamut boundary — slope `chroma` on muted colours, compressing toward the
-///     boundary instead of piling saturated skies up against it (`saturationReach` < 1
-///     lets the most saturated colours approach a little closer);
+///     sRGB gamut boundary — the full gain on muted colours, falling to none at the
+///     boundary as `(1 − x)^saturationFalloff` of the headroom `x` used, so saturated
+///     skies keep their gradation instead of piling up against the edge;
+///   · `highlightPastel` takes that much of the gain back in the light tones — the
+///     soft, pastel highlights of a portrait negative;
 ///   · the extra purity fades out in the deepest tones (`darkFade…`): dense dyes go
-///     muddy, they do not glow.
+///     muddy, they do not glow;
+///   · near neutral (reference chroma below `lobeChromaTaper`, OKLab) the lobes fade
+///     out and the hue follows the film's own: a near-grey has no meaningful hue, and
+///     hue-dependent gains around it make a cone the finish LUT cannot interpolate.
 public struct FilmColor: Sendable {
     public var chroma: Double
-    public var saturationReach: Double
+    public var saturationFalloff: Double
+    public var highlightPastel: Double
     public var hueShifts: [FilmHueLobe]
     public var chromaShifts: [FilmHueLobe]
     /// Spectral overlap of the layers, as the AgX-style primaries inset (purity toward
@@ -213,23 +219,28 @@ public struct FilmColor: Sendable {
     public var insetRotation: RGB
     public var darkFadeLow: Double
     public var darkFadeHigh: Double
+    public var lobeChromaTaper: Double
 
     public init(chroma: Double,
-                saturationReach: Double = 0.9,
+                saturationFalloff: Double = 2.0,
+                highlightPastel: Double = 0.0,
                 hueShifts: [FilmHueLobe] = [],
                 chromaShifts: [FilmHueLobe] = [],
                 insetAttenuation: RGB = RGB(0.14, 0.18, 0.12),
                 insetRotation: RGB = RGB(0.02, -0.03, 0.06),
                 darkFadeLow: Double = 0.0,
-                darkFadeHigh: Double = 0.2) {
+                darkFadeHigh: Double = 0.2,
+                lobeChromaTaper: Double = 0.0) {
         self.chroma = chroma
-        self.saturationReach = saturationReach
+        self.saturationFalloff = saturationFalloff
+        self.highlightPastel = highlightPastel
         self.hueShifts = hueShifts
         self.chromaShifts = chromaShifts
         self.insetAttenuation = insetAttenuation
         self.insetRotation = insetRotation
         self.darkFadeLow = darkFadeLow
         self.darkFadeHigh = darkFadeHigh
+        self.lobeChromaTaper = lobeChromaTaper
     }
 
     func hueShift(at h: Double) -> Double {
@@ -239,7 +250,12 @@ public struct FilmColor: Sendable {
     }
 
     func chromaGain(at h: Double) -> Double {
-        var k = chroma
+        chroma * lobeGain(at: h)
+    }
+
+    /// The product of the chroma lobes alone, without the stock's overall `chroma`.
+    func lobeGain(at h: Double) -> Double {
+        var k = 1.0
         for l in chromaShifts { k *= 1 + (l.amount - 1) * l.weight(at: h) }
         return k
     }
@@ -251,23 +267,31 @@ public struct FilmColor: Sendable {
 /// developed longer: the gammas steepen, the print's highlight roll-off hardens, and the
 /// shadows the underexposure never recorded print as black (`shadowCrushPerStop`, the
 /// display level a lab prints down to black per stop). The lab still prints mid-grey
-/// to mid-grey. Pull is the reverse, without the crush.
+/// to mid-grey. Pull is the reverse, without the crush, and with its own rates
+/// (`pullGammaPerStop`, `printToePerPullStop`): overexposed, held-back negatives print
+/// with a long soft highlight roll-off while the mid-tone contrast drops less.
 public struct FilmPushResponse: Sendable {
     /// The datasheet's range, in stops. Velvia 50: −½…+1.
     public var range: ClosedRange<Double>
     public var gammaPerStop: Double
     public var printToePerStop: Double
+    public var pullGammaPerStop: Double
+    public var printToePerPullStop: Double
     public var shadowCrushPerStop: Double
     public var underexposurePerStop: Double
 
     public init(range: ClosedRange<Double> = -1...2,
                 gammaPerStop: Double,
                 printToePerStop: Double = 0.1,
+                pullGammaPerStop: Double? = nil,
+                printToePerPullStop: Double? = nil,
                 shadowCrushPerStop: Double = 0.006,
                 underexposurePerStop: Double = 1.0) {
         self.range = range
         self.gammaPerStop = gammaPerStop
         self.printToePerStop = printToePerStop
+        self.pullGammaPerStop = pullGammaPerStop ?? gammaPerStop
+        self.printToePerPullStop = printToePerPullStop ?? printToePerStop
         self.shadowCrushPerStop = shadowCrushPerStop
         self.underexposurePerStop = underexposurePerStop
     }
@@ -392,7 +416,7 @@ public struct FilmStock: Sendable {
         name: "Lumen Portra 400",
         kind: .negative,
         monochrome: false,
-        negative: FilmCharacteristic(gamma: RGB(0.5706, 0.5706, 0.5706),
+        negative: FilmCharacteristic(gamma: RGB(0.5478, 0.5478, 0.5478),
                                      dMin: RGB(0.0600, 0.1400, 0.2200),
                                      dMax: RGB(2.0600, 2.1400, 2.2200),
                                      logOffset: RGB(-0.8000, 0.0000, 0.0000),
@@ -407,20 +431,22 @@ public struct FilmStock: Sendable {
                                        lowSoftness: 0.8981,
                                        highSoftness: 0.9646,
                                        whiteDelta: 0.008),
-        crossover: FilmCrossover(shadowTint: RGB(0.0180, 0.0040, -0.0180),
-                                 highlightTint: RGB(0.0060, 0.0040, -0.0080),
+        crossover: FilmCrossover(shadowTint: RGB(0.0350, 0.0100, -0.0350),
+                                 highlightTint: RGB(0.0300, 0.0160, -0.0250),
                                  pushTint: RGB(-0.0100, 0.0050, 0.0120),
                                  interlayer: 0.1,
                                  coupler: 0.0),
-        color: FilmColor(chroma: 1.3,
-                         saturationReach: 0.9,
-                         hueShifts: [FilmHueLobe(50.0, 25.0, 1.5), FilmHueLobe(140.0, 22.0, -8.0), FilmHueLobe(240.0, 35.0, -4.0), FilmHueLobe(20.0, 20.0, 2.0)],
-                         chromaShifts: [FilmHueLobe(140.0, 25.0, 0.88), FilmHueLobe(250.0, 30.0, 0.92), FilmHueLobe(60.0, 30.0, 1.05)],
+        color: FilmColor(chroma: 1.38,
+                         saturationFalloff: 2.0,
+                         highlightPastel: 0.22,
+                         hueShifts: [FilmHueLobe(60.0, 25.0, 2.0), FilmHueLobe(135.0, 30.0, -6.0), FilmHueLobe(245.0, 35.0, -5.0), FilmHueLobe(20.0, 20.0, 0.5)],
+                         chromaShifts: [FilmHueLobe(65.0, 35.0, 1.08), FilmHueLobe(135.0, 35.0, 0.8), FilmHueLobe(245.0, 40.0, 0.82), FilmHueLobe(25.0, 20.0, 1.05)],
                          insetAttenuation: RGB(0.1400, 0.1800, 0.1200),
                          insetRotation: RGB(0.0200, -0.0300, 0.0600),
                          darkFadeLow: 0.0,
-                         darkFadeHigh: 0.2),
-        push: FilmPushResponse(range: -1.0...2.0, gammaPerStop: 0.1737, printToePerStop: 0.1, shadowCrushPerStop: 0.0065, underexposurePerStop: 1.0),
+                         darkFadeHigh: 0.2,
+                         lobeChromaTaper: 0.0),
+        push: FilmPushResponse(range: -1.0...2.0, gammaPerStop: 0.1737, printToePerStop: 0.1, pullGammaPerStop: 0.1425, printToePerPullStop: 0.32, shadowCrushPerStop: 0.0065, underexposurePerStop: 1.0),
         halationStrength: RGB(0.0500, 0.0150, 0.0000),
         halationDefault: 35,
         halationRedness: 25,
@@ -451,20 +477,22 @@ public struct FilmStock: Sendable {
                                        lowSoftness: 1.0423,
                                        highSoftness: 1.2986,
                                        whiteDelta: 0.0038),
-        crossover: FilmCrossover(shadowTint: RGB(0.0250, 0.0060, -0.0220),
-                                 highlightTint: RGB(0.0300, 0.0100, -0.0350),
+        crossover: FilmCrossover(shadowTint: RGB(0.0360, 0.0120, -0.0360),
+                                 highlightTint: RGB(0.0550, 0.0200, -0.0600),
                                  pushTint: RGB(-0.0100, 0.0050, 0.0120),
                                  interlayer: 0.1,
                                  coupler: 0.0),
-        color: FilmColor(chroma: 1.65,
-                         saturationReach: 1.0,
-                         hueShifts: [FilmHueLobe(60.0, 30.0, 3.0), FilmHueLobe(95.0, 25.0, 4.0), FilmHueLobe(250.0, 30.0, -3.0), FilmHueLobe(145.0, 22.0, -8.0), FilmHueLobe(20.0, 20.0, 4.0)],
-                         chromaShifts: [FilmHueLobe(95.0, 25.0, 1.12), FilmHueLobe(135.0, 30.0, 0.9), FilmHueLobe(250.0, 30.0, 0.9)],
+        color: FilmColor(chroma: 1.95,
+                         saturationFalloff: 2.0,
+                         highlightPastel: 0.0,
+                         hueShifts: [FilmHueLobe(60.0, 30.0, 2.0), FilmHueLobe(95.0, 25.0, 5.0), FilmHueLobe(250.0, 30.0, -4.0), FilmHueLobe(140.0, 25.0, -10.0), FilmHueLobe(20.0, 20.0, 4.0)],
+                         chromaShifts: [FilmHueLobe(95.0, 25.0, 1.0), FilmHueLobe(140.0, 30.0, 1.0), FilmHueLobe(250.0, 30.0, 0.85), FilmHueLobe(55.0, 25.0, 0.88)],
                          insetAttenuation: RGB(0.1400, 0.1800, 0.1200),
                          insetRotation: RGB(0.0200, -0.0300, 0.0600),
                          darkFadeLow: 0.0,
-                         darkFadeHigh: 0.2),
-        push: FilmPushResponse(range: -1.0...2.0, gammaPerStop: 0.1909, printToePerStop: 0.1, shadowCrushPerStop: 0.0057, underexposurePerStop: 1.0),
+                         darkFadeHigh: 0.2,
+                         lobeChromaTaper: 0.0),
+        push: FilmPushResponse(range: -1.0...2.0, gammaPerStop: 0.1909, printToePerStop: 0.1, pullGammaPerStop: 0.1565, printToePerPullStop: 0.32, shadowCrushPerStop: 0.0057, underexposurePerStop: 1.0),
         halationStrength: RGB(0.0600, 0.0200, 0.0000),
         halationDefault: 45,
         halationRedness: 35,
@@ -500,15 +528,17 @@ public struct FilmStock: Sendable {
                                  pushTint: RGB(-0.0100, 0.0050, 0.0120),
                                  interlayer: 0.1,
                                  coupler: 0.0),
-        color: FilmColor(chroma: 1.95,
-                         saturationReach: 0.9,
-                         hueShifts: [FilmHueLobe(25.0, 25.0, -3.0), FilmHueLobe(50.0, 20.0, -2.5), FilmHueLobe(85.0, 20.0, -3.0), FilmHueLobe(250.0, 30.0, -7.0), FilmHueLobe(150.0, 30.0, 4.0)],
-                         chromaShifts: [FilmHueLobe(25.0, 25.0, 1.1), FilmHueLobe(150.0, 30.0, 1.05), FilmHueLobe(95.0, 25.0, 0.92)],
+        color: FilmColor(chroma: 2.75,
+                         saturationFalloff: 2.0,
+                         highlightPastel: 0.0,
+                         hueShifts: [FilmHueLobe(25.0, 25.0, -2.0), FilmHueLobe(50.0, 20.0, -1.5), FilmHueLobe(85.0, 20.0, -3.0), FilmHueLobe(250.0, 30.0, -7.0), FilmHueLobe(140.0, 30.0, -4.0), FilmHueLobe(200.0, 25.0, -3.0)],
+                         chromaShifts: [FilmHueLobe(25.0, 25.0, 1.12), FilmHueLobe(150.0, 30.0, 1.05), FilmHueLobe(95.0, 25.0, 0.88), FilmHueLobe(55.0, 25.0, 0.66), FilmHueLobe(250.0, 30.0, 1.1), FilmHueLobe(40.0, 20.0, 1.08)],
                          insetAttenuation: RGB(0.1400, 0.1800, 0.1200),
                          insetRotation: RGB(0.0200, -0.0300, 0.0600),
                          darkFadeLow: 0.0,
-                         darkFadeHigh: 0.2),
-        push: FilmPushResponse(range: -1.0...2.0, gammaPerStop: 0.2, printToePerStop: 0.1, shadowCrushPerStop: 0.0075, underexposurePerStop: 1.0),
+                         darkFadeHigh: 0.2,
+                         lobeChromaTaper: 0.05),
+        push: FilmPushResponse(range: -1.0...2.0, gammaPerStop: 0.2, printToePerStop: 0.1, pullGammaPerStop: 0.164, printToePerPullStop: 0.32, shadowCrushPerStop: 0.0075, underexposurePerStop: 1.0),
         halationStrength: RGB(0.0300, 0.0100, 0.0000),
         halationDefault: 15,
         halationRedness: 15,
@@ -545,14 +575,16 @@ public struct FilmStock: Sendable {
                                  interlayer: 0.1,
                                  coupler: 0.0),
         color: FilmColor(chroma: 1.0,
-                         saturationReach: 1.0,
+                         saturationFalloff: 2.0,
+                         highlightPastel: 0.0,
                          hueShifts: [],
                          chromaShifts: [],
                          insetAttenuation: RGB(0.1400, 0.1800, 0.1200),
                          insetRotation: RGB(0.0200, -0.0300, 0.0600),
                          darkFadeLow: 0.0,
-                         darkFadeHigh: 0.2),
-        push: FilmPushResponse(range: -1.0...2.0, gammaPerStop: 0.19, printToePerStop: 0.1, shadowCrushPerStop: 0.0065, underexposurePerStop: 1.0),
+                         darkFadeHigh: 0.2,
+                         lobeChromaTaper: 0.0),
+        push: FilmPushResponse(range: -1.0...2.0, gammaPerStop: 0.19, printToePerStop: 0.1, pullGammaPerStop: 0.1558, printToePerPullStop: 0.32, shadowCrushPerStop: 0.0065, underexposurePerStop: 1.0),
         panchromatic: RGB(0.2500, 0.5500, 0.2000),
         halationStrength: RGB(0.0400, 0.0400, 0.0400),
         halationDefault: 20,
@@ -579,20 +611,22 @@ public struct FilmStock: Sendable {
                                      whiteDelta: 0.004),
         printName: nil,
         printCurve: nil,
-        crossover: FilmCrossover(shadowTint: RGB(-0.0100, 0.0100, -0.0100),
+        crossover: FilmCrossover(shadowTint: RGB(-0.0120, 0.0120, -0.0120),
                                  highlightTint: RGB(0.0000, 0.0000, 0.0000),
                                  pushTint: RGB(0.0000, 0.0000, 0.0000),
                                  interlayer: 0.1,
                                  coupler: 0.0),
-        color: FilmColor(chroma: 2.26,
-                         saturationReach: 0.9,
-                         hueShifts: [FilmHueLobe(268.0, 30.0, 6.0), FilmHueLobe(150.0, 30.0, 6.0), FilmHueLobe(330.0, 25.0, 4.0), FilmHueLobe(95.0, 20.0, -3.0)],
-                         chromaShifts: [FilmHueLobe(150.0, 30.0, 1.08), FilmHueLobe(330.0, 30.0, 1.05), FilmHueLobe(60.0, 25.0, 0.82)],
+        color: FilmColor(chroma: 3.4,
+                         saturationFalloff: 2.0,
+                         highlightPastel: 0.0,
+                         hueShifts: [FilmHueLobe(268.0, 30.0, 3.0), FilmHueLobe(150.0, 30.0, 8.0), FilmHueLobe(330.0, 25.0, 5.0), FilmHueLobe(95.0, 20.0, -3.0), FilmHueLobe(10.0, 10.0, -2.0)],
+                         chromaShifts: [FilmHueLobe(150.0, 30.0, 1.08), FilmHueLobe(330.0, 30.0, 1.0), FilmHueLobe(55.0, 25.0, 0.55), FilmHueLobe(95.0, 25.0, 1.0), FilmHueLobe(258.0, 15.0, 0.8)],
                          insetAttenuation: RGB(0.1400, 0.1800, 0.1200),
                          insetRotation: RGB(0.0200, -0.0300, 0.0600),
                          darkFadeLow: 0.0,
-                         darkFadeHigh: 0.2),
-        push: FilmPushResponse(range: -0.5...1.0, gammaPerStop: 0.12, printToePerStop: 0.0, shadowCrushPerStop: 0.006, underexposurePerStop: 0.0),
+                         darkFadeHigh: 0.2,
+                         lobeChromaTaper: 0.04),
+        push: FilmPushResponse(range: -0.5...1.0, gammaPerStop: 0.12, printToePerStop: 0.0, pullGammaPerStop: 0.12, printToePerPullStop: 0.0, shadowCrushPerStop: 0.006, underexposurePerStop: 0.0),
         halationStrength: RGB(0.0000, 0.0000, 0.0000),
         halationDefault: 0,
         halationRedness: 0,
@@ -625,19 +659,21 @@ public struct FilmStock: Sendable {
                                        highSoftness: 0.9586,
                                        whiteDelta: 0.007),
         crossover: FilmCrossover(shadowTint: RGB(-0.0500, -0.0050, 0.0500),
-                                 highlightTint: RGB(0.0300, 0.0120, -0.0300),
+                                 highlightTint: RGB(0.0450, 0.0160, -0.0450),
                                  pushTint: RGB(-0.0100, 0.0050, 0.0120),
                                  interlayer: 0.1,
                                  coupler: 0.0),
-        color: FilmColor(chroma: 1.08,
-                         saturationReach: 0.9,
-                         hueShifts: [FilmHueLobe(50.0, 25.0, 1.0), FilmHueLobe(25.0, 20.0, 4.0), FilmHueLobe(140.0, 35.0, 8.0), FilmHueLobe(250.0, 30.0, -4.0), FilmHueLobe(95.0, 25.0, -4.0)],
-                         chromaShifts: [FilmHueLobe(140.0, 35.0, 0.85), FilmHueLobe(250.0, 30.0, 0.9), FilmHueLobe(40.0, 25.0, 1.05)],
+        color: FilmColor(chroma: 1.15,
+                         saturationFalloff: 2.0,
+                         highlightPastel: 0.1,
+                         hueShifts: [FilmHueLobe(50.0, 25.0, 2.5), FilmHueLobe(25.0, 20.0, 4.0), FilmHueLobe(140.0, 35.0, 9.0), FilmHueLobe(240.0, 30.0, -5.0), FilmHueLobe(95.0, 25.0, -6.0)],
+                         chromaShifts: [FilmHueLobe(140.0, 35.0, 0.8), FilmHueLobe(240.0, 30.0, 0.85), FilmHueLobe(40.0, 25.0, 1.05)],
                          insetAttenuation: RGB(0.1400, 0.1800, 0.1200),
                          insetRotation: RGB(0.0200, -0.0300, 0.0600),
                          darkFadeLow: 0.0,
-                         darkFadeHigh: 0.2),
-        push: FilmPushResponse(range: -1.0...2.0, gammaPerStop: 0.1781, printToePerStop: 0.1, shadowCrushPerStop: 0.005, underexposurePerStop: 1.0),
+                         darkFadeHigh: 0.2,
+                         lobeChromaTaper: 0.0),
+        push: FilmPushResponse(range: -1.0...2.0, gammaPerStop: 0.1781, printToePerStop: 0.1, pullGammaPerStop: 0.1461, printToePerPullStop: 0.32, shadowCrushPerStop: 0.005, underexposurePerStop: 1.0),
         halationStrength: RGB(0.0500, 0.0150, 0.0000),
         halationDefault: 30,
         halationRedness: 20,
@@ -1877,7 +1913,7 @@ public struct FilmChain: Sendable {
     /// Paper black is neutral: over the last few codes above the floor the picture's
     /// chroma fades out (to the floor × this), so a dark tint cannot turn into a
     /// channel below black on the way to the display's primaries.
-    static let neutralBlackSpan: Double = 15.0
+    static let neutralBlackSpan: Double = 20.0
 
     // MARK: Construction
 
@@ -2141,7 +2177,7 @@ public struct FilmChain: Sendable {
                               grainScale: Double) -> SolvedChain {
         let reversal: Bool = stock.kind == .reversal
         let n: FilmCharacteristic = stock.negative
-        let gammaScale: Double = 1.0 + stock.push.gammaPerStop * push
+        let gammaScale: Double = 1.0 + (push >= 0 ? stock.push.gammaPerStop : stock.push.pullGammaPerStop) * push
         let gamma: RGB = RGB(Swift.max(n.gamma.r * gammaScale, 0.02),
                              Swift.max(n.gamma.g * gammaScale, 0.02),
                              Swift.max(n.gamma.b * gammaScale, 0.02))
@@ -2163,7 +2199,8 @@ public struct FilmChain: Sendable {
         }
 
         let p: FilmCharacteristic = stock.printCurve ?? n
-        let printLow: Double = p.lowSoftness * (1.0 - stock.push.printToePerStop * push)
+        let printLow: Double = p.lowSoftness
+            * (1.0 - (push >= 0 ? stock.push.printToePerStop : stock.push.printToePerPullStop) * push)
 
         let a: FilmColor = stock.color
         let inset: RGBColorSpace = DisplayTransform.insetSpace(.rec2020,
@@ -2445,14 +2482,23 @@ public struct FilmChain: Sendable {
         let ref: OKLab = ctx.toLab(FilmChain.hueReference.apply(c))
         let refHue: Double = atan2(ref.b, ref.a) * 180 / .pi
         let look: FilmColor = s.color
-        let hue: Double = refHue + look.hueShift(at: refHue)
-        var k: Double = look.chromaGain(at: refHue)
+        // Near neutral the lobes fade out and the hue follows the film's own delta.
+        let w: Double = look.lobeChromaTaper > 0
+            ? Num.smoothstep(0, look.lobeChromaTaper, (ref.a * ref.a + ref.b * ref.b).squareRoot())
+            : 1.0
+        let filmHue: Double = atan2(db, da) * 180 / .pi
+        let target: Double = refHue + w * look.hueShift(at: refHue)
+        var turn: Double = (target - filmHue + 180).truncatingRemainder(dividingBy: 360)
+        if turn < 0 { turn += 360 }
+        let hue: Double = filmHue + w * (turn - 180)
+        var k: Double = look.chroma * (1 + (look.lobeGain(at: refHue) - 1) * w)
         k = 1 + (k - 1) * Num.smoothstep(look.darkFadeLow, look.darkFadeHigh, lab.L)
+        k *= 1 - look.highlightPastel * Num.smoothstep(0.62, 0.95, lab.L)
         if k > 1 {
             let edge: Double = FilmChain.saturationBoundary.maxChroma(
                 L: Num.clamp(lab.L, 1e-4, 1 - 1e-4), hue: Num.wrapHue(hue))
-            let x: Double = Swift.min(look.saturationReach * chroma / Swift.max(edge, 1e-6), 1.0)
-            chroma = chroma * k / (1 + (k - 1) * x)
+            let x: Double = Swift.min(chroma / Swift.max(edge, 1e-6), 1.0)
+            chroma *= 1 + (k - 1) * pow(1 - x, look.saturationFalloff)
         } else {
             chroma *= k
         }

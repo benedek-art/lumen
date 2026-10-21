@@ -1,15 +1,15 @@
 {
-  "authority" : 12.11832214345705,
+  "authority" : 16.79482184100985,
   "deadSteps" : 0,
   "frame" : "tonalColourWedge",
-  "frontLoading" : 0.5410510021051019,
+  "frontLoading" : 0.5374605358678702,
   "givenBack" : 0,
-  "hueRotation" : 9.67628767531977,
+  "hueRotation" : 12.803886532515378,
   "id" : "film.portra400.strength",
   "isMonotone" : true,
-  "meanSeparation" : 2.2605677012497134,
+  "meanSeparation" : 2.716403147886247,
   "panel" : "Film Lab",
-  "smallestLiveStep" : 0.5857579742100825,
+  "smallestLiveStep" : 0.8010846915622949,
   "travelHigh" : 100,
   "travelLow" : 0
 }
