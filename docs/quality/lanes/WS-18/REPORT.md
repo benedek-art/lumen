@@ -58,7 +58,7 @@ Numbers from `measure_capture.py`, `measure.py`, full-frame renders and unit tes
 | S10 no hue shift | PASS | `testItCannotShiftHue` |
 | S11 GPU = CPU | PASS | `SharpenParityTests` green on macOS run 39536220513 |
 
-Verifier: round 1 FAIL (B1 below); round 2 — see VERIFY.md.
+Verifier: round 1 FAIL (B1: capture sharpening grew ISO 3200 fabric specks ~7×); round 2 PASS on every Linux-runnable line (C11 specks ×1.12, +0.0099 EV), with two one-line doc fixes (capture Radius tooltip, a stale kernel comment) applied after it. Release ControlProofTests pass locally on the round-2 code.
 
 ## Things a human must judge, and limits
 

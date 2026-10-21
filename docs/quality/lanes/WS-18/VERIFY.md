@@ -209,3 +209,112 @@ For the builder:
 - Add a pristine-edge MTF ≥ off check across the whole Radius range.
 - Delete the dead helpers and fix the stale comments.
 - Commit the ProofRegistry changes with measured floors and the reason for each.
+
+---
+
+# Round 2
+
+Verifier, 2026-10-21. Subject: local HEAD `1e7f7d6` (`dd96ed7` + `1e7f7d6` on top of `5e515cf`).
+
+Binary: the release `lumen-render` in this tree was linked at 03:36, before the final edit to
+`CaptureSharpening.swift` at 03:37. I waited until the coordinator's release `swift test` build
+relinked it (03:41:34) and copied it to `/tmp/claude-0/ws18/verify/r2/lumen-render`
+(md5 `a1625edb…`). All round-2 numbers come from that copy.
+
+I ran no build and no tests myself.
+
+## Spec lines, re-measured
+
+### Capture (S4)
+
+| # | verdict | round 2 (round 1) |
+|---|---|---|
+| C1 | PASS | Edge **1.393×** (1.392). Zone **1.364×** (1.364). |
+| C2 | PASS | 150/2: 0.00/0.00 % on σ1 and on pristine. B2 is still open, see below. |
+| C3 | PASS | **1.000** matched, **1.000** at 1.6× (defaults and 150/2). |
+| C4 | PASS (proxy) | Grating gain **1.985×**, unchanged. |
+| C5 | PASS (proxy) | Rise for Amount 25/50/100/150: 2.287/2.117/1.827/1.538. Radius 0.5/0.8/1.2: 2.267/1.827/1.483. |
+| C6 | PASS (partial) | Capture off and Amount 0 are byte-identical. Without `--iso`, byte-identical to base on hard_edge, 4694, 1840, 6929_ivy and the 6929 native full frame. |
+| C7 | PASS (by inspection) | Unchanged. |
+| C8 | NOT RUN | macOS. See the kernel review below. |
+| C9 | PASS | Ivy **1.281** (1.349). Canopy **1.211** (1.231). Wall std **1.000**. |
+| C10 | NOT RUN (layout test) | Panel strings read; no measurement claims. |
+| **C11** | **PASS** | `2348_jacket`, defaults, ISO 3200. Specks more than 25 codes above their 5×5 median: **5 940 → 6 655 = 1.12×** (≤ 1.2). Mean shift **+0.0099 EV** (≤ 0.02). In round 1 the same metric read 2.99× and +0.051 EV. |
+
+On C11:
+- My OFF count differs from the builder's (5 940 vs 6 345), but the ratio agrees (1.12 vs 1.11).
+- At a 40-code threshold the jacket still reads 807 → 1 694 (2.1×). That is 0.16 % of pixels, and it does not show at 2× zoom.
+
+### Creative (S12)
+
+The S12 code did not change. Every metric re-ran **bit-identical to round 1**, across 17 measure.py configurations.
+
+| # | verdict | round 2 |
+|---|---|---|
+| S1 | PASS | Identity holds on all 5 frames. |
+| S2 | PASS | 1.129 / 1.227 / 1.334 / 1.495. Zone 1.202. |
+| S3 | PASS | Halo at A ≤ 100 is at most 0/1.04 %. Blurred line 1.65 %. |
+| S4 | PASS | Detail 0: 0/0 %. Monotone in Detail. Noise 1.399 vs 1.592. |
+| S5 | PASS | 1.060 / 1.227 / 1.435 / 1.521. At Detail 100: 1.060 vs 1.329. |
+| S6 | PASS | 1.42 → 0.57 → 0.00 %. Dark side 3.21 throughout. |
+| S7 | PASS | Noise 1.003 / 1.004. Wall **1.0001**. Edge keeps ≥ 100 %. |
+| S8 | NOT RUN | Unchanged. |
+| S9 | PASS | **+0.0130 EV**. The A0 render is byte-identical to base. |
+| S10 | PASS (by inspection) | Unchanged. |
+| S11 | NOT RUN | macOS. |
+
+### Visual
+
+| # | verdict | notes |
+|---|---|---|
+| V1 | PASS | The regenerated sheet is crisper than off. My crops show no rims. |
+| V2 | **PASS** (was FAIL) | The sheet now includes the jacket. My 2× crop of the jacket (round 1 vs round 2 vs off) shows round 2 indistinguishable from off for grain. The wires are still crisper than off at 3×, though the wire crop's acutance proxy is now only 1.008 (1.034 in round 1). |
+| V3, V4 | PASS | Unchanged. |
+
+## GPU kernel diff (`lumenCaptureDelta`), checked against `CaptureStage.clampedDelta`
+
+New uniforms: `shot` = `profile.a`, `read` = `profile.b`, `sigLo` = 8, `sigHi` = 16. They are passed in the order the kernel declares, all as `Float`.
+
+| GPU | CPU | match |
+|---|---|---|
+| `yc = max(lum, lumFloor)` | `observed` floored at 1e-6, the same as `noiseLog2Sigma`'s `max(y, logFloor)` | yes |
+| `sigma = sqrt(max(shot·yc + read, 1e-12)) / (yc·ln2)` | `profile.sigma(at:)` = `sqrt(max(a·y + b, minimumVariance = 1e-12))`, divided by `y·ln2` | identical |
+| smoothstep on `up` and `dn` separately, then the bound `mn − allowance·wDn·dn`, `mx + allowance·wUp·up` | `peakExtents` followed by the same weighted bound | identical |
+
+The kernel's float math is f32 even in the RGBAh working format. At the 1e-6 floor, σ is huge and the weight is 0 in both renderers. The reach is still 2. The `scaled(decodeScale:)` profile reaches the GPU through `stage.profile`, as it does on the CPU.
+
+**Stale comment.** The `deltaSource` doc says the peak "stands **3–6** noise σ clear". The constants are 8/16.
+
+## Round-1 items
+
+| item | status |
+|---|---|
+| B1 | **Fixed**, see C11. Trade-off: ivy acutance 1.349 → 1.281, jacket acutance 1.306 → 1.035 (S4 now barely sharpens the ISO 3200 fabric). |
+| B2 | Behaviour unchanged. My re-run at 150/2 gives pristine edge MTF50 gain **0.826** and zone plate 1.091, the same as round 1. The coordinator says the Radius tooltip now names this failure. **It does not:** `DetailPanel.swift:231-234` at `1e7f7d6` still reads "…lower it if fine detail starts to look etched." No commit after `5e515cf` touches that string. The known limit is therefore stated nowhere in the shipped product yet. |
+| B3, B4, B5 | Unchanged. Accepted as owner judgements. |
+| `sharpenDelta` | Deleted from source and roster. No references remain. |
+| Stale comments | Fixed in Recipe.swift (CaptureSharpen), the DetailPanel tooltips and the reader comment, `SpatialOps.frameDenominatedSigma`, ReferenceRenderer's local-sharpness note and the SharpenGPU header. |
+| Dead code | Remaining dead code (`fineDetailBand`, `estimatePSFSigma`, `unsharpRadius`, the unused `decomposition` parameter) is either stated in the SharpenGPU header or test-pinned. Acceptable. |
+
+## Proof-registry floors
+
+Amount 29 → **18**, radius 17 → **19**, masking 10 → **19**, halo 25 → **19**.
+- The frames changed with them: a σ1 soft step for amount and radius, Detail 100 for halo, texture plus a noise ramp for masking.
+- The reason is stated next to the floors.
+- Amount and halo floors went down, but each is measured on a frame where the new stage has something to do, and both stay above docs/20's 2.9 bar.
+
+I accept this as a corrected test, not a loosened one. I did not run it; the coordinator's release run of ControlProofTests is the evidence.
+
+`SliderEvidenceTests` moves capture Amount and Radius from a macOS-only disposition to contracts on `CaptureStageTests`, which is consistent with the new S4.
+
+## Round-2 verdict: **PASS**
+
+Every Linux-runnable SPEC line passes with the number, including the new C11, and V1–V4 hold.
+
+Two documentation defects remain. Neither is a SPEC line:
+1. The capture Radius tooltip does not name the over-correction failure, although the builder's summary says it does.
+2. `lumenCaptureDelta`'s doc says 3–6σ where the code uses 8/16.
+
+Both are one-line fixes and should land before merge. B2 itself (an oversized Radius softens sharp edges) goes to the report as a known limit.
+
+The NOT RUN lines need macOS CI: C8, S11 (GPU parity, including the new uniforms), C10 and S8.

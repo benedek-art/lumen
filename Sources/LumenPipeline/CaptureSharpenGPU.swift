@@ -73,7 +73,8 @@ enum CaptureKernels {
 
     /// `CaptureStage.clampedDelta`: the correction scaled by gate × strength, then
     /// held inside the 3×3 range except at a genuine one- or two-pixel peak or trough
-    /// that stands 3–6 noise σ clear of its neighbours.
+    /// that stands 8–16 profile noise σ clear of its neighbours
+    /// (`CaptureStage.peakSignificanceLow/High`).
     /// The four directions are written out rather than looped over an array, which the
     /// kernel language does not reliably accept. Reach 2.
     static let deltaSource = """

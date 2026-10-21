@@ -230,8 +230,9 @@ struct DetailPanel: View {
                         step: 0.05, decimals: 2, bipolar: false,
                         help: "How wide a blur the deconvolution undoes, in sensor "
                             + "pixels. 0.8 suits most modern bodies; raise it for an "
-                            + "older or anti-aliased sensor or a soft lens, lower it if "
-                            + "fine detail starts to look etched.",
+                            + "older or anti-aliased sensor or a soft lens. Set wider "
+                            + "than the real blur it over-corrects: crisp edges turn "
+                            + "stepped and thin gaps close up — lower it if they do.",
                         onReset: { clearCaptureOverrides() })
         }
         // No `.disabled(isRenderedFile)` here any more. It moved up to the section's
