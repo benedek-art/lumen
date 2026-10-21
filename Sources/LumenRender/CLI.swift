@@ -156,6 +156,7 @@ enum LumenRenderCLI {
             case "sweep": try sweep(args)
             case "keys": try keys(args)
             case "synth": try synth(args)
+            case "autowb": try autowb(args)
             case "help", "--help", "-h": print(usage)
             default: throw InputError.message("unknown command '\(args.command)'\n\(usage)")
             }

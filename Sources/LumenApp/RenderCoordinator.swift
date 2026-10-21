@@ -945,6 +945,40 @@ actor RenderCoordinator {
                                                current: wb)
     }
 
+    /// Auto white balance (WS-03): the Temp/Tint `AutoWhiteBalance` suggests for this
+    /// file, in the slider's convention.
+    ///
+    /// Measured on the DECODE — camera-reference white balance, before any of Lumen's
+    /// stages — for the eyedropper's reason: the answer must not depend on the white
+    /// balance it is about to replace. A proxy of at most 1024 px on the long edge is
+    /// plenty for statistics that are themselves taken on a ≈640 px block grid, and it
+    /// keeps the press instant. Same decode call `clippingStatistics` makes, so the
+    /// recipe goes through for the decode cache's sake and nothing downstream runs.
+    func solveAutoWhiteBalance(url: URL, recipe: Recipe) -> (kelvin: Double, tint: Double)? {
+        guard !Task.isCancelled,
+              let source = try? self.source(for: url) else { return nil }
+        let native = source.nativeLongEdge
+        guard native > 0 else { return nil }
+        let scale = Swift.min(1.0, 1024.0 / native)
+        guard let decoded = source.decode(recipe: recipe, draft: false, scaleFactor: scale)
+        else { return nil }
+        // The renderer's own context is private to it; this one is configured the same
+        // way (extended-range linear Rec.2020 working space), so the buffer holds the
+        // working-space values `clippingStatistics` measures.
+        var options: [CIContextOption: Any] = [.workingFormat: CIFormat.RGBAh]
+        if let working = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020) {
+            options[.workingColorSpace] = working
+        }
+        guard let buffer = PipelineRenderer.buffer(from: decoded,
+                                                   context: CIContext(options: options))
+        else { return nil }
+        let estimate = AutoWhiteBalance.estimate(
+            buffer,
+            asShot: WhiteBalanceEngine.Neutral(kelvin: source.asShotTemperature,
+                                               tint: source.asShotTint))
+        return (estimate.kelvin, estimate.tint)
+    }
+
     // MARK: - Sources
 
     /// Picks the decoder by extension rather than by trying one and catching, because

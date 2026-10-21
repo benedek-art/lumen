@@ -42,13 +42,26 @@ public struct WhiteBalanceEngine: Sendable {
     /// Adapting *from* the target illuminant *to* the as-shot one is what makes the
     /// slider behave the way photographers expect: setting a lower Kelvin than the
     /// scene actually had cools the picture.
+    ///
+    /// Both pairs are read in ONE convention, the Adobe/DNG SDK's
+    /// (`ColorTemperature.chromaticity`), because the as-shot pair arrives in it. So the
+    /// numbers a Lightroom user types for a light are the numbers that neutralise it, and
+    /// diagonal CAT16 steps compose: a grey lit by L and decoded at as-shot A comes out
+    /// neutral at target L exactly.
+    ///
+    /// The target's tint is bounded by the as-shot-aware magenta guard
+    /// (`ColorTemperature.clampedTint(kelvin:tint:asShot:)`): the picture this matrix
+    /// makes must keep moving toward magenta as tint rises and keep three non-negative
+    /// channels, and that depends on where it adapts TO as well as from.
     public static func adaptation(asShot: (kelvin: Double, tint: Double),
                                   target: (kelvin: Double, tint: Double),
                                   space: RGBColorSpace) -> Mat3 {
         if asShot.kelvin == target.kelvin && asShot.tint == target.tint {
             return .identity
         }
-        let source = ColorTemperature.chromaticity(kelvin: target.kelvin, tint: target.tint)
+        let tint = ColorTemperature.clampedTint(kelvin: target.kelvin, tint: target.tint,
+                                                asShot: asShot)
+        let source = ColorTemperature.chromaticity(kelvin: target.kelvin, tint: tint)
         let destination = ColorTemperature.chromaticity(kelvin: asShot.kelvin, tint: asShot.tint)
         let xyzAdapt = ChromaticAdaptation.adapt(from: source.xyz(), to: destination.xyz(),
                                                  cone: ChromaticAdaptation.cat16)
@@ -61,8 +74,10 @@ public struct WhiteBalanceEngine: Sendable {
         asShot.kelvin == target.kelvin && asShot.tint == target.tint
     }
 
-    /// The tint the render actually uses at the current target: `target.tint` with
-    /// its magenta half bounded by `ColorTemperature.tintLimit(kelvin:)`.
+    /// The tint the render actually uses at the current target: `target.tint` bounded
+    /// by the as-shot-aware magenta guard, `ColorTemperature.tintLimit(kelvin:asShot:)`
+    /// — exactly what `adaptation` uses. Equal to `target.tint` on the identity, which
+    /// `adaptation` short-circuits.
     ///
     /// Surfaced for the same reason `ToneEngine.effectiveHighlights` is: the engine
     /// has clamped this correctly since the tint guard landed and told nobody, so on
@@ -70,7 +85,9 @@ public struct WhiteBalanceEngine: Sendable {
     /// which reads as a broken control unless the UI can say "bounded by physics
     /// here". The panel reads this and badges when it diverges from the slider.
     public var effectiveTint: Double {
-        ColorTemperature.clampedTint(kelvin: target.kelvin, tint: target.tint)
+        guard !isIdentity else { return target.tint }
+        return ColorTemperature.clampedTint(kelvin: target.kelvin, tint: target.tint,
+                                            asShot: asShot)
     }
 
     // MARK: - What the Temp/Tint rows show while the recipe says "as shot"
@@ -167,7 +184,10 @@ public struct WhiteBalanceEngine: Sendable {
         }
     }
 
-    /// The conventional daylight/tungsten anchors, in menu order. Daylight sits before
+    /// The conventional daylight/tungsten anchors, in menu order — Lightroom's numbers,
+    /// and since WS-03 also Lightroom's light: Temp/Tint are the Adobe/DNG pair, so
+    /// Daylight 5500 / +10 neutralises a grey lit by the light Adobe calls that, from
+    /// any as-shot. Daylight sits before
     /// Flash on purpose: they share 5500 K and differ only in tint, and the first match
     /// wins in `presetName`.
     public static let presets: [Preset] = [

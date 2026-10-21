@@ -1223,17 +1223,23 @@ final class HuePreservationTests: XCTestCase {
             previousB = b
         }
 
+        // WS-03: the picture bound is now as-shot-aware and lets the axis flatten by at
+        // most `ColorTemperature.magentaSlack` (0.002 OKLab a) below its running
+        // maximum before it stops the slider — SPEC line 8 allows 0.003. A strict
+        // "never falls by 1e-9" bound clamps ordinary tungsten edits of cool frames
+        // (+22 at 2500 K from a 7500 K as-shot) for a turn nobody can see, so the
+        // assertion is against the running maximum with that slack.
         for kelvin in [2000.0, 2800, 3200, 4000, 5000, 5500, 8000] {
-            var previousA = -Double.infinity
+            var peakA = -Double.infinity
             for step in 0...120 {
                 let tint = -150 + Double(step) * 2.5
                 let engine = WhiteBalanceEngine(asShotKelvin: 5500, asShotTint: 0,
                                                 targetKelvin: kelvin, targetTint: tint)
                 let a = Self.context.toLab(engine.apply(neutral)).a
-                XCTAssertGreaterThan(a, previousA - 1e-9,
+                XCTAssertGreaterThan(a, peakA - ColorTemperature.magentaSlack - 1e-9,
                                      String(format: "Tint reversed on the green–magenta axis at %.0f K, tint %+.1f",
                                             kelvin, tint))
-                previousA = a
+                peakA = Swift.max(peakA, a)
             }
         }
     }
@@ -1262,39 +1268,28 @@ final class HuePreservationTests: XCTestCase {
         }
     }
 
-    /// THE CROSSOVER, PINNED FROM BOTH SIDES.
+    /// THE DAYLIGHT MARGIN, PINNED FROM BOTH SIDES — rewritten for WS-03.
     ///
-    /// The test below asserts the inequality the guard's contract is written as — the
-    /// bound is at least 150 from 5500 K up — and an inequality is not enough here,
-    /// because the margin is 2.2 units. The bound at 5500 K is +152.22 against a
-    /// slider that stops at +150, and it first enters the shipped range at about
-    /// 5430 K: 5400 K is already +149.13.
-    ///
-    /// Both directions matter, and for different reasons. If the bound DROPS below
-    /// 150 at 5500 K, ordinary daylight work starts hitting a clamp that the guard's
-    /// own docstring promises it never will — and an "at least 150" test passes right
-    /// up until the moment that happens, which is too late to be told. If it RISES far
-    /// above 150, the bound has stopped tracking the turn it is supposed to be
-    /// measuring and the reversal is back inside the slider somewhere warmer.
-    ///
-    /// The bound is a function of the `locus` fit, and `locus` crossfades from the
-    /// Planckian branch to the daylight branch through a smoothstep between 3500 and
-    /// 4500 K. A change anywhere near that fit moves this number. Failing here means
-    /// the margin moved; go and look at what it is now before deciding whether the
-    /// bound or the fit is wrong.
+    /// The old form pinned the fixed-reference bound at +152.22 at 5500 K (2.2 units of
+    /// margin over the slider), a number of Lumen's private locus. On the DNG axis the
+    /// illuminant bound is +271 at 5500 K, and the bound that decides what renders is
+    /// the as-shot-aware one. The contract is unchanged in kind and now stated in the
+    /// spec's terms (WS-03 SPEC line 8): from a 5500 / +10 as-shot there is no clamp at
+    /// +150 for any Temp ≥ 4500 K, and the bound still bites somewhere warmer — it has
+    /// not stopped tracking the turn.
     func testTheMagentaBoundKeepsItsDaylightMarginOnBothSides() {
-        let atDaylight = ColorTemperature.tintLimit(kelvin: 5500)
-        XCTAssertGreaterThanOrEqual(atDaylight, ColorTemperature.maxTint,
-                                    "5500 K now clamps inside the shipped range at \(atDaylight)")
-        XCTAssertLessThan(atDaylight, 160,
-                          "5500 K's bound rose to \(atDaylight) — it has stopped tracking the turn")
-
-        // And the crossover itself: the bound enters the shipped range between these
-        // two temperatures, which is what "about 5430 K" means as an assertion.
-        XCTAssertLessThan(ColorTemperature.tintLimit(kelvin: 5400), ColorTemperature.maxTint,
-                          "the bound no longer enters the shipped range below 5500 K")
-        XCTAssertGreaterThan(ColorTemperature.tintLimit(kelvin: 5450), 140,
-                             "the bound fell far below the shipped range just under daylight")
+        let daylight = (kelvin: 5500.0, tint: 10.0)
+        for mired in stride(from: 20.0, through: 1e6 / 4500, by: 1) {
+            let kelvin = 1e6 / mired
+            XCTAssertGreaterThanOrEqual(ColorTemperature.tintLimit(kelvin: kelvin, asShot: daylight),
+                                        ColorTemperature.maxTint,
+                                        "\(kelvin) K clamps inside the shipped range from 5500/+10")
+        }
+        XCTAssertLessThan(ColorTemperature.tintLimit(kelvin: 3200, asShot: daylight),
+                          ColorTemperature.maxTint,
+                          "the bound no longer engages at 3200 K from a daylight as-shot")
+        XCTAssertLessThan(ColorTemperature.tintLimit(kelvin: 2000, asShot: daylight), 25,
+                          "2000 K from daylight should be tightly bounded")
     }
 
     /// The bound tightened only where it had to. Daylight — the range the guard's own
@@ -1304,7 +1299,9 @@ final class HuePreservationTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(ColorTemperature.tintLimit(kelvin: kelvin), 150,
                                         "\(kelvin) K clamps inside the shipped range")
         }
-        for kelvin in [2000.0, 2800, 3200, 4000, 5000] {
+        // (4000 K and 5000 K left this list in WS-03: on the DNG axis their illuminant
+        // bounds are +153 and +229; below about 3900 K is where it now engages.)
+        for kelvin in [2000.0, 2800, 3200, 3800] {
             XCTAssertLessThan(ColorTemperature.tintLimit(kelvin: kelvin), 150,
                               "\(kelvin) K should still be bounded")
         }

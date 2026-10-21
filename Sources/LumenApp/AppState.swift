@@ -4145,6 +4145,40 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Auto white balance (WS-03): solve Temp/Tint from the primary photo's own
+    /// statistics and write them as ordinary numbers, one undo step.
+    ///
+    /// The primary photo only, not the whole selection: a white balance is a fact about
+    /// one picture's light, and stamping the primary's answer onto every selected frame
+    /// would be the eyedropper's mistake in bulk. Guarded exactly as `resolvePick` is —
+    /// the solve hops onto the render actor and may wait behind a cold decode, so the
+    /// write lands only if the selection is still on the photo that was measured.
+    func applyAutoWhiteBalance() {
+        guard let photo = primarySelection else { return }
+        let current = recipe(for: photo)
+        let url = photo.id                      // PhotoItem.id IS the URL
+        statusMessage = "Reading the white balance…"
+        Task {
+            let solved = await renderCoordinator.solveAutoWhiteBalance(url: url,
+                                                                       recipe: current)
+            guard primarySelection?.id == url else {
+                statusMessage = "Auto white balance discarded — the selection moved "
+                    + "before it resolved."
+                return
+            }
+            guard let solved else {
+                statusMessage = "Auto white balance could not read this file."
+                return
+            }
+            updateRecipe(label: "Auto White Balance", targets: [photo]) { _, recipe in
+                recipe.develop.raw.temp = solved.kelvin
+                recipe.develop.raw.tint = solved.tint
+            }
+            statusMessage = String(format: "Auto white balance — %.0f K, tint %.0f",
+                                   solved.kelvin, solved.tint)
+        }
+    }
+
     func updateRecipe(coalescingKey: String? = nil, label: String? = nil,
                       _ mutate: (inout Recipe) -> Void) {
         updateRecipe(coalescingKey: coalescingKey, label: label) { _, recipe in

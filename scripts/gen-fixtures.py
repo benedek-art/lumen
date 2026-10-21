@@ -2490,46 +2490,99 @@ def daylight_locus(kelvin):
     return (x, -3.000 * x * x + 2.870 * x - 0.275)
 
 
+# WS-03: white balance speaks the Adobe / DNG SDK convention. `dng_chromaticity` and
+# `dng_temperature_and_tint` mirror DNGTemperature.swift (the SDK's dng_temperature,
+# Robertson isotherms in CIE 1960 uv, kTintScale -3000); ColorTemperature.chromaticity is
+# that with the magenta half bounded by the cone floor, and temperatureAndTint is the
+# SDK inverse polished by Newton steps into the exact inverse of the forward map.
+DNG_TABLE = [
+    (0, 0.18006, 0.26352, -0.24341), (10, 0.18066, 0.26589, -0.25479),
+    (20, 0.18133, 0.26846, -0.26876), (30, 0.18208, 0.27119, -0.28539),
+    (40, 0.18293, 0.27407, -0.30470), (50, 0.18388, 0.27709, -0.32675),
+    (60, 0.18494, 0.28021, -0.35156), (70, 0.18611, 0.28342, -0.37915),
+    (80, 0.18740, 0.28668, -0.40955), (90, 0.18880, 0.28997, -0.44278),
+    (100, 0.19032, 0.29326, -0.47888), (125, 0.19462, 0.30141, -0.58204),
+    (150, 0.19962, 0.30921, -0.70471), (175, 0.20525, 0.31647, -0.84901),
+    (200, 0.21142, 0.32312, -1.0182), (225, 0.21807, 0.32909, -1.2168),
+    (250, 0.22511, 0.33439, -1.4512), (275, 0.23247, 0.33904, -1.7298),
+    (300, 0.24010, 0.34308, -2.0637), (325, 0.24702, 0.34655, -2.4681),
+    (350, 0.25591, 0.34951, -2.9641), (375, 0.26400, 0.35200, -3.5814),
+    (400, 0.27218, 0.35407, -4.3633), (425, 0.28039, 0.35577, -5.3762),
+    (450, 0.28863, 0.35714, -6.7262), (475, 0.29685, 0.35823, -8.5955),
+    (500, 0.30505, 0.35907, -11.324), (525, 0.31320, 0.35968, -15.628),
+    (550, 0.32129, 0.36011, -23.325), (575, 0.32931, 0.36038, -40.770),
+    (600, 0.33724, 0.36051, -116.45),
+]
+DNG_TINT_SCALE = -3000.0
+
+
+def dng_chromaticity(kelvin, tint):
+    r = 1.0e6 / kelvin
+    offset = tint * (1.0 / DNG_TINT_SCALE)
+    i = 0
+    while i < len(DNG_TABLE) - 2 and not (r < DNG_TABLE[i + 1][0]):
+        i += 1
+    lo, hi = DNG_TABLE[i], DNG_TABLE[i + 1]
+    f = (hi[0] - r) / (hi[0] - lo[0])
+    u = lo[1] * f + hi[1] * (1.0 - f)
+    v = lo[2] * f + hi[2] * (1.0 - f)
+    len1 = math.sqrt(1.0 + lo[3] * lo[3])
+    len2 = math.sqrt(1.0 + hi[3] * hi[3])
+    uu = (1.0 / len1) * f + (1.0 / len2) * (1.0 - f)
+    vv = (lo[3] / len1) * f + (hi[3] / len2) * (1.0 - f)
+    len3 = math.sqrt(uu * uu + vv * vv)
+    u += uu / len3 * offset
+    v += vv / len3 * offset
+    d = u - 4.0 * v + 2.0
+    return (1.5 * u / d, v / d)
+
+
+def dng_temperature_and_tint(x, y):
+    den = 1.5 - x + 6.0 * y
+    u, v = 2.0 * x / den, 3.0 * y / den
+    last_dt = last_du = last_dv = 0.0
+    final = len(DNG_TABLE) - 1
+    for i in range(1, final + 1):
+        r, ru, rv, rt = DNG_TABLE[i]
+        ln = math.sqrt(1.0 + rt * rt)
+        du, dv = 1.0 / ln, rt / ln
+        uu, vv = u - ru, v - rv
+        dt = -uu * dv + vv * du
+        if dt <= 0.0 or i == final:
+            if dt > 0.0:
+                dt = 0.0
+            dt = -dt
+            f = 0.0 if i == 1 else dt / (last_dt + dt)
+            p = DNG_TABLE[i - 1]
+            kelvin = 1.0e6 / (p[0] * f + r * (1.0 - f))
+            uu = u - (p[1] * f + ru * (1.0 - f))
+            vv = v - (p[2] * f + rv * (1.0 - f))
+            iu = du * (1.0 - f) + last_du * f
+            iv = dv * (1.0 - f) + last_dv * f
+            il = math.sqrt(iu * iu + iv * iv)
+            return kelvin, (uu * iu / il + vv * iv / il) * DNG_TINT_SCALE
+        last_dt, last_du, last_dv = dt, du, dv
+
+
 def locus(kelvin):
-    t = min(max(kelvin, 1000.0), 100000.0)
-    if t <= 3500:
-        return planckian_locus(t)
-    if t >= 4500:
-        return daylight_locus(t)
-    w = smoothstep(3500, 4500, t)
-    p, d = planckian_locus(t), daylight_locus(t)
-    return (p[0] + (d[0] - p[0]) * w, p[1] + (d[1] - p[1]) * w)
+    """Tint-0 point: the Robertson blackbody point (ColorTemperature.locus)."""
+    return dng_chromaticity(min(max(kelvin, 1000.0), 100000.0), 0.0)
 
 
 # How much of a physical illuminant's cone response the magenta guard insists
-# survives. Mirrors ColorTemperature.tintConeFloor.
-#
-# The defect it exists for: chromatic adaptation divides by the cone response of the
-# illuminant it adapts FROM. Push tint far enough toward magenta and the S response
-# falls through zero, and the adaptation comes out the far side with a negative blue
-# gain — the picture inverts rather than going magenta. The S cone crossed zero at
-# tint +45 at 2000 K and +80 at 2750 K, both inside the slider's own travel.
+# survives. Mirrors ColorTemperature.tintConeFloor. The as-shot-aware picture bound
+# (ColorTemperature.tintLimit(kelvin:asShot:)) is only ever tighter and is applied in
+# WhiteBalanceEngine.adaptation; this mirror covers the as-shot-free conversion.
 TINT_CONE_FLOOR = 0.15
 
 
 def _unguarded_cone_response(kelvin, tint):
-    """CAT16 cone response of the chromaticity a (K, tint) pair asks for, before the
-    guard — the quantity the guard is defined in terms of, so it must not call
-    wb_chromaticity."""
-    base = locus(kelvin)
-    if tint == 0:
-        c = base
-    else:
-        u, v = xy_to_uv(*base)
-        c = uv_to_xy(u, v + tint * TINT_UNIT_IN_V)
-    x, y = c
+    k = min(max(kelvin, 1000.0), 100000.0)
+    x, y = dng_chromaticity(k, tint)
     return mat_apply(CAT16, (x / y, 1.0, (1 - x - y) / y))
 
 
 def _cone_floor_limit(kelvin):
-    """Largest magenta tint at this temperature that still describes a colour a light
-    source could be. Only magenta is bounded; green moves toward the interior of the
-    plane where every cone response grows."""
     base = _unguarded_cone_response(kelvin, 0.0)
     if min(base) <= 0:
         return MAX_TINT
@@ -2551,135 +2604,47 @@ def _cone_floor_limit(kelvin):
     return lo
 
 
-# The neutral the magenta bound is measured against: the daylight reference a file
-# that records no camera neutral adapts from.
-MAGENTA_REFERENCE_KELVIN = 5500.0
-
-_REC2020_FROM_XYZ = mat_inverse(_REC2020_TO_XYZ)
-
-
-def _von_kries(source_xy, destination_xy, cone):
-    """XYZ(source white) -> XYZ(destination white), by scaling cone responses."""
-    def xyz(ch):
-        x, y = ch
-        return (x / y, 1.0, (1 - x - y) / y)
-    s = mat_apply(cone, xyz(source_xy))
-    d = mat_apply(cone, xyz(destination_xy))
-    gains = [[d[0] / s[0], 0.0, 0.0], [0.0, d[1] / s[1], 0.0], [0.0, 0.0, d[2] / s[2]]]
-    return mat_mul(mat_mul(mat_inverse(cone), gains), cone)
-
-
-def _rendered_magenta(kelvin, tint):
-    """Where a mid-grey neutral lands on OKLab's green<->magenta axis once it has been
-    adapted from the (K, tint) illuminant to the reference neutral — or None when it
-    lands somewhere that is not a colour.
-
-    The cone floor above bounds the ILLUMINANT. This bounds the PICTURE, which is not
-    the same statement once the temperature move and the tint move compose: at as-shot
-    5500 K, target 2800 K, tint +80 — inside the cone floor's own +69.80 — the render
-    is (0.0967, -0.0872, 3.1857), a negative green channel, and its OKLab `a` is
-    -0.089 against -0.038 untinted, so the magenta slider moved the picture toward
-    green. OKLab rather than a linear-RGB opponent because the runaway is a
-    CHROMATICITY move: the linear `(r+b)/2 - g` goes on rising straight through the
-    reversal purely because blue is exploding.
-    """
-    base = locus(kelvin)
-    if tint == 0:
-        source = base
-    else:
-        u, v = xy_to_uv(*base)
-        source = uv_to_xy(u, v + tint * TINT_UNIT_IN_V)
-    adaptation = _von_kries(source, locus(MAGENTA_REFERENCE_KELVIN), CAT16)
-    m = mat_mul(mat_mul(_REC2020_FROM_XYZ, adaptation), _REC2020_TO_XYZ)
-    out = mat_apply(m, (0.18, 0.18, 0.18))
-    if not all(math.isfinite(c) for c in out) or min(out) < 0:
-        return None
-    return oklab_from_rgb(out)[1]
-
-
-def _magenta_monotone_limit(kelvin, ceiling):
-    """Largest magenta tint at which the rendered neutral is still MOVING toward
-    magenta, and still a colour.
-
-    A quarter of a tint unit is the probe: the finite difference across it is ~1e-5 of
-    `a` near the turn, ten orders of magnitude above double noise, and a twentieth of
-    the smallest step the slider can be dragged. Both halves of the predicate are
-    downward-closed on [0, ceiling] — the deflection is unimodal below the pole and the
-    channels fail once and stay failed — so a bisection lands on the boundary.
-    """
-    if ceiling <= 0:
-        return ceiling
-    probe = 0.25
-
-    def admissible(t):
-        here = _rendered_magenta(kelvin, t)
-        if here is None:
-            return False
-        ahead = _rendered_magenta(kelvin, t + probe)
-        return ahead is not None and ahead >= here
-
-    if admissible(ceiling):
-        return ceiling
-    lo, hi = 0.0, ceiling
-    for _ in range(40):
-        mid = (lo + hi) / 2
-        if admissible(mid):
-            lo = mid
-        else:
-            hi = mid
-    return lo
-
-
 def tint_limit(kelvin):
-    """The largest magenta tint the render will honour: the smaller of the two bounds
-    above. The illuminant must still be a colour a light source could be, AND the
-    picture must still be going the way the slider says."""
-    physical = _cone_floor_limit(kelvin)
-    return min(physical, _magenta_monotone_limit(kelvin, physical))
+    return _cone_floor_limit(kelvin)
 
 
 def clamped_tint(kelvin, tint):
-    """What a tint is actually worth once physics has had its say."""
+    """What a tint is worth by the illuminant bound alone."""
     if tint <= 0:
         return tint
     return min(tint, tint_limit(kelvin))
 
 
 def wb_chromaticity(kelvin, tint):
-    base = locus(kelvin)
-    guarded = clamped_tint(kelvin, tint)
-    if guarded == 0:
-        return base
-    u, v = xy_to_uv(*base)
-    return uv_to_xy(u, v + guarded * TINT_UNIT_IN_V)
+    k = min(max(kelvin, 1000.0), 100000.0)
+    return dng_chromaticity(k, clamped_tint(k, tint))
 
 
 def temperature_and_tint(chroma):
-    u, v = xy_to_uv(*chroma)
-    min_mired, max_mired = 1e6 / MAX_KELVIN, 1e6 / MIN_KELVIN
+    seed_k, seed_t = dng_temperature_and_tint(*chroma)
+    tu, tv = xy_to_uv(*chroma)
+    mired = min(max(1e6 / seed_k, 10.0), 1000.0)
+    tint = seed_t
 
-    def u_error(m):
-        return abs(xy_to_uv(*locus(1e6 / m))[0] - u)
+    def uv(m, t):
+        return xy_to_uv(*dng_chromaticity(1e6 / m, t))
 
-    best_mired, best = 1e6 / 5500, float("inf")
-    m = min_mired
-    while m <= max_mired:
-        e = u_error(m)
-        if e < best:
-            best, best_mired = e, m
-        m += 0.5
-    step = 0.25
-    for _ in range(12):
-        lo, hi = max(min_mired, best_mired - step), min(max_mired, best_mired + step)
-        a, b = u_error(lo), u_error(hi)
-        if a < best:
-            best, best_mired = a, lo
-        if b < best:
-            best, best_mired = b, hi
-        step /= 2
-    kelvin = 1e6 / best_mired
-    kelvin = min(max(kelvin, MIN_KELVIN), MAX_KELVIN)
-    tint = (v - xy_to_uv(*locus(kelvin))[1]) / TINT_UNIT_IN_V
+    for _ in range(8):
+        hu, hv = uv(mired, tint)
+        ru, rv = tu - hu, tv - hv
+        if abs(ru) < 1e-15 and abs(rv) < 1e-15:
+            break
+        h = 1e-4
+        mu, mv = uv(mired + h, tint)
+        su, sv = uv(mired, tint + h)
+        a, b = (mu - hu) / h, (su - hu) / h
+        c, d = (mv - hv) / h, (sv - hv) / h
+        det = a * d - b * c
+        if det == 0 or not math.isfinite(det):
+            break
+        mired = min(max(mired + (d * ru - b * rv) / det, 10.0), 1000.0)
+        tint += (a * rv - c * ru) / det
+    kelvin = min(max(1e6 / mired, MIN_KELVIN), MAX_KELVIN)
     return (kelvin, clamped_tint(kelvin, min(max(tint, -300.0), 300.0)))
 
 

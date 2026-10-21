@@ -173,21 +173,31 @@ final class ColorScienceTests: XCTestCase {
     ///
     /// Everything else here is an inverse pair — `chromaticity` then
     /// `temperatureAndTint` — which a locus that is entirely wrong round-trips through
-    /// perfectly. These are the only assertions in the suite that say where the white
-    /// balance slider's 5000 K and 6500 K actually are, and getting them wrong is a
-    /// visible cast on every photo.
+    /// perfectly. These are the assertions that say where the white balance slider's
+    /// 5000 K and 6500 K actually are.
+    ///
+    /// Rewritten for WS-03: Temp/Tint are the Adobe/DNG pair now, so tint 0 is the
+    /// BLACKBODY line (checked against Kim's independent Planckian fit) and the
+    /// D-illuminants sit at their Adobe pairs, about +10 tint above it — D65 is
+    /// 6503.7 / +9.77 and D50 5000.7 / +9.56. The old form put D65 at 6500 / 0, which
+    /// was Lumen's private locus convention, not the one the camera's as-shot pair
+    /// and Lightroom's numbers are in (AUDIT.md finding 1).
     func testTheLocusPassesThroughTheStandardIlluminants() {
-        // D65: the sRGB / Rec.2020 white point, and where the Temp slider's neutral
-        // sits. Derived here from the daylight locus, so this is a real cross-check.
-        let d65 = ColorTemperature.locus(kelvin: 6500)
-        XCTAssertEqual(d65.x, 0.3127, accuracy: 1e-3, "6500 K is not at D65")
-        XCTAssertEqual(d65.y, 0.3290, accuracy: 1e-3, "6500 K is not at D65")
+        let d65 = ColorTemperature.chromaticity(kelvin: 6503.70718479529, tint: 9.769990121404899)
+        XCTAssertEqual(d65.x, 0.3127, accuracy: 1e-5, "6504 K / +9.77 is not at D65")
+        XCTAssertEqual(d65.y, 0.3290, accuracy: 1e-5, "6504 K / +9.77 is not at D65")
 
-        // D50: the ICC profile connection space's white, and what a print viewing
-        // booth is built around.
-        let d50 = ColorTemperature.locus(kelvin: 5000)
-        XCTAssertEqual(d50.x, 0.34567, accuracy: 1e-3, "5000 K is not at D50")
-        XCTAssertEqual(d50.y, 0.35850, accuracy: 1e-3, "5000 K is not at D50")
+        let d50 = ColorTemperature.chromaticity(kelvin: 5000.706605070579, tint: 9.562965495510433)
+        XCTAssertEqual(d50.x, 0.3457, accuracy: 1e-4, "5001 K / +9.56 is not at D50")
+        XCTAssertEqual(d50.y, 0.3585, accuracy: 1e-4, "5001 K / +9.56 is not at D50")
+
+        // Tint 0 is the blackbody: within 1e-3 of an independent Planckian fit.
+        for kelvin in [2000.0, 2856, 3200, 4000, 5000, 6500, 10000] {
+            let robertson = ColorTemperature.locus(kelvin: kelvin)
+            let kim = ColorTemperature.planckianLocus(kelvin)
+            XCTAssertEqual(robertson.x, kim.x, accuracy: 1e-3, "\(kelvin) K off the blackbody")
+            XCTAssertEqual(robertson.y, kim.y, accuracy: 1e-3, "\(kelvin) K off the blackbody")
+        }
     }
 
     /// The round trip is against the tint the RENDER USES, not the tint that was asked
