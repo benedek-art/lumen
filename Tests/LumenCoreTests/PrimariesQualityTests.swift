@@ -145,13 +145,13 @@ final class PrimariesQualityTests: XCTestCase {
     /// remap is a colour move, not a tone move (under 0.04 OKLab L at the extremes).
     func testNoSliderIsSecretlyATonalMove() {
         for i in 0..<3 {
-            let L0 = lch(probe(i)).L
+            let baseL = lch(probe(i)).L
             for isHue in [true, false] {
                 for v in [-100.0, 100] {
                     var p = Primaries()
                     if isHue { set(&p, i, hue: v) } else { set(&p, i, sat: v) }
                     let L = lch(engine(p).apply(probe(i))).L
-                    XCTAssertLessThan(abs(L - L0), 0.04, "primary \(i) \(isHue ? "hue" : "sat") \(v)")
+                    XCTAssertLessThan(abs(L - baseL), 0.04, "primary \(i) \(isHue ? "hue" : "sat") \(v)")
                 }
             }
         }

@@ -95,7 +95,7 @@ struct LookPanel: View {
     /// so the six rows were never captured.
     init(only: WorkspaceSection? = nil, primariesOpen: Bool = false) {
         self.only = only
-        self._primariesExpanded = State(initialValue: primariesOpen)
+        self._primariesExpanded = .init(initialValue: primariesOpen)
     }
 
     /// What this panel's own section headers pass for `LumenSectionHeader.topRhythm`,
