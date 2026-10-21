@@ -231,7 +231,7 @@ public struct GradingWheels: Codable, Equatable, Sendable {
     public var high: Wheel
     public var blending: Double     // 0…100, zone crossover softness
     public var balance: Double      // −100…+100, shifts zone boundaries
-    public var pivots: [Double]     // two boundaries on the normalized tonal axis
+    public var pivots: [Double]     // two boundaries, display level 0…1 (ZoneWindows)
     /// The advanced disclosure (docs/05 §D15): master hue shift + vibrance, and
     /// chroma / saturation / brilliance across the same three zones. Engine and maths:
     /// `ColorBalanceGrid` in GradeEngine.swift.

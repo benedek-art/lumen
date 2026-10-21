@@ -1025,11 +1025,9 @@ struct LookPanel: View {
                         sat: bindWheel(path, \Wheel.sat, key: "wheel.\(title).sat"),
                         lum: bindWheel(path, \Wheel.lum, key: "wheel.\(title).lum"),
                         diameter: diameter,
-                        // The owner could not tell what the bar under the wheel was:
-                        // centre it on the wheel and caption it (docs/32 Stream D
-                        // item 5). Only here — the mask panel's 68-point pairs cannot
-                        // pay the centring's counterweight; see `captionedBar`.
-                        captionedBar: true)
+                        // Hue, Saturation and Luminance as rows under the wheel, aligned
+                        // with Blending and Balance (lane K1; see `detailRows`).
+                        detailRows: true)
     }
 
     /// Which zones hold a grade, for the segmented control's dots.
@@ -1068,22 +1066,21 @@ struct LookPanel: View {
     /// The stored pivots after handle `index` is dropped at `position`.
     ///
     /// The handle is dragged where the user sees it — that is the pivot AFTER Balance —
-    /// so the stored pivot is the handle minus the balance shift, and the shift has to
-    /// be converted on the span the engine grades on. It used a hard-coded 14 EV, so at
-    /// Whites +100 and Balance ±100 the rendered pivot landed 0.21 EV from the release.
+    /// so the stored pivot is the handle minus the balance shift. Both are display
+    /// level now (`ZoneWindows`), so the shift no longer depends on the tone anchors.
     static func pivotsAfterDrag(_ index: Int, to position: Double,
                                 in recipe: Recipe) -> [Double] {
         var pivots = normalizedPivots(recipe.look.wheels.pivots)
-        let shift = ZoneWindows.pivotShift(balance: recipe.look.wheels.balance,
-                                           spanEV: ZoneWindows(gradeOf: recipe).spanEV)
+        let shift = ZoneWindows.pivotShift(balance: recipe.look.wheels.balance)
         let gap = ZoneWindows.minimumPivotGap
-        var value = Num.saturate(position - shift)
+        let range = ZoneWindows.pivotRange
+        var value = Num.clamp(position - shift, range.lowerBound, range.upperBound)
         if index == 0 {
             value = min(value, pivots[1] - gap)
-            pivots[0] = Num.saturate(value)
+            pivots[0] = Num.clamp(value, range.lowerBound, range.upperBound)
         } else {
             value = max(value, pivots[0] + gap)
-            pivots[1] = Num.saturate(value)
+            pivots[1] = Num.clamp(value, range.lowerBound, range.upperBound)
         }
         return pivots
     }
@@ -1765,12 +1762,15 @@ struct LookPanel: View {
             a = b
             b = swapped
         }
-        a = Num.saturate(a)
-        b = Num.saturate(b)
+        // The engine's own clamp (`ZoneWindows.pivotRange`, which Balance's reach
+        // widens past 0…1), so a stored pivot draws exactly where it renders.
+        let range = ZoneWindows.pivotRange
+        a = Num.clamp(a, range.lowerBound, range.upperBound)
+        b = Num.clamp(b, range.lowerBound, range.upperBound)
         if b - a < ZoneWindows.minimumPivotGap {
             let centre = (a + b) / 2
-            a = Num.saturate(centre - ZoneWindows.minimumPivotGap / 2)
-            b = Num.saturate(centre + ZoneWindows.minimumPivotGap / 2)
+            a = centre - ZoneWindows.minimumPivotGap / 2
+            b = centre + ZoneWindows.minimumPivotGap / 2
         }
         return [a, b]
     }
@@ -1823,7 +1823,10 @@ struct ZoneWeightStrip: View {
                     path.move(to: CGPoint(x: 0, y: size.height))
                     for step in 0...steps {
                         let x = Double(step) / Double(steps)
-                        let w = solved.weights(atNormalized: x)
+                        // DISPLAY LEVEL across the strip, black at the left edge and
+                        // white at the right — the axis the zones are defined on
+                        // (`ZoneWindows`), so the handles sit over the curves they move.
+                        let w = solved.weights(atLevel: x)
                         let v: Double = zone == 0 ? w.shadows : (zone == 1 ? w.mid : w.high)
                         path.addLine(to: CGPoint(x: size.width * CGFloat(x),
                                                  y: size.height - 1
@@ -1835,16 +1838,24 @@ struct ZoneWeightStrip: View {
                 }
             }
             .background(Lumen.controlBackground)
+            // The axis, drawn: a 3-point tonal ramp along the foot of the strip says
+            // "dark on the left, light on the right" without a caption.
+            .overlay(alignment: .bottom) {
+                LinearGradient(colors: [Color(white: 0.06), Color(white: 0.85)],
+                               startPoint: .leading, endPoint: .trailing)
+                    .frame(height: 3)
+                    .opacity(0.8)
+            }
             .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip))
 
             GeometryReader { geometry in
                 ZStack(alignment: .topLeading) {
                     handle(index: 0,
-                           position: Num.saturate(windows.shadowPivot),
+                           position: windows.shadowPivot,
                            width: geometry.size.width,
                            height: geometry.size.height)
                     handle(index: 1,
-                           position: Num.saturate(windows.highlightPivot),
+                           position: windows.highlightPivot,
                            width: geometry.size.width,
                            height: geometry.size.height)
                 }
@@ -1854,9 +1865,12 @@ struct ZoneWeightStrip: View {
         .padding(.vertical, 2)
     }
 
+    /// `position` is the rendered pivot, which Balance can carry past either end of
+    /// the strip. The handle is DRAWN clamped to the strip but the drag starts from the
+    /// real pivot, so the first move of a parked handle does not jump it by up to 0.3.
     private func handle(index: Int, position: Double,
                         width: CGFloat, height: CGFloat) -> some View {
-        let x = CGFloat(position) * width
+        let x = CGFloat(Num.saturate(position)) * width
         return ZStack {
             Rectangle()
                 .fill(Color.clear)
@@ -1876,7 +1890,7 @@ struct ZoneWeightStrip: View {
                     let start = dragOrigin ?? position
                     if dragOrigin == nil { dragOrigin = start }
                     let moved = start + Double(drag.translation.width / width)
-                    onPivotChanged(index, Num.saturate(moved))
+                    onPivotChanged(index, moved)
                 }
                 .onEnded { _ in
                     dragOrigin = nil

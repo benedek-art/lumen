@@ -36,8 +36,11 @@ final class GradeStripAxisAppTests: XCTestCase {
             var recipe = Recipe()
             recipe.develop.tone.whites = 100
             recipe.look.wheels.balance = balance
-            recipe.look.wheels.pivots = LookPanel.pivotsAfterDrag(1, to: 0.55, in: recipe)
-            XCTAssertEqual(rendered(recipe).highlightPivot, 0.55, accuracy: 1e-12,
+            // 0.8, not 0.55: Balance moves the pivots by up to 0.3 of display level
+            // since lane K1, so at Balance −100 the shadow handle sits at 0.63 and a
+            // highlight handle dropped at 0.55 would be (correctly) held above it.
+            recipe.look.wheels.pivots = LookPanel.pivotsAfterDrag(1, to: 0.8, in: recipe)
+            XCTAssertEqual(rendered(recipe).highlightPivot, 0.8, accuracy: 1e-12,
                            "Balance \(balance)")
         }
     }

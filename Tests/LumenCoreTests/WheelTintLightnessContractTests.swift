@@ -47,7 +47,17 @@ final class WheelTintLightnessContractTests: XCTestCase {
                 XCTAssertEqual(lch.L, lIn, accuracy: 1e-9,
                                "grey \(grey), hue \(hue)°: the tint moved OKLab L from "
                                    + "\(lIn) to \(lch.L)")
-                XCTAssertEqual(lch.C, GradeEngine.maxABOffset, accuracy: 1e-6,
+                // Below mid-grey the offset is proportional to L (lane K1: a constant
+                // SATURATION, so the tint reads evenly through the shadows and does not
+                // colour black); at and above it, the full offset.
+                let lMid = OKLabTransform.working.toLCh(RGB(gray: 0.18)).L
+                // And the last `tintBlackFade` of display level fades it out; 0.02
+                // (−3.2 EV) renders just inside that fade.
+                let u = ZoneWindows().displayLevel(at: log2(grey / 0.18))
+                let fade = u >= GradeEngine.tintBlackFade ? 1
+                    : 0.5 - 0.5 * cos(.pi * u / GradeEngine.tintBlackFade)
+                let expected = GradeEngine.maxABOffset * Swift.min(1, lIn / lMid) * fade
+                XCTAssertEqual(lch.C, expected, accuracy: 1e-6,
                                "grey \(grey), hue \(hue)°: the tint did not add its chroma")
             }
         }
@@ -71,7 +81,9 @@ final class WheelTintLightnessContractTests: XCTestCase {
 
         let shadow = RGB(gray: 0.02)
         let tealShadow = luminance(engine(hue: 180).apply(shadow)) / luminance(shadow)
-        XCTAssertGreaterThan(tealShadow, 1.15,
+        // Smaller than the 1.22 it was before lane K1, because the tint itself is
+        // scaled by L down here; still not held.
+        XCTAssertGreaterThan(tealShadow, 1.05,
                              "a full teal tint at −3 EV brightened Y by only \(tealShadow)")
     }
 }

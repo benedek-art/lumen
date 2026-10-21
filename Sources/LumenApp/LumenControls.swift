@@ -2086,15 +2086,17 @@ struct LumenColorWheel: View {
     /// movement — four wheels this small was the reason grading felt fiddly rather than
     /// the reason it felt complete.
     var diameter: CGFloat = 68
-    /// Centre the lightness bar on the wheel's axis and caption it "Luminance".
+    /// Hue, Saturation and Luminance as three full rows under the wheel, aligned with
+    /// every other row in the panel — Lightroom's Colour Grading layout.
     ///
-    /// The grade's single large wheel turns this on: the owner could not tell what the
-    /// bar was, and an untitled `LumenSlider` has no label to hang a tooltip on — the
-    /// bar shipped with no way to ask. Centring costs a counterweight equal to the
-    /// readout column on the leading side, which a 150-point wheel can pay and the mask
-    /// panel's 68-point two-up cannot (two captioned bars would overrun the column), so
-    /// the compact callers keep the old form by default.
-    var captionedBar: Bool = false
+    /// The grade's single large wheel turns this on (lane K1). It replaces the centred,
+    /// captioned lightness bar that sat in a box of its own under the wheel: that bar
+    /// lined up with nothing else in the column, and the wheel showed neither of its
+    /// own values, so "is the teal at 200 or 215, and how strong" had no answer short
+    /// of hovering for VoiceOver text. Each row is a `LumenSlider`, so typing a value,
+    /// scrubbing the readout, ⇧ for fine, the arrow-key nudge and double-click reset all
+    /// come with it. The mask panel's 68-point pairs keep the compact bar (default off).
+    var detailRows: Bool = false
     var onEditingChanged: ((Bool) -> Void)?
     /// Injected once at the root (ContentView) and fired by EVERY slider in the app —
     /// which is the point: `onEditingChanged` sat unconsumed for the app's whole life
@@ -2147,6 +2149,7 @@ struct LumenColorWheel: View {
                                                 Color.white.opacity(0.04)],
                                        startPoint: .top, endPoint: .bottom),
                         lineWidth: 1)
+                guides
                 puck
             }
             .frame(width: diameter, height: diameter)
@@ -2244,34 +2247,32 @@ struct LumenColorWheel: View {
                     .foregroundStyle(Lumen.secondaryText)
             }
 
-            if captionedBar {
-                // CENTRED ON THE WHEEL, NOT ON THE ROW. An untitled slider is a track
-                // plus a readout, so the groove's midpoint sits half a readout-plus-gap
-                // left of the row's — under a 150-point wheel that read as a bar hanging
-                // off one shoulder. The leading padding is the readout's exact
-                // counterweight (valueWidth + the row's 6-point gap), which puts the
-                // groove's centre on the wheel's centre by construction rather than by
-                // eye.
-                //
-                // Written as arithmetic rather than as a number because it stopped being
-                // one: this comment said "a 44-point readout, so the groove's midpoint
-                // sits 25 points left" and `valueWidth` has been 52 since the readout
-                // became a pill, which makes the offset 29. The CODE was always right —
-                // it reads the constant — and only the prose had to be re-derived, which
-                // is the argument for not restating a constant in prose at all.
-                lightnessBar
-                    .padding(.leading, Lumen.valueWidth + 6)
-                    .frame(width: diameter + 2 * (Lumen.valueWidth + 6))
-                // The caption the owner asked this bar for: he could not tell what it
-                // was, and the empty title means the slider itself has no label to
-                // carry a tooltip. The caption is the label, and the tooltip rides it.
-                Text("Luminance")
-                    .font(.lumenCaption)
-                    .foregroundStyle(Lumen.secondaryText)
-                    .help("Luminance — the zone's perceptual brightness, up to "
-                          + "1.5 stops on neutral tones each way. Overlapping zone edits "
-                          + "may be eased to preserve tonal separation. "
-                          + "Drag the bar, or double-click it to reset.")
+            if detailRows {
+                // Saturation and Luminance read 0…100 and −100…+100 like Lightroom's,
+                // over the recipe's 0…1 and −1…+1; one unit is the 0.01 the wheel has
+                // always stored at, so typed and dragged values land on the same grid.
+                LumenSlider(title: "Hue", value: $hue, range: 0...360, defaultValue: 0,
+                            step: 1, decimals: 0, bipolar: false,
+                            trackStops: Self.hueTrackStops,
+                            help: "The tint's hue in degrees, the same angle as the "
+                                + "wheel. The ring is painted in the colour space the "
+                                + "grade works in, so the colour under the puck is the "
+                                + "colour the picture gets.",
+                            onEditingChanged: onEditingChanged)
+                LumenSlider(title: "Saturation", value: percent($sat), range: 0...100,
+                            defaultValue: 0, step: 1, decimals: 0, bipolar: false,
+                            help: "How strong the tint is — the puck's distance from "
+                                + "the centre. ⇧-drag the puck for fine control.",
+                            onEditingChanged: onEditingChanged)
+                LumenSlider(title: "Luminance", value: percent($lum), range: -100...100,
+                            defaultValue: 0, step: 1, decimals: 0,
+                            trackStops: Lumen.wheelLightnessStops.map {
+                                LumenTrackStop(value: $0.value * 100, color: $0.color)
+                            },
+                            help: "The zone's perceptual brightness, up to "
+                                + "1.5 stops on neutral tones each way. Overlapping zone "
+                                + "edits may be eased to preserve tonal separation.",
+                            onEditingChanged: onEditingChanged)
             } else {
                 lightnessBar
                     .frame(width: diameter + 40)
@@ -2304,6 +2305,17 @@ struct LumenColorWheel: View {
         hue = puck.hue
     }
 
+    /// A 0…1 (or −1…+1) field shown as a percentage, written back on the 0.01 grid.
+    private func percent(_ field: Binding<Double>) -> Binding<Double> {
+        Binding(get: { field.wrappedValue * 100 },
+                set: { field.wrappedValue = ($0 / 100 * 100).rounded() / 100 })
+    }
+
+    /// The Hue row's track: the wheel's own ring, unrolled.
+    static let hueTrackStops: [LumenTrackStop] = (0...12).map {
+        LumenTrackStop(value: Double($0) * 30, color: Lumen.hueColor(Double($0) * 30))
+    }
+
     /// One assistive write, bracketed the way a click on the disc is.
     private func accessibilityWrite(_ write: () -> Void) {
         onEditingChanged?(true)
@@ -2333,14 +2345,52 @@ struct LumenColorWheel: View {
                     accessibilityName: title.isEmpty ? "Luminance" : "\(title) luminance")
     }
 
+    /// The puck carries the colour it applies, inside a white ring with a dark keyline
+    /// so it reads on every part of the disc, at the end of a spoke from the centre so
+    /// the angle can be read at a glance even at low strength (lane K1: the 9-point
+    /// hollow ring disappeared against the ring's own light colours).
     private var puck: some View {
+        let offset = puckOffset
+        let fill = sat > 0 ? Lumen.hueColor(hue) : Color(white: 0.5)
+        return Circle()
+            .fill(fill)
+            .overlay(Circle().strokeBorder(Color.white, lineWidth: 2))
+            .overlay(Circle().stroke(Color.black.opacity(0.45), lineWidth: 1))
+            .frame(width: 13, height: 13)
+            .shadow(color: .black.opacity(0.35), radius: 1.5, y: 0.5)
+            .offset(x: offset.width, y: offset.height)
+    }
+
+    private var puckOffset: CGSize {
         let r = CGFloat(sat) * diameter / 2
         let a = CGFloat(hue * .pi / 180)
-        return Circle()
-            .strokeBorder(Color.white, lineWidth: 1.5)
-            .background(Circle().fill(Color.black.opacity(0.25)))
-            .frame(width: 9, height: 9)
-            .offset(x: r * cos(a), y: r * sin(a))
+        return CGSize(width: r * cos(a), height: r * sin(a))
+    }
+
+    /// Centre mark, half-strength ring and the spoke to the puck. Drawn quietly: they
+    /// are a ruler, not part of the colour.
+    private var guides: some View {
+        Canvas { context, size in
+            let c = CGPoint(x: size.width / 2, y: size.height / 2)
+            let radius = min(size.width, size.height) / 2
+            let ring = Path(ellipseIn: CGRect(x: c.x - radius / 2, y: c.y - radius / 2,
+                                              width: radius, height: radius))
+            context.stroke(ring, with: .color(.white.opacity(0.16)), lineWidth: 0.75)
+            var cross = Path()
+            cross.move(to: CGPoint(x: c.x - 4, y: c.y))
+            cross.addLine(to: CGPoint(x: c.x + 4, y: c.y))
+            cross.move(to: CGPoint(x: c.x, y: c.y - 4))
+            cross.addLine(to: CGPoint(x: c.x, y: c.y + 4))
+            context.stroke(cross, with: .color(.white.opacity(0.45)), lineWidth: 1)
+            if sat > 0 {
+                let o = puckOffset
+                var spoke = Path()
+                spoke.move(to: c)
+                spoke.addLine(to: CGPoint(x: c.x + o.width, y: c.y + o.height))
+                context.stroke(spoke, with: .color(.white.opacity(0.5)), lineWidth: 1)
+            }
+        }
+        .allowsHitTesting(false)
     }
 
     /// The wheel's own colours are the one deliberate exception to zero-chroma

@@ -251,7 +251,8 @@ final class BrillianceMonotoneTests: XCTestCase {
     /// −0.5 to −1.0 across the mid/highlight crossfade, so at full strength the gain
     /// falls from 0.5 to zero — and cubed, the highlights go out while the midtones
     /// still render. Brightest at −0.705 EV (luminance 0.011966, 28.53 code values),
-    /// pure black from +1.880 EV up.
+    /// pure black from +1.880 EV up — on the old zone axis; the numbers below are the
+    /// same setting on the display-level axis.
     func testTheReportedCaseNoLongerRendersTheHighlightsBelowTheMidtones() {
         let graded = engine(shadows: -50, mid: -50, high: -100, blending: 50)
 
@@ -260,13 +261,15 @@ final class BrillianceMonotoneTests: XCTestCase {
             modelledLuminance(shadows: -50, mid: -50, high: -100,
                               windows: graded.windows, zoneScale: 1, at: $0)
         }
-        XCTAssertEqual(before.code, 28.5288, accuracy: 0.01,
-                       "the defect's own magnitude moved — B2-01 measured 28.5 sRGB "
-                           + "code values of reversal on this setting")
-        XCTAssertEqual(before.peakEV, -0.705, accuracy: 0.01,
-                       "the reversal used to start at −0.71 EV")
-        XCTAssertEqual(before.troughEV, 1.880, accuracy: 0.01,
-                       "the picture used to be pure black from +1.88 EV up")
+        // B2-01 measured 28.5 code values from −0.705 EV to black at +1.880 EV on the
+        // old scene-EV zone axis. On the display-level axis (lane K1) the same setting,
+        // unlimited, folds by 38.7 from −0.02 EV to black at +3.405 EV.
+        XCTAssertEqual(before.code, 38.7073, accuracy: 0.01,
+                       "the defect's own magnitude moved on this setting")
+        XCTAssertEqual(before.peakEV, -0.020, accuracy: 0.01,
+                       "the reversal used to start at −0.02 EV")
+        XCTAssertEqual(before.troughEV, 3.405, accuracy: 0.01,
+                       "the picture used to be pure black from +3.405 EV up")
 
         // And what it renders now.
         let after = worstReversal(step: 0.005) { realisedLuminance(graded, at: $0) }
@@ -279,7 +282,7 @@ final class BrillianceMonotoneTests: XCTestCase {
             "the limiter still reports nothing to limit on the setting that folds "
                 + "hardest")
         XCTAssertEqual(
-            graded.colorBalance.brillianceScale, 0.505495666646, accuracy: 1e-9,
+            graded.colorBalance.brillianceScale, 0.533879533366, accuracy: 1e-9,
             "the solved cap moved. It is the scale at which the steepest sampled "
                 + "interval of the crossfade first breaks the composed bound "
                 + "1 + 3·Δlog2(G)/ΔEV ≥ 0.05, eased onto through the same knee the "
@@ -323,9 +326,11 @@ final class BrillianceMonotoneTests: XCTestCase {
                                         windows: ZoneWindows) -> Double {
         guard shadows != 0 || mid != 0 || high != 0 else { return 1 }
         let span: Double = windows.spanEV
-        let narrowest: Double = Swift.min(windows.shadowHalfWidth,
-                                          windows.highlightHalfWidth)
-        let step: Double = Num.clamp(narrowest / 8, 1e-4, 0.01)
+        // The shipped search stepped at `narrowest half-width / 8` on the axis it
+        // sampled; since lane K1 that axis's narrowest feature is `samplingStep`
+        // (the display-level crossfade through the display curve's steepest slope),
+        // so the transcription samples where the engine samples.
+        let step: Double = windows.samplingStep
         var zoned: [Double] = []
         var x: Double = 0
         while x < 1 {
@@ -418,6 +423,43 @@ final class BrillianceMonotoneTests: XCTestCase {
                                                + "test's picture of the defect is wrong")
                             XCTAssertLessThan(now, before,
                                               "\(label) folded and is still unlimited")
+                        } else if before == 1 && now < 1 {
+                            // LANE K1. On the display-level zone axis the wide
+                            // Blendings put more settings close to the bound without
+                            // crossing it. The closed form EASES those through the
+                            // shared knee (the cap is within 1/0.8 of the request);
+                            // the old search cannot see them at all, because its 64×
+                            // ceiling floors every sample and reads the flattened
+                            // profile as monotone — the defect this file documents.
+                            // So the closed form may only act where it has a reason, and
+                            // its reason is the shared knee: it eases once the request
+                            // reaches `knee` (0.8) of the cap, i.e. once the unlimited
+                            // response's realised slope falls below
+                            // 1 − 0.8 × (1 − margin) = 0.24 somewhere. A setting eased
+                            // with every slope above that would be limited for nothing.
+                            // And the eased result must not fold.
+                            var minSlope: Double = .infinity
+                            var t: Double = -9
+                            while t < 5 {
+                                let a = modelledLuminance(shadows: shadows, mid: mid,
+                                                          high: high, windows: windows,
+                                                          zoneScale: 1, at: t)
+                                let b = modelledLuminance(shadows: shadows, mid: mid,
+                                                          high: high, windows: windows,
+                                                          zoneScale: 1, at: t + 0.005)
+                                if a > 1e-12, b > 1e-12 {
+                                    minSlope = Swift.min(minSlope, log2(b / a) / 0.005)
+                                }
+                                t += 0.005
+                            }
+                            XCTAssertLessThan(
+                                minSlope, 1 - 0.8 * (1 - 0.05) + 0.01,
+                                "\(label) never reaches the knee (min "
+                                    + "slope \(minSlope)) and was still eased to \(now)")
+                            let eased = worstReversal { realisedLuminance(graded, at: $0) }
+                            XCTAssertLessThan(eased.code, Self.noise,
+                                              "\(label) folds after the easing")
+                            continue
                         } else if before == 1 {
                             XCTAssertEqual(
                                 now, 1.0, accuracy: 0,
@@ -454,12 +496,16 @@ final class BrillianceMonotoneTests: XCTestCase {
                     }
                 }
             }
-            XCTAssertEqual(folded, 7,
+            // Seven is B2-01's count (its headline twelve counts five uniform crushes
+            // whose reversal is 3e-50 of luminance on an all-black frame). On the
+            // display-level zone axis (lane K1) the soft Blendings overlap far more,
+            // so more two-zone settings fold under the old search: measured 10 at 25,
+            // 11 at 50 and 75, 17 at 100 (7 at 0, as before). Every one of them is limited and monotone now
+            // (asserted above).
+            let expected: [Double: Int] = [25: 10, 50: 11, 75: 11, 100: 17]
+            XCTAssertEqual(folded, expected[blending] ?? 7,
                            "\(folded) of the 125 combinations folded under the old "
-                               + "search at Blending \(blending), against the seven "
-                               + "B2-01 measured (its headline twelve counts five "
-                               + "uniform crushes whose reversal is 3e-50 of "
-                               + "luminance on an all-black frame)")
+                               + "search at Blending \(blending)")
         }
     }
 }

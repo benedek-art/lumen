@@ -1,15 +1,15 @@
 {
-  "authority" : 156.58055125580702,
+  "authority" : 156.6337873446824,
   "deadSteps" : 0,
   "frame" : "tonalColourWedge",
-  "frontLoading" : 0.6968091761183953,
+  "frontLoading" : 0.6975770862611228,
   "givenBack" : 0,
-  "hueRotation" : 29.34422708682598,
+  "hueRotation" : 29.395356698983505,
   "id" : "grade.high.lum",
   "isMonotone" : true,
-  "meanSeparation" : 24.60550722503972,
+  "meanSeparation" : 19.44879281302882,
   "panel" : "Grade",
-  "smallestLiveStep" : 9.980692168429243,
+  "smallestLiveStep" : 10.152027412066474,
   "travelHigh" : 1,
   "travelLow" : -1
 }

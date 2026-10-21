@@ -3569,45 +3569,68 @@ LUM_RANGE_STOPS = 0.5
 # root of linear luminance, so the realised tone response is `1 + 3·scale·slope` —
 # GradeEngine.realisedStopsPerJStop, mirrored (docs/31 round two §1).
 REALISED_STOPS_PER_J_STOP = 3.0
-NOMINAL_HALF_WIDTH_EV = 1.5
-MINIMUM_HALF_WIDTH_EV = 0.05
-BLENDING_KNEE = 0.8
+# Since lane K1 the zones live on DISPLAY LEVEL u = DisplayTransform.normalized_curve(x)
+# (neutral preset at the tone anchors), sampled into a 1024-step table exactly as the
+# Swift does, and pivots, Balance and Blending are denominated in u.
+MAXIMUM_HALF_WIDTH = 0.44
+MINIMUM_HALF_WIDTH = 0.12
 MINIMUM_PIVOT_GAP = 0.02
-BALANCE_RANGE_EV = 2.0
+BALANCE_RANGE = 0.3
+LEVEL_SAMPLES = 1024
+
+
+def rise(z):
+    if z <= 0:
+        return 0.0
+    if z >= 1:
+        return 1.0
+    return 0.5 - 0.5 * math.cos(math.pi * z)
 
 
 class ZoneWindows:
     def __init__(self, pivots=(0.33, 0.67), blending=50.0, balance=0.0,
                  white_anchor_ev=5.0, black_anchor_ev=-9.0):
-        span = max(white_anchor_ev - black_anchor_ev, 1e-3)
+        span = white_anchor_ev - black_anchor_ev
+        span = span if span > 1e-3 else 1.0
         self.span_ev = span
-        p0, p1 = sorted((min(max(pivots[0], 0.0), 1.0), min(max(pivots[1], 0.0), 1.0)))
+        self.black_anchor_ev = black_anchor_ev
+        lo, hi = -BALANCE_RANGE, 1 + BALANCE_RANGE
+        p0, p1 = sorted((min(max(pivots[0], lo), hi), min(max(pivots[1], lo), hi)))
         if p1 - p0 < MINIMUM_PIVOT_GAP:
             c = (p0 + p1) / 2
             p0, p1 = c - MINIMUM_PIVOT_GAP / 2, c + MINIMUM_PIVOT_GAP / 2
-        shift = (min(max(balance, -100.0), 100.0) / 100) * BALANCE_RANGE_EV / span
-        ps, ph = p0 - shift, p1 - shift  # +Balance favours Highlights (Lightroom)
-        max_half = (ph - ps) / 2
-        requested = NOMINAL_HALF_WIDTH_EV * (min(max(blending, 0.0), 100.0) / 50) / span
-        floor_half = min(MINIMUM_HALF_WIDTH_EV / span, max_half)
-        # Eased onto the ceiling, not clipped at it. See ZoneWindows: a hard
-        # min(requested, max_half) bound at Blending 79.3 on the default pivots, so
-        # every setting from 80 to 100 rendered byte-identical.
-        eased = (max_half * soft_knee(requested / max_half, BLENDING_KNEE)
-                 if max_half > 0 else 0.0)
-        half = min(max(eased, floor_half), max_half)
+        shift = -(min(max(balance, -100.0), 100.0) / 100) * BALANCE_RANGE
+        self.shadow_pivot, self.highlight_pivot = p0 + shift, p1 + shift
+        b = min(max(blending, 0.0), 100.0)
+        half = MINIMUM_HALF_WIDTH + (MAXIMUM_HALF_WIDTH - MINIMUM_HALF_WIDTH) * b / 100
         self.half_width = half
         self.shadow_half_width = half
-        self.shadow_pivot = ps
-        self.highlight_pivot = ph
-        self.shadow_crossfade = [ps - half, ps + half]
-        self.highlight_crossfade = [ph - half, ph + half]
+        display = DisplayTransform(white_anchor_ev=white_anchor_ev,
+                                   black_anchor_ev=black_anchor_ev)
+        table, steepest = [], 1.0
+        for i in range(LEVEL_SAMPLES + 1):
+            v = min(max(display.normalized_curve(i / LEVEL_SAMPLES), 0.0), 1.0)
+            if table:
+                steepest = max(steepest, (v - table[-1]) * LEVEL_SAMPLES)
+            table.append(v)
+        self.level = table
+        self.sampling_step = min(max(half / 8 / steepest, 1e-4), 0.01)
+
+    def display_level(self, x):
+        xs = min(max(x, 0.0), 1.0)
+        f = xs * LEVEL_SAMPLES
+        i = min(int(f), LEVEL_SAMPLES - 1)
+        r = f - i
+        return self.level[i] + (self.level[i + 1] - self.level[i]) * r
+
+    def weights_at_level(self, u):
+        hw = self.half_width
+        s = 1 - rise((u - self.shadow_pivot + hw) / (2 * hw))
+        h = rise((u - self.highlight_pivot + hw) / (2 * hw))
+        return s, max(0.0, 1 - s - h), h
 
     def weights(self, x):
-        xs = min(max(x, 0.0), 1.0)
-        s = zone_weights(xs, self.shadow_crossfade)[0]
-        h = zone_weights(xs, self.highlight_crossfade)[1]
-        return s, max(0.0, 1 - s - h), h
+        return self.weights_at_level(self.display_level(x))
 
 
 def solve_lum_scale(windows, shadows, mid, high):
@@ -3617,7 +3640,7 @@ def solve_lum_scale(windows, shadows, mid, high):
     # and reports a gentler slope than the real peak, producing a scale that still
     # inverts. That is exactly what this first did.
     span = windows.span_ev
-    step = min(max(windows.half_width / 8, 1e-4), 0.01)
+    step = windows.sampling_step
     margin, scale = 0.05, math.inf
 
     def stops(p):
@@ -3660,11 +3683,9 @@ def gen_grade_checks():
                       f"zone weights sum to {s + m + h:.6f} at x={x:.3f}")
                 x += 0.002
 
-    # Blending is alive over its WHOLE travel. A hard `min(requested, max_half)` bound
-    # at 79.3 on the default pivots, so every setting from 80 to 100 produced identical
-    # zone windows — measured on a colour chart, a byte-identical render. Every
-    # assertion above passed through that: a partition of unity is still a partition of
-    # unity when the control has stopped responding.
+    # Blending is alive over its WHOLE travel (the old EV-axis windows went dead from
+    # 80 to 100 against a hard ceiling; on the display-level axis there is no ceiling,
+    # because two raised cosines of equal width can overlap without a negative mid).
     for balance in (-100.0, 0.0, 100.0):
         previous = None
         for step in range(0, 101):
@@ -3674,18 +3695,17 @@ def gen_grade_checks():
                       f"Blending {step} (balance {balance}) produced the same window as "
                       f"{step - 1}: half-width {half:.12f} — the control is dead here")
             previous = half
-    # And it still cannot reach the ceiling, because past it the mid zone goes negative.
-    top = ZoneWindows(blending=100.0)
-    ceiling = (top.highlight_pivot - top.shadow_pivot) / 2
-    check(top.shadow_half_width < ceiling,
-          f"Blending 100 reached the half-width ceiling exactly ({ceiling:.6f})")
 
     # The failure this found: at Blending 0 the crossfade collapses to the 0.05 EV
     # floor, and a shadow wheel at +1 against a highlight wheel at −1 asks brightness
     # to fall a full stop across a tenth of a stop of input.
     hard = ZoneWindows(blending=0.0)
     unscaled = solve_lum_scale(hard, LUM_RANGE_STOPS, 0.0, -LUM_RANGE_STOPS)
-    check(unscaled < 0.2,
+    # (Since lane K1 Blending 0's floor is half-width 0.12 of display level: the
+    # preview table cannot render a narrower edge, and narrower ones only make the
+    # export disagree with it. The case still needs scaling, just less.)
+    # The claim is that it NEEDS scaling at all (0.546 at the 0.12 floor).
+    check(unscaled < 1.0,
           f"the hard-crossover case did not need scaling ({unscaled:.3f}) — "
           "the test no longer covers what it was written for")
 
@@ -4305,8 +4325,8 @@ def gen_enginemath_fixture():
                     "midLum": mid_lum,
                     "highLum": high_lum,
                     "halfWidth": w.half_width,
-                    "shadowPivot": sum(w.shadow_crossfade) / 2,
-                    "highlightPivot": sum(w.highlight_crossfade) / 2,
+                    "shadowPivot": w.shadow_pivot,
+                    "highlightPivot": w.highlight_pivot,
                     "lumScale": scale,
                     "weights": weights,
                 })
