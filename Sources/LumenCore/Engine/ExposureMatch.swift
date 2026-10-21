@@ -24,7 +24,8 @@
 // reads EQUAL (−1.156 against −1.159 EV) because 6929 holds more white wall and 6933 more
 // foliage: composition, not exposure. So the measurement is taken where the two frames
 // see the same thing. `measureOverlap` locates one frame inside the other on a small
-// scene-EV grid (translation and a few zoom ratios, normalized cross-correlation) and
+// scene-EV grid (translation and a few zoom ratios, correlation of the log-luminance
+// GRADIENT, so composition alone cannot match) and
 // takes the median difference over the shared cells; on 6929/6933 that is the 0.39 EV
 // the registered full-resolution decode gives. When the frames do not share a view
 // (correlation under `overlapThreshold`) there is nothing to compare, the scene really
@@ -293,6 +294,17 @@ public enum ExposureMatch {
             self.init(columns: cols, rows: rows, ev: out)
         }
 
+        /// The central `fraction` of the grid, both ways.
+        func centre(_ fraction: Double) -> LumaGrid {
+            let c = Swift.max(1, Int((Double(columns) * fraction).rounded()))
+            let r = Swift.max(1, Int((Double(rows) * fraction).rounded()))
+            let x0 = (columns - c) / 2, y0 = (rows - r) / 2
+            var out: [Double?] = []
+            out.reserveCapacity(c * r)
+            for y in y0..<(y0 + r) { for x in x0..<(x0 + c) { out.append(self[x, y]) } }
+            return LumaGrid(columns: c, rows: r, ev: out)
+        }
+
         /// Box-resample to `columns` × `rows` (nil cells stay out of the average).
         func resampled(columns: Int, rows: Int) -> LumaGrid {
             var out = [Double?](repeating: nil, count: columns * rows)
@@ -316,15 +328,29 @@ public enum ExposureMatch {
     }
 
     /// Below this correlation the two frames are not taken to show the same scene.
-    public static let overlapThreshold: Double = 0.75
+    ///
+    /// The correlation is of the GRADIENT of log luminance (differences between
+    /// neighbouring cells), not of the luminance itself. Level correlation is fooled by
+    /// composition: almost every outdoor frame is bright above and dark below, and the
+    /// best of ~1,500 placements of a field against a castle scored 0.87 on levels, so
+    /// unrelated corpus frames got "measured" offsets of up to 1.8 EV. Gradients carry
+    /// the edges, which two different scenes do not share, and it is taken per quadrant
+    /// (see `overlap`) so one shared horizon cannot carry it. Over all 600 ordered corpus
+    /// pairs that score is 0.79 for 6929/6933 and at most 0.19 for any unrelated pair;
+    /// the threshold sits between them.
+    public static let overlapThreshold: Double = 0.5
     /// The zoom ratios searched: the frame's field of view relative to the reference's,
-    /// which covers an APS-C crop (1.5) and a modest zoom or step either way.
+    /// which covers an APS-C crop (1.5) and a modest zoom or step either way. Each is
+    /// searched over every translation, and so is a pan at the same focal length (the
+    /// central `panWindow` of the frame, placed anywhere in the reference).
     public static let overlapScales: [Double] = [1, 1.25, 1.5, 1.75, 2]
+    public static let panWindow: Double = 0.7
 
     /// The result of locating one frame within another.
     public struct Overlap: Equatable, Sendable {
         /// Median of (frame − reference) scene EV over the shared cells.
         public var stopsBrighter: Double
+        /// Gradient correlation at the chosen placement.
         public var correlation: Double
         public var sharedCells: Int
     }
@@ -333,57 +359,89 @@ public enum ExposureMatch {
     /// they share none. Either frame may hold the narrower view.
     public static func measureOverlap(reference: LumaGrid, frame: LumaGrid) -> Overlap? {
         var best: Overlap?
-        for scale in overlapScales {
-            for frameIsNarrower in [true, false] where scale > 1 || frameIsNarrower {
-                let wide = frameIsNarrower ? reference : frame
-                let narrow = frameIsNarrower ? frame : reference
-                let cols = Int((Double(wide.columns) / scale).rounded())
-                let rows = Int((Double(narrow.rows) / Double(narrow.columns) * Double(cols)).rounded())
-                guard cols >= 8, rows >= 6, cols <= wide.columns, rows <= wide.rows else { continue }
-                let small = narrow.resampled(columns: cols, rows: rows)
-                for oy in 0...(wide.rows - rows) {
-                    for ox in 0...(wide.columns - cols) {
-                        guard let o = overlap(wide: wide, small: small, ox: ox, oy: oy)
-                        else { continue }
-                        let signed = frameIsNarrower ? o.diff : -o.diff
-                        if best == nil || o.ncc > best!.correlation {
-                            best = Overlap(stopsBrighter: signed, correlation: o.ncc,
-                                           sharedCells: o.cells)
-                        }
+        func consider(wide: LumaGrid, narrow: LumaGrid, scale: Double, sign: Double) {
+            let cols = Int((Double(wide.columns) / scale).rounded())
+            let rows = Int((Double(narrow.rows) / Double(narrow.columns) * Double(cols)).rounded())
+            guard cols >= 8, rows >= 6, cols <= wide.columns, rows <= wide.rows else { return }
+            let small = narrow.resampled(columns: cols, rows: rows)
+            for oy in 0...(wide.rows - rows) {
+                for ox in 0...(wide.columns - cols) {
+                    guard let o = overlap(wide: wide, small: small, ox: ox, oy: oy) else { continue }
+                    if best == nil || o.ncc > best!.correlation {
+                        best = Overlap(stopsBrighter: sign * o.diff, correlation: o.ncc,
+                                       sharedCells: o.cells)
                     }
                 }
             }
         }
-        guard let best, best.correlation >= overlapThreshold else { return nil }
-        var answer = best
+        for scale in overlapScales {
+            if scale == 1 {
+                // Same focal length: a pan. The frame's centre, placed anywhere.
+                consider(wide: reference, narrow: frame.centre(panWindow), scale: 1 / panWindow,
+                         sign: 1)
+                consider(wide: frame, narrow: reference.centre(panWindow), scale: 1 / panWindow,
+                         sign: -1)
+            } else {
+                consider(wide: reference, narrow: frame, scale: scale, sign: 1)
+                consider(wide: frame, narrow: reference, scale: scale, sign: -1)
+            }
+        }
+        guard var answer = best, answer.correlation >= overlapThreshold else { return nil }
         answer.stopsBrighter = (answer.stopsBrighter * 1000).rounded() / 1000
         return answer
     }
 
-    /// NCC of `small` placed at (ox, oy) in `wide`, and the median of small − wide.
+    /// Gradient NCC of `small` placed at (ox, oy) in `wide`, and the median of
+    /// small − wide over the cells both hold.
+    ///
+    /// The NCC is the LOWEST of the window's four quadrants that hold texture, not the
+    /// whole window's: one strong shared edge — the horizon of two different landscapes —
+    /// otherwise carries the whole correlation (a synthetic pair with a common horizon
+    /// and unrelated texture scored 0.77). Two views of one scene correlate everywhere.
     private static func overlap(wide: LumaGrid, small: LumaGrid, ox: Int, oy: Int)
         -> (ncc: Double, diff: Double, cells: Int)? {
-        var a: [Double] = [], b: [Double] = []
-        a.reserveCapacity(small.columns * small.rows)
-        b.reserveCapacity(small.columns * small.rows)
+        var diffs: [Double] = []
+        diffs.reserveCapacity(small.columns * small.rows)
+        // Per quadrant: n, Σa, Σb, Σab, Σaa, Σbb.
+        var q = [[Double]](repeating: [0, 0, 0, 0, 0, 0], count: 4)
+        func add(_ quadrant: Int, _ a: Double, _ b: Double) {
+            q[quadrant][0] += 1; q[quadrant][1] += a; q[quadrant][2] += b
+            q[quadrant][3] += a * b; q[quadrant][4] += a * a; q[quadrant][5] += b * b
+        }
+        let halfX = small.columns / 2, halfY = small.rows / 2
         for y in 0..<small.rows {
             for x in 0..<small.columns {
-                if let s = small[x, y], let w = wide[ox + x, oy + y] { a.append(s); b.append(w) }
+                guard let s = small[x, y], let w = wide[ox + x, oy + y] else { continue }
+                diffs.append(s - w)
+                let quadrant = (x < halfX ? 0 : 1) + (y < halfY ? 0 : 2)
+                if x + 1 < small.columns, let s2 = small[x + 1, y],
+                   let w2 = wide[ox + x + 1, oy + y] {
+                    add(quadrant, s2 - s, w2 - w)
+                }
+                if y + 1 < small.rows, let s2 = small[x, y + 1],
+                   let w2 = wide[ox + x, oy + y + 1] {
+                    add(quadrant, s2 - s, w2 - w)
+                }
             }
         }
         // Half the window must be usable, or a few cells could correlate by accident.
-        guard a.count * 2 >= small.columns * small.rows, a.count >= 24 else { return nil }
-        let n = Double(a.count)
-        let ma = a.reduce(0, +) / n, mb = b.reduce(0, +) / n
-        var sab = 0.0, saa = 0.0, sbb = 0.0
-        for i in 0..<a.count {
-            let da = a[i] - ma, db = b[i] - mb
-            sab += da * db; saa += da * da; sbb += db * db
+        guard diffs.count * 2 >= small.columns * small.rows, diffs.count >= 24 else { return nil }
+        var worst = Double.infinity
+        var textured = 0
+        for v in q where v[0] >= 12 {
+            let n = v[0]
+            let saa = v[4] - v[1] * v[1] / n, sbb = v[5] - v[2] * v[2] / n
+            // A quadrant of flat sky has nothing to correlate; it neither passes nor
+            // fails the window. 0.02 EV rms between neighbours is texture.
+            guard saa / n > 4e-4, sbb / n > 4e-4 else { continue }
+            let sab = v[3] - v[1] * v[2] / n
+            worst = Swift.min(worst, sab / (saa * sbb).squareRoot())
+            textured += 1
         }
-        guard saa > 1e-9, sbb > 1e-9 else { return nil }
-        let diffs = zip(a, b).map { $0 - $1 }.sorted()
+        guard textured >= 2 else { return nil }
+        diffs.sort()
         let median = diffs.count % 2 == 1 ? diffs[diffs.count / 2]
             : (diffs[diffs.count / 2 - 1] + diffs[diffs.count / 2]) / 2
-        return (sab / (saa * sbb).squareRoot(), median, a.count)
+        return (worst, median, diffs.count)
     }
 }

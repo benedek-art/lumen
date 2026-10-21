@@ -15,7 +15,7 @@ python3 $T/spec_check.py /tmp/ws09/new --legacy /tmp/ws09/old
 ```
 
 `auto_corpus.py` runs Auto the way the app does (512-px proxy at tone zero, read back into scene EV,
-solve, then up to 3 corrective proxy renders for clipping) on all 25 corpus frames, and renders
+solve, then up to 3 corrective proxy renders for clipping and crush) on all 25 corpus frames, and renders
 before (tone at zero) and after at 640 px. Luminance is sRGB-encoded (0..1, x255 = code).
 "Clip" = % of pixels with any channel at code 255; "crush" = any channel at code 0.
 Low-key by intent: 2348 (black jacket), 967 (black bag).
@@ -29,9 +29,11 @@ Low-key by intent: 2348 (black jacket), 967 (black bag).
 | S5a | Whites to just-clip | p99 >= 0.85 on >= 18/25, and every frame short of it has Whites at Auto's +60 cap or is protection-bound | spec_check S5a |
 | S5b | Blacks reach near black | p1 <= 0.05 on >= 21/25 | spec_check S5b |
 | S6 | Consistency on the 6929/6933 pair (same scene, 0.39 EV apart in capture) | rendered medians within 0.01, means within 0.02 | spec_check S6 |
-| S7 | Vibrance modest, Saturation untouched | Vibrance in +5..+15 on all 25; `Result.apply` writes no other field | spec_check S7; `AutoToneQualityTests.testAutoVibranceIsModestAndFollowsChroma` |
+| S7 | Vibrance modest, Saturation untouched | Vibrance <= +15 on all 25, and >= +5 unless the crush loop lowered it; `Result.apply` writes no other field | spec_check S7; `AutoToneQualityTests.testAutoVibranceIsModestAndFollowsChroma` |
 | S8 | Auto's prediction is the picture | predicted median within 0.02 of the rendered median on all 25 | spec_check S8 |
 | S9 | Unit contract | `AutoToneQualityTests` (key across capture shifts within 0.03; bracket consistency; just-clip endpoints on a reachable frame; low-key window not blown; prediction within 0.03; envelope, finiteness, determinism) and the existing `EngineTests` Auto tests pass | `swift test --filter "AutoToneQualityTests\|EngineTests"` |
+| S11 | Holds under other looks (round 2, after verifier) | Punchy: S1-S8 all PASS. Linear (the look every rendered JPEG/TIFF imports on): S1-S4, S6-S8 PASS; S5 is N/A because Linear is an identity clip with no white/black point, and Auto sets Whites/Blacks/Contrast to 0 there | `auto_corpus.py DIR --set look.render.preset=Punchy` / `=Linear`, then `spec_check.py DIR` (`--linear` for Linear) |
+| S12 | Nothing out of nothing | an all-black or all-blown frame gets Tone() and Vibrance 0; on Linear Auto writes no Whites/Blacks/Contrast; the crush loop lowers Vibrance where Blacks has no reach | `testAutoLeavesAnAllBlackOrAllBlownFrameAlone`, `testAutoOnTheLinearLookLeavesTheEndpointsAlone`, `testTheCrushLoopLowersVibranceOnTheLinearLook` |
 | S10 | No render change | no file under `Sources/LumenPipeline`, no `RenderPlan`/`ReferenceRenderer` code touched; GPU parity unaffected | `git diff --stat $BASE -- Sources/LumenPipeline Sources/LumenCore/Render` empty |
 
 Visual claims (human judges, from the evidence sheets):

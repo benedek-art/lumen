@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Evaluate WS-09 SPEC lines S1-S7 from an auto_corpus.py output directory.
 
-usage: spec_check.py RUNDIR [--legacy LEGACYDIR]
+usage: spec_check.py RUNDIR [--legacy LEGACYDIR] [--linear]
 Prints each line's measured number, threshold and PASS/FAIL (and the legacy number).
 """
 import json, sys
@@ -58,7 +58,10 @@ def lines(r):
                 f"{dm:.3f} / {dmean:.3f}", dm <= 0.01 and dmean <= 0.02))
     # S7 vibrance
     v = [r[i]["suggestion"]["vibrance"] for i in ids]
-    res.append(("S7 vibrance in 5..15", f"{min(v):.0f}..{max(v):.0f}", min(v) >= 5 and max(v) <= 15))
+    low = [i for i in ids if r[i]["suggestion"]["vibrance"] < 5
+           and r[i]["suggestion"].get("clipRefinements", 0) == 0]
+    res.append(("S7 vibrance <= 15, and >= 5 unless the crush loop lowered it",
+                f"{min(v):.0f}..{max(v):.0f}", max(v) <= 15 and not low))
     # S8 prediction
     errs = [abs(r[i]["predicted"].get("0.5", -9) - med[i]) for i in ids]
     res.append(("S8 |predicted - rendered median| <= 0.02", f"max {max(errs):.3f}", max(errs) <= 0.02))
@@ -67,9 +70,13 @@ def lines(r):
 
 def main():
     r = load(sys.argv[1])
+    linear = "--linear" in sys.argv  # identity-clip look: no endpoints to set, S5 n/a
     legacy = load(sys.argv[sys.argv.index("--legacy") + 1]) if "--legacy" in sys.argv else None
     ll = {n: m for n, m, _ in lines(legacy)} if legacy else {}
     for name, measured, ok in lines(r):
+        if linear and name.startswith("S5"):
+            print(f"N/A   {name}: {measured} (Linear has no white/black point)")
+            continue
         extra = f"   (legacy: {ll[name]})" if name in ll else ""
         print(f"{'PASS' if ok else 'FAIL'}  {name}: {measured}{extra}")
 

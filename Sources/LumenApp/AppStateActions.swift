@@ -47,8 +47,8 @@ extension AppState {
                 else { continue }
                 // Auto predicts its own output through the look the photo renders with,
                 // then checks it: one more proxy render with the answer, and Exposure
-                // comes down while that clips more than the budget (`AutoTone.refine`
-                // says why the prediction alone cannot see it).
+                // comes down (or Blacks up) while that clips or crushes more than the
+                // budget (`AutoTone.refine` says why the prediction cannot see it).
                 let render = probe.look.render.resolved()
                 var result = AutoTone.auto(from: stats, render: render)
                 for _ in 0..<AutoTone.maxClipRefinements {
@@ -58,7 +58,8 @@ extension AppState {
                               url: url, recipe: trial, coordinator: renderCoordinator,
                               strokeSets: strokeSets(for: trial)),
                           let next = AutoTone.refine(result, probe: stats, render: render,
-                                                     measuredClip: check.clippedFraction ?? 0)
+                                                     measuredClip: check.clippedFraction ?? 0,
+                                                     measuredCrush: check.crushedFraction ?? 0)
                     else { break }
                     result = next
                 }

@@ -45,7 +45,8 @@ final class AutoToneQualityTests: XCTestCase {
             result.apply(to: &trial)
             guard let next = AutoTone.refine(
                 result, probe: stats, render: probe.look.render.resolved(),
-                measuredClip: statistics(frame, trial).clippedFraction ?? 0) else { break }
+                measuredClip: statistics(frame, trial).clippedFraction ?? 0,
+                measuredCrush: statistics(frame, trial).crushedFraction ?? 0) else { break }
             result = next
         }
         return (result, stats)
@@ -188,7 +189,47 @@ final class AutoToneQualityTests: XCTestCase {
             XCTAssertTrue(AutoTone.whitesLimit.contains(t.whites), "\(t)")
             XCTAssertTrue(AutoTone.blacksLimit.contains(t.blacks), "\(t)")
             XCTAssertTrue((-4...4).contains(t.contrastPivot), "\(t)")
-            XCTAssertTrue(AutoTone.vibranceLimit.contains(r.vibrance))
+            // A frame Auto declines (all black, all blown) gets no Vibrance either.
+            XCTAssertTrue(r.tone == Tone() ? r.vibrance == 0
+                          : AutoTone.vibranceLimit.contains(r.vibrance), "\(r)")
         }
+    }
+
+    /// A frame with nothing to place — all black, or all blown — is left alone rather
+    /// than given Exposure +4 and Whites +60 out of nothing.
+    func testAutoLeavesAnAllBlackOrAllBlownFrameAlone() {
+        for value in [0.0, 0.18 * exp2(7)] {
+            let frame = ImageBuffer(width: 48, height: 48) { _, _ in RGB(gray: value) }
+            XCTAssertEqual(auto(frame).0.tone, Tone(), "frame at \(value)")
+        }
+    }
+
+    /// On the Linear look there is no white or black point: Auto sets no endpoints and
+    /// no Contrast there, only Exposure and the zonal sliders.
+    func testAutoOnTheLinearLookLeavesTheEndpointsAlone() {
+        var stats = AutoTone.Statistics(histogram: (0..<128).map { $0 > 40 && $0 < 80 ? 10 : 0 })
+        stats.meanChroma = 0.02
+        var look = Recipe().look.render.resolved()
+        look.linear = true
+        let r = AutoTone.auto(from: stats, render: look)
+        XCTAssertEqual(r.tone.whites, 0)
+        XCTAssertEqual(r.tone.blacks, 0)
+        XCTAssertEqual(r.tone.contrast, 0)
+        XCTAssertNotEqual(r.tone.exposure, 0)
+    }
+
+    /// The crush loop backs Vibrance off where Blacks has no reach.
+    func testTheCrushLoopLowersVibranceOnTheLinearLook() throws {
+        var stats = AutoTone.Statistics(histogram: (0..<128).map { $0 > 40 && $0 < 80 ? 10 : 0 })
+        stats.meanChroma = 0.01
+        stats.crushedFraction = 0.01
+        var look = Recipe().look.render.resolved()
+        look.linear = true
+        let first = AutoTone.auto(from: stats, render: look)
+        let next = try XCTUnwrap(AutoTone.refine(first, probe: stats, render: look,
+                                                 measuredClip: 0, measuredCrush: 0.03))
+        XCTAssertEqual(next.vibrance, first.vibrance - 5)
+        XCTAssertNil(AutoTone.refine(first, probe: stats, render: look,
+                                     measuredClip: 0, measuredCrush: 0.012))
     }
 }

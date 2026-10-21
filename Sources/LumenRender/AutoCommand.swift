@@ -69,7 +69,8 @@ extension LumenRenderCLI {
             let check = try autoStatistics(path: input, probe: trial, settings: settings)
             guard let next = AutoTone.refine(result, probe: stats,
                                              render: probe.look.render.resolved(),
-                                             measuredClip: check.clippedFraction ?? 0)
+                                             measuredClip: check.clippedFraction ?? 0,
+                                             measuredCrush: check.crushedFraction ?? 0)
             else { break }
             result = next
             refinements += 1

@@ -874,6 +874,11 @@ public struct AutoTone: Sendable {
         public var maxChannelHistogram: [Double]?
         /// Fraction of the measured proxy with a channel at code 255. nil: not measured.
         public var clippedFraction: Double?
+        /// The darkest channel's histogram, the mirror of `maxChannelHistogram`: Blacks
+        /// is set against it, so a saturated shadow does not crush a channel to 0.
+        public var minChannelHistogram: [Double]?
+        /// Fraction of the measured proxy with a channel at code 0. nil: not measured.
+        public var crushedFraction: Double?
 
         public init(histogram: [Double], minEV: Double = -12, maxEV: Double = 12,
                     faceMeanEV: Double? = nil, meanChroma: Double? = nil,
@@ -976,6 +981,10 @@ extension AutoTone {
     public struct Result: Equatable, Sendable {
         public var tone: Tone
         public var vibrance: Double
+        /// The bounds the clip loop has imposed so far; `refine` carries them forward.
+        public var exposureCeiling: Double = .infinity
+        public var blacksFloor: Double = AutoTone.blacksLimit.lowerBound
+        public var vibranceCeiling: Double = AutoTone.vibranceLimit.upperBound
 
         public init(tone: Tone, vibrance: Double = 0) {
             self.tone = tone
@@ -1017,8 +1026,10 @@ extension AutoTone {
     /// Whites puts the 99.8th percentile here: the top 0.2 % may touch white, which is
     /// "just clip" — Lightroom's Alt-drag habit, done for you.
     public static let whiteTarget: Double = 0.98
-    /// Blacks puts the 0.2nd percentile here (code 3).
-    public static let blackTarget: Double = 0.012
+    /// Blacks puts the darkest channel's 0.2nd percentile here (code 1): the channel
+    /// that reaches black first just touches it. Luminance-based, it crushed a
+    /// saturated shadow's weakest channel.
+    public static let coldTarget: Double = 0.004
 
     /// How far Auto may push each slider. Auto that shouts is Auto the user turns off;
     /// these bounds are Lightroom's own Auto envelope on ordinary frames.
@@ -1038,10 +1049,20 @@ extension AutoTone {
     /// photographer's, not Auto's.
     public static func auto(from stats: Statistics,
                             render: DisplayTransformParams = Recipe().look.render.resolved(),
-                            exposureCeiling: Double = .infinity)
+                            exposureCeiling: Double = .infinity,
+                            blacksFloor: Double = blacksLimit.lowerBound,
+                            vibranceCeiling: Double = vibranceLimit.upperBound)
         -> Result {
         let predictor = Predictor(stats: stats, render: render)
         guard predictor.isUsable else { return Result(tone: Tone(), vibrance: 0) }
+        // A frame that is all black or all blown has no tones to place. Measured, an all-zero frame got Exposure +4,
+        // Shadows +50 and Whites +60 out of nothing. Auto leaves such a frame alone.
+        // Judged on the picture: the median at tone zero renders within 5 codes of
+        // black or of white.
+        let medianNow = predictor.encoded(predictor.anchorEV, Tone())
+        guard medianNow > 0.02, medianNow < 0.98 else {
+            return Result(tone: Tone(), vibrance: 0)
+        }
         var t = Tone()
         let key = stats.faceMeanEV != nil ? faceKeyTarget : keyTarget
         // Coordinate descent below: each slider is solved with the others held, then
@@ -1062,8 +1083,14 @@ extension AutoTone {
             // Contrast pivots on the subject, so it stretches the ends and leaves the
             // key where Exposure put it.
             t.contrastPivot = Num.clamp(predictor.anchorEV + t.exposure, -4, 4)
-            t.whites = predictor.solve(t, \.whites, whitesLimit,
-                                       at: predictor.hot998, to: whiteTarget)
+            // On the Linear look (every rendered file imports on it) the transform is an
+            // identity clip: there is no white or black point for Whites and Blacks to
+            // move, only their shelves, and solving them pinned Whites at −40 on half
+            // the corpus. Auto leaves the endpoints, and Contrast with them, alone there.
+            if !render.linear {
+                t.whites = predictor.solve(t, \.whites, whitesLimit,
+                                           at: predictor.hot998, to: whiteTarget)
+            }
             // Highlights is protection, not compression: it moves only when the
             // brightest 1 % would still crowd white after Whites, so the two never
             // pull against each other on a frame with nothing to recover.
@@ -1073,15 +1100,18 @@ extension AutoTone {
             t.shadows = predictor.solve(t, \.shadows, shadowsLimit,
                                         at: predictor.p04, to: shadowTarget,
                                         onlyIf: { $0 < shadowTarget })
-            t.blacks = predictor.solve(t, \.blacks, blacksLimit,
-                                       at: predictor.p002, to: blackTarget)
+            if !render.linear {
+                t.blacks = Swift.max(predictor.solve(t, \.blacks, blacksLimit,
+                                                     at: predictor.cold002, to: coldTarget),
+                                     blacksFloor)
+            }
             // Contrast only where Whites or Blacks ran out of travel: our Whites moves
             // the white point 1.5 EV at +100, so on a flat overcast frame it cannot
             // reach just-clip alone. Contrast closes part of the gap, inside its cap.
-            let whiteShort = t.whites >= whitesLimit.upperBound
+            let whiteShort = !render.linear && t.whites >= whitesLimit.upperBound
                 && predictor.encoded(predictor.hot998, t) < whiteTarget - 0.01
-            let blackShort = t.blacks <= blacksLimit.lowerBound
-                && predictor.encoded(predictor.p002, t) > blackTarget + 0.01
+            let blackShort = !render.linear && t.blacks <= blacksLimit.lowerBound
+                && predictor.encoded(predictor.cold002, t) > coldTarget + 0.01
             if whiteShort || blackShort {
                 t.contrast = predictor.solveSpread(t, contrastLimit,
                                                    whiteShort: whiteShort,
@@ -1097,7 +1127,8 @@ extension AutoTone {
         t.blacks = t.blacks.rounded()
         if t.contrast == 0 && stats.faceMeanEV == nil { t.contrastPivot = 0 }
         t.contrastPivot = (t.contrastPivot * 100).rounded() / 100
-        return Result(tone: t, vibrance: vibrance(forMeanChroma: stats.meanChroma))
+        return Result(tone: t, vibrance: Swift.min(vibrance(forMeanChroma: stats.meanChroma),
+                                                   Swift.max(vibranceCeiling, 0)))
     }
 
     // MARK: Closing the loop on clipping
@@ -1112,8 +1143,8 @@ extension AutoTone {
         (probe.clippedFraction ?? 0) + clipAllowance
     }
 
-    /// Auto's next answer when its last one, rendered, clipped `measuredClip` of the
-    /// frame; nil when that is inside the budget and the answer stands.
+    /// Auto's next answer when its last one, rendered, clipped `measuredClip` or crushed
+    /// `measuredCrush` of the frame; nil when both are inside budget and it stands.
     ///
     /// The prediction is luminance through the neutral curve, and the brightest-channel
     /// histogram read back through the same curve; neither can see what the gamut map
@@ -1124,15 +1155,45 @@ extension AutoTone {
     /// else is solved again around it.
     public static func refine(_ previous: Result, probe: Statistics,
                               render: DisplayTransformParams = Recipe().look.render.resolved(),
-                              measuredClip: Double) -> Result? {
-        let budget = clipBudget(probe: probe)
-        guard measuredClip.isFinite, measuredClip > budget else { return nil }
-        // A stop of Exposure roughly halves what sits above a clip point; step by the
-        // log of the overshoot, at least a quarter stop, at most one.
-        let step = Num.clamp(0.5 * log2(measuredClip / budget), 0.25, 1.0)
-        let ceiling = previous.tone.exposure - step
-        guard ceiling >= exposureLimit.lowerBound else { return nil }
-        return auto(from: probe, render: render, exposureCeiling: ceiling)
+                              measuredClip: Double, measuredCrush: Double = 0) -> Result? {
+        let clipOver = measuredClip.isFinite && measuredClip > clipBudget(probe: probe)
+        let crushOver = measuredCrush.isFinite && measuredCrush > crushBudget(probe: probe)
+        guard clipOver || crushOver else { return nil }
+        var ceiling = previous.exposureCeiling
+        if clipOver {
+            // A stop of Exposure roughly halves what sits above a clip point; step by
+            // the log of the overshoot, at least a quarter stop, at most one.
+            let step = Num.clamp(0.5 * log2(measuredClip / clipBudget(probe: probe)), 0.25, 1.0)
+            ceiling = previous.tone.exposure - step
+            guard ceiling >= exposureLimit.lowerBound else { return nil }
+        }
+        var floor = previous.blacksFloor
+        var vibranceCap = previous.vibranceCeiling
+        if crushOver {
+            // Blacks comes up 15 at a time: the gamut map and a non-default look crush a
+            // saturated shadow channel the luminance prediction cannot see. Where Blacks
+            // has no reach — the Linear look has no black point, or it is at Auto's
+            // limit — the crush is Vibrance pushing a saturated colour out of gamut
+            // (measured on 864 under Linear: Vibrance +10 alone crushes 0.86 % more),
+            // so Vibrance comes down 5 at a time instead, to zero if it must.
+            if !render.linear && previous.tone.blacks + 15 <= blacksLimit.upperBound {
+                floor = previous.tone.blacks + 15
+            } else if previous.vibrance > 0 {
+                vibranceCap = Swift.max(0, previous.vibrance - 5)
+            } else if !clipOver {
+                return nil
+            }
+        }
+        var next = auto(from: probe, render: render, exposureCeiling: ceiling,
+                        blacksFloor: floor, vibranceCeiling: vibranceCap)
+        next.exposureCeiling = ceiling
+        next.blacksFloor = floor
+        next.vibranceCeiling = vibranceCap
+        return next
+    }
+
+    public static func crushBudget(probe: Statistics) -> Double {
+        (probe.crushedFraction ?? 0) + clipAllowance
     }
 
     /// Predicted encoded output at the given input percentiles, for the audit tools.
@@ -1150,8 +1211,10 @@ extension AutoTone {
     /// this stays inside +5…+15.
     public static func vibrance(forMeanChroma chroma: Double?) -> Double {
         guard let chroma, chroma.isFinite else { return 10 }
-        // OKLab mean chroma: an overcast street reads ~0.025, a fruit bowl ~0.08.
-        let v = 15 - 200 * (chroma - 0.03)
+        // OKLab mean chroma of the tone-zero proxy: the corpus runs 0.009 (grey chart,
+        // dim interior) to 0.032 (a jigsaw of saturated pieces); an overcast street
+        // reads 0.024. Spread across that range, not beyond it.
+        let v = 16 - 400 * (chroma - 0.01)
         return Num.clamp(v, vibranceLimit.lowerBound, vibranceLimit.upperBound).rounded()
     }
 
@@ -1164,6 +1227,8 @@ extension AutoTone {
         /// Whites protect, so a red flower or a stained-glass pane is not clipped while
         /// its luminance still reads as grey.
         let hot98: Double, hot99: Double, hot998: Double
+        /// The darkest channel's 0.2nd percentile: what Blacks sets to just-clip.
+        let cold002: Double
         let isUsable: Bool
 
         init(stats: Statistics, render: DisplayTransformParams) {
@@ -1177,6 +1242,7 @@ extension AutoTone {
             p998 = stats.interpolatedPercentileEV(0.998)
             hot98 = stats.brightestChannelPercentileEV(0.98)
             hot99 = stats.brightestChannelPercentileEV(0.99)
+            cold002 = stats.darkestChannelPercentileEV(0.002)
             hot998 = stats.brightestChannelPercentileEV(0.998)
         }
 
@@ -1201,7 +1267,7 @@ extension AutoTone {
                 var probe = base
                 probe.contrast = c
                 let w = !whiteShort || encoded(hot998, probe) >= AutoTone.whiteTarget
-                let b = !blackShort || encoded(p002, probe) <= AutoTone.blackTarget
+                let b = !blackShort || encoded(cold002, probe) <= AutoTone.coldTarget
                 return w && b
             }
             var lo = Swift.max(limits.lowerBound, 0), hi = limits.upperBound
@@ -1246,6 +1312,13 @@ extension AutoTone.Statistics {
     /// solver is aiming at a single code value and a stepped input made it hop.
     public func interpolatedPercentileEV(_ fraction: Double) -> Double {
         interpolatedPercentileEV(fraction, of: histogram)
+    }
+
+    /// The same read on the darkest-channel histogram, or on luminance without one.
+    public func darkestChannelPercentileEV(_ fraction: Double) -> Double {
+        guard let h = minChannelHistogram, h.count == histogram.count,
+              h.reduce(0, +) > 0 else { return interpolatedPercentileEV(fraction) }
+        return interpolatedPercentileEV(fraction, of: h)
     }
 
     /// The same read on the brightest-channel histogram, or on luminance without one.
@@ -1417,6 +1490,8 @@ extension AutoTone {
         for i in 0..<256 { decode[i] = TransferFunction.srgb.decode(Double(i) / 255) }
         var histogram = SceneHistogram(transform: transform)
         var brightest = SceneHistogram(transform: transform)
+        var darkest = SceneHistogram(transform: transform)
+        var crushed = 0
         var chroma = 0.0
         var count = 0
         var clipped = 0
@@ -1426,6 +1501,8 @@ extension AutoTone {
             histogram.add(displayLuminance: (weights.r * r + weights.g * g + weights.b * b)
                 * displayWhite)
             brightest.add(displayLuminance: Swift.max(r, g, b) * displayWhite)
+            darkest.add(displayLuminance: Swift.min(r, g, b) * displayWhite)
+            if bytes[i] == 0 || bytes[i + 1] == 0 || bytes[i + 2] == 0 { crushed += 1 }
             chroma += okLabChroma(r, g, b)
             if bytes[i] == 255 || bytes[i + 1] == 255 || bytes[i + 2] == 255 { clipped += 1 }
             count += 1
@@ -1434,6 +1511,8 @@ extension AutoTone {
         stats.meanChroma = count > 0 ? chroma / Double(count) : nil
         stats.maxChannelHistogram = brightest.bins
         stats.clippedFraction = count > 0 ? Double(clipped) / Double(count) : nil
+        stats.minChannelHistogram = darkest.bins
+        stats.crushedFraction = count > 0 ? Double(crushed) / Double(count) : nil
         return stats
     }
 }

@@ -25,7 +25,7 @@ extension AppState {
             statusMessage = "Select two or more photos — exposures are matched to the active one"
             return
         }
-        statusMessage = "Reading exposure settings…"
+        statusMessage = "Measuring exposures…"
         let urls = targets.map(\.id)
         // Probes: every frame as it renders with its tone sliders at zero, so the
         // measurement is of the capture and not of an edit the match is about to move.

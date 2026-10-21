@@ -191,6 +191,32 @@ final class ExposureMatchMeasuredTests: XCTestCase {
         XCTAssertNil(ExposureMatch.measureOverlap(reference: reference, frame: other))
     }
 
+    /// Two different scenes with the same composition — bright above, dark below, the
+    /// shape of nearly every outdoor frame — must not match. Level correlation scored
+    /// unrelated corpus frames up to 0.87 on exactly this; gradients do not.
+    func testSameCompositionDifferentSceneIsNotMeasured() {
+        func outdoor(_ seed: Double) -> ExposureMatch.LumaGrid {
+            var ev: [Double?] = []
+            for y in 0..<43 {
+                for x in 0..<64 {
+                    let sky = y < 18 ? 1.5 : -2.0
+                    ev.append(sky + 0.5 * sin(Double(x) * (0.9 + seed) + Double(y) * seed * 3)
+                              * cos(Double(y) * (1.7 - seed)))
+                }
+            }
+            return ExposureMatch.LumaGrid(columns: 64, rows: 43, ev: ev)
+        }
+        XCTAssertNil(ExposureMatch.measureOverlap(reference: outdoor(0.1), frame: outdoor(0.45)))
+    }
+
+    /// A pan at the same focal length: the frame shifted by a fifth of its width.
+    func testOverlapMeasuresAPanAtTheSameFocalLength() throws {
+        let reference = grid(cols: 64, rows: 43, field: (0, 0, 1))
+        let frame = grid(cols: 64, rows: 43, field: (0.2, 0.05, 1), offset: -0.5)
+        let o = try XCTUnwrap(ExposureMatch.measureOverlap(reference: reference, frame: frame))
+        XCTAssertEqual(o.stopsBrighter, -0.5, accuracy: 0.05)
+    }
+
     func testAMeasuredFrameIsMatchedOnItsMeasurementNotItsEXIF() {
         // 6929 (1/50, f/5.6, ISO 250) against 6933 (1/80, f/5.6, ISO 640): EXIF says
         // +0.68 EV, the shared view says +0.36.

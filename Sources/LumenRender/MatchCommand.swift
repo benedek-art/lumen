@@ -100,7 +100,7 @@ extension LumenRenderCLI {
                 exifExposure: i == 0 ? 0 : exifPlan.exposures[i],
                 matchedExposure: exposure, renderedMedianEncoded: median,
                 renderedMeanEncoded: mean))
-            print("\(i) measured +\(frames[i].measuredStopsBrighter.map { fmt($0, 3) } ?? "-") EV"
+            print("\(i) measured \(frames[i].measuredStopsBrighter.map { fmt($0, 3) } ?? "-") EV"
                   + " (ncc \(overlaps[i].map { fmt($0.correlation, 3) } ?? "-"))  matched "
                   + "\(exposure.map { fmt($0, 2) } ?? "-")  exif-only "
                   + "\((i == 0 ? 0 : exifPlan.exposures[i]).map { fmt($0, 2) } ?? "-")"

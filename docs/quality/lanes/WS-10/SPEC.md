@@ -19,8 +19,9 @@ python3 docs/quality/lanes/WS-10/tools/pair_residual.py <matched exposure for 69
 | # | Claim | Threshold | Measured by |
 |---|---|---|---|
 | M1 | The pair is equalised: residual on the registered overlap after Match | \|median\| and \|log-mean\| residual <= 0.10 EV | pair_residual.py |
-| M2 | The measured overlap finds the pair | NCC >= 0.9 at proxy scale; measured offset within 0.05 EV of the full-resolution registration | `lumen-render match` vs pair_residual.py `residualBeforeLogMeanEV` |
-| M3 | Frames that share no view fall back to EXIF (Lightroom's rule) | `measureOverlap` returns nil below NCC 0.75; plan uses EXIF | `ExposureMatchMeasuredTests.testFramesThatShareNoViewAreNotMeasured`, `testAMeasuredFrameIsMatchedOnItsMeasurementNotItsEXIF` |
+| M2 | The measured overlap finds the pair | score (lowest-quadrant gradient NCC) >= 0.7 at proxy scale; measured offset within 0.05 EV of the full-resolution registration | `lumen-render match` vs pair_residual.py `residualBeforeLogMeanEV` |
+| M3 | Frames that share no view fall back to EXIF (Lightroom's rule) | over all 600 ordered corpus pairs, only 6929/6933 (both orders) are measured; same-composition synthetic scenes (shared horizon, different texture) and white noise return nil | `python3 docs/quality/lanes/WS-10/tools/all_pairs.py`; `testFramesThatShareNoViewAreNotMeasured`, `testSameCompositionDifferentSceneIsNotMeasured` |
+| M7 | A pan at the same focal length is measured | synthetic 20 % pan, −0.5 EV: within 0.05 EV | `testOverlapMeasuresAPanAtTheSameFocalLength` |
 | M4 | Crop and re-aim do not fool it | synthetic 1.5x crop, off-centre, +0.39 EV: measured within 0.05 EV, both directions | `ExposureMatchMeasuredTests.testOverlapMeasuresACroppedReaimedFrame` |
 | M5 | Every existing EXIF contract still holds (rounding, clamping, skipping, summaries) | existing `ExposureMatchTests` unchanged and passing | `swift test --filter ExposureMatch` |
 | M6 | One undo step, status line says what basis was used | summary ends "by measured brightness" when measured | `testAMeasuredFrameIsMatchedOnItsMeasurementNotItsEXIF` |
