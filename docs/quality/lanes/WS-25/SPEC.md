@@ -109,3 +109,8 @@ prints every number below; lines 10-11 are `LumenPipelineTests.GeometryGPUParity
   fractional crop) and the rectangle `RenderGraph.applyVignette` (WS-41) centres on.
   Keeping it means no delivered size and no vignette moves. It is `outputWidth` or one
   more. Tested against the legacy closed form on 300 random geometries.
+- **15 (corpus metric).** RMS over every line within 30° of vertical counts arch tangents,
+  gable and spire flanks and rose-window tracery, which no correction should make vertical
+  (see `evidence/upright_7301.png`, red). The corpus claim is restated on the robust
+  reading `UprightSolver.Residual.verticalMedian`: length-weighted median |deviation| of
+  re-detected lines within 20° of vertical, ≥ 60% drop. The RMS numbers stay in the report.

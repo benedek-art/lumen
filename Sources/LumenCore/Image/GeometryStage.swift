@@ -106,10 +106,14 @@ public struct Homography: Equatable, Sendable {
         return r.normalized
     }
 
-    /// Scaled so the bottom-right entry is 1 (a homography is defined up to scale).
+    /// Scaled so the bottom-right entry is ±1 (a homography is defined up to scale).
+    /// By the MAGNITUDE of m8, never its sign: `apply`'s w > 0 is how a point behind the
+    /// projection centre is told from one in front, and dividing by a negative m8 would
+    /// flip every w and blank the frame — and differently on the GPU, whose conjugated
+    /// map has a different m8.
     public var normalized: Homography {
         guard abs(m8) > 1e-300 else { return self }
-        let k = 1 / m8
+        let k = 1 / abs(m8)
         return Homography(m0 * k, m1 * k, m2 * k, m3 * k, m4 * k, m5 * k, m6 * k, m7 * k, 1)
     }
 
