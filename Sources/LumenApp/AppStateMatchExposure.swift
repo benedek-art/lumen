@@ -1,8 +1,10 @@
 // AppStateMatchExposure.swift
 // Match Total Exposures (Lightroom's Settings > Match Total Exposures), Photo menu
 // ⌥⇧⌘M: the primary selection is the reference, and every other selected frame's
-// Exposure slider is set so its capture settings plus its slider total the same as the
-// reference's. The arithmetic is `ExposureMatch` in LumenCore, where it is tested.
+// Exposure slider is set so it renders as bright as the reference. Where a frame shares
+// a view with the reference its brightness is MEASURED on that shared content (the same
+// proxy Auto Tone reads, tone sliders at zero); otherwise the capture settings decide,
+// which is Lightroom's rule. `ExposureMatch` in LumenCore says why and holds the tests.
 //
 // The EXIF is read off the files rather than from `PhotoItem`, which carries only ISO.
 // `CaptureMetadataReader` reads the metadata block and stops, so a few hundred frames of
@@ -25,7 +27,46 @@ extension AppState {
         }
         statusMessage = "Reading exposure settings…"
         let urls = targets.map(\.id)
+        // Probes: every frame as it renders with its tone sliders at zero, so the
+        // measurement is of the capture and not of an edit the match is about to move.
+        var probes: [URL: Recipe] = [:]
+        for photo in targets {
+            var probe = recipe(for: photo)
+            probe.develop.tone = Tone()
+            probes[photo.id] = probe
+        }
+        let strokes = Dictionary(uniqueKeysWithValues: probes.map {
+            ($0.key, strokeSets(for: $0.value))
+        })
+        let coordinator = renderCoordinator
         Task {
+            var grids: [URL: ExposureMatch.LumaGrid] = [:]
+            for url in urls {
+                guard let probe = probes[url],
+                      let proxy = await Self.measurementProxy(
+                          url: url, recipe: probe, coordinator: coordinator,
+                          strokeSets: strokes[url] ?? [:]) else { continue }
+                grids[url] = await Task.detached(priority: .userInitiated) {
+                    ExposureMatch.LumaGrid(encodedSRGB: proxy.bytes, width: proxy.width,
+                                           height: proxy.height, channels: 4,
+                                           transform: proxy.transform,
+                                           displayWhite: proxy.transform.white)
+                }.value
+            }
+            let referenceID = reference.id
+            let referenceGrid = grids[referenceID]
+            let measuredGrids = grids
+            let measured = await Task.detached(priority: .userInitiated) {
+                var out: [URL: Double] = [:]
+                guard let referenceGrid else { return out }
+                for (url, grid) in measuredGrids where url != referenceID {
+                    if let overlap = ExposureMatch.measureOverlap(reference: referenceGrid,
+                                                                  frame: grid) {
+                        out[url] = overlap.stopsBrighter
+                    }
+                }
+                return out
+            }.value
             let captures = await Task.detached(priority: .userInitiated) {
                 var out: [URL: ExposureMatch.Capture] = [:]
                 for url in urls {
@@ -39,7 +80,7 @@ extension AppState {
             }.value
             await MainActor.run {
                 self.applyExposureMatch(reference: reference, targets: targets,
-                                        captures: captures)
+                                        captures: captures, measured: measured)
             }
         }
     }
@@ -52,7 +93,8 @@ extension AppState {
     /// would undo their move. The gesture is closed first for the reason Auto Tone gives
     /// at `applyAutoToneSuggestions`.
     func applyExposureMatch(reference: PhotoItem, targets: [PhotoItem],
-                            captures: [URL: ExposureMatch.Capture]) {
+                            captures: [URL: ExposureMatch.Capture],
+                            measured: [URL: Double] = [:]) {
         // The photos as they stand now: one that left the library during the read (a
         // removal, a folder switch) gets no recipe written, and the rest carry their
         // current fields (`recipe(for:)` reads `iso` for an unedited frame's baseline).
@@ -75,7 +117,8 @@ extension AppState {
         let frames: [ExposureMatch.Frame<URL>] = liveTargets.map { photo in
             ExposureMatch.Frame(id: photo.id,
                                 capture: captures[photo.id] ?? ExposureMatch.Capture(),
-                                exposure: recipe(for: photo).develop.tone.exposure)
+                                exposure: recipe(for: photo).develop.tone.exposure,
+                                measuredStopsBrighter: measured[photo.id])
         }
         let plan = ExposureMatch.plan(referenceID: liveReference.id, frames: frames)
         let exposures = plan.exposures

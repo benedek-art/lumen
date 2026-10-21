@@ -865,13 +865,25 @@ public struct AutoTone: Sendable {
         public var maxEV: Double
         /// Mean log-luminance of detected faces, if any — Auto is face-weighted.
         public var faceMeanEV: Double?
+        /// Mean OKLab chroma of the measured frame, which sets Auto's Vibrance. nil when
+        /// the caller measured luminance only.
+        public var meanChroma: Double?
+        /// Histogram of each pixel's brightest channel, on the same axis as `histogram`.
+        /// A saturated highlight clips a channel long before its luminance reaches
+        /// white, so Auto protects highlights against this one. nil: luminance only.
+        public var maxChannelHistogram: [Double]?
+        /// Fraction of the measured proxy with a channel at code 255. nil: not measured.
+        public var clippedFraction: Double?
 
         public init(histogram: [Double], minEV: Double = -12, maxEV: Double = 12,
-                    faceMeanEV: Double? = nil) {
+                    faceMeanEV: Double? = nil, meanChroma: Double? = nil,
+                    maxChannelHistogram: [Double]? = nil) {
             self.histogram = histogram
             self.minEV = minEV
             self.maxEV = maxEV
             self.faceMeanEV = faceMeanEV
+            self.meanChroma = meanChroma
+            self.maxChannelHistogram = maxChannelHistogram
         }
 
         /// EV at the given cumulative fraction of the histogram.
@@ -907,6 +919,10 @@ public struct AutoTone: Sendable {
     public static let faceTargetEV: Double = -0.35
     public static let sceneTargetEV: Double = -0.6
 
+    /// The pre-WS-09 heuristic: thresholds on the input, no look at the output. The app
+    /// calls `auto(from:render:)`; this stays for `lumen-render auto --legacy`, which
+    /// renders the before/after evidence against it, and for the tests that pin it.
+    ///
     /// Compute slider values. Every value returned is inside its slider's range and
     /// lands in the UI as a normal, undoable edit.
     public static func suggest(from stats: Statistics) -> Tone {
@@ -948,6 +964,313 @@ public struct AutoTone: Sendable {
         t.contrastPivot = stats.faceMeanEV.map { Num.clamp($0 + t.exposure, -4, 4) } ?? 0
 
         return t
+    }
+}
+
+// MARK: - Auto's whole answer
+
+extension AutoTone {
+
+    /// Everything Auto writes: the six tone sliders (and the pivot), plus Vibrance.
+    /// Saturation is left alone, as Lightroom's Auto leaves it in practice.
+    public struct Result: Equatable, Sendable {
+        public var tone: Tone
+        public var vibrance: Double
+
+        public init(tone: Tone, vibrance: Double = 0) {
+            self.tone = tone
+            self.vibrance = vibrance
+        }
+
+        /// Write Auto's values into a recipe. Only these fields; nothing else moves.
+        public func apply(to recipe: inout Recipe) {
+            recipe.develop.tone = tone
+            recipe.develop.color.vibrance = vibrance
+        }
+    }
+
+    // Targets on the OUTPUT, in sRGB-encoded luminance (0…1, ×255 = the grey code).
+    //
+    // The old `suggest` set each slider from a threshold on the INPUT and never asked
+    // what the picture would look like afterwards: Highlights fired only past +3 EV,
+    // Whites and Blacks only on a "flat" scene, so on the corpus a normal frame got a
+    // median 0.1 EV off where it was and endpoints that neither reached white nor black.
+    // Auto now predicts the rendered output of every candidate — the same ToneEngine
+    // and DisplayTransform the renderer runs, evaluated at the frame's own percentiles —
+    // and solves each slider until the prediction lands on a target.
+
+    /// Where the frame's median lands. 0.42 encoded is about −0.4 EV on the default
+    /// transform: a normal key, a touch under mid-grey, where Lightroom's Auto puts an
+    /// average daylight frame.
+    public static let keyTarget: Double = 0.42
+    /// Faces sit brighter than the frame: skin is a 35-40 % reflector.
+    public static let faceKeyTarget: Double = 0.50
+    /// Exposure alone may put the 98th percentile no brighter than this, plus
+    /// `headroomAllowanceEV`, which Highlights is then left to recover.
+    public static let headroomTarget: Double = 0.93
+    public static let headroomAllowanceEV: Double = 0.5
+    /// Highlights pulls the brightest channel's 99th percentile back under this, and
+    /// only if it is above.
+    public static let highlightTarget: Double = 0.95
+    /// Shadows lifts the 4th percentile up to this, and only if it is below.
+    public static let shadowTarget: Double = 0.06
+    /// Whites puts the 99.8th percentile here: the top 0.2 % may touch white, which is
+    /// "just clip" — Lightroom's Alt-drag habit, done for you.
+    public static let whiteTarget: Double = 0.98
+    /// Blacks puts the 0.2nd percentile here (code 3).
+    public static let blackTarget: Double = 0.012
+
+    /// How far Auto may push each slider. Auto that shouts is Auto the user turns off;
+    /// these bounds are Lightroom's own Auto envelope on ordinary frames.
+    public static let exposureLimit: ClosedRange<Double> = -4...4
+    public static let highlightsLimit: ClosedRange<Double> = -70...0
+    public static let shadowsLimit: ClosedRange<Double> = 0...50
+    public static let contrastLimit: ClosedRange<Double> = 0...20
+    public static let whitesLimit: ClosedRange<Double> = -40...60
+    public static let blacksLimit: ClosedRange<Double> = -60...10
+    public static let vibranceLimit: ClosedRange<Double> = 5...15
+
+    /// Auto's answer for a frame, against the look it will be rendered through.
+    ///
+    /// `render` is the recipe's display transform parameters (`look.render.resolved()`),
+    /// so the prediction runs through the same curve the picture will. Zones are left
+    /// out: Auto measures with the tone sliders at zero, and the Zones panel is the
+    /// photographer's, not Auto's.
+    public static func auto(from stats: Statistics,
+                            render: DisplayTransformParams = Recipe().look.render.resolved(),
+                            exposureCeiling: Double = .infinity)
+        -> Result {
+        let predictor = Predictor(stats: stats, render: render)
+        guard predictor.isUsable else { return Result(tone: Tone(), vibrance: 0) }
+        var t = Tone()
+        let key = stats.faceMeanEV != nil ? faceKeyTarget : keyTarget
+        // Coordinate descent below: each slider is solved with the others held, then
+        // again, because they share the curve; four passes settle it.
+        //
+        // Highlight headroom: the brightest 2 % of the frame may not be pushed past
+        // `headroomTarget` by Exposure alone. Without it a low-key frame — a black
+        // jacket, a backlit window — is dragged to an average key and its subject, the
+        // bright part, blows: measured on the corpus, 1192's stained glass went to
+        // 2 % clipped and 2348's jacket to mid-grey.
+        let headroom = predictor.solve(Tone(), \.exposure, exposureLimit,
+                                       at: predictor.hot98, to: headroomTarget)
+        for _ in 0..<4 {
+            t.exposure = Swift.min(
+                predictor.solve(t, \.exposure, exposureLimit,
+                                at: predictor.anchorEV, to: key),
+                headroom + headroomAllowanceEV, exposureCeiling)
+            // Contrast pivots on the subject, so it stretches the ends and leaves the
+            // key where Exposure put it.
+            t.contrastPivot = Num.clamp(predictor.anchorEV + t.exposure, -4, 4)
+            t.whites = predictor.solve(t, \.whites, whitesLimit,
+                                       at: predictor.hot998, to: whiteTarget)
+            // Highlights is protection, not compression: it moves only when the
+            // brightest 1 % would still crowd white after Whites, so the two never
+            // pull against each other on a frame with nothing to recover.
+            t.highlights = predictor.solve(t, \.highlights, highlightsLimit,
+                                           at: predictor.hot99, to: highlightTarget,
+                                           onlyIf: { $0 > highlightTarget })
+            t.shadows = predictor.solve(t, \.shadows, shadowsLimit,
+                                        at: predictor.p04, to: shadowTarget,
+                                        onlyIf: { $0 < shadowTarget })
+            t.blacks = predictor.solve(t, \.blacks, blacksLimit,
+                                       at: predictor.p002, to: blackTarget)
+            // Contrast only where Whites or Blacks ran out of travel: our Whites moves
+            // the white point 1.5 EV at +100, so on a flat overcast frame it cannot
+            // reach just-clip alone. Contrast closes part of the gap, inside its cap.
+            let whiteShort = t.whites >= whitesLimit.upperBound
+                && predictor.encoded(predictor.hot998, t) < whiteTarget - 0.01
+            let blackShort = t.blacks <= blacksLimit.lowerBound
+                && predictor.encoded(predictor.p002, t) > blackTarget + 0.01
+            if whiteShort || blackShort {
+                t.contrast = predictor.solveSpread(t, contrastLimit,
+                                                   whiteShort: whiteShort,
+                                                   blackShort: blackShort)
+            }
+        }
+        // Round to what the sliders show, so the values read as a photographer's.
+        t.exposure = (t.exposure * 100).rounded() / 100
+        t.contrast = t.contrast.rounded()
+        t.highlights = t.highlights.rounded()
+        t.shadows = t.shadows.rounded()
+        t.whites = t.whites.rounded()
+        t.blacks = t.blacks.rounded()
+        if t.contrast == 0 && stats.faceMeanEV == nil { t.contrastPivot = 0 }
+        t.contrastPivot = (t.contrastPivot * 100).rounded() / 100
+        return Result(tone: t, vibrance: vibrance(forMeanChroma: stats.meanChroma))
+    }
+
+    // MARK: Closing the loop on clipping
+
+    /// The clipping Auto may add: half a percent of the frame beyond what the probe
+    /// (tone at zero) already clipped. A blown sky stays blown; Auto may not blow more.
+    public static let clipAllowance: Double = 0.005
+    /// At most this many corrective proxy renders after the first answer.
+    public static let maxClipRefinements = 3
+
+    public static func clipBudget(probe: Statistics) -> Double {
+        (probe.clippedFraction ?? 0) + clipAllowance
+    }
+
+    /// Auto's next answer when its last one, rendered, clipped `measuredClip` of the
+    /// frame; nil when that is inside the budget and the answer stands.
+    ///
+    /// The prediction is luminance through the neutral curve, and the brightest-channel
+    /// histogram read back through the same curve; neither can see what the gamut map
+    /// does to a saturated colour, which clips a channel in sRGB while its luminance is
+    /// well under white. Measured on the corpus, 1192's stained glass came out 1.8 %
+    /// clipped with the prediction saying none. So the app renders the proxy once more
+    /// with the answer, counts, and if it is over, Exposure comes down and everything
+    /// else is solved again around it.
+    public static func refine(_ previous: Result, probe: Statistics,
+                              render: DisplayTransformParams = Recipe().look.render.resolved(),
+                              measuredClip: Double) -> Result? {
+        let budget = clipBudget(probe: probe)
+        guard measuredClip.isFinite, measuredClip > budget else { return nil }
+        // A stop of Exposure roughly halves what sits above a clip point; step by the
+        // log of the overshoot, at least a quarter stop, at most one.
+        let step = Num.clamp(0.5 * log2(measuredClip / budget), 0.25, 1.0)
+        let ceiling = previous.tone.exposure - step
+        guard ceiling >= exposureLimit.lowerBound else { return nil }
+        return auto(from: probe, render: render, exposureCeiling: ceiling)
+    }
+
+    /// Predicted encoded output at the given input percentiles, for the audit tools.
+    public static func predictEncoded(_ stats: Statistics, tone: Tone,
+                                      render: DisplayTransformParams,
+                                      percentiles: [Double]) -> [Double] {
+        let predictor = Predictor(stats: stats, render: render)
+        return percentiles.map {
+            predictor.encoded(stats.interpolatedPercentileEV($0), tone)
+        }
+    }
+
+    /// Modest Vibrance, more on a muted frame than on one that is already saturated.
+    /// Lightroom's Auto lands between about +5 and +20 on ordinary frames;
+    /// this stays inside +5…+15.
+    public static func vibrance(forMeanChroma chroma: Double?) -> Double {
+        guard let chroma, chroma.isFinite else { return 10 }
+        // OKLab mean chroma: an overcast street reads ~0.025, a fruit bowl ~0.08.
+        let v = 15 - 200 * (chroma - 0.03)
+        return Num.clamp(v, vibranceLimit.lowerBound, vibranceLimit.upperBound).rounded()
+    }
+
+    /// Predicts the rendered, encoded luminance of a scene EV under a candidate tone.
+    struct Predictor {
+        let render: DisplayTransformParams
+        let anchorEV: Double
+        let p002: Double, p04: Double, p98: Double, p998: Double
+        /// The brightest-channel percentiles: what Exposure's headroom, Highlights and
+        /// Whites protect, so a red flower or a stained-glass pane is not clipped while
+        /// its luminance still reads as grey.
+        let hot98: Double, hot99: Double, hot998: Double
+        let isUsable: Bool
+
+        init(stats: Statistics, render: DisplayTransformParams) {
+            self.render = render
+            let total = stats.histogram.reduce(0, +)
+            isUsable = total > 0 && stats.histogram.count >= 2
+            anchorEV = stats.faceMeanEV ?? stats.interpolatedPercentileEV(0.5)
+            p002 = stats.interpolatedPercentileEV(0.002)
+            p04 = stats.interpolatedPercentileEV(0.04)
+            p98 = stats.interpolatedPercentileEV(0.98)
+            p998 = stats.interpolatedPercentileEV(0.998)
+            hot98 = stats.brightestChannelPercentileEV(0.98)
+            hot99 = stats.brightestChannelPercentileEV(0.99)
+            hot998 = stats.brightestChannelPercentileEV(0.998)
+        }
+
+        /// Encoded display luminance (0…1) of a scene pixel at `ev` (relative to
+        /// mid-grey, before Exposure) rendered with `tone`.
+        func encoded(_ ev: Double, _ tone: Tone) -> Double {
+            let engine = ToneEngine(tone: tone)
+            var params = render
+            engine.applyAnchors(to: &params)
+            let transform = DisplayTransform(params)
+            let t = ev + Num.clamp(tone.exposure, -10, 10)
+            let y = transform.tone(DisplayTransform.midGrey * exp2(t + engine.stops(at: t)))
+            let normalized = transform.white > 0 ? y / transform.white : y
+            return TransferFunction.srgb.encode(Num.saturate(normalized))
+        }
+
+        /// The smallest Contrast in `limits` that brings the short endpoint(s) to their
+        /// target. Contrast pushes both ends outward, so each is monotone in it.
+        func solveSpread(_ base: Tone, _ limits: ClosedRange<Double>,
+                         whiteShort: Bool, blackShort: Bool) -> Double {
+            func reached(_ c: Double) -> Bool {
+                var probe = base
+                probe.contrast = c
+                let w = !whiteShort || encoded(hot998, probe) >= AutoTone.whiteTarget
+                let b = !blackShort || encoded(p002, probe) <= AutoTone.blackTarget
+                return w && b
+            }
+            var lo = Swift.max(limits.lowerBound, 0), hi = limits.upperBound
+            if reached(lo) { return lo }
+            if !reached(hi) { return hi }
+            for _ in 0..<20 {
+                let mid = (lo + hi) / 2
+                if reached(mid) { hi = mid } else { lo = mid }
+            }
+            return hi
+        }
+
+        /// The value of `slider` inside `limits` that puts `ev` at `target`. Every
+        /// slider Auto solves brightens monotonically as it rises, so this is a
+        /// bisection. `onlyIf` gates on the output with the slider at zero.
+        func solve(_ base: Tone, _ slider: WritableKeyPath<Tone, Double>,
+                   _ limits: ClosedRange<Double>, at ev: Double, to target: Double,
+                   onlyIf gate: ((Double) -> Bool)? = nil) -> Double {
+            var probe = base
+            if let gate {
+                probe[keyPath: slider] = 0
+                guard gate(encoded(ev, probe)) else { return 0 }
+            }
+            var lo = limits.lowerBound, hi = limits.upperBound
+            probe[keyPath: slider] = lo
+            if encoded(ev, probe) >= target { return lo }
+            probe[keyPath: slider] = hi
+            if encoded(ev, probe) <= target { return hi }
+            for _ in 0..<24 {
+                let mid = (lo + hi) / 2
+                probe[keyPath: slider] = mid
+                if encoded(ev, probe) < target { lo = mid } else { hi = mid }
+            }
+            return (lo + hi) / 2
+        }
+    }
+}
+
+extension AutoTone.Statistics {
+    /// `percentileEV` reads a bin index back; this spreads each bin's mass across its
+    /// width, so a percentile moves continuously instead of in 0.19 EV steps — the
+    /// solver is aiming at a single code value and a stepped input made it hop.
+    public func interpolatedPercentileEV(_ fraction: Double) -> Double {
+        interpolatedPercentileEV(fraction, of: histogram)
+    }
+
+    /// The same read on the brightest-channel histogram, or on luminance without one.
+    public func brightestChannelPercentileEV(_ fraction: Double) -> Double {
+        guard let h = maxChannelHistogram, h.count == histogram.count,
+              h.reduce(0, +) > 0 else { return interpolatedPercentileEV(fraction) }
+        return interpolatedPercentileEV(fraction, of: h)
+    }
+
+    func interpolatedPercentileEV(_ fraction: Double, of histogram: [Double]) -> Double {
+        let total = histogram.reduce(0, +)
+        let n = histogram.count
+        guard total > 0, n >= 2 else { return 0 }
+        let step = (maxEV - minEV) / Double(n - 1)
+        let target = total * Num.saturate(fraction)
+        var acc = 0.0
+        for (i, v) in histogram.enumerated() where v > 0 {
+            if acc + v >= target {
+                let within = (target - acc) / v
+                let centre = minEV + Double(i) * step
+                return centre - step / 2 + within * step
+            }
+            acc += v
+        }
+        return maxEV
     }
 }
 
@@ -1071,5 +1394,59 @@ extension AutoTone {
         public var statistics: Statistics {
             Statistics(histogram: bins, minEV: minEV, maxEV: maxEV)
         }
+    }
+}
+
+// MARK: - Statistics from an 8-bit sRGB proxy
+
+extension AutoTone {
+
+    /// Scene-referred statistics of an 8-bit sRGB-encoded proxy that was rendered through
+    /// `transform`. The app hands in its CGImage's RGBA bytes (`channels` 4); the headless
+    /// renderer hands in RGB (`channels` 3). One loop, so the two measure the same thing.
+    ///
+    /// `displayWhite` reconciles the proxy's normalized 1.0 with `transform.tone`'s
+    /// absolute display-linear answer; it is 1.0 for every SDR recipe.
+    public static func statistics(encodedSRGB bytes: [UInt8], channels: Int,
+                                  transform: DisplayTransform,
+                                  displayWhite: Double) -> Statistics? {
+        guard channels >= 3, bytes.count >= channels else { return nil }
+        // sRGB primaries, because that is the space the proxy was encoded in.
+        let weights = RGBColorSpace.srgb.luminanceWeights
+        var decode = [Double](repeating: 0, count: 256)
+        for i in 0..<256 { decode[i] = TransferFunction.srgb.decode(Double(i) / 255) }
+        var histogram = SceneHistogram(transform: transform)
+        var brightest = SceneHistogram(transform: transform)
+        var chroma = 0.0
+        var count = 0
+        var clipped = 0
+        for i in stride(from: 0, to: bytes.count - channels + 1, by: channels) {
+            let r = decode[Int(bytes[i])], g = decode[Int(bytes[i + 1])]
+            let b = decode[Int(bytes[i + 2])]
+            histogram.add(displayLuminance: (weights.r * r + weights.g * g + weights.b * b)
+                * displayWhite)
+            brightest.add(displayLuminance: Swift.max(r, g, b) * displayWhite)
+            chroma += okLabChroma(r, g, b)
+            if bytes[i] == 255 || bytes[i + 1] == 255 || bytes[i + 2] == 255 { clipped += 1 }
+            count += 1
+        }
+        var stats = histogram.statistics
+        stats.meanChroma = count > 0 ? chroma / Double(count) : nil
+        stats.maxChannelHistogram = brightest.bins
+        stats.clippedFraction = count > 0 ? Double(clipped) / Double(count) : nil
+        return stats
+    }
+}
+
+extension AutoTone {
+    /// OKLab chroma of a linear-sRGB colour (Ottosson's published matrices). A colour
+    /// statistic for Auto's Vibrance, not a colour-managed measurement.
+    static func okLabChroma(_ r: Double, _ g: Double, _ b: Double) -> Double {
+        let l = cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+        let m = cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+        let s = cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+        let a = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s
+        let bb = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s
+        return (a * a + bb * bb).squareRoot()
     }
 }

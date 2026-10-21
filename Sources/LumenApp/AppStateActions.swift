@@ -33,18 +33,36 @@ extension AppState {
         statusMessage = "Analysing…"
 
         Task {
-            var suggestions: [URL: Tone] = [:]
+            var suggestions: [URL: AutoTone.Result] = [:]
             for (url, recipe) in recipesByURL {
-                // Neutral tone for the analysis pass: measuring the scene through the
-                // edit you are about to replace would make Auto depend on its own
-                // previous answer.
+                // Neutral tone and Vibrance for the analysis pass: measuring the scene
+                // through the edit you are about to replace would make Auto depend on
+                // its own previous answer.
                 var probe = recipe
                 probe.develop.tone = Tone()
+                probe.develop.color.vibrance = 0
                 guard let stats = await Self.statistics(url: url, recipe: probe,
                                                         coordinator: renderCoordinator,
                                                         strokeSets: strokeSets(for: probe))
                 else { continue }
-                suggestions[url] = AutoTone.suggest(from: stats)
+                // Auto predicts its own output through the look the photo renders with,
+                // then checks it: one more proxy render with the answer, and Exposure
+                // comes down while that clips more than the budget (`AutoTone.refine`
+                // says why the prediction alone cannot see it).
+                let render = probe.look.render.resolved()
+                var result = AutoTone.auto(from: stats, render: render)
+                for _ in 0..<AutoTone.maxClipRefinements {
+                    var trial = probe
+                    result.apply(to: &trial)
+                    guard let check = await Self.statistics(
+                              url: url, recipe: trial, coordinator: renderCoordinator,
+                              strokeSets: strokeSets(for: trial)),
+                          let next = AutoTone.refine(result, probe: stats, render: render,
+                                                     measuredClip: check.clippedFraction ?? 0)
+                    else { break }
+                    result = next
+                }
+                suggestions[url] = result
             }
             await MainActor.run { self.applyAutoToneSuggestions(suggestions) }
         }
@@ -59,7 +77,20 @@ extension AppState {
     /// older value over Auto's, so memory showed Auto's tone while the catalog and the
     /// sidecar kept the slider's. Same remedy as undo: close the gesture first, so its
     /// pending write lands before Auto's and Auto's is the last one.
+    func applyAutoToneSuggestions(_ suggestions: [URL: AutoTone.Result]) {
+        landAutoTone(suggestions.mapValues { result -> (inout Recipe) -> Void in
+            { (recipe: inout Recipe) in result.apply(to: &recipe) }
+        })
+    }
+
+    /// Tone only, Vibrance left as it is: the landing's contract, without a measurement.
     func applyAutoToneSuggestions(_ suggestions: [URL: Tone]) {
+        landAutoTone(suggestions.mapValues { tone -> (inout Recipe) -> Void in
+            { (recipe: inout Recipe) in recipe.develop.tone = tone }
+        })
+    }
+
+    private func landAutoTone(_ suggestions: [URL: (inout Recipe) -> Void]) {
         guard !suggestions.isEmpty else {
             statusMessage = "Auto could not read those files"
             return
@@ -77,7 +108,7 @@ extension AppState {
         var before: [URL: HistoryStack.PhotoEdit] = [:]
         var after: [URL: HistoryStack.PhotoEdit] = [:]
         var applied: [URL: Recipe] = [:]
-        for (url, tone) in landing {
+        for (url, write) in landing {
             // The photo's real baseline, not bare defaults: Auto measured
             // through recipe(for:) — starting from Recipe() here installed a
             // recipe it never measured, stripping a JPEG's Linear preset
@@ -87,7 +118,7 @@ extension AppState {
             let old = recipes[url]
                 ?? AppState.startingRecipe(for: url, iso: iso)
             var updated = old
-            updated.develop.tone = tone
+            write(&updated)
             before[url] = HistoryStack.PhotoEdit(recipe: old)
             after[url] = HistoryStack.PhotoEdit(recipe: updated)
             applied[url] = updated
@@ -111,10 +142,31 @@ extension AppState {
             + (applied.count == 1 ? "" : "s")
     }
 
-    private static func statistics(url: URL, recipe: Recipe,
-                                   coordinator: RenderCoordinator,
-                                   strokeSets: [String: BrushStrokeSet]
-                                   ) async -> AutoTone.Statistics? {
+    static func statistics(url: URL, recipe: Recipe,
+                           coordinator: RenderCoordinator,
+                           strokeSets: [String: BrushStrokeSet]
+                           ) async -> AutoTone.Statistics? {
+        guard let proxy = await measurementProxy(url: url, recipe: recipe,
+                                                 coordinator: coordinator,
+                                                 strokeSets: strokeSets) else { return nil }
+        return AutoTone.statistics(encodedSRGB: proxy.bytes, channels: 4,
+                                   transform: proxy.transform,
+                                   displayWhite: proxy.transform.white)
+    }
+
+    /// The measured proxy as 8-bit sRGB RGBA, with the transform it was rendered
+    /// through. Auto Tone and Match Total Exposures both read it.
+    struct MeasurementProxy: Sendable {
+        let bytes: [UInt8]
+        let width: Int
+        let height: Int
+        let transform: DisplayTransform
+    }
+
+    static func measurementProxy(url: URL, recipe: Recipe,
+                                 coordinator: RenderCoordinator,
+                                 strokeSets: [String: BrushStrokeSet]
+                                 ) async -> MeasurementProxy? {
         // A 512-px proxy is plenty for tonal statistics and costs a fraction of a
         // full render — Auto must feel instant or nobody presses it twice. One-shot,
         // so measuring the picture cannot cancel the frame the viewer is drawing.
@@ -131,29 +183,22 @@ extension AppState {
         // Off the main actor for real: `nonisolated` permits being called from
         // anywhere, it does not move the work, and the caller is a main-actor Task.
         return await Task.detached(priority: .userInitiated) {
-            histogramStatistics(from: result.image, transform: transform)
+            rgbaBytes(of: result.image).map {
+                MeasurementProxy(bytes: $0.bytes, width: $0.width, height: $0.height,
+                                 transform: transform)
+            }
         }.value
     }
 
-    /// Scene-referred log2-luminance histogram of a rendered proxy, in stops around
-    /// mid-grey.
+    /// The proxy's pixels as 8-bit sRGB RGBA.
     ///
-    /// This binned `log2(displayLuminance / 0.18)` and called the result a scene EV. It
-    /// is not one: the proxy has already been through the display transform, so the
-    /// value cannot exceed 1.0 and the expression cannot exceed +2.47 EV. `AutoTone
-    /// .suggest` fires highlight recovery at `percentileEV(0.995) + exposure > 3.0`, so
-    /// on a blown sky — the frame the branch exists for, and the single most common
-    /// thing an Auto button is pressed to do — it could never fire. The same squeeze at
-    /// the bottom had the shadow branch reading the transform's toe rather than the
-    /// photograph. Both thresholds are denominated in scene EV; the measurement was not.
-    ///
-    /// `AutoTone.SceneHistogram` puts it back where it belongs by inverting the curve
-    /// the render applied, and carries the two limits of doing so — censoring at the
-    /// anchors, and luminance rather than colour. The whole of the arithmetic lives
-    /// there because it is testable there and this function is not.
-    nonisolated static func histogramStatistics(from image: CGImage,
-                                                transform: DisplayTransform)
-        -> AutoTone.Statistics?
+    /// They are read back into SCENE EV by `AutoTone.statistics(encodedSRGB:)` and
+    /// `ExposureMatch.LumaGrid`, which invert the transform the render applied: binning
+    /// `log2(displayLuminance / 0.18)` (what this used to do) cannot exceed +2.47 EV, so
+    /// highlight recovery could never fire on a blown sky. The arithmetic lives in
+    /// LumenCore, where it is tested and where the headless renderer runs the same code.
+    nonisolated static func rgbaBytes(of image: CGImage)
+        -> (bytes: [UInt8], width: Int, height: Int)?
     {
         let width = image.width
         let height = image.height
@@ -165,26 +210,7 @@ extension AppState {
                                       bitsPerComponent: 8, bytesPerRow: width * 4,
                                       space: space, bitmapInfo: info) else { return nil }
         context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-
-        // sRGB primaries, because that is the space the proxy was drawn into. The Rec.
-        // 2020 weights that used to be here were a second unit mismatch in the same
-        // expression as the first, worth about 2% on a saturated pixel's luminance.
-        let weights = RGBColorSpace.srgb.luminanceWeights
-        // The finish table ends NORMALIZED against display white (RenderPlan's
-        // `display` divides by `finishScale`), so the proxy's 1.0 is display white
-        // whatever the display peak is, while `transform.tone` answers in absolute
-        // display-linear. One multiply reconciles them; it is 1.0 for every SDR recipe
-        // and is here for the one that pins an EDR white target.
-        let white = transform.white
-        var histogram = AutoTone.SceneHistogram(transform: transform)
-        for i in stride(from: 0, to: bytes.count, by: 4) {
-            let r = TransferFunction.srgb.decode(Double(bytes[i]) / 255)
-            let g = TransferFunction.srgb.decode(Double(bytes[i + 1]) / 255)
-            let b = TransferFunction.srgb.decode(Double(bytes[i + 2]) / 255)
-            histogram.add(displayLuminance:
-                (weights.r * r + weights.g * g + weights.b * b) * white)
-        }
-        return histogram.statistics
+        return (bytes, width, height)
     }
 
     // MARK: - Reset
