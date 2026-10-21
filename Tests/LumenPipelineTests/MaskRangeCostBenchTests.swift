@@ -1,9 +1,9 @@
 // MaskRangeCostBenchTests.swift
 // Lane M9b: what a range mask costs per frame, on the GPU path and on the CPU raster it
-// replaced, at the draft and settle sizes. Prints, asserts nothing about time: it runs
-// on whatever macOS runner CI hands out, and the numbers are for the lane report
-// (docs/quality/lanes/M9b/REPORT.md). Lines start with "M9b-bench" so a log grep finds
-// them.
+// replaced, at the draft and settle sizes. Prints, asserts nothing about time; the
+// numbers are for the lane report (docs/quality/lanes/M9b/REPORT.md). Lines start with
+// "M9b-bench" so a log grep finds them. Gated behind LUMEN_BENCH like the other benches:
+// the CPU half is minutes in a debug build, and CI never pays for it.
 
 #if os(macOS)
 
@@ -32,6 +32,8 @@ final class MaskRangeCostBenchTests: XCTestCase {
     }
 
     func testRangeMaskCostPerFrame() throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["LUMEN_BENCH"] == "1",
+                          "set LUMEN_BENCH=1")
         try XCTSkipUnless(KernelLibrary.rangeMasksAvailable)
         let device = try XCTUnwrap(MTLCreateSystemDefaultDevice())
         let context = CIContext(mtlDevice: device,

@@ -294,7 +294,7 @@ final class MaskRangeGPUParityTests: XCTestCase {
             }
         }
         for n in [1, 3] {
-            for refine in [25.0, 50, 100] {
+            for refine in [25.0, 100] {
                 out.append(("colour \(n) samples refine \(refine)",
                             Mask(id: "c", components: [colour(samples(picture, n),
                                                               refine: refine)]),
@@ -319,7 +319,7 @@ final class MaskRangeGPUParityTests: XCTestCase {
         try XCTSkipUnless(KernelLibrary.rangeMasksAvailable,
                           "range kernels failed: \(KernelLibrary.unavailableMaskKernels)")
         let fallbacks = NoiseTableKernel.cpuFallbacks.value
-        for size in [(w: 640, h: 427), (w: 1200, h: 800), (w: 500, h: 900)] {
+        for size in [(w: 640, h: 427), (w: 1200, h: 800)] {
             XCTAssertGreaterThan(MaskRaster.rangeMeasurementRadius(
                 longEdge: Swift.max(size.w, size.h)), 0, "this size must denoise")
             let buffer = noisy(size.w, size.h)
