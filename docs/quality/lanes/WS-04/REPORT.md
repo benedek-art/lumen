@@ -5,7 +5,7 @@
 1. Exposure itself is correct: +1 EV is exactly ×2 in scene-linear (relative error 0.0 over ±10 EV, 1e-4 to 6e4, negatives), EV 0 is byte-identical, monotone, no dead range.
 2. Real photos (A7 IV, GX85 and 6 more) bleach smoothly toward white with no fringes, halos or banding; every render is byte-identical to before this lane.
 3. What looks wrong at +2/+3 EV is the display transform (WS-13): skin and orange go yellow (+20° / +33° OKLab hue at +3), deep blue goes purple (+15° at +2, +23° at +3). Filed in NEEDS.md, not fixed here.
-4. Fixed: a NaN exposure no longer blanks the frame, and the GPU S6 can no longer overflow fp16 to inf/NaN at extreme +EV.
+4. Fixed: a NaN exposure no longer blanks the frame, and the GPU S6 can no longer overflow fp16 to inf/NaN at extreme +EV (GPU parity CI green).
 5. Not measured against Lightroom pixels: `corpus/lightroom/` does not exist yet. Run the CHECKLIST export to get that number.
 
 Best evidence: `evidence/01_a7iv-6929_exposure_-2_to_+3.png`, `evidence/04_skin-tones_exposure_-3_to_+4_WS13-yellowing.png`, `evidence/06_hue-wheel_exposure_-3_to_+4_WS13-blue-purple.png`.
@@ -29,10 +29,10 @@ Verifier verdict: **PASS** (VERIFY.md, independent re-measurement).
 | 10 | Hard clamp ±10 | PASS | 1024 / 1/1024; EV 12 render bit-equal to EV 10 |
 | 11 | Slider literal matches engine | PASS (source read) | −5…5, hard ±10, step 0.01, default 0 |
 | 12 | Non-finite exposure cannot poison frame | PASS | NaN → gain 1, render bit-equal to EV 0; ±inf → 1024 / 1/1024 |
-| 13 | S6 output clamped to ±65504 on CPU and GPU | PASS (CPU), GPU by code read | 64·2^10 → 65504, finite to ±1e30 |
+| 13 | S6 output clamped to ±65504 on CPU and GPU | PASS (CPU; GPU via line 16) | 64·2^10 → 65504, finite to ±1e30 |
 | 14 | CPU reference finite and white at EV +10 | PASS | no non-finite pixel; neutral min code 255 |
 | 15 | CPU render call site uses the clamp | PASS as filed | NEEDS.md N-1 (WS-01 owns `ReferenceRenderer.swift:68`) |
-| 16 | GPU parity at EV +10 on RGBAh | PENDING macOS CI | `ExposureGPUParityTests` written, not runnable on Linux |
+| 16 | GPU parity at EV +10 on RGBAh | PASS (macOS CI) | GPU parity run 39536137229 green on 40a2a54; `test-fast` (full optimized macOS suite) green |
 | 17 | Existing tests pass | PASS | 3054 LumenCoreTests, 0 failures; `ControlProofTests` times out in debug on base and branch alike (not run to completion) |
 
 Visual claims V1–V3: A7 IV and GX85 sweeps bleach smoothly with no fringes or halos (sheets 01, 02, 07, 08); grey ramp evenly spaced with no banding (03). The GX85 sky blotches at −2…0 are present and byte-identical on base, not caused by Exposure.
@@ -52,6 +52,10 @@ Lightroom (L1): human must judge, pending reference exports. From Adobe's docume
 - O1–O6 (WS-13): orange +21.7°/+32.9° hue at +2/+3 EV, skin +19.9° at +3 (mostly the sRGB encode's per-channel clamp, no gamut boundary on the finish path), deep blue +15…+34° toward purple (`rotation.b`), sky blue constant +7…+8.6° purple bias, LUT33 slope break and 2.3-code grey misplacement in the preview, hue-wheel seams.
 - O7 (LumenApp): histogram drag snaps a typed +7 to +5; recipe value 12 is stored un-normalized.
 - GPU-only nuance: a NaN input to the GPU clamp may become −65504 where the CPU keeps NaN. No reachable source of NaN found.
+
+## CI on 40a2a54
+
+GPU parity, Proof sweep, UI layout: green. CI: `test-fast`, `engine-linux`, `build-macos`, `app-bundle` green. `fixtures-linux` fails at "Swift surface" (`scripts/check-swift-surface.py`) with 6 unmatched inits (RecipeKeys.swift), 5 label mismatches (AppState/PanelLayout) and `Font` in LumenType.swift. Pre-existing: the base commit fails with the identical findings; this branch adds none (local diff of the checker output on base vs branch shows only counts changing).
 
 ## Process and gates
 
