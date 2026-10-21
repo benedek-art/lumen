@@ -63,9 +63,9 @@ public enum AutoStraighten {
         guard width >= 16, height >= 16, luma.count == width * height else { return nil }
 
         // 1. Sobel, and the strong edge points with their local line direction.
-        struct Point { var x: Double; var y: Double; var w: Double }
-        var horizontal: [Point] = []
-        var vertical: [Point] = []
+        struct EdgePoint { var x: Double; var y: Double; var w: Double }
+        var horizontal: [EdgePoint] = []
+        var vertical: [EdgePoint] = []
         var magnitudes: [Float] = []
         magnitudes.reserveCapacity(width * height / 4)
         var raw: [(Int, Int, Float, Float)] = []
@@ -90,6 +90,9 @@ public enum AutoStraighten {
         let sorted = magnitudes.sorted()
         let percentile = sorted[Swift.min(sorted.count - 1, Int(Double(sorted.count) * 0.88))]
         let floor = Swift.max(percentile, 0.08)
+        // Edges somewhat past the search vote too. They mostly feed the median the
+        // confidence is measured against; narrowing this to +1° was tried and let
+        // foliage frames through (REPORT.md). The rim guard below handles diagonals.
         let band = searchDegrees + 8
         for (x, y, gx, gy) in raw {
             let m = (gx * gx + gy * gy).squareRoot()
@@ -102,7 +105,7 @@ public enum AutoStraighten {
             if folded < 0 { folded += 180 }
             let nearVertical = abs(folded - 90) < 45
             guard abs(dev) <= band else { continue }
-            let p = Point(x: Double(x), y: Double(y), w: Double(m))
+            let p = EdgePoint(x: Double(x), y: Double(y), w: Double(m))
             if nearVertical { vertical.append(p) } else { horizontal.append(p) }
         }
         guard horizontal.count + vertical.count >= 40 else { return nil }
@@ -144,11 +147,15 @@ public enum AutoStraighten {
         guard median > 0 else { return nil }
         let confidence = coarse.1 / median
         guard confidence >= minimumConfidence else { return nil }
+        // A best AT the rim is a peak outside the search, cut off — a diagonal in the
+        // composition, not a horizon. "Levelling" it to ±20° is the worst answer Auto
+        // could give, so it gives none.
+        guard abs(coarse.0) < searchDegrees - 0.5 else { return nil }
 
         // 3. Refine around the coarse peak.
         var best = coarse
-        var f = coarse.0 - 0.3
-        while f <= coarse.0 + 0.3 + 1e-9 {
+        var f = Swift.max(coarse.0 - 0.3, -searchDegrees)
+        while f <= Swift.min(coarse.0 + 0.3, searchDegrees) + 1e-9 {
             let e = energy(f)
             if e > best.1 { best = (f, e) }
             f += 0.02

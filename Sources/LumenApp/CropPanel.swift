@@ -129,14 +129,29 @@ final class CropTool: ObservableObject {
     // MARK: The plate Auto reads
 
     /// The picture the crop canvas is drawing — flip applied, angle and crop left off —
-    /// so Auto straighten measures the same pixels the photographer is looking at. Not
-    /// published: nothing draws from it.
-    private(set) var plate: CGImage?
-    private(set) var plateIsFlipped = false
+    /// and the photograph it belongs to, so Auto straighten measures the pixels the
+    /// photographer is looking at and never another frame's. Cleared when the canvas
+    /// goes away. Not published: nothing draws from it.
+    private(set) var plate: (photo: URL, image: CGImage, flipped: Bool)?
+    /// An Auto press that arrived before its photograph's plate did (the same click
+    /// that opened the tool): run when that plate lands.
+    private var pendingAuto: (photo: URL, run: @MainActor () -> Void)?
 
-    func notePlate(_ image: CGImage?, flipped: Bool) {
-        plate = image
-        plateIsFlipped = flipped
+    @MainActor
+    func notePlate(_ image: CGImage?, photo: URL, flipped: Bool) {
+        guard let image else {
+            if plate?.photo == photo { plate = nil }
+            return
+        }
+        plate = (photo, image, flipped)
+        if let pending = pendingAuto, pending.photo == photo {
+            pendingAuto = nil
+            pending.run()
+        }
+    }
+
+    func forgetPlate(of photo: URL) {
+        if plate?.photo == photo { plate = nil }
     }
 
     // MARK: Keys and buttons that write the framing
@@ -181,29 +196,43 @@ final class CropTool: ObservableObject {
     }
 
     /// Auto straighten: measure the plate's dominant lines off the main thread and write
-    /// the levelling angle through the same per-target framing write the slider uses,
-    /// so the crop rides the angle the same way. A frame with nothing straight in it
-    /// changes nothing and says so.
+    /// the levelling angle to the PRIMARY photograph — the one whose pixels were
+    /// measured; another frame's tilt is its own — through `BatchFraming`, so the crop
+    /// rides the angle the way every other angle write carries it. Its own undo step.
+    /// A frame with nothing straight in it changes nothing and says so.
     @MainActor
     func autoStraighten(in state: AppState, fallback: BatchFraming.Frame?) {
-        guard let plate else {
-            state.statusMessage = "Open the crop tool (R) to straighten automatically"
+        guard let photo = state.primarySelection else { return }
+        guard let plate, plate.photo == photo.id else {
+            // The click that opened the tool: the plate is still being drawn.
+            pendingAuto = (photo.id, { [weak self] in
+                self?.autoStraighten(in: state, fallback: fallback)
+            })
+            state.statusMessage = "Measuring the horizon…"
             return
         }
-        let flipped = plateIsFlipped
+        let image = plate.image
+        let flipped = plate.flipped
         Task { @MainActor in
             let estimate = await Task.detached(priority: .userInitiated) {
-                CropTool.lumaPlane(of: plate, longEdge: 800).flatMap {
+                CropTool.lumaPlane(of: image, longEdge: 800).flatMap {
                     AutoStraighten.estimate(luma: $0.luma, width: $0.width, height: $0.height,
                                             plateIsFlipped: flipped)
                 }
             }.value
+            guard state.primarySelection?.id == photo.id else { return }
             guard let estimate else {
                 state.statusMessage = "Auto straighten found no horizon or vertical to level"
                 return
             }
-            CropSection.applyFraming(.angle(estimate.angle), key: "geometry.angle",
-                                     state: state, primaryFallback: fallback)
+            state.updateRecipe(coalescingKey: "geometry.angle.auto",
+                               targets: [photo]) { photo, recipe in
+                let frame = state.framingFrame(for: photo, primaryFallback: fallback)
+                if let next = BatchFraming.apply(.angle(estimate.angle),
+                                                 to: recipe.develop.geometry, frame: frame) {
+                    recipe.develop.geometry = next
+                }
+            }
             state.statusMessage = String(format: "Straightened to %+.1f°", estimate.angle)
         }
     }

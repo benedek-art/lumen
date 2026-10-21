@@ -92,6 +92,16 @@ final class AutoStraightenTests: XCTestCase {
                                                      flipped: true), 0, accuracy: 0.25)
     }
 
+    /// A strong diagonal outside the ±20° search is composition, not a tilted horizon:
+    /// Auto must decline rather than "level" it at the search's rim (verifier B1).
+    func testADiagonalBeyondTheSearchIsNotLevelled() {
+        for tilt in [22.0, -25.0, 30.0] {
+            let luma = scene(tilt: tilt, kind: "horizon")
+            XCTAssertNil(AutoStraighten.estimate(luma: luma, width: 512, height: 340),
+                         "a \(tilt)° line was levelled")
+        }
+    }
+
     func testNoiseAndFlatFramesChangeNothing() {
         var rng = Rng(state: 99)
         let noise = (0..<(512 * 340)).map { _ in rng.next() }
@@ -119,12 +129,12 @@ final class AutoStraightenTests: XCTestCase {
             var index = 0
             var token = ""
             while fields.count < 4, index < data.count {
-                let c = Character(UnicodeScalar(data[index]))
+                let byte = data[index]
                 index += 1
-                if c.isWhitespace {
+                if [0x20, 0x0A, 0x0D, 0x09].contains(byte) {
                     if !token.isEmpty { fields.append(token); token = "" }
                 } else {
-                    token.append(c)
+                    token += String(decoding: [byte], as: UTF8.self)
                 }
             }
             guard fields.count == 4, let w = Int(fields[1]), let h = Int(fields[2]),

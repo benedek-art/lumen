@@ -25,8 +25,8 @@ REPORT.md), **C** = code read by the verifier.
 | 8 | Largest inscribed rect at a locked aspect | yes | `centred(aspect:)` within the centred inscribed frame | U checks area against a brute-force search: within 0.5 % of the best rectangle at that aspect inside the usable frame; reports the gap to the true Lightroom optimum | U `testLargestRectAtAspect*` |
 | 9 | Straighten tool (draw a line) | yes, also ⌘-drag inside the crop | ruler button | keep the button; ⌘-drag anywhere on the photo draws the line too | U existing `Straighten` sign tests; H |
 | 10 | Auto straighten | Auto button | none | Auto button; synthetic horizons and verticals at known tilts within ±0.25°; returns nil (changes nothing) on a frame with no dominant line | U `AutoStraightenTests` |
-| 11 | Guides cycle with O | Thirds, Grid, Diagonal, Triangle, Golden Ratio, Golden Spiral, Aspect Ratios; ⇧O rotates triangle/spiral | menu only, 4 styles, no triangle/spiral; O is the mask overlay key everywhere | O cycles Thirds → Golden Ratio → Grid → Diagonals → Triangle → Golden Spiral → None; ⇧O turns the triangle/spiral through its 4 orientations | U `CropGuidesTests` (every segment inside the rect; triangle perpendicular property; spiral ends in the right corner per orientation); S `overlay-crop-triangle`, `overlay-crop-spiral` |
-| 12 | Live grid while rotating | fine grid while the angle moves | grid only if guides are off, only during the on-image drag | a fine 8×8 grid whenever the angle is changing, from any hand (drag, ruler, slider, Auto), fading 0.6 s after the last change | S `overlay-crop-rotating`; C |
+| 11 | Guides cycle with O | Thirds, Grid, Diagonal, Triangle, Golden Ratio, Golden Spiral, Aspect Ratios; ⇧O rotates triangle/spiral | menu only, 4 styles, no triangle/spiral; O is the mask overlay key everywhere | O cycles Thirds → Golden Ratio → Grid → Diagonals → Triangle → Golden Spiral → None; ⇧O mirrors the triangle (2 orientations) and turns the spiral through 4 | U `CropGuidesTests` (every segment inside the rect; triangle perpendicular property; spiral ends in the right corner per orientation); S `overlay-crop-triangle`, `overlay-crop-spiral` |
+| 12 | Live grid while rotating | fine grid while the angle moves | grid only if guides are off, only during the on-image drag | a fine 8×8 grid whenever the angle is changing, from any hand (drag, ruler, slider, Auto), dropping 0.6 s after the last change | S `overlay-crop-rotating`; C |
 | 13 | Dimmed outside | yes | 50 % black, reaches the tilted corners | keep | S `overlay-crop`, `overlay-crop-rotating` |
 | 14 | Reset | ⌥⌘R / panel Reset | section header Reset, R R | keep | existing |
 | 15 | Flip | Photo menu, H and V | Flip horizontal toggle | keep H; V needs a recipe field and renderer stage → NEEDS.md | — |
@@ -36,7 +36,7 @@ REPORT.md), **C** = code read by the verifier.
 
 ## Measurable claims for the maths
 
-- M1. `CropGeometry.resize(..., fromCentre: true)` keeps the rectangle's centre within
+- M1. `CropGeometry.resizeAboutCentre(...)` (⌥-drag) keeps the rectangle's centre within
   1e-9 for every handle, locked and unlocked, until a frame edge stops it; locked, the
   pixel ratio holds within 1e-9.
 - M2. `CropGeometry.panImage(crop, dx, dy)` moves the crop by (−dx, −dy), clamped so
@@ -45,11 +45,13 @@ REPORT.md), **C** = code read by the verifier.
 - M3. `CropGeometry.nudge(crop, dx, dy)` never changes w or h.
 - M4. For θ ∈ [−45°, 45°] step 0.5° and 40 seeded crops, `reangled` keeps all four
   corners inside the rotated source (`containsInSource`, tolerance 1e-6 px).
-- M5. `largestRect(aspect:)` is ≥ 99.5 % of the area of a 200×200 brute-force search
-  over centred-and-offset rectangles at that aspect inside the usable frame.
+- M5. `largestRect(aspect:)` is ≥ 99.5 % of the area of a brute-force search (200
+  sizes × 21 offsets in the test; the verifier re-ran it on a full 2-D grid) over
+  rectangles at that aspect inside the usable frame.
 - M6. `AutoStraighten.estimate` on synthetic 512×340 frames with a horizon (and,
   separately, building verticals) drawn at tilts −12° … +12° plus noise returns the
-  levelling angle within 0.25°; on pure noise and on a flat frame it returns nil.
+  levelling angle within 0.25°; on pure noise, on a flat frame, and on a line
+  steeper than the ±20° search (22°, −25°, 30°) it returns nil.
 - M7. `CropGuides.segments` returns segments with both endpoints inside the rect (1e-9)
   for every style × orientation × aspect in {0.5, 1, 1.5, 3}; the triangle's two
   perpendiculars meet the diagonal at a right angle (|dot| < 1e-9).

@@ -1666,10 +1666,11 @@ struct CropOverlayView: View {
         .onDisappear {
             leave()
             tool.imagePan = .zero
+            tool.forgetPlate(of: photoID)
         }
         // Hand the plate to Auto straighten whenever the canvas draws a new one.
-        .task(id: plate.map(ObjectIdentifier.init)) {
-            tool.notePlate(plate, flipped: geometry.flipH)
+        .task(id: "\(photoID.path)#\(plate.map { ObjectIdentifier($0).hashValue } ?? 0)") {
+            tool.notePlate(plate, photo: photoID, flipped: geometry.flipH)
         }
         // The grid-while-rotating clock. Restarted by every angle change, so it stays up
         // through a slider drag and drops 0.6 s after the last event.
