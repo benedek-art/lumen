@@ -215,7 +215,9 @@ final class ContrastCurveTests: XCTestCase {
 
         let shadows = ToneEngine(tone: Tone(contrast: -100, shadows: 100)).effectiveShadows
         XCTAssertGreaterThanOrEqual(shadows, 0.619)
-        XCTAssertEqual(shadows, 0.909, accuracy: 0.002)
+        // WS-05: 0.909 before Shadows +100 became a lift that tapers at the black point;
+        // its slope peaks deeper in the toe, where Contrast −100 leaves less to borrow.
+        XCTAssertEqual(shadows, 0.842, accuracy: 0.002)
 
         var paired = 1.0
         for c in [100.0, -100] { for v in [-100.0, 100] {
@@ -225,7 +227,7 @@ final class ContrastCurveTests: XCTestCase {
                                scale(Tone(contrast: c, blacks: v)))
         }}
         XCTAssertGreaterThanOrEqual(paired, 0.619)
-        XCTAssertEqual(paired, 0.884, accuracy: 0.002)
+        XCTAssertEqual(paired, 0.842, accuracy: 0.002)   // WS-05: the Shadows case above
 
         var corner = 1.0
         for c in [80.0, 100] { for h in [-100.0, 0, 100] { for s in [-100.0, 0, 100] {
@@ -235,7 +237,9 @@ final class ContrastCurveTests: XCTestCase {
             }}
         }}}
         XCTAssertGreaterThanOrEqual(corner, 0.620)
-        XCTAssertEqual(corner, 0.627, accuracy: 0.002)
+        // WS-05: 0.627 before the Whites −100 hold was spread over +0.5 … +3.2 EV, off the
+        // band where this curve's shoulder is flat (ToneEngine.whiteHoldStartBelowAnchorEV).
+        XCTAssertEqual(corner, 0.669, accuracy: 0.002)
 
         var moderate = 1.0
         for c in stride(from: -60.0, through: 60, by: 20) {

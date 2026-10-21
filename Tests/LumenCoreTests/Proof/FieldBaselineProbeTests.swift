@@ -73,11 +73,13 @@ final class FieldBaselineProbeTests: XCTestCase {
             XCTAssertEqual(shadows[i], 0, accuracy: 1e-9,
                            "Shadows moved scene \(evs[i]) EV — the partition IS the design")
         }
-        // Shadows reach their full documented +2.0 EV inside the window; Highlights
-        // engage monotonically through it (the full −2.0, asserted over the whole
-        // domain by AccuracyProbeTests, peaks above +2.32 — printed above).
-        XCTAssertEqual(shadows.max() ?? 0, ToneEngine.highlightShadowRangeEV,
-                       accuracy: 0.05)
+        // Shadows lifts by its documented peak inside the window; Highlights engage
+        // monotonically through it (the full −2.0, asserted over the whole domain by
+        // AccuracyProbeTests, peaks above +2.32 — printed above). WS-05: Shadows +100
+        // is a 1.5 EV lift that tapers toward black (`ToneEngine.shadowLiftRangeEV`),
+        // no longer the 2 EV shelf, so the window's best patch reads under the peak.
+        XCTAssertGreaterThan(shadows.max() ?? 0, 0.9 * ToneEngine.shadowLiftRangeEV)
+        XCTAssertLessThanOrEqual(shadows.max() ?? 0, ToneEngine.shadowLiftRangeEV + 1e-9)
         for i in 4..<evs.count {
             XCTAssertLessThan(highlights[i], highlights[i - 1],
                               "Highlights must deepen monotonically above mid-grey")
@@ -86,7 +88,7 @@ final class FieldBaselineProbeTests: XCTestCase {
                           "Highlights barely engaged at the +2.32 patch")
         XCTAssertEqual(abs(highlightPeak.shift), ToneEngine.highlightShadowRangeEV,
                        accuracy: 0.05)
-        XCTAssertEqual(shadowPeak.shift, ToneEngine.highlightShadowRangeEV,
+        XCTAssertEqual(shadowPeak.shift, ToneEngine.shadowLiftRangeEV,
                        accuracy: 0.05)
     }
 

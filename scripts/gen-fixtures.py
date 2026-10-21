@@ -2760,17 +2760,41 @@ def gen_white_balance_checks():
 # ---------------------------------------------------------------------------
 
 HL_SH_RANGE_EV = 2.0
-WHITE_BLACK_RANGE_EV = 1.5
-HIGHLIGHT_SHELF_END = 1.0
-SHADOW_SHELF_END = 0.5
-END_SHELF_START = 0.20
-END_SHELF_END = 0.80
+WHITE_BLACK_RANGE_EV = 1.5          # Blacks' anchor move only (WS-05: Whites is gain)
+HIGHLIGHT_SHELF_END_EV = 5.0        # Highlights' shelf is full here, in EV (WS-05)
+SHADOW_SHELF_END = 0.5              # Shadows -100's shelf, fraction of |black anchor|
+# Shadows +100: a lift that peaks in the quarter tones and tapers toward black (WS-05).
+SHADOW_LIFT_RANGE_EV = 1.5
+SHADOW_PEAK = 3.5 / 9
+SHADOW_TAPER_START = 3.15 / 9
+SHADOW_TAPER_END = 4.15 / 9
+SHADOW_TAPER_DEPTH = 0.95
+# Whites +100: one shelf from 3.8 to 0.6 EV under the white anchor. Whites -100: a hold
+# from 4.5 to 1.8 EV under it and a recovery shelf from 1.2 under to 1.6 over it, off
+# Contrast's flattest shoulder band. Every Whites window is held at or above 0 EV
+# (ToneEngine.upperShelf), so a low anchor cannot reach mid-grey.
+WHITE_SHELF_START_BELOW_ANCHOR_EV = 3.8
+WHITE_SHELF_END_BELOW_ANCHOR_EV = 0.6
+WHITE_HOLD_START_BELOW_ANCHOR_EV = 4.5   # ToneEngine.whiteHoldStartBelowAnchorEV
+WHITE_HOLD_EV = 0.9
+WHITE_HOLD_END_BELOW_ANCHOR_EV = 1.8
+WHITE_RECOVERY_EV = 1.0
+WHITE_RECOVERY_START_BELOW_ANCHOR_EV = 1.2
+WHITE_RECOVERY_END_ABOVE_ANCHOR_EV = 1.6
+MIN_UPPER_SHELF_WIDTH_EV = 0.5      # ToneEngine.minimumUpperShelfWidthEV
+
+
+def upper_shelf(start, end, t):
+    """Mirror of ToneEngine.upperShelf: never reaches t <= 0."""
+    lower = max(start, 0.0)
+    return smoothstep(lower, max(end, lower + MIN_UPPER_SHELF_WIDTH_EV), t)
 BLACK_SHELF_START = 0.15
 BLACK_SHELF_END = 0.62
-WHITE_TONE_EV = 1.3
+WHITE_TONE_EV = 1.2
 BLACK_TONE_EV = 2.2
 DEFAULT_WHITE_ANCHOR_EV = 5.0
 DEFAULT_BLACK_ANCHOR_EV = -9.0
+SECANT_MARGIN = 1e-3                # ToneEngine.secantMargin
 
 
 ZONAL_KNEE = 0.8
@@ -2846,7 +2870,9 @@ class ToneEngine:
         b = min(max(blacks, -100.0), 100.0) / 100
         self.whites = w
         self.blacks = b
-        self.white_anchor_ev = DEFAULT_WHITE_ANCHOR_EV - WHITE_BLACK_RANGE_EV * w
+        # WS-05: Whites no longer moves the white anchor (the display transform's
+        # path-to-white blend is normalised by it, so moving it re-hued blues).
+        self.white_anchor_ev = DEFAULT_WHITE_ANCHOR_EV
         self.black_anchor_ev = DEFAULT_BLACK_ANCHOR_EV - WHITE_BLACK_RANGE_EV * b
         self._solve_zonal_scales()
 
@@ -2873,9 +2899,8 @@ class ToneEngine:
         return (
             ("upper", self.highlights, HL_SH_RANGE_EV, self.highlight_weight,
              self.highlights < 0),
-            ("upper", self.whites, WHITE_TONE_EV, self.white_weight, self.whites < 0),
-            ("lower", self.shadows, HL_SH_RANGE_EV, self.shadow_weight,
-             self.shadows > 0),
+            ("upper", self.whites, 1.0, self.white_window, self.whites < 0),
+            ("lower", self.shadows, 1.0, self.shadow_window, self.shadows > 0),
             ("lower", self.blacks, BLACK_TONE_EV, self.black_weight, self.blacks > 0),
         )
 
@@ -2899,8 +2924,8 @@ class ToneEngine:
         self.scales = {"upper": upper, "lower": lower}
         applied = self._applied()
         self.effective_highlights = applied["highlight_weight"]
-        self.effective_shadows = applied["shadow_weight"]
-        self.effective_whites = applied["white_weight"]
+        self.effective_shadows = applied["shadow_window"]
+        self.effective_whites = applied["white_window"]
         self.effective_blacks = applied["black_weight"]
         eased = 1.0
         for half, amount, _, _, falls in self._windows():
@@ -2961,7 +2986,9 @@ class ToneEngine:
                 slack = (fixed - p_fixed) + (rise - p_rise)
                 limit = min(limit, max(slack / -d_fall, 0.0))
             p_fall, p_rise, p_fixed = fall, rise, fixed
-        return limit
+        # ToneEngine.secantMargin: the slope peaks inside an interval, where the secant
+        # under-reads it.
+        return limit * (1 - SECANT_MARGIN) if limit < SEARCH_CEILING else limit
 
     @property
     def exposure_gain(self):
@@ -2975,13 +3002,41 @@ class ToneEngine:
         hi = self.white_anchor_ev
         if hi <= 0:
             return 0.0
-        return smoothstep(0.0, hi * HIGHLIGHT_SHELF_END, t)
+        return smoothstep(0.0, HIGHLIGHT_SHELF_END_EV, t)
 
     def white_weight(self, t):
         hi = self.white_anchor_ev
-        if hi <= 0:
+        return upper_shelf(hi - WHITE_SHELF_START_BELOW_ANCHOR_EV,
+                           hi - WHITE_SHELF_END_BELOW_ANCHOR_EV, t)
+
+    def white_recovery_stops(self, t):
+        hi = self.white_anchor_ev
+        return (WHITE_HOLD_EV * upper_shelf(hi - WHITE_HOLD_START_BELOW_ANCHOR_EV,
+                                            hi - WHITE_HOLD_END_BELOW_ANCHOR_EV, t)
+                + WHITE_RECOVERY_EV * upper_shelf(hi - WHITE_RECOVERY_START_BELOW_ANCHOR_EV,
+                                                  hi + WHITE_RECOVERY_END_ABOVE_ANCHOR_EV,
+                                                  t))
+
+    def white_window(self, t):
+        """Stops per unit of Whites: the clip-point shelf up, hold + recovery down."""
+        if self.whites > 0:
+            return WHITE_TONE_EV * self.white_weight(t)
+        return self.white_recovery_stops(t)
+
+    def shadow_lift_weight(self, t):
+        lo = self.black_anchor_ev
+        if lo >= 0:
             return 0.0
-        return smoothstep(hi * END_SHELF_START, hi * END_SHELF_END, t)
+        depth = -lo
+        rise = smoothstep(0.0, depth * SHADOW_PEAK, -t)
+        taper = smoothstep(depth * SHADOW_TAPER_START, depth * SHADOW_TAPER_END, -t)
+        return rise * (1 - SHADOW_TAPER_DEPTH * taper)
+
+    def shadow_window(self, t):
+        """Stops per unit of Shadows: the tapered lift up, the shelf down."""
+        if self.shadows > 0:
+            return SHADOW_LIFT_RANGE_EV * self.shadow_lift_weight(t)
+        return HL_SH_RANGE_EV * self.shadow_weight(t)
 
     def black_weight(self, t):
         lo = self.black_anchor_ev
@@ -3030,7 +3085,8 @@ def gen_tone_checks():
     e = ToneEngine(highlights=100, shadows=-100)
     check(abs(e.highlight_weight(0.0)) < 1e-12, "highlights leak into mid-grey")
     check(abs(e.shadow_weight(0.0)) < 1e-12, "shadows leak into mid-grey")
-    check(e.highlight_weight(e.white_anchor_ev) > 0.99, "highlights do not reach the white point")
+    check(e.highlight_weight(HIGHLIGHT_SHELF_END_EV) > 0.99,
+          "highlights do not reach the white point")
     check(e.shadow_weight(e.black_anchor_ev * SHADOW_SHELF_END) > 0.99,
           "shadows do not reach full strength where the toe still has room")
     # Whites and Blacks now carry real authority instead of only moving the endpoint.
@@ -3043,14 +3099,20 @@ def gen_tone_checks():
     for t in (2.0, 4.0, 4.9):
         check(e.shadow_weight(t) == 0.0, f"shadows leaked into the highlights at {t} EV")
 
-    # Whites and Blacks move the display transform's ANCHORS rather than adding
-    # gain — that is how "Whites owns the white point" is geometry, not a rule.
+    # WS-05: Whites moves the white CLIP POINT by gain and leaves the display anchor
+    # alone (moving the anchor re-hued saturated blues through the transform's
+    # anchor-normalised blend). A tone 1 EV under white reaches it at +100, and one
+    # 1.5 EV over it is carried back under at -100; mid-grey stays put.
     plain = ToneEngine()
     lifted = ToneEngine(whites=100)
-    check(abs(lifted.white_anchor_ev - (DEFAULT_WHITE_ANCHOR_EV - WHITE_BLACK_RANGE_EV))
-          < 1e-12, "Whites did not move the white anchor")
+    pulled = ToneEngine(whites=-100)
+    hi = DEFAULT_WHITE_ANCHOR_EV
+    check(lifted.white_anchor_ev == hi and pulled.white_anchor_ev == hi,
+          "Whites moved the white anchor")
+    check(hi - 1.0 + lifted.stops(hi - 1.0) >= hi, "Whites +100 does not reach white")
+    check(hi + 1.5 + pulled.stops(hi + 1.5) < hi, "Whites -100 does not recover")
     check(abs(lifted.stops(0.0) - plain.stops(0.0)) < 1e-12,
-          "Whites added gain at mid-grey instead of moving the anchor")
+          "Whites added gain at mid-grey")
 
     # Exposure is an honest gain and nothing else.
     check(abs(ToneEngine(exposure=1).exposure_gain - 2.0) < 1e-12, "exposure +1 is not 2x")

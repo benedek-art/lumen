@@ -37,7 +37,11 @@ final class PlanTableCacheTests: XCTestCase {
         // a rotation of nothing, so `wheels.high.hue` alone leaves both tables identical.
         // The saturation is what makes the case bite.
         let cases: [(String, (inout Recipe) -> Void)] = [
-            ("tone.whites", { $0.develop.tone.whites = 60 }),
+            // `tone.whites` used to be here, as one of the two controls that moved the
+            // finish table's anchors. WS-05 took Whites off the white anchor (it is a
+            // gain now, so it moves `toneGainLUT` and neither table), which leaves it
+            // nothing to exercise in this key. Blacks still moves its anchor, twice over.
+            ("tone.blacks+", { $0.develop.tone.blacks = 60 }),
             ("tone.blacks", { $0.develop.tone.blacks = -40 }),
             ("curve.parametric.highlights", { $0.develop.curve.parametric.highlights = 55 }),
             ("curve.point", { $0.develop.curve.point = [[0, 0], [0.5, 0.7], [1, 1]] }),
@@ -1008,9 +1012,11 @@ extension PlanTableCacheTests {
 
         PlanTableCache.resetStats()
         var last = recipe
-        for whites in [55.0, 60.0] {
+        // WS-05: dragged on Blacks, the control that still moves a finish-table anchor
+        // (Whites is a gain now and leaves the finish table alone).
+        for blacks in [55.0, 60.0] {
             var dragged = recipe
-            dragged.develop.tone.whites = whites
+            dragged.develop.tone.blacks = blacks
             let draft = RenderPlan(recipe: dragged, lutSize: 17, softProof: perceptualProof,
                                    allowStaleTables: true)
             XCTAssertEqual(draft.finishLUT, warm.finishLUT,
@@ -1034,7 +1040,7 @@ extension PlanTableCacheTests {
         XCTAssertEqual(settled.finishLUT, fresh.finishLUT,
                        "the settle found a stale draft's proof under the exact key")
         XCTAssertNotEqual(fresh.finishLUT, warm.finishLUT,
-                          "Whites moved nothing, so this cannot tell stale from exact")
+                          "Blacks moved nothing, so this cannot tell stale from exact")
     }
 }
 

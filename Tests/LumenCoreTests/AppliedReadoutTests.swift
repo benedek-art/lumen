@@ -134,7 +134,8 @@ final class EngineLimitReadoutTests: XCTestCase {
     /// recipe is eased any more: there is nothing left there to caption. The test is
     /// re-pointed at a recipe that still binds, the four-way corner (all four zonal
     /// sliders at their ends against Contrast +100), and asserts the engine's own applied
-    /// amounts. Measured: Highlights −100 applies −75 and Blacks +100 applies +63.
+    /// amounts. Measured (WS-05 shapes): Highlights −100 applies −67 and Blacks +100 applies
+    /// +88; it was −75 and +63 before.
     ///
     /// SUBSTITUTION: make `easedToneSliders` return `[]` and both unwraps fail.
     func testAnEasedSliderIsNamedWithTheAmountTheRenderApplies() throws {
@@ -147,11 +148,11 @@ final class EngineLimitReadoutTests: XCTestCase {
         let shown = "Highlights \(AppliedReadout.signed(engine.effectiveHighlights * 100)) "
             + "of \u{2212}100"
         XCTAssertTrue(caption.contains(shown), caption)
-        XCTAssertTrue(caption.contains("Highlights \u{2212}75 of \u{2212}100"), caption)
+        XCTAssertTrue(caption.contains("Highlights \u{2212}67 of \u{2212}100"), caption)
         let shelf = "Blacks (tone shelf) \(AppliedReadout.signed(engine.effectiveBlacks * 100)) "
             + "of +100"
         XCTAssertTrue(caption.contains(shelf), caption)
-        XCTAssertTrue(caption.contains("Blacks (tone shelf) +63 of +100"), caption)
+        XCTAssertTrue(caption.contains("Blacks (tone shelf) +88 of +100"), caption)
 
         // And the two recipes this test used to name are now applied as set, which is
         // the improvement, so the readout is silent about them.

@@ -345,7 +345,13 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(worstLeak.amount, 0, accuracy: 1e-12, worstLeak.label)
     }
 
-    /// Whites and Blacks move the anchors AND carry a tonal shelf of their own.
+    /// Blacks moves its anchor AND carries a tonal shelf; Whites carries shelves only.
+    ///
+    /// WS-05: Whites no longer moves the white anchor. The display transform's
+    /// path-to-white blend is normalised by the anchor, so moving it re-hued saturated
+    /// blues Whites applied no gain to (14° on rec709 blue, SPEC H6). The white CLIP
+    /// POINT still moves, by gain — asserted below where it used to be asserted through
+    /// the anchor.
     ///
     /// This used to assert they contribute no gain — "that is the whole point" — and
     /// the anchors alone were not enough to make them mean anything. Measured on a
@@ -358,11 +364,17 @@ final class EngineTests: XCTestCase {
     /// The anchor move is kept — it is what defines the endpoint — and the shelves give
     /// them authority. Both now measure 14–38 code values, in the same band as
     /// Highlights and Shadows.
-    func testWhitesAndBlacksMoveBothTheAnchorsAndTheCurve() {
+    func testWhitesMovesTheClipPointByGainAndBlacksMovesItsAnchor() {
         let neutral = ToneEngine()
         let bright = ToneEngine(tone: Tone(whites: 100, blacks: 100))
-        XCTAssertLessThan(bright.whiteAnchorEV, neutral.whiteAnchorEV)
+        XCTAssertEqual(bright.whiteAnchorEV, neutral.whiteAnchorEV)
         XCTAssertLessThan(bright.blackAnchorEV, neutral.blackAnchorEV)
+        // The white clip point moves both ways: a tone 1 EV under white reaches it at
+        // +100, and one 1.5 EV over it is carried back under at −100.
+        let anchor = neutral.whiteAnchorEV
+        XCTAssertGreaterThanOrEqual(anchor - 1 + bright.stops(at: anchor - 1), anchor)
+        let pulled = ToneEngine(tone: Tone(whites: -100))
+        XCTAssertLessThan(anchor + 1.5 + pulled.stops(at: anchor + 1.5), anchor)
         // Mid-grey is still theirs to leave alone.
         XCTAssertEqual(bright.stops(at: 0), 0, accuracy: 1e-9,
                        "Whites and Blacks must not move mid-grey")
@@ -373,6 +385,9 @@ final class EngineTests: XCTestCase {
                              "Blacks has no reach into the shadows")
     }
 
+    /// WS-05: the transform is the same at every Whites value now, so this compares the
+    /// rendered tone through it with each engine's gain, and asserts the transform did
+    /// not move.
     func testWhitesBrightensThroughTheTransform() {
         var params = DisplayTransformParams()
         let plain = ToneEngine()
@@ -384,8 +399,12 @@ final class EngineTests: XCTestCase {
         pushed.applyAnchors(to: &params2)
         let b = DisplayTransform(params2)
 
-        let highlight = 0.18 * pow(2.0, 3.0)
-        XCTAssertGreaterThan(b.tone(highlight), a.tone(highlight))
+        XCTAssertEqual(params, params2, "Whites moved the display transform")
+
+        let t = 3.0
+        let highlight = 0.18 * pow(2.0, t)
+        XCTAssertGreaterThan(b.tone(highlight * pushed.gain(at: t)),
+                             a.tone(highlight * plain.gain(at: t)))
     }
 
     func testContrastPivotHoldsStill() {
@@ -486,13 +505,19 @@ final class EngineTests: XCTestCase {
     /// lifted to flat white by a slider whose tooltip says it cannot clip one. The grid
     /// in `testContrastCannotPushAPixelPastTheDisplayAnchors` only reached pivot ±2 at
     /// Whites 0, which is why it never saw this.
+    ///
+    /// WS-05: Whites no longer moves the anchor, so the anchors Whites +67 … +100 used to
+    /// produce (4.0 … 3.5 EV) are set directly as the engine's base white anchor — the
+    /// way a mask's engine receives a lowered global anchor, and the way a lower default
+    /// anchor would. Same anchors, same pivots, same claim.
     func testAPivotPastTheWhiteAnchorStillCannotPushAPixelPastIt() {
         for whites in [67.0, 80, 100] {
+            let base = ToneEngine.defaultWhiteAnchorEV - 1.5 * whites / 100
             for pivot in [3.5, 3.8, 4.0] {
                 for contrast in [-100.0, -50, 50, 100] {
-                    let e = ToneEngine(tone: Tone(contrast: contrast, contrastPivot: pivot,
-                                                  whites: whites))
-                    let label = "contrast \(contrast) pivot \(pivot) whites \(whites)"
+                    let e = ToneEngine(tone: Tone(contrast: contrast, contrastPivot: pivot),
+                                       baseWhiteAnchorEV: base)
+                    let label = "contrast \(contrast) pivot \(pivot) anchor \(base)"
                     XCTAssertEqual(e.contrastMapped(e.whiteAnchorEV), e.whiteAnchorEV,
                                    accuracy: 1e-9,
                                    "\(label) moved the white anchor \(e.whiteAnchorEV) to "
@@ -518,18 +543,19 @@ final class EngineTests: XCTestCase {
 
     /// The property the old wide window existed to protect, measured rather than argued.
     /// A brighter input must never render darker.
-    /// The geometry `ToneEngine.endShelfStart` / `blackShelfStart` now state in prose,
+    /// The geometry `ToneEngine.whiteShelfStartBelowAnchorEV` / `blackShelfStart` state in prose,
     /// held as numbers (W2/A1-05). The comment had said the Whites and Blacks shelves
     /// start where Highlights and Shadows have already saturated, and that Blacks'
     /// steepest point was −5.9 EV; neither was true of the constants that ship. If a
     /// constant moves, this fails and points at the paragraph that has to move with it.
     func testTheEndShelvesOverlapTheZonalOnesAsTheCommentSays() {
         let engine = ToneEngine(tone: Tone())
-        // Whites' shelf runs +1 … +4 EV, inside Highlights' 0 … +5 EV ramp.
-        XCTAssertEqual(engine.whiteWeight(1.0), 0, accuracy: 1e-12)
-        XCTAssertEqual(engine.whiteWeight(4.0), 1, accuracy: 1e-12)
-        XCTAssertEqual(engine.highlightWeight(1.0), 0.104, accuracy: 0.001)
-        XCTAssertEqual(engine.highlightWeight(4.0), 0.896, accuracy: 0.001,
+        // WS-05: Whites' +100 shelf runs +1.2 … +4.4 EV (it was +1 … +4 EV), inside
+        // Highlights' 0 … +5 EV ramp.
+        XCTAssertEqual(engine.whiteWeight(1.2), 0, accuracy: 1e-12)
+        XCTAssertEqual(engine.whiteWeight(4.4), 1, accuracy: 1e-12)
+        XCTAssertEqual(engine.highlightWeight(1.2), 0.145, accuracy: 0.001)
+        XCTAssertEqual(engine.highlightWeight(4.4), 0.960, accuracy: 0.001,
                        "Highlights has not saturated where Whites does")
 
         func steepest(_ weight: (Double) -> Double) -> Double {
