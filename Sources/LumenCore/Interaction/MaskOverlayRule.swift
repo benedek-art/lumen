@@ -153,8 +153,9 @@ public struct MaskOverlayMachine: Equatable, Sendable {
         case .edited(.selection(let id)), .selectionWork(let id):
             // Painting, dragging a gradient, refining an edge: the overlay is the only
             // view of what is being made, so it shows, mid-gesture or not.
+            // Not `suppressed = false`: an adjustment already moved in this gesture,
+            // and its pixels are still being judged until release.
             litID = id
-            suppressed = false
             if pinned { pinnedID = id }
 
         case .toggle(let selected):
@@ -166,9 +167,10 @@ public struct MaskOverlayMachine: Equatable, Sendable {
                 litID = nil
                 hoverID = nil
             } else if let selected {
+                // Mid-drag (⌥-scroll then O, say) this turns Show Overlay on but
+                // shows nothing until release: the drag rule outranks the key.
                 pinned = true
                 pinnedID = selected
-                suppressed = false
             }
 
         case .pin(let id):

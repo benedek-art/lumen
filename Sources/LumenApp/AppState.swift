@@ -986,7 +986,7 @@ final class AppState: ObservableObject {
     /// photograph, so an Exposure drag, a typed value, a reset or a Basic-panel slider
     /// all take the overlay down, and painting, a gradient drag or an Edge drag keep
     /// it up.
-    private func noteMaskOverlayEdit(old: Recipe, new: Recipe) {
+    func noteMaskOverlayEdit(old: Recipe, new: Recipe) {
         if let kind = MaskOverlayEdit.classify(old: old, new: new) {
             sendMaskOverlay(.edited(kind))
         }
@@ -3490,6 +3490,9 @@ final class AppState: ObservableObject {
         // pending hover all name a mask that belongs to the photograph being left.
         cancelMaskOverlayHover()
         sendMaskOverlay(.reset)
+        // A drag that spans the switch is still a drag; the machine must know, or a
+        // pin could show over the pixels being judged for the rest of it.
+        if sliderGestureActive { sendMaskOverlay(.gestureBegan) }
         loadStrokeSets(for: recipe(for: photo))
         scheduleScopeRefresh()
         // The clipping panel follows the cursor and NOTHING ELSE. It is measured on the
@@ -4278,7 +4281,6 @@ final class AppState: ObservableObject {
     }
 
     private func closeSliderGesture() {
-        let endsWheelBurst = wheelGestureOwner != nil
         wheelSettleCloser?.cancel()
         wheelSettleCloser = nil
         wheelGestureOwner = nil
@@ -4433,6 +4435,9 @@ final class AppState: ObservableObject {
         var recipeChanges: [URL: Recipe] = [:]
         var cullings: [URL: HistoryStack.Culling] = [:]
         var touchedPixels = false
+        // What the photograph on screen looked like before this step, so the overlay
+        // can be told what kind of change undo or redo just made.
+        let primaryBefore = primarySelection.map { recipe(for: $0) }
         for (url, edit) in step {
             if let recipe = edit.recipe {
                 recipes[url] = recipe
@@ -4445,10 +4450,12 @@ final class AppState: ObservableObject {
         }
         restore(cullings)
         persist(recipeChanges)
-        // Undoing a mask's creation removes it: the overlay must forget it, or a pin
-        // would stand over nothing.
-        if let primary = primarySelection, let restored = recipeChanges[primary.id] {
-            sendMaskOverlay(.masksPresent(Set(restored.masks.map(\.id))))
+        // Undo and redo are edits like any other: an undone Exposure step hides the
+        // overlay, an undone stroke shows its mask, and undoing a mask's creation
+        // makes the overlay forget it, so a pin never stands over nothing.
+        if let primary = primarySelection, let old = primaryBefore,
+           let restored = recipeChanges[primary.id] {
+            noteMaskOverlayEdit(old: old, new: restored)
         }
         if touchedPixels {
             scheduleScopeRefresh()

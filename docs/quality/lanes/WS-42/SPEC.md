@@ -66,7 +66,7 @@ Visible mask = `suppressed ? nil : (hoverID ?? (pinned ? pinnedID : litID))`.
 |---|---|---|---|
 | S1 | T1-T18 hold | 18/18 | `swift test --filter MaskOverlayMachineTests` |
 | S2 | edit classification is right for every recipe field family | 8 cases | `swift test --filter MaskOverlayEditTests` |
-| S3 | the hide-on-drag rule has a live call path from the slider latch | `openSliderGesture`/`closeSliderGesture` and `updateRecipe` call the machine | `grep -n "maskOverlay.send\|overlayEvent(" Sources/LumenApp/AppState.swift` |
+| S3 | the hide-on-drag rule has a live call path from the slider latch | `openSliderGesture`/`closeSliderGesture`, `updateRecipe`, undo/redo `apply` and Auto Tone call the machine | `grep -n "sendMaskOverlay(\|noteMaskOverlayEdit(" Sources/LumenApp/AppState.swift Sources/LumenApp/AppStateActions.swift` |
 | S4 | exactly one writer of `soloMaskOverlay` outside snapshot tests | 1 assignment site in Sources | `grep -rn "soloMaskOverlay = " Sources` |
 | S5 | no overlay timer other than hover intent | 0 `maskOverlayHideTask`/flash timers | `grep -n "maskOverlayHideTask\|maskOverlayFlashMS" Sources` |
 | S6 | overlay colour (4), mode (6) and opacity (4 steps, 25-85 %) are selectable in the panel and remembered across launches | menu sections present; UserDefaults keys `lumen.maskOverlay.*` | code read + snapshot |

@@ -251,6 +251,42 @@ final class MaskOverlayMachineTests: XCTestCase {
         XCTAssertEqual(m.visibleID, "m1")
     }
 
+    /// Verifier round 1: O (or ⌥O / ⇧O, which call it when nothing shows) pressed
+    /// mid-drag put the pin up over the pixels being judged.
+    func testOPressedDuringAnAdjustmentDragWaitsForRelease() {
+        var m = MaskOverlayMachine()
+        m.send(.selected("m1"))
+        run(&m, [.gestureBegan, .edited(.adjustment), .toggle(selected: "m1")])
+        XCTAssertNil(m.visibleID, "the drag rule outranks the key")
+        XCTAssertTrue(m.pinned, "but the key was heard")
+        m.send(.gestureEnded)
+        XCTAssertEqual(m.visibleID, "m1")
+    }
+
+    /// Verifier round 1: a selection edit arriving after an adjustment in the same
+    /// gesture lifted the suppression.
+    func testASelectionEditDoesNotLiftAnAdjustmentsSuppression() {
+        var m = MaskOverlayMachine()
+        m.send(.pin("m1"))
+        run(&m, [.gestureBegan, .edited(.adjustment), .edited(.selection("m2"))])
+        XCTAssertNil(m.visibleID)
+        m.send(.gestureEnded)
+        XCTAssertEqual(m.visibleID, "m2", "the pin follows the mask being worked on")
+    }
+
+    /// T18 through the machine, not just the classifier: a cosmetic edit sends no
+    /// event, so the lit mask survives.
+    func testT18_cosmeticEditsLeaveTheLitMaskUp() {
+        let base = Recipe(masks: [Mask(id: "m1", name: "Sky",
+                                       components: [MaskComponent(op: .add, kind: .radial)])])
+        var renamed = base
+        renamed.masks[0].name = "Sun"
+        var m = MaskOverlayMachine()
+        m.send(.created("m1"))
+        if let kind = MaskOverlayEdit.classify(old: base, new: renamed) { m.send(.edited(kind)) }
+        XCTAssertEqual(m.visibleID, "m1")
+    }
+
     // MARK: - Precedence, stated once
 
     func testHoverOutranksThePinAndTheLitMask() {
@@ -332,6 +368,9 @@ final class MaskOverlayEditTests: XCTestCase {
         var b = a
         b.develop.tone.exposure = -1
         XCTAssertEqual(MaskOverlayEdit.classify(old: a, new: b), .adjustment)
+        var c = a
+        c.look.vignette = -0.5
+        XCTAssertEqual(MaskOverlayEdit.classify(old: a, new: c), .adjustment)
     }
 
     func testGroupStrengthIsAnAdjustmentButItsNameIsNot() {
