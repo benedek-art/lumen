@@ -80,7 +80,7 @@ enum RecipeKeys {
 
     /// Set one key: tree → write → decode → re-encode → read back. Returns the recipe and
     /// the value the model actually holds at the path afterwards.
-    static func set(_ recipe: Recipe, path: String, to value: JSONValue) throws
+    static func assign(_ recipe: Recipe, path: String, to value: JSONValue) throws
         -> (recipe: Recipe, effective: JSONValue) {
         let segs = segments(path)
         guard !segs.isEmpty, !segs.contains(where: \.isEmpty) else {
@@ -231,7 +231,12 @@ enum RecipeKeys {
 /// over its PANEL range). This table transcribes them; where LumenCore exposes the number
 /// as a constant, the constant is read instead of copied. `*` matches one path segment.
 enum Ranges {
-    struct Range { let min: Double; let max: Double; let source: String; let note: String? }
+    struct Range {
+        let min: Double
+        let max: Double
+        let source: String
+        let note: String?
+    }
 
     static let integerFields = ["look.printerLights.*"]
 

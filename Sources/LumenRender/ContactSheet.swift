@@ -41,7 +41,7 @@ enum ContactSheet {
             let total = s.count * advance - glyphScale
             var x = centreX - total / 2
             for ch in s.uppercased() {
-                let rowsBits = Font.glyph(ch)
+                let rowsBits = BitmapFont.glyph(ch)
                 for (ry, bits) in rowsBits.enumerated() {
                     for cx in 0..<5 where bits & (1 << (4 - cx)) != 0 {
                         fill(x + cx * glyphScale, top + ry * glyphScale, glyphScale,
@@ -77,7 +77,7 @@ enum ContactSheet {
 
 /// A 5×7 bitmap font: uppercase, digits and the punctuation a key path and a number need.
 /// Each glyph is seven rows of five bits, most significant bit leftmost.
-enum Font {
+enum BitmapFont {
     static func glyph(_ c: Character) -> [UInt8] {
         if let g = table[c] { return g }
         return table["?"]!

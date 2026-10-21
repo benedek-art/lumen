@@ -187,7 +187,7 @@ enum LumenRenderCLI {
                 throw InputError.message("--set expects key=value, got '\(s)'")
             }
             let key = String(s[..<eq]), raw = String(s[s.index(after: eq)...])
-            let out = try RecipeKeys.set(r, path: key, to: RecipeKeys.parseValue(raw))
+            let out = try RecipeKeys.assign(r, path: key, to: RecipeKeys.parseValue(raw))
             r = out.recipe
             applied[key] = out.effective
         }
@@ -299,7 +299,7 @@ enum LumenRenderCLI {
         private var items: [T?]
         private let lock = NSLock()
         init(_ n: Int) { items = Array(repeating: nil, count: n) }
-        func set(_ i: Int, _ v: T) { lock.lock(); items[i] = v; lock.unlock() }
+        func store(_ i: Int, _ v: T) { lock.lock(); items[i] = v; lock.unlock() }
         var values: [T] { items.map { $0! } }
     }
 
@@ -324,7 +324,7 @@ enum LumenRenderCLI {
         var recipes: [Recipe] = []
         var effective: [JSONValue] = []
         for v in values {
-            let r = try RecipeKeys.set(base, path: key, to: .number(v))
+            let r = try RecipeKeys.assign(base, path: key, to: .number(v))
             recipes.append(r.recipe)
             effective.append(r.effective)
         }
@@ -357,7 +357,7 @@ enum LumenRenderCLI {
         DispatchQueue.concurrentPerform(iterations: values.count) { i in
             let (enc, secs) = Renderer.render(prepared, recipe: recipes[i], settings: settings)
             let (m, planes) = Metrics.measure(enc, space: settings.space, seconds: secs)
-            results.set(i, (enc, m, planes))
+            results.store(i, (enc, m, planes))
         }
         let tilesOut = results.values
         let wall = Date().timeIntervalSince(start)

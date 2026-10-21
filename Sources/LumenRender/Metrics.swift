@@ -5,7 +5,11 @@ import Foundation
 import LumenCore
 
 struct Percentiles: Codable {
-    let p1: Double, p5: Double, p50: Double, p95: Double, p99: Double
+    let p1: Double
+    let p5: Double
+    let p50: Double
+    let p95: Double
+    let p99: Double
 }
 
 struct LuminanceMetrics: Codable {
@@ -18,7 +22,10 @@ struct LuminanceMetrics: Codable {
 }
 
 struct ChannelPct: Codable {
-    let r: Double, g: Double, b: Double, any: Double
+    let r: Double
+    let g: Double
+    let b: Double
+    let any: Double
 }
 
 struct ClippingMetrics: Codable {
@@ -235,7 +242,11 @@ enum Metrics {
         return (x * x + y * y + z * z + rt * y * z).squareRoot()
     }
 
-    struct DeltaE: Codable { let mean: Double; let p95: Double; let max: Double }
+    struct DeltaE: Codable {
+        let mean: Double
+        let p95: Double
+        let max: Double
+    }
 
     static func deltaE(_ a: PixelPlanes, _ b: PixelPlanes) -> DeltaE {
         let n = a.lab.count / 3
