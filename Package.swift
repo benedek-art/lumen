@@ -9,9 +9,13 @@
 //   LumenPipeline — the render path. Apple RAW stage wrapper, export. macOS-only
 //                   (sources are `#if os(macOS)` so the target stays declarable).
 //   LumenApp      — SwiftUI shell. macOS-only.
+//   LumenRender   — `lumen-render`, the headless renderer: recipe + scene-linear image →
+//                   the app's PNG plus slider metrics, through LumenCore's f32
+//                   ReferenceRenderer. Depends only on LumenCore; builds on Linux.
 //
 // On Linux, build/test only the core:  swift build --target LumenCore
 //                                      swift test  --filter LumenCoreTests
+//            and the headless renderer: swift build -c release --product lumen-render
 import PackageDescription
 
 let package = Package(
@@ -22,6 +26,7 @@ let package = Package(
     products: [
         .library(name: "LumenCore", targets: ["LumenCore"]),
         .executable(name: "LumenApp", targets: ["LumenApp"]),
+        .executable(name: "lumen-render", targets: ["LumenRender"]),
     ],
     targets: [
         // Linux only in practice: on macOS the SDK's own SQLite3 module wins, and this
@@ -48,6 +53,14 @@ let package = Package(
         .executableTarget(
             name: "LumenApp",
             dependencies: ["LumenCore", "LumenPipeline"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        // The headless renderer agents use to SEE what a slider does (manual: the header
+        // of Sources/LumenRender/main.swift). Pure LumenCore + Foundation, so it builds
+        // on the Linux lanes as well as on macOS.
+        .executableTarget(
+            name: "LumenRender",
+            dependencies: ["LumenCore"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .testTarget(
