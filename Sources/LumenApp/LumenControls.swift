@@ -333,24 +333,25 @@ enum Lumen {
     /// `valueWidth` went 44 → 52 for the readout pill (−8 more), and nobody re-derived
     /// them — which is the ordinary fate of a number that is remembered rather than
     /// measured. `LayoutMetricTests` measures it: the chain is
-    /// `column − 8 scroll − 20 card − 150 row chrome`, so a ±100 control gets **142 pt
-    /// of track at the 320 minimum and 202 at the 380 default — 0.710 and 1.010 points
-    /// per unit.** 1.24 was 23% over the truth.
+    /// `column − 16 scroll − 24 card − 150 row chrome` since U1 widened the column
+    /// gutter and the card padding, so a ±100 control gets **130 pt of track at the 320
+    /// minimum and 190 at the 380 default — 0.650 and 0.950 points per unit.** Before
+    /// U1 it was 142 and 202 (0.710 and 1.010); 1.24 was 23% over even that.
     ///
-    /// WHICH MAKES THE ~1.0 FLOOR A PROMISE ABOUT THE DEFAULT WIDTH, and the promise
-    /// belongs written where it is made rather than left for a reader to infer a
-    /// stronger one. At 380 a ±100 control clears the floor by a hundredth of a point.
-    /// At the 320 minimum it does not clear it and cannot be made to: 1.0 pt per unit
-    /// needs 200 points of track, which needs 350 points of card content, which needs a
-    /// 378-point column — so buying it at the minimum means making the minimum the
-    /// default and deleting the drag-in half of a resize the owner asked for by name.
+    /// SO THE ~1.0 FLOOR IS NO LONGER MET AT THE DEFAULT WIDTH, and that is a trade U1
+    /// made on purpose and states here rather than leaves for a reader to discover. The
+    /// owner's complaint was text pressed against the card walls; 12 pt of padding on
+    /// each side is what fixed it, and it came out of the track. 1.0 pt per unit needs
+    /// 200 points of track, which needs 350 points of card content, which needs a
+    /// 390-point column — ten points wider than this default, one short drag. Making
+    /// the default 390 is the owner's call (it narrows the viewer by the same ten).
     /// Dragging the column narrow is a deliberate trade of precision for room and the
     /// photographer is the one making it; what this constant guarantees is that nobody
     /// STARTS there.
     ///
     /// And it is a floor for the ±100 CLASS — 51 of the app's 142 slider rows, and the
     /// class the whole argument above is about — not for every row. (53 rows land on
-    /// exactly 0.710/1.010: the other two are Mask Strength at 0…200 and Look's Skew at
+    /// exactly 0.650/0.950 since U1: the other two are Mask Strength at 0…200 and Look's Skew at
     /// −1…1 in hundredths, which merely happen to divide their ranges into the same 200
     /// steps.) Exposure's declared 0.01 EV over ±5 is 1,000 steps and would want 1,000
     /// points of track; no width this app permits reaches that and none is meant to,
@@ -398,14 +399,14 @@ enum Lumen {
     /// and the track arithmetic downstream inherited the error.
     ///
     /// Measured rather than recalled (`LayoutMetricTests`): `86 + 6 + 6 + 52` is 150
-    /// points of chrome, and after the scroll inset and the section card that leaves
-    /// **142 pt of track at the 320 minimum and 202 at the 380 default.** The first of
-    /// those is the arresting one — it is EXACTLY the 142 the paragraph above condemns,
-    /// with exactly its 0.71 pt per unit and its 58 unreachable integers. Trimming the
+    /// points of chrome, and after the scroll inset and the section card that left
+    /// **142 pt of track at the 320 minimum and 202 at the 380 default** — 130 and 190
+    /// since U1 widened both insets. The 142 was the arresting one — EXACTLY the 142 the
+    /// paragraph above condemns, with its 0.71 pt per unit and 58 unreachable integers. Trimming the
     /// label column bought the track back and then the section card and the readout
     /// pill spent it again, so the narrow column has arrived where it started. What
     /// carries the precision now is the width the panel OPENS at; see
-    /// `defaultPanelWidth`, where that promise is stated at the width that keeps it.
+    /// `defaultPanelWidth`, which states what that width does and no longer keeps.
     ///
     /// `SliderDragTests` re-proves the drag's properties parametrically from 100 to
     /// 400 pt of track, so nothing here is pinned to a width.

@@ -274,8 +274,8 @@ struct DevelopDisclosure<Content: View>: View {
             // AND THE 8 PT INDENT IS GONE (U1). It put the fold's chevron at 33 pt from
             // the column against the labels' 15 and the card chevron's 20.5: three left
             // edges in one card. The level is now said in type (a fold title is 12 pt
-            // `secondaryText` under a 13 pt `primaryText` card title), so the chevron can
-            // sit on the label column with everything else.
+            // under a 13 pt card title, both `primaryText`), so the chevron can sit on
+            // the label column with everything else.
             LumenSectionHeader(title: title, isExpanded: $isExpanded,
                                topRhythm: Lumen.foldGap)
             if isExpanded {

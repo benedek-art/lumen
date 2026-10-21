@@ -174,7 +174,8 @@ final class LayoutMetricTests: XCTestCase {
     /// 380 it is 1.24, past Lightroom's default", and both of those figures were stale:
     /// they predate `WorkspaceSectionView`'s card gutter (−20) and `valueWidth` going
     /// 44 → 52 for the readout pill (−8 on every row in the app). The measured pair is
-    /// **0.710 and 1.010**, and `Lumen.defaultPanelWidth`'s comment now says so — which
+    /// **0.710 and 1.010** (0.650 and 0.950 since U1 widened the column gutter and card
+    /// padding), and `Lumen.defaultPanelWidth`'s comment now says so — which
     /// is a repair rather than a concession: a comment that overstates the instrument by
     /// 23% is how a panel gets narrowed twice.
     ///
@@ -197,7 +198,7 @@ final class LayoutMetricTests: XCTestCase {
     /// share of the inventory is under it. But clearing it is not a bug fix — it is a
     /// trade the owner has to make, and the arithmetic says so: 200 points of groove for
     /// a ±100 control needs a 390 pt column, and the minimum is 320. Raising the minimum
-    /// to 378 makes it equal to the default, which deletes the drag-narrower half of a
+    /// to 390 puts it above the 380 default, which deletes the drag-narrower half of a
     /// resize that exists on purpose. Every inset in the chain above is already spent.
     ///
     /// So it is recorded rather than silenced. The census still RUNS and still prints
@@ -220,9 +221,9 @@ final class LayoutMetricTests: XCTestCase {
     /// minimum is a state a photographer can actually be in, and a control that cannot
     /// address its own integers there is broken there.
     ///
-    /// 99 of the 142 rows are under the floor here, against 42 at the default, and the
-    /// 57 that separate the two censuses are the 200-step class: 0.710 pt per unit at 320,
-    /// 1.010 at 380. `Lumen.defaultPanelWidth` now states that gap in the place the
+    /// Before U1, 99 of the 142 rows were under the floor here against 42 at the default,
+    /// and the 57 that separated the two censuses were the 200-step class: 0.710 pt per
+    /// unit at 320, 1.010 at 380. Since U1 that class is 0.650 and 0.950, under at both. `Lumen.defaultPanelWidth` now states that gap in the place the
     /// promise is made, because the honest reading of these two numbers is that the
     /// floor is bought by the width the panel OPENS at and spent again by dragging it in
     /// — and a photographer who drags it in is trading precision for room knowingly,
@@ -233,7 +234,7 @@ final class LayoutMetricTests: XCTestCase {
     /// share of the inventory is under it. But clearing it is not a bug fix — it is a
     /// trade the owner has to make, and the arithmetic says so: 200 points of groove for
     /// a ±100 control needs a 390 pt column, and the minimum is 320. Raising the minimum
-    /// to 378 makes it equal to the default, which deletes the drag-narrower half of a
+    /// to 390 puts it above the 380 default, which deletes the drag-narrower half of a
     /// resize that exists on purpose. Every inset in the chain above is already spent.
     ///
     /// So it is recorded rather than silenced. The census still RUNS and still prints
@@ -262,10 +263,11 @@ final class LayoutMetricTests: XCTestCase {
     /// THE FOLD TERM IS ZERO NOW AND THE SHORTFALL IS UNCHANGED, which is the useful
     /// thing this test has to say today. The disclosure's 16 points came back to the
     /// track (`PanelChain.disclosureInset`), so a fold no longer costs a row anything and
-    /// a ±100 control inside one went 126 → 142 pt, 0.630 → 0.710 pt per unit. It is
-    /// still not 1.0, and no arrangement of insets can make it 1.0: 200 points of track
-    /// wants 350 points of card content, which wants a 378-point column. What is left is
-    /// a decision about `Lumen.minimumPanelWidth` — 320 today, 378 to make the floor
+    /// a ±100 control inside one went 126 → 142 pt, 0.630 → 0.710 pt per unit — then
+    /// 130 pt, 0.650, when U1 widened the column gutter and card padding. It is still
+    /// not 1.0, and no arrangement of insets can make it 1.0: 200 points of track wants
+    /// 350 points of card content, which wants a 390-point column. What is left is
+    /// a decision about `Lumen.minimumPanelWidth` — 320 today, 390 to make the floor
     /// hold at every width the drag reaches — and that decision belongs to whoever owns
     /// how narrow the column may be dragged, not to this file. The assertion stays where
     /// it is so the number stays visible; softening it to 0.71 would turn the instrument
@@ -276,7 +278,7 @@ final class LayoutMetricTests: XCTestCase {
     /// share of the inventory is under it. But clearing it is not a bug fix — it is a
     /// trade the owner has to make, and the arithmetic says so: 200 points of groove for
     /// a ±100 control needs a 390 pt column, and the minimum is 320. Raising the minimum
-    /// to 378 makes it equal to the default, which deletes the drag-narrower half of a
+    /// to 390 puts it above the 380 default, which deletes the drag-narrower half of a
     /// resize that exists on purpose. Every inset in the chain above is already spent.
     ///
     /// So it is recorded rather than silenced. The census still RUNS and still prints
