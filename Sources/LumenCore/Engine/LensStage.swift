@@ -130,10 +130,15 @@ public enum LateralCAEstimator {
         let cubic = bands.filter { $0.r >= 0.6 }.count >= 2
 
         func channel(_ value: KeyPath<Band, Double>) -> LateralCAModel.Coefficients {
-            // Sign gate, on bands whose median clears the noise floor.
+            // Sign gate, on bands whose median clears the noise floor, weighted by their
+            // tiles: the channel is left alone when more than a quarter of that weight
+            // disagrees with the majority (GX85 blue: 47 %). One thin band that reads
+            // the other way (1840 blue) is noise, not a reason to drop the channel.
             let floor = significancePixels * 0.75 / halfDiagonal
-            let signs = Set(bands.map { $0[keyPath: value] }.filter { abs($0) >= floor }.map { $0 > 0 })
-            guard signs.count <= 1 else { return .init() }
+            let clear = bands.filter { abs($0[keyPath: value]) >= floor }
+            let positive = clear.filter { $0[keyPath: value] > 0 }.map(\.n).reduce(0, +)
+            let negative = clear.filter { $0[keyPath: value] < 0 }.map(\.n).reduce(0, +)
+            guard Swift.min(positive, negative) * 4 <= positive + negative else { return .init() }
             var a11 = 0.0, a12 = 0.0, a22 = 0.0, b1 = 0.0, b2 = 0.0
             for band in bands {
                 let w = Double(band.n).squareRoot()
