@@ -1,5 +1,11 @@
 # U1 report: design system, spacing and panel layout
 
+**Status: BLOCKED on the verifier budget, not on the work.** Three verifier rounds, three
+FAILs: round 1 on real regressions (fixed), rounds 2 and 3 on stale comments only. Every
+measurement, the sidebar and sheet isolation, and every test change passed in rounds 2
+and 3. The brief allows three rounds, so the comment fixes after round 3 are unverified
+and a human (or the integrator's verifier) has to sign them off.
+
 Branch `quality/u1-design-system`. Baseline snapshots `claude-inspiring-dirac-ulgpch/a93efb2`,
 after snapshots `quality-u1-design-system/dcd20b4` (the evidence images come from this set; the
 histogram inset change in 82792d2 lands after it, see S6).
@@ -13,7 +19,9 @@ All measurements are on 2x PNGs, 1 pt = 2 px.
 4. Grey text is brighter: every text colour passes WCAG AA now (worst case 4.6:1, was 3.0:1).
 5. Cost: 12 pt of slider track at the default width (202 → 190), so a ±100 slider is 0.95 pt per step instead of 1.01. Drag the column 10 pt wider to get back over 1.0; making 390 the default is your call.
 
-Try by hand: tab through sliders with the keyboard (the focus fill should sit inside the card), and hover card headers (the hover fill should match the focus fill's shape).
+## Try by hand
+
+Tab through sliders with the keyboard: the focus fill should sit inside the card. Hover card headers: the hover fill should match the focus fill's shape.
 
 ## Verdict per spec line
 
@@ -46,11 +54,15 @@ Tests changed, each re-pinned to what the code does rather than loosened: `Layou
 
 Round 1 (on ecdec4c): FAIL. The shared header defaults moved and dimmed the sidebar headers and reached both sheets; subsection titles in `secondaryText` rendered darker than the rows under them; three comments were stale; S2 missed its own threshold by the inner-rim convention. All four addressed in the following commit (opt-in `lumenColumnGrid`, primary subsection titles, default `topRhythm` back to 20 outside the column, comments fixed, S2 restated). 
 
-Round 2 (on dcd20b4 + 82792d2): FAIL on stale text only. Measurements, sidebar and sheet isolation, test re-pins and the CI fixes all passed. The doc on `Lumen.defaultPanelWidth` and four test comments still quoted the pre-U1 chain (142/202 pt, 0.710/1.010, a 378 pt column); a DevelopPanel comment still said fold titles are `secondaryText`; this report named the wrong snapshot set. All corrected in the next commit: the `defaultPanelWidth` doc now says plainly that the default no longer clears the ~1.0 floor and that 390 would. Round 3 result is recorded under CI.
+Round 2 (on dcd20b4 + 82792d2): FAIL on stale text only. Measurements, sidebar and sheet isolation, test re-pins and the CI fixes all passed. The doc on `Lumen.defaultPanelWidth` and four test comments still quoted the pre-U1 chain (142/202 pt, 0.710/1.010, a 378 pt column); a DevelopPanel comment still said fold titles are `secondaryText`; this report named the wrong snapshot set. All corrected in the next commit: the `defaultPanelWidth` doc now says plainly that the default no longer clears the ~1.0 floor and that 390 would. 
+
+Round 3 (on 108bbe9): FAIL on stale comments only. All four round-2 items confirmed fixed and the new arithmetic true (380−16−24−150 = 190, 320−16−24−150 = 130, 200+150+24+16 = 390); `git diff 82792d2 108bbe9 -- Sources Tests` is comments and two citation strings; all 42 inventory citations into touched files land on their rows. It found ten more present-tense claims the lane made false (the snapshot harness's "4-point gutter", "42 rows under 1.0 at the default", the precision census message quoting the old promise, "~142 points" in two docs, "142 points … 10.6%" in DevelopPanel, "the floor defaultPanelWidth exists to buy" twice, "card gutter from 10 to 12") and this report's owner section running to 6 lines. Each is reworded in the final commit; that commit changes comments, one test failure-message string and this file, nothing else, and has not been through a fourth verifier.
 
 ## CI
 
 On dcd20b4: UI snapshots, UI layout, GPU parity, proof sweep green. CI red on three items: ScopeTests clipping headline (209.8 pt in a 206.9 pt slot, this lane, fixed in 82792d2), the slider inventory citing LumenControls.swift:2222 (this lane, re-cited), and fixtures-linux's surface check ("Font is in LumenRender", LumenType.swift:30), which fails identically on a93efb2 and is not this lane's.
+
+On 82792d2: UI layout, UI snapshots, proof sweep green; CI and GPU parity cancelled by the next push. On 108bbe9 and the final commit: queued at the time of writing. The final commit's CI result is what the integrator should check.
 
 ## Not fixed (in NEEDS.md)
 

@@ -254,7 +254,7 @@ struct DevelopDisclosure<Content: View>: View {
             // measures the chain, and a fold at the 380 default was running 186 pt of
             // track against 202 everywhere else: a ±100 control inside one sat at 0.93
             // pt per unit while its neighbour outside sat at 1.010, i.e. on the wrong
-            // side of the ~1.0 floor `Lumen.defaultPanelWidth` exists to buy — the
+            // side of the ~1.0 floor `Lumen.defaultPanelWidth` then bought — the
             // section that folds was the section that lost the guarantee. At the 320
             // minimum it was 126 against 142.
             //
@@ -529,7 +529,7 @@ struct DevelopPanel: View {
     /// mouse macOS draws LEGACY scrollers rather than overlay ones, and a legacy scroller
     /// insets the document view. So opening one accordion section makes this column
     /// overflow, the 15pt scroller appears, and every slider in the panel loses 15 of its
-    /// 142 points of track: a 10.6% precision change in the control this app is made of,
+    /// 130 points of track at 320 (190 at 380): an 8–12% precision change in the control,
     /// caused by clicking a chevron.
     ///
     /// `.never` rather than `.hidden`, because `.hidden` leaves the system free to show

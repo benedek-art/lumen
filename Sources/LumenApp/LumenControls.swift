@@ -682,7 +682,7 @@ struct LumenSlider: View {
 
     /// The readout is a second, finer track.
     ///
-    /// Three times the develop column's ~142 points, so crossing the whole range by
+    /// Three times the column's track (130–190 pt since U1), so crossing the range by
     /// scrubbing the number is three deliberate hand movements where the track does it
     /// in one — and ⇧ makes it twelve. That is what makes this the precision instrument
     /// and the track the coarse one, which is the division of labour every pro tool with
@@ -1395,7 +1395,7 @@ struct LumenSlider: View {
                     }
                     // THE CURSOR IS THE ADVERTISEMENT. This readout is the app's
                     // PRECISION instrument — 2.13 points per unit against the track's
-                    // 0.71, three times finer — and its only disclosure was a tooltip
+                    // 0.65–0.95, two to three times finer — its only disclosure a tooltip
                     // after a one-second hover delay. Meanwhile it is a 44x22 target
                     // against the coarse track's 180x22, so the app gave the blunt tool
                     // four times the hit area of the fine one and told nobody the fine

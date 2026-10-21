@@ -27,7 +27,7 @@
 // THE PINS ARE THE POINT. A measurement suite whose constants are typed by hand into
 // the test is a suite that measures its own copy of the app. The pinning test reads
 // the actual source files and asserts each literal is still where and what this file
-// says it is; if somebody moves the card gutter from 10 to 12, the pin fails and names
+// says it is; if somebody moves the card gutter from 12 to 16, the pin fails and names
 // the number to re-derive, instead of the metric tests quietly measuring a panel that
 // no longer exists.
 
@@ -168,7 +168,7 @@ enum PanelChain {
     /// put. `.horizontal` squared the read and doubled the price — 16 pt off every row
     /// in a fold, which at the 380 default put a ±100 control inside one at 0.93 pt per
     /// unit against 1.010 outside, i.e. the section that folds was the section that lost
-    /// the floor `defaultPanelWidth` exists to buy. The depth now sits on the fold's
+    /// the floor `defaultPanelWidth` then bought. The depth now sits on the fold's
     /// HEADER instead, so the sub-heading is still one level in and every groove in the
     /// column starts at the same x.
     ///

@@ -985,7 +985,7 @@ private enum SnapshotFixtures {
 // MARK: - Hosted compositions
 
 /// One accordion card, drawn as `WorkspaceSectionView` (DevelopColumn.swift) draws it,
-/// inside the scroll column's 4-point gutter on the column's own background. That view
+/// inside the scroll column's 8-point gutter on the column's own background. That view
 /// is private to its file, so this restates its modifiers in the same order.
 private struct SnapshotSectionCard<Content: View>: View {
     let section: WorkspaceSection

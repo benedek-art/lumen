@@ -179,8 +179,9 @@ final class LayoutMetricTests: XCTestCase {
     /// is a repair rather than a concession: a comment that overstates the instrument by
     /// 23% is how a panel gets narrowed twice.
     ///
-    /// WHAT THIS CENSUS STILL FAILS ON, AND WHY THE FLOOR IS NOT MOVING. Forty-two of
-    /// the 142 rows are under 1.0 at the default, and they are not a layout problem:
+    /// WHAT THIS CENSUS STILL FAILS ON, AND WHY THE FLOOR IS NOT MOVING. Before U1,
+    /// forty-two of the 142 rows were under 1.0 at the default and none of them was a
+    /// layout problem (since U1 the 200-step class at 0.950 joins them, which is):
     /// they are the fine-quantum rows — Exposure's 0.01 EV over ±5 is 1,000 steps and
     /// would want 1,000 points of track, which no width this app permits comes near. The
     /// answer to those is the readout's own scrub, and
@@ -210,8 +211,8 @@ final class LayoutMetricTests: XCTestCase {
         XCTExpectFailure("The precision floor is not met at this width, and closing it is a trade rather than a fix: a bipolar-100 row needs a 390 pt column and the minimum is 320. Delete this expectation when the chain or the minimum changes.")
         let failures = precisionCensus(columnWidth: Lumen.defaultPanelWidth)
         report(failures, of: SliderInventory.all.count,
-               "LumenControls.swift: the default width exists to buy \"~1.0\" points of "
-               + "track travel per unit.\n"
+               "LumenControls.swift: since U1 the default width no longer buys \"~1.0\" "
+               + "points of track travel per unit; 390 would.\n"
                + chainSummary(columnWidth: Lumen.defaultPanelWidth))
     }
 
@@ -223,11 +224,9 @@ final class LayoutMetricTests: XCTestCase {
     ///
     /// Before U1, 99 of the 142 rows were under the floor here against 42 at the default,
     /// and the 57 that separated the two censuses were the 200-step class: 0.710 pt per
-    /// unit at 320, 1.010 at 380. Since U1 that class is 0.650 and 0.950, under at both. `Lumen.defaultPanelWidth` now states that gap in the place the
-    /// promise is made, because the honest reading of these two numbers is that the
-    /// floor is bought by the width the panel OPENS at and spent again by dragging it in
-    /// — and a photographer who drags it in is trading precision for room knowingly,
-    /// which is a different thing from a control that arrives broken.
+    /// unit at 320, 1.010 at 380. Since U1 that class is 0.650 and 0.950, under at both,
+    /// and `Lumen.defaultPanelWidth` says so where the old promise was made: the floor
+    /// now needs a 390 pt column, ten points wider than the column opens at.
     /// EXPECTED FAILURE, and the expectation carries the reason.
     ///
     /// The 1.0 pt-per-step floor is real, it is the app's own stated number, and a large
