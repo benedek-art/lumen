@@ -59,7 +59,7 @@ extension LumenRenderCLI {
         let stats = try autoStatistics(path: input, probe: probe, settings: settings)
         // --legacy: the pre-WS-09 heuristic (`suggest`), for before/after evidence.
         var result = args.flag("legacy")
-            ? AutoTone.Result(tone: AutoTone.suggest(from: stats))
+            ? AutoTone.Suggestion(tone: AutoTone.suggest(from: stats))
             : AutoTone.auto(from: stats, render: probe.look.render.resolved())
         // The app's closed loop: render the proxy with the answer, count the clip.
         var refinements = 0

@@ -1060,7 +1060,7 @@ extension AutoTone {
 
     /// Everything Auto writes: the six tone sliders (and the pivot), plus Vibrance.
     /// Saturation is left alone, as Lightroom's Auto leaves it in practice.
-    public struct Result: Equatable, Sendable {
+    public struct Suggestion: Equatable, Sendable {
         public var tone: Tone
         public var vibrance: Double
         /// The bounds the clip loop has imposed so far; `refine` carries them forward.
@@ -1134,9 +1134,9 @@ extension AutoTone {
                             exposureCeiling: Double = .infinity,
                             blacksFloor: Double = blacksLimit.lowerBound,
                             vibranceCeiling: Double = vibranceLimit.upperBound)
-        -> Result {
+        -> Suggestion {
         let predictor = Predictor(stats: stats, render: render)
-        guard predictor.isUsable else { return Result(tone: Tone(), vibrance: 0) }
+        guard predictor.isUsable else { return Suggestion(tone: Tone(), vibrance: 0) }
         // A frame that is all black or all blown has no tones to place: an all-zero
         // frame got Exposure +4, Shadows +50 and Whites +60 out of nothing. Judged on the
         // picture and on its EXTREMES, not its median: a raw underexposed by 4 EV has a
@@ -1147,7 +1147,7 @@ extension AutoTone {
         let top = predictor.encoded(stats.interpolatedPercentileEV(0.99), Tone())
         let bottom = predictor.encoded(stats.interpolatedPercentileEV(0.01), Tone())
         guard top > 0.02, bottom < 0.98 else {
-            return Result(tone: Tone(), vibrance: 0)
+            return Suggestion(tone: Tone(), vibrance: 0)
         }
         var t = Tone()
         let key = stats.faceMeanEV != nil ? faceKeyTarget : keyTarget
@@ -1213,7 +1213,7 @@ extension AutoTone {
         t.blacks = t.blacks.rounded()
         if t.contrast == 0 && stats.faceMeanEV == nil { t.contrastPivot = 0 }
         t.contrastPivot = (t.contrastPivot * 100).rounded() / 100
-        return Result(tone: t, vibrance: Swift.min(vibrance(forMeanChroma: stats.meanChroma),
+        return Suggestion(tone: t, vibrance: Swift.min(vibrance(forMeanChroma: stats.meanChroma),
                                                    Swift.max(vibranceCeiling, 0)))
     }
 
@@ -1239,9 +1239,9 @@ extension AutoTone {
     /// clipped with the prediction saying none. So the app renders the proxy once more
     /// with the answer, counts, and if it is over, Exposure comes down and everything
     /// else is solved again around it.
-    public static func refine(_ previous: Result, probe: Statistics,
+    public static func refine(_ previous: Suggestion, probe: Statistics,
                               render: DisplayTransformParams = Recipe().look.render.resolved(),
-                              measuredClip: Double, measuredCrush: Double = 0) -> Result? {
+                              measuredClip: Double, measuredCrush: Double = 0) -> Suggestion? {
         let clipOver = measuredClip.isFinite && measuredClip > clipBudget(probe: probe)
         let crushOver = measuredCrush.isFinite && measuredCrush > crushBudget(probe: probe)
         guard clipOver || crushOver else { return nil }

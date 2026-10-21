@@ -36,7 +36,7 @@ final class AutoToneQualityTests: XCTestCase {
 
     /// Auto as the app runs it: the answer, then up to `maxClipRefinements` corrective
     /// proxy renders.
-    private func auto(_ frame: ImageBuffer) -> (AutoTone.Result, AutoTone.Statistics) {
+    private func auto(_ frame: ImageBuffer) -> (AutoTone.Suggestion, AutoTone.Statistics) {
         let probe = Recipe()
         let stats = statistics(frame, probe)
         var result = AutoTone.auto(from: stats, render: probe.look.render.resolved())
@@ -71,7 +71,7 @@ final class AutoToneQualityTests: XCTestCase {
         sorted[Swift.min(sorted.count - 1, Int(p * Double(sorted.count)))]
     }
 
-    private func rendered(_ frame: ImageBuffer, _ result: AutoTone.Result)
+    private func rendered(_ frame: ImageBuffer, _ result: AutoTone.Suggestion)
         -> (sorted: [Double], clipped: Double) {
         var r = Recipe()
         result.apply(to: &r)
@@ -162,7 +162,7 @@ final class AutoToneQualityTests: XCTestCase {
         XCTAssertEqual(AutoTone.vibrance(forMeanChroma: nil), 10)
         var recipe = Recipe()
         recipe.develop.color.saturation = 7
-        AutoTone.Result(tone: Tone(exposure: 1), vibrance: 12).apply(to: &recipe)
+        AutoTone.Suggestion(tone: Tone(exposure: 1), vibrance: 12).apply(to: &recipe)
         XCTAssertEqual(recipe.develop.color.saturation, 7, "Auto touched Saturation")
         XCTAssertEqual(recipe.develop.color.vibrance, 12)
     }

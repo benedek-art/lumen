@@ -33,7 +33,7 @@ extension AppState {
         statusMessage = "Analysing…"
 
         Task {
-            var suggestions: [URL: AutoTone.Result] = [:]
+            var suggestions: [URL: AutoTone.Suggestion] = [:]
             for (url, recipe) in recipesByURL {
                 // Neutral tone and Vibrance for the analysis pass: measuring the scene
                 // through the edit you are about to replace would make Auto depend on
@@ -78,7 +78,7 @@ extension AppState {
     /// older value over Auto's, so memory showed Auto's tone while the catalog and the
     /// sidecar kept the slider's. Same remedy as undo: close the gesture first, so its
     /// pending write lands before Auto's and Auto's is the last one.
-    func applyAutoToneSuggestions(_ suggestions: [URL: AutoTone.Result]) {
+    func applyAutoToneSuggestions(_ suggestions: [URL: AutoTone.Suggestion]) {
         landAutoTone(suggestions.mapValues { result -> (inout Recipe) -> Void in
             { (recipe: inout Recipe) in result.apply(to: &recipe) }
         })
