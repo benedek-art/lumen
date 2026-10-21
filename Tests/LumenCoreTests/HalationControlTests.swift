@@ -222,101 +222,160 @@ final class HalationControlTests: XCTestCase {
         XCTAssertTrue(FilmStock.all.contains { $0.halationStrength != .zero })
     }
 
-    // MARK: - Normalized bounce weights (N-006 / C1-09)
+    // MARK: - Where it glows (WS-39)
 
-    /// THE RENDERER APPLIES WEIGHTS THAT SUM TO ONE. `normalizedWeights` existed and
-    /// nothing called it: both renderers walked raw `decay^(k−1)`, so the field they
-    /// multiplied by `strength` was worth 1 + 0.5 + 0.25 = 1.75 units and a fourth
-    /// bounce would have raised every stock's glow with no stock edited.
-    ///
-    /// A FLAT field makes every blur the identity away from the border, so the glow the
-    /// reference adds at the centre is `strength · H(E) · Σ(applied weights)` exactly —
-    /// which measures the applied sum through `ReferenceRenderer.applyHalation` itself
-    /// rather than reading a property. With the raw walk substituted back the ratio
-    /// reads 1.75.
+    private func film(_ stock: FilmStock = .portra400, amount: Double = 100,
+                      size: Double? = nil, redness: Double? = nil) -> FilmChain {
+        var lab = FilmChain.defaultRecipe(for: stock)
+        lab.halation = amount
+        lab.halationSize = size
+        lab.halationRedness = redness
+        return FilmChain(lab, displayWhite: 1.0)
+    }
+
+    /// A small clipped-or-brighter disk on a dark field.
+    private func disk(side: Int, radius: Double, level: Double,
+                      field: Double = 0.0) -> ImageBuffer {
+        let c = Double(side) / 2 - 0.5
+        return ImageBuffer(width: side, height: side) { u, v in
+            let x = u * Double(side) - 0.5 - c, y = v * Double(side) - 0.5 - c
+            return RGB(gray: (x * x + y * y).squareRoot() <= radius ? level : field)
+        }
+    }
+
+    /// SPEC M2. A FLAT FIELD COMES OUT UNTOUCHED at every level, clipped or not. The
+    /// stock's curve is measured on flat fields, so the base's reflection onto the spot
+    /// it came from is already inside it; the stage adds only the light spread AWAY.
+    /// The stage used to add `strength · F`, which on a flat field is `strength · H`:
+    /// +4…+7 sRGB codes of red on every bright wall, lawn and sky at Amount 100.
+    func testAFlatFieldGetsNoHalationAtAnyLevel() {
+        let chain = film(size: 2.0, redness: 0)
+        for level in [0.05, 0.18, 0.5, 0.9, 1.0, 4.0, 16.0] {
+            let source = ImageBuffer(width: 64, height: 64) { _, _ in RGB(gray: level) }
+            let out = ReferenceRenderer.applyHalation(source, film: chain, longEdge: 2215)
+            var worst = 0.0
+            for y in 0..<64 { for x in 0..<64 {
+                worst = Swift.max(worst, out[x, y].maxAbsDifference(source[x, y]))
+            } }
+            XCTAssertLessThanOrEqual(worst, level * 1e-5,
+                                     "a flat field at \(level) moved by \(worst) — the stage "
+                                         + "is adding a cast, not a halo")
+        }
+    }
+
+    /// SPEC M3. NOTHING TWO STOPS UNDER THE CLIP FEEDS THE GLOW. Mid grey sat at a third
+    /// of full weight under the old four-stop gate.
+    func testNothingTwoStopsUnderTheClipFeedsTheGlow() {
+        let profile = film().halation(longEdgePixels: 2400)
+        for level in [0.01, 0.18, 0.25] {
+            XCTAssertEqual(profile.highlightEnergy(RGB(gray: level)), RGB.zero,
+                           "\(level) contributes energy")
+        }
+        XCTAssertGreaterThan(profile.highlightEnergy(RGB(gray: 0.5)).r, 0)
+        // A disk at the gate's edge on a dark field changes nothing anywhere.
+        let source = disk(side: 96, radius: 8, level: 0.25, field: 0.01)
+        let out = ReferenceRenderer.applyHalation(source, film: film(size: 2), longEdge: 2215)
+        for y in 0..<96 { for x in 0..<96 {
+            XCTAssertEqual(out[x, y], source[x, y])
+        } }
+    }
+
+    /// SPEC M4. A CLIPPED SAMPLE CARRIES FAR MORE ENERGY THAN A DIFFUSE WHITE. The
+    /// recording stops at the clip; the light onto the film did not. A lamp used to throw
+    /// no more glow than a white wall (0.3-stop headroom).
+    func testAClippedSampleOutGlowsADiffuseWhite() {
+        let profile = film().halation(longEdgePixels: 2400)
+        let clipped = profile.highlightEnergy(RGB(gray: 1.0)).r
+        let white = profile.highlightEnergy(RGB(gray: 0.8)).r
+        XCTAssertEqual(clipped, pow(2.0, HalationProfile.boostRange), accuracy: 1e-9)
+        XCTAssertGreaterThan(clipped / white, 3.0)
+        // Monotone in exposure and continuous across the clip band.
+        var previous = 0.0
+        var level = 0.2
+        while level < 40 {
+            let e = profile.highlightEnergy(RGB(gray: level)).r
+            XCTAssertGreaterThanOrEqual(e, previous - 1e-12, "energy fell at \(level)")
+            XCTAssertLessThan(e - previous, 0.5, "energy jumps at \(level)")
+            previous = e
+            level *= 1.005
+        }
+        // Real HDR above the reconstruction floor stays linear.
+        XCTAssertEqual(profile.highlightEnergy(RGB(gray: 16)).r, 16, accuracy: 1e-9)
+    }
+
+    /// The added light outside a clipped disk, per ring, in working space.
+    private func rings(_ chain: FilmChain, longEdge: Int = 2400, side: Int = 256,
+                       radius: Double = 10) -> [RGB] {
+        let source = disk(side: side, radius: radius, level: 1.0)
+        let out = ReferenceRenderer.applyHalation(source, film: chain, longEdge: longEdge)
+        let c = Double(side) / 2 - 0.5
+        var sum = [RGB](repeating: .zero, count: side / 2)
+        var n = [Double](repeating: 0, count: side / 2)
+        for y in 0..<side { for x in 0..<side {
+            let d = (pow(Double(x) - c, 2) + pow(Double(y) - c, 2)).squareRoot() - radius
+            guard d > 0, Int(d) < side / 2 else { continue }
+            sum[Int(d)] = sum[Int(d)] + (out[x, y] - source[x, y])
+            n[Int(d)] += 1
+        } }
+        return zip(sum, n).map { $0.1 > 0 ? $0.0 * (1 / $0.1) : .zero }
+    }
+
+    /// SPEC M5. RED-ORANGE AT THE SOURCE, REDDER FURTHER OUT, and never green or blue
+    /// dominant. Green and blue spread on the narrower `narrowSigmas`, so G/R falls with
+    /// distance. Every bounce used to carry one colour.
+    func testTheHaloIsOrangeNearTheSourceAndRedderFurtherOut() {
+        let r = rings(film(amount: 100))
+        let toLayers = HalationProfile.workingToLayers
+        let near = toLayers.apply(r[1]), far = toLayers.apply(r[40])
+        XCTAssertGreaterThan(near.r, 0)
+        XCTAssertGreaterThan(far.r, 0, "no tail 40 px out")
+        XCTAssertGreaterThan(near.g / near.r, 0.15, "the core of the halo is not orange")
+        XCTAssertLessThan(far.g / far.r, 0.6 * (near.g / near.r),
+                          "the halo is not redder further out")
+        for (i, ring) in r.prefix(60).enumerated() {
+            XCTAssertGreaterThanOrEqual(ring.r, ring.g - 1e-7, "green over red at ring \(i)")
+            XCTAssertGreaterThanOrEqual(ring.g, ring.b - 1e-7, "blue over green at ring \(i)")
+        }
+        // A neutral stock keeps one radius and no colour fringe.
+        let mono = rings(film(.triX400, amount: 100))
+        XCTAssertEqual(mono[20].r, mono[20].g, accuracy: 1e-6)
+        XCTAssertEqual(mono[20].g, mono[20].b, accuracy: 1e-6)
+    }
+
+    /// SPEC M6. THE HALO IS THE SAME FRACTION OF THE PICTURE AT EVERY SIZE: the ring
+    /// where the glow falls under a fixed fraction of its peak sits at the same
+    /// fraction of the long edge at 1200 and 3600 px.
+    func testTheHaloScalesWithTheRender() {
+        func reach(_ longEdge: Int, side: Int, radius: Double) -> Double {
+            let r = rings(film(amount: 100), longEdge: longEdge, side: side, radius: radius)
+            let peak = r[0].r
+            let i = r.firstIndex { $0.r < 0.1 * peak } ?? r.count
+            return Double(i) / Double(longEdge)
+        }
+        let small = reach(1200, side: 160, radius: 6)
+        let large = reach(3600, side: 480, radius: 18)
+        XCTAssertEqual(small, large, accuracy: 0.15 * large)
+    }
+
+    /// SPEC M9. AMOUNT IS A LINEAR GAIN with zero an exact identity.
+    func testAmountIsALinearGain() {
+        let full = rings(film(amount: 100)), half = rings(film(amount: 50))
+        XCTAssertEqual(half[5].r, 0.5 * full[5].r, accuracy: 1e-5 * full[5].r + 1e-7)
+        let source = disk(side: 64, radius: 6, level: 1.0)
+        XCTAssertEqual(ReferenceRenderer.applyHalation(source, film: film(amount: 0, size: 2,
+                                                                         redness: 100),
+                                                       longEdge: 2400).pixels,
+                       source.pixels)
+    }
+
+    /// The renderer accumulates the NORMALIZED bounces (N-006): far from the frame's
+    /// border the blurred field keeps the energy's mass, so the halo's total is
+    /// `strength · Σ(F − H)⁺` with no hidden 1.75.
     func testTheRendererAppliesBounceWeightsThatSumToOne() {
-        let film = FilmChain(FilmLab(stock: FilmStock.portra400.id, amount: 100,
-                                     halation: 100),
-                             filmExposure: 0, displayWhite: 1.0)
-        let profile = film.halation(longEdgePixels: 2215)
+        let profile = film().halation(longEdgePixels: 2215)
         var sum = 0.0
         for w in profile.normalizedWeights { sum += w }
         XCTAssertEqual(profile.normalizedWeights.count, HalationProfile.bounceCount)
         XCTAssertEqual(sum, 1.0, accuracy: 1e-15)
-
-        let level = 2.0
-        let side = 96
-        let source = ImageBuffer(width: side, height: side) { _, _ in RGB(gray: level) }
-        let out = ReferenceRenderer.applyHalation(source, film: film, longEdge: 2215)
-        let expected = profile.strengths.r * profile.highlightEnergy(RGB(gray: level)).r
-        let added = Double(out[side / 2, side / 2].r) - level
-        XCTAssertGreaterThan(expected, 0)
-        XCTAssertEqual(added / expected, 1.0, accuracy: 1e-4,
-                       "the reference applied bounce weights summing to \(added / expected), "
-                           + "not 1 — the raw `decay^(k−1)` walk is back")
-    }
-
-    /// AND THE CALIBRATION IS THE OLD RAW SUM, so normalizing moved no pixel.
-    ///
-    /// The legacy stage is rebuilt here from its parts — raw weights `decay^(k−1)`, the
-    /// uncalibrated `stock strength mixed toward red × Amount` — and run beside the
-    /// shipping one on a step edge whose bright side crosses the gate, at every stock
-    /// that glows, both Size ends and three Rednesses. `ImageBuffer` stores f32, and
-    /// the two orders of operation differ by a few f64 ULPs of the glow, so the
-    /// bound is half an f32 ULP at the frame's brightest value: the stored pixels are
-    /// required to be IDENTICAL, not close. Got wrong, the rescale shows as a 1.75×
-    /// glow or a 1/1.75× one.
-    func testNormalizingTheBouncesMovesNoPixel() {
-        let width = 384, height = 8
-        let frame = ImageBuffer(width: width, height: height) { u, _ in
-            RGB(gray: u < 0.5 ? 0.05 : 0.7)
-        }
-        var compared = 0
-        for stock in FilmStock.all where stock.halationStrength != .zero {
-            for (size, redness) in [(1.0, nil as Double?), (0.5, 0.0), (2.0, 100.0)] {
-                var lab = FilmChain.defaultRecipe(for: stock)
-                lab.halation = 100
-                lab.halationSize = size
-                lab.halationRedness = redness
-                let film = FilmChain(lab, displayWhite: 1.0)
-                let profile = film.halation(longEdgePixels: 6000)
-                let shipped = ReferenceRenderer.applyHalation(frame, film: film,
-                                                              longEdge: 6000)
-
-                // The stage as it was before N-006.
-                let base = stock.halationStrength
-                let red = Num.clamp((redness ?? stock.halationRedness) / 100.0, 0, 1)
-                let legacyStrength = base.mix(RGB(base.r, 0, 0), red) * 1.0
-                let energy = frame.map { profile.highlightEnergy($0) }
-                var glow = ImageBuffer(width: width, height: height)
-                var weight = 1.0
-                for sigma in profile.sigmasInPixels where sigma > 0 {
-                    let blurred = SpatialOps.gaussianBlur(energy, sigma: sigma)
-                    for y in 0..<height {
-                        for x in 0..<width {
-                            glow[x, y] = glow[x, y] + blurred[x, y] * weight
-                        }
-                    }
-                    weight *= HalationProfile.bounceDecay
-                }
-                // Stored through an `ImageBuffer` exactly as the stage stores its own.
-                var legacy = frame
-                var worst = 0.0
-                for y in 0..<height {
-                    for x in 0..<width {
-                        legacy[x, y] = frame[x, y] + legacyStrength * glow[x, y]
-                        worst = Swift.max(worst,
-                                          shipped[x, y].maxAbsDifference(legacy[x, y]))
-                    }
-                }
-                XCTAssertLessThanOrEqual(
-                    worst, 0,
-                    "\(stock.id) size \(size) redness \(String(describing: redness)): "
-                        + "normalizing the bounces moved a pixel by \(worst) — the "
-                        + "calibration is not the old raw sum")
-                compared += 1
-            }
-        }
-        XCTAssertGreaterThanOrEqual(compared, 12, "the sweep compared nothing")
     }
 }

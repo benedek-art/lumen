@@ -1761,48 +1761,54 @@ public struct RenderGraph {
     func applyHalation(_ image: CIImage, film: FilmChain, longEdge: Int) -> CIImage {
         let profile = film.halation(longEdgePixels: longEdge)
         guard profile.strengths.maxComponent > 0 else { return image }
-        // The reference's gate, evaluated in the shader — not a pedestal standing in
-        // for it (M09: the pedestal rendered 0.61 of the reference's glow at E = 0.5
-        // and none at all two stops under the clip).
+        // The reference's gate and its change into the halo's primaries, evaluated in
+        // the shader — not a pedestal standing in for it (M09).
+        let toLayers = HalationProfile.workingToLayers.m
+        func row(_ r: [Double]) -> CIVector { CIVector(x: r[0], y: r[1], z: r[2]) }
         guard let energy = KernelLibrary.apply(
             KernelLibrary.halationEnergy, extent: image.extent,
             [image, Float(profile.clipLevel), Float(HalationProfile.protectEV),
-             Float(HalationProfile.boostRange)])
+             Float(HalationProfile.boostRange), Float(HalationProfile.clipBandEV),
+             row(toLayers[0]), row(toLayers[1]), row(toLayers[2])])
         else { return image }
 
-        // Three bounces at geometrically spaced radii, decaying by half each time —
-        // the film base is not a single-scale scatterer.
-        // The reference's accumulation (N-006): the raw dyadic shape here, and the
-        // normalization in `profile.fieldGain` below, so the glow is `strengths` times
-        // a unit-sum field whatever the bounce count.
-        var glow: CIImage?
-        for (sigma, weight) in zip(profile.sigmasInPixels, profile.weights)
-        where sigma > 0 {
-            // Through the shared helper, which is the whole point of the fix recorded
-            // in `gaussianBlur`'s own header: `CIGaussianBlur.radius` IS the standard
-            // deviation, measured on the runner. This stage kept its own copy of the
-            // filter with the old `sigma * 3` in it, so the correction landed
-            // everywhere the helper is called and nowhere here — the glow rendered
-            // three times wider than the 65 µm the profile derives, on every preview
-            // and every export, while `ReferenceRenderer.applyHalation` rendered it at
-            // one. The comment claiming halation had been fixed named this stage.
-            //
-            // The `where sigma > 0` matches the reference's loop: a profile with a
-            // degenerate radius contributes nothing rather than a delta.
-            guard let blurred = Self.gaussianBlur(energy, sigma: sigma) else { continue }
-            let scaled = Self.applyMatrix(blurred, Mat3.diagonal(RGB(gray: weight)))
-            if let existing = glow {
-                glow = KernelLibrary.apply(KernelLibrary.addGlow, extent: image.extent,
-                                           [existing, scaled, CIVector(x: 1, y: 1, z: 1)])
-                    ?? existing
+        // F = Σ normalizedWeights[k] · G_k ∗ H, red at `sigmas`, green and blue at
+        // `narrowSigmas` — `ReferenceRenderer.applyHalation`'s accumulation. Every blur
+        // goes through the shared helper, whose radius IS the standard deviation (the
+        // stage once kept a private copy with `sigma * 3` in it and rendered the glow
+        // three times wider than the reference).
+        let ones = CIVector(x: 1, y: 1, z: 1)
+        let weights = profile.normalizedWeights
+        var field: CIImage?
+        for k in 0..<weights.count {
+            let sigma = profile.sigmas[k], narrow = profile.narrowSigmas[k]
+            guard sigma > 0, let wide = Self.gaussianBlur(energy, sigma: sigma) else { continue }
+            let w = weights[k]
+            var part = Self.applyMatrix(wide, Mat3.diagonal(RGB(gray: w)))
+            if narrow != sigma, let tight = Self.gaussianBlur(energy, sigma: narrow) {
+                let red = Self.applyMatrix(wide, Mat3.diagonal(RGB(w, 0, 0)))
+                let rest = Self.applyMatrix(tight, Mat3.diagonal(RGB(0, w, w)))
+                part = KernelLibrary.apply(KernelLibrary.addGlow, extent: image.extent,
+                                           [red, rest, ones]) ?? part
+            }
+            if let existing = field {
+                field = KernelLibrary.apply(KernelLibrary.addGlow, extent: image.extent,
+                                            [existing, part, ones]) ?? existing
             } else {
-                glow = scaled
+                field = part
             }
         }
-        guard let field = glow else { return image }
-        let s = profile.fieldGain
+        guard let accumulated = field,
+              let spread = KernelLibrary.apply(KernelLibrary.subtract, extent: image.extent,
+                                               [accumulated, energy]),
+              // max(F − H, 0): only the light the base spread AWAY from where it fell.
+              let positive = KernelLibrary.apply(KernelLibrary.highlightEnergy,
+                                                 extent: image.extent,
+                                                 [spread, Float(0), Float(1)])
+        else { return image }
+        let gain = HalationProfile.layersToWorking * Mat3.diagonal(profile.strengths)
         return KernelLibrary.apply(KernelLibrary.addGlow, extent: image.extent,
-                                   [image, field, CIVector(x: s.r, y: s.g, z: s.b)])
+                                   [image, Self.applyMatrix(positive, gain), ones])
             ?? image
     }
 

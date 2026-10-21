@@ -435,51 +435,72 @@ public struct FilmStock: Sendable {
 /// emulsion. Both therefore precede the characteristic curve — which is exactly why a
 /// post-curve digital "glow" slider looks wrong no matter how it is tuned.
 ///
+/// WHAT THE STAGE ADDS (WS-39). Only the SPREAD part of the reflected light:
+/// `strength · max(F − H, 0)`, where `H` is the highlight energy and `F` the same energy
+/// after the bounce blurs. A stock's characteristic curve is measured on flat fields,
+/// which already contain the light the base sends back to the same spot, so a flat
+/// field must come out of this stage untouched. The stage used to add `strength · F`,
+/// and since `F = H` on any flat area that was a red cast on every bright wall, lawn and
+/// sky (+4…+7 sRGB codes at Amount 100) rather than a halo. The clamp keeps the core of a
+/// highlight from going cyan where `F < H`: halation only ever adds light.
+///
 /// This type owns the *parameters* and the pointwise highlight-energy reconstruction.
-/// The convolution is the image module's (quarter-res, upsampled; global support, so it
-/// follows the proxy-field rule in tiled export — docs/14 §6.3).
+/// The convolutions run at full resolution in both renderers.
 public struct HalationProfile: Sendable {
 
     /// First-bounce sigma at gate scale, in µm, at Size = 1×.
     public static let firstSigmaMicrons: Double = 65.0
-    /// Bounces summed. Radii go as σ₁·√k.
+    /// Bounces summed. Radii are `σ₁ · bounceSpread[k]`.
     public static let bounceCount: Int = 3
+    /// Each bounce's radius against the first. The base is ~125 µm of acetate or
+    /// polyester: light that totally reflects at its back face lands a ring of a couple
+    /// of base thicknesses out, and each further bounce lands further. 1 : 3 : 8 gives
+    /// the tight core plus long soft tail of real halation (195 and 520 µm at the gate);
+    /// the old `√k` series stopped at 113 µm and read as a thin red outline.
+    public static let bounceSpread: [Double] = [1.0, 3.0, 8.0]
     /// Geometric decay between bounces.
     public static let bounceDecay: Double = 0.5
-    /// Highlight reconstruction: stops of energy restored to a fully clipped sample.
-    public static let boostRange: Double = 0.3
-    /// Highlight reconstruction: EV below the clip at which the ramp reaches zero.
-    public static let protectEV: Double = 4.0
+    /// Highlight gate: EV below the clip at which the energy ramp reaches zero. Two
+    /// stops, so mid grey (−2.5 EV under a 1.0 clip) and anything darker contributes
+    /// nothing at all; it was four, which let mid grey in at a third of full weight.
+    public static let protectEV: Double = 2.0
+    /// Reconstruction: stops of energy restored to a clipped sample. A light source or a
+    /// blown sky is recorded AT the clip, but carried many stops more light onto the
+    /// film; a diffuse white just under the clip did not. Two stops is a conservative
+    /// floor for what a clipped sample really carried (a lamp in a night exposure is
+    /// six to ten), chosen so that the stock defaults stay subtle. It was 0.3 stop,
+    /// which let a lamp glow no more than a white wall.
+    public static let boostRange: Double = 2.0
+    /// Reconstruction: the band below the clip, in EV, over which a sample is read as
+    /// clipped. A clipped sample in a decoded RAW sits within a few thousandths of the
+    /// clip; 0.1 EV holds those and leaves a diffuse white at 0.9 alone.
+    public static let clipBandEV: Double = 0.1
     /// The physically measured per-channel strengths, RGB.
     public static let measuredStrength: RGB = RGB(0.05, 0.015, 0.0)
     /// The gain that turns a stock's `halationStrength` into the gain on the
     /// NORMALIZED bounce field — 1.75, the raw sum `1 + 0.5 + 0.25` of the three-bounce
-    /// series every stock's strength was authored against.
-    ///
-    /// N-006 / C1-09. Both renderers used to walk raw weights `decay^(k−1)`, so the field
-    /// they multiplied by `strength` summed to 1.75 and `normalizedWeights` had no caller.
-    /// The picture was the same on both paths, but Amount's meaning was hostage to
-    /// `bounceCount`: a fourth bounce would have raised every stock's glow by 7% with no
-    /// stock edited. `strength` is now the gain on the NORMALIZED field (weights summing
-    /// to 1, whatever the count — see `fieldGain` for how the renderers apply it), and
-    /// this constant carries the old sum into the gain instead — a LITERAL, not
-    /// `weightSum`, because the point is that it no longer follows the series. Folded
-    /// here rather than into six stock literals so `halationStrength` keeps reading as
-    /// the measured number it is. Pixels are unchanged: byte-identical on every
-    /// halation proof render, and `HalationControlTests.testNormalizingTheBouncesMovesNoPixel`
-    /// holds the stage to the pre-change one at zero difference.
+    /// series every stock's strength was authored against (N-006 / C1-09). A literal,
+    /// not `weightSum`, so Amount's meaning does not follow `bounceCount`.
     public static let strengthCalibration: Double = 1.75
+    /// The radius of the green and blue records' halo against red's, for a stock whose
+    /// halation is fully chromatic. The light that reaches the base and comes back
+    /// exposes the red-sensitive layer first (it sits on the base); what reaches green
+    /// is the part scattered at short range. So the glow is orange near the source and
+    /// red further out. Scaled toward 1 by the stock's own chroma, so a neutral
+    /// (black-and-white) stock keeps one radius and no colour fringe.
+    public static let chromaticNarrowing: Double = 0.55
 
-    /// Gaussian sigmas in pixels, σ_k = σ₁·√k, k = 1…3.
+    /// Red's Gaussian sigmas in pixels, `σ₁ · bounceSpread[k]`.
     public let sigmas: [Double]
-    /// Bounce weights, `decay^(k−1)` — the series' raw SHAPE, 1, ½, ¼. The renderers
-    /// accumulate with these (they are dyadic, so they scale an f32 field exactly) and
-    /// apply `fieldGain`, which is what makes the result `strength` times the
-    /// `normalizedWeights` sum. The raw sum the stocks were calibrated against lives in
-    /// `strengthCalibration`, not here.
+    /// Green's and blue's sigmas in pixels: `sigmas × channelSpread`.
+    public let narrowSigmas: [Double]
+    /// Green/blue radius against red's, 1 for a neutral stock.
+    public let channelSpread: Double
+    /// Bounce weights, `decay^(k−1)` — the series' raw shape, 1, ½, ¼.
     public let weights: [Double]
-    /// Per-channel gain applied to the NORMALIZED summed field: stock strength, blended
-    /// toward pure red by Redness, scaled by Amount and by `strengthCalibration`.
+    /// Per-channel gain applied to `max(F − H, 0)` on the NORMALIZED field: stock
+    /// strength, blended toward pure red by Redness, scaled by Amount and by
+    /// `strengthCalibration`.
     public let strength: RGB
     /// Amount, normalized to 0…1.
     public let amount: Double
@@ -504,22 +525,32 @@ public struct HalationProfile: Sendable {
         let gate: Double = Swift.max(stock.gateLongEdgeMM, 1e-3)
         let px: Int = Swift.max(longEdgePixels, 1)
 
-        // 65 µm at the gate, expressed in pixels of this render.
-        let sigma1: Double = (HalationProfile.firstSigmaMicrons / 1000.0) * sz / gate * Double(px)
-        var sig: [Double] = []
-        var w: [Double] = []
-        var k: Int = 1
-        while k <= HalationProfile.bounceCount {
-            sig.append(sigma1 * Double(k).squareRoot())
-            w.append(pow(HalationProfile.bounceDecay, Double(k - 1)))
-            k += 1
-        }
-        self.sigmas = sig
-        self.weights = w
-
         let base: RGB = stock.halationStrength
         let pureRed: RGB = RGB(base.r, 0, 0)
         self.strength = base.mix(pureRed, red) * a * HalationProfile.strengthCalibration
+
+        // The stock's own chroma (before Redness): 0 for equal records, 1 when one
+        // record carries none of it.
+        let hi: Double = Swift.max(base.r, Swift.max(base.g, base.b))
+        let lo: Double = Swift.min(base.r, Swift.min(base.g, base.b))
+        let chroma: Double = hi > 0 ? Num.clamp(1 - Swift.max(lo, 0) / hi, 0, 1) : 0
+        let spread: Double = 1 - (1 - HalationProfile.chromaticNarrowing) * chroma
+        self.channelSpread = spread
+
+        // 65 µm at the gate, expressed in pixels of this render.
+        let sigma1: Double = (HalationProfile.firstSigmaMicrons / 1000.0) * sz / gate * Double(px)
+        var sig: [Double] = []
+        var narrow: [Double] = []
+        var w: [Double] = []
+        for k in 0..<HalationProfile.bounceCount {
+            let s: Double = sigma1 * HalationProfile.bounceSpread[k]
+            sig.append(s)
+            narrow.append(s * spread)
+            w.append(pow(HalationProfile.bounceDecay, Double(k)))
+        }
+        self.sigmas = sig
+        self.narrowSigmas = narrow
+        self.weights = w
 
         self.amount = a
         self.redness = red
@@ -540,9 +571,8 @@ public struct HalationProfile: Sendable {
         return s
     }
 
-    /// Bounce weights normalized to sum 1 — the form an energy-preserving blur set
-    /// wants, so `strength` stays the only gain in the path. What the renderers APPLY,
-    /// per unit of `strength`: `fieldGain · weights[k] == strength · normalizedWeights[k]`.
+    /// Bounce weights normalized to sum 1 — what both renderers accumulate with, so a
+    /// flat field's `F` equals its `H` exactly and `strength` is the only gain.
     public var normalizedWeights: [Double] {
         let s: Double = weightSum
         guard s > 1e-12 else { return weights }
@@ -551,70 +581,72 @@ public struct HalationProfile: Sendable {
         return out
     }
 
-    /// The energy that "penetrates to the base", per channel — the field the three
-    /// Gaussians are convolved with.
+    /// The working space the renderers hand this stage (`RGBColorSpace.rec2020`, every
+    /// stage's) to the space the halo's colour lives in, and back.
     ///
-    /// Reconstruction rule (the engine's reading of boost range 0.3 / protect 4.0 EV):
-    /// a soft gate `t` opens across the last `protectEV` stops below the clip, so
-    /// nothing four stops down contributes at all; at and above the clip the recorded
-    /// value understates the true energy, so it is extended by up to `boostRange`
-    /// stops. C¹ everywhere, and exactly zero over the protected range.
+    /// WHY THE HALO HAS ITS OWN PRIMARIES. A stock's `halationStrength` is a colour —
+    /// "mostly red with a little green" — and it was applied on the working space's
+    /// channels. Rec.2020's red primary is a 630 nm laser no print dye can make: a halo
+    /// of `(1, 0.22, 0)` in Rec.2020 is far outside sRGB and P3, the film chain's
+    /// interlayer pushed it further, and the display clamp rendered it as pure primary
+    /// red with green and blue at code 0 (measured beside a clipped disk at Amount 100:
+    /// RGB 194, 45, 0 → 139, 0, 0). In sRGB primaries the same strengths are the
+    /// red-orange of a real print's halo, and the stage stays neutral-preserving
+    /// because both spaces share D65.
+    public static let layersToWorking: Mat3 = RGBColorSpace.srgb.matrix(to: .rec2020)
+    public static let workingToLayers: Mat3 = layersToWorking.inverse
+
+    /// The energy that "penetrates to the base", per channel, in the halo's (sRGB)
+    /// primaries — the field the bounce Gaussians are convolved with.
+    ///
+    /// One gate per PIXEL, on its brightest working-space record `b = max(r, g, b)`, so
+    /// the glow keeps the source's colour (a red lamp throws red, a sodium lamp orange):
+    ///   `t = smoothstep(−protectEV, 0, log2(b / clip))` — zero two stops down;
+    ///   `s = smoothstep(−clipBandEV, 0, log2(b / clip))` — 1 for a clipped sample;
+    ///   `k = t · max(1, s · 2^boostRange · clip / b)`;
+    ///   `out = max(workingToLayers · (c⁺ · k), 0)`.
+    /// The `max(1, …)` floors a clipped sample at `2^boostRange · clip` of energy while
+    /// leaving a genuine HDR value above that floor at its own (linear) energy. C⁰ and
+    /// monotone non-decreasing in exposure; exactly zero at and below `clip / 4`.
     public func highlightEnergy(_ c: RGB) -> RGB {
-        var out: RGB = RGB.zero
-        for i in 0..<3 {
-            let e: Double = Swift.max(c[i], 0)
-            guard e > 0 else { continue }
-            let ev: Double = log2(e / clipLevel)
-            let t: Double = Num.smoothstep(-HalationProfile.protectEV, 0, ev)
-            guard t > 0 else { continue }
-            out[i] = t * e * pow(2.0, HalationProfile.boostRange * t)
-        }
-        return out
+        let r: Double = Swift.max(c.r, 0), g: Double = Swift.max(c.g, 0)
+        let bl: Double = Swift.max(c.b, 0)
+        let b: Double = Swift.max(r, Swift.max(g, bl))
+        guard b > 0 else { return RGB.zero }
+        let ev: Double = log2(b / clipLevel)
+        let t: Double = Num.smoothstep(-HalationProfile.protectEV, 0, ev)
+        guard t > 0 else { return RGB.zero }
+        let s: Double = Num.smoothstep(-HalationProfile.clipBandEV, 0, ev)
+        let floor: Double = s * pow(2.0, HalationProfile.boostRange) * clipLevel / b
+        let k: Double = t * Swift.max(1.0, floor)
+        let e: RGB = HalationProfile.workingToLayers.apply(RGB(r * k, g * k, bl * k))
+        return RGB(Swift.max(e.r, 0), Swift.max(e.g, 0), Swift.max(e.b, 0))
     }
 
-    /// The gain on the field the renderers accumulate, `Σ weights[k] · G_k ∗ H`:
-    /// `strength / weightSum`, so the glow they add is exactly
-    /// `strength · Σ normalizedWeights[k] · G_k ∗ H` — `strength` on a unit-sum field.
-    ///
-    /// WHY THE NORMALIZATION IS FOLDED HERE AND NOT INTO EACH BOUNCE (N-006). The
-    /// obvious form multiplies each blurred bounce by `normalizedWeights[k]` — 4/7,
-    /// 2/7, 1/7 — and that is what was tried first. The reference accumulates the field
-    /// in an f32 `ImageBuffer`, and 4/7 is not dyadic, so every pixel's field rounded
-    /// differently from the shipped one: measured, 51 of the 63 halation proof-sweep
-    /// renders changed, by one f32 ULP (5.96e-8). Accumulating with the raw
-    /// dyadic weights keeps the f32 field bit-for-bit what it was, and dividing the
-    /// gain by `weightSum` in f64 cancels `strengthCalibration` to within an f64 ULP,
-    /// which the f32 store does not see. Same arithmetic, no pixel moved.
-    public var fieldGain: RGB {
-        let s: Double = weightSum
-        guard s > 1e-12 else { return strength }
-        return strength * (1.0 / s)
-    }
-
-    /// The per-channel apply, once the image module has produced the accumulated field
-    /// `Σ weights[k] · G_k ∗ H`: `out_c = in_c + fieldGain_c · field_c`.
-    public func combine(_ base: RGB, blurred: RGB) -> RGB {
-        base + fieldGain * blurred
+    /// The per-channel apply, once the image module has produced the normalized field
+    /// `F = Σ normalizedWeights[k] · G_k ∗ H` (red at `sigmas`, green and blue at
+    /// `narrowSigmas`, all in the halo's primaries):
+    /// `out = in + layersToWorking · (strength · max(F − H, 0))`.
+    public func combine(_ base: RGB, field: RGB, energy: RGB) -> RGB {
+        let d: RGB = RGB(Swift.max(field.r - energy.r, 0),
+                         Swift.max(field.g - energy.g, 0),
+                         Swift.max(field.b - energy.b, 0))
+        return base + HalationProfile.layersToWorking.apply(strength * d)
     }
 
     // MARK: The GPU form
 
     // The shader (`KernelLibrary.halationEnergy`) evaluates `highlightEnergy` itself —
-    // the same smoothstep in log2 space, from `clipLevel`, `protectEV` and `boostRange`
-    // — so there is ONE gate, not a reference and a stand-in.
-    //
-    // There used to be a stand-in: a hard pedestal `max(E − clip·2⁻², 0)·2^0.3`, said
-    // to be "matched at the reference ramp's half-power point". It was matched nowhere.
-    // Above the onset it sat a constant 0.308 below the reference, so the GPU rendered
-    // 0.612 of the reference's glow at E = 0.5, 0.750 at the clip and NONE at all at
-    // E ≤ 0.25, where the reference still returns 0.139 (M09 / C1-01). A sky two stops
-    // under the clip glowed in the reference and not in the app. One `log2` and one
-    // `exp2` per pixel in a quarter-res glow pass was never worth that.
+    // the same gate, from `clipLevel`, `protectEV`, `clipBandEV` and `boostRange` — so
+    // there is ONE gate, not a reference and a stand-in (M09 / C1-01), and applies
+    // `workingToLayers` and its clamp itself. The clamp of `combine` is `subtract` then
+    // `highlightEnergy(·, 0, 1)` = `max(F − H, 0)`, and its gain is the single matrix
+    // `layersToWorking · diag(strength)`.
 
     /// Per-channel strengths, under the name the spatial stage uses.
     public var strengths: RGB { strength }
 
-    /// Blur radii in pixels, under the name the spatial stage uses.
+    /// Red's blur radii in pixels, under the name the spatial stage uses.
     public var sigmasInPixels: [Double] { sigmas }
 }
 
