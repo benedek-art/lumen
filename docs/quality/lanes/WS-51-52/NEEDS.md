@@ -3,8 +3,11 @@
 ## WS-42 (`RG.compositeLocal`, `ReferenceRenderer.applyMasks` composite): hue through the feather
 
 The composite mixes the adjusted and original pictures in scene-linear RGB by alpha. For
-every control on this lane that is smooth and halo-free (SPEC F1-F3). The exception is a
-large local Hue rotation: at alpha 0.5 a +180° turn mixes a colour with its complement
+every control on this lane that is smooth and halo-free (SPEC F1-F3). The exceptions are
+edits that move a colour toward its complement. White-balance Tint +100 over foliage
+(green toward magenta) is one: on 6929 / 2545 it measured an L* ring of 1.8 / 2.6 and a
+C* dip of 13.3 / 9.4, and Tint +50 a dip of 6.9 / 8.3. That is the same before this lane's
+change (Tint +100: L* 2.6, dip 12.3 on the old binary). The other is a large local Hue rotation: at alpha 0.5 a +180° turn mixes a colour with its complement
 and the feather passes through grey. Measured, radial r 0.3 feather 60, `measure.py
 feather <lfi> FULL 'hue=180'`: C* dip p99 16.6 (A7 IV 6929) and 13.2 (GX85 2545), against
 1.7 at Hue +60. A parameter-scaled feather (which is how I understand Lightroom's
