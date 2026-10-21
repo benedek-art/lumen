@@ -18,6 +18,8 @@ Fix (CPU and GPU together): the moments are taken of `d = (S − c)` in EV, wher
 
 Rejected on measurement: `box((S − box S)²)` is fp16-safe but reads a third of an edge's variance over twice its width, so no threshold gave both the S1 halo and the S5 detail (ε 0.04: halo OK, detail 0.851; ε 0.07: detail OK, 0.75 EV step 0.133). A fixed mid-grey offset left 0.07 EV worst on a −6 EV plateau. Capping the variance with the centred estimate still left 0.13 EV worst. A reference of 4 or 8 radii costs one 8-bit code on the 0.75 EV step.
 
+Round-2 measurements (`run_ws07.sh --full` on this branch): S1 0.081 / 0.044 / 0 / 0 EV, widths 19.5 / 0 / 2.5 / 0 px, reversals 5 / 1 / 1 / 0. S2 0 / 0. S3 max 0.098 EV, 8 px (6929). S4 max 0.00054. S5 mean 0.922. S6 0.0116 EV. S7 0.0222 / 0.137 EV. LumenCoreTests gate exit 0; ControlProofTests green after re-recording the same 16 S7 records (monotonicity and dead steps unchanged). The GPU parity test is unchanged and not loosened, and it is the check this round answers to.
+
 **S5 baseline note.** On the integration branch 4213 reads 0.973 with the exact merged mask, not the 1.020 SPEC.md records from 9068ded: other lanes' merges moved it. The per-photo line is judged against the integration head: 4213 0.946 vs 0.973 (−0.027). 6929's halo with the exact merged mask is also 0.101 here, now 0.098.
 
 ## What was wrong (audit)
