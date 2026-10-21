@@ -40,14 +40,20 @@ bit-identical to its input. `…testCAFreeFrameIsAnExactIdentity`
 2.5 Colour edges (red/blue patches, no lens CA) do not invent a model.
 `…testColourEdgesDoNotInventCA`
 
-2.6 Corpus 1840 (D850) and 4213 (Z7II), native decodes: the fitted R−G and B−G
-misregistration at r = 1.0 (auditor tool) is reduced by ≥ 60 % and is < 0.25 px after
-correction. Command: render `--long-edge 0 --no-dither` with
-`--set develop.geometry.lens.removeCA=false` and `=true`, then
-`python3 docs/quality/lanes/WS-28/tools/fringe_metrics.py before.png after.png`.
+2.6 Corpus 1840 (D850), 4213 (Z7II), 2545 (GX85), 3437 (T7i), native decodes,
+rendered `--long-edge 0 --no-dither` with Remove CA off and on: the auditor tool's
+R−G and B−G zone medians for r 0.6–0.8 and 0.8–1.0 are ≤ 0.15 px after; where the
+baseline is ≥ 0.2 px the reduction is ≥ 60 %; no overcorrection past 0.1 px of the
+opposite sign. Command:
+`python3 docs/quality/lanes/WS-28/tools/fringe_metrics.py --compare off.png on.png`.
 
-2.7 Same two photos: p90 colour-fringe width in the 0.8–1.0 zone does not grow, and the
-median falls (a lens-CA fringe is a misregistration, so its width must shrink with it).
+(Revised from the first draft, which read the tool's fitted shift at r = 1.0. That
+number is an extrapolation of a cubic over a handful of corner tiles and moved by
+0.2 px between runs of the same image; the zone medians are the auditor's own proposal
+in AUDIT.md §6, set before any corrected output existed.)
+
+2.7 On 6929 and 6001, which show no lens CA worth the name, no zone gets more than
+0.05 px worse with Remove CA on (do-no-harm; AUDIT.md §6).
 
 2.8 Photos whose lens shows no significant lateral CA (6929 at its 2400 px or native
 decode, if the estimator returns none) are bit-identical with Remove CA on and off.

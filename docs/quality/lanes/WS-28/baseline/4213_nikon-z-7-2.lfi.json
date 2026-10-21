@@ -1,0 +1,179 @@
+{
+ "width": 8256,
+ "height": 5504,
+ "primaries": "rec2020",
+ "lateral": {
+  "candidates": 83740,
+  "halfdiag_px": 4961.23855503845,
+  "sign_convention": "px, + = channel displaced outward (magnified) relative to G",
+  "zones": {
+   "0.0-0.3": {
+    "R-G": {
+     "n": 4844,
+     "median_px": -0.1004,
+     "mad_px": 0.064,
+     "median_abs_px": 0.1086
+    },
+    "B-G": {
+     "n": 4374,
+     "median_px": -0.046,
+     "mad_px": 0.1131,
+     "median_abs_px": 0.1155
+    }
+   },
+   "0.3-0.6": {
+    "R-G": {
+     "n": 2065,
+     "median_px": -0.224,
+     "mad_px": 0.1076,
+     "median_abs_px": 0.2261
+    },
+    "B-G": {
+     "n": 1675,
+     "median_px": -0.309,
+     "mad_px": 0.2229,
+     "median_abs_px": 0.3328
+    }
+   },
+   "0.6-0.8": {
+    "R-G": {
+     "n": 1372,
+     "median_px": -0.3923,
+     "mad_px": 0.1298,
+     "median_abs_px": 0.3923
+    },
+    "B-G": {
+     "n": 1035,
+     "median_px": -0.4632,
+     "mad_px": 0.2691,
+     "median_abs_px": 0.4659
+    }
+   },
+   "0.8-1.0": {
+    "R-G": {
+     "n": 351,
+     "median_px": -0.4373,
+     "mad_px": 0.1625,
+     "median_abs_px": 0.4373
+    },
+    "B-G": {
+     "n": 212,
+     "median_px": -0.4691,
+     "mad_px": 0.2744,
+     "median_abs_px": 0.4818
+    }
+   }
+  },
+  "fit": {
+   "R-G": {
+    "n": 8632,
+    "n_inliers": 8218,
+    "k1": -0.51035,
+    "k3": -0.04236,
+    "shift_at_r0.50_px": -0.2605,
+    "shift_at_r0.75_px": -0.4006,
+    "shift_at_r1.00_px": -0.5527,
+    "stderr_shift_at_r1.00_px": 0.0093,
+    "equivalent_scale_at_r1": 0.9998886
+   },
+   "B-G": {
+    "n": 7296,
+    "n_inliers": 7054,
+    "k1": -0.50538,
+    "k3": -0.25461,
+    "shift_at_r0.50_px": -0.2845,
+    "shift_at_r0.75_px": -0.4864,
+    "shift_at_r1.00_px": -0.76,
+    "stderr_shift_at_r1.00_px": 0.0208,
+    "equivalent_scale_at_r1": 0.9998468
+   }
+  }
+ },
+ "fringe": {
+  "candidates": 100000,
+  "edges_measured": 5319,
+  "threshold_oklab_ab": 0.03,
+  "min_contrast_stops": 1.5,
+  "zones": {
+   "0.0-0.3": {
+    "edges": 3676,
+    "width_median_px": 0.0,
+    "width_p90_px": 0.0,
+    "width_mean_px": 0.001,
+    "fringed_fraction": 0.0014,
+    "purple_edges": 1,
+    "green_edges": 1,
+    "purple_per_1000": 0.3,
+    "green_per_1000": 0.3,
+    "overthreshold_samples_by_hue": {
+     "red": 0,
+     "orange": 0,
+     "green": 4,
+     "cyan": 0,
+     "blue": 3,
+     "purple": 4
+    }
+   },
+   "0.3-0.6": {
+    "edges": 1048,
+    "width_median_px": 0.0,
+    "width_p90_px": 0.0,
+    "width_mean_px": 0.072,
+    "fringed_fraction": 0.0258,
+    "purple_edges": 11,
+    "green_edges": 3,
+    "purple_per_1000": 10.5,
+    "green_per_1000": 2.9,
+    "overthreshold_samples_by_hue": {
+     "red": 4,
+     "orange": 89,
+     "green": 16,
+     "cyan": 0,
+     "blue": 0,
+     "purple": 42
+    }
+   },
+   "0.6-0.8": {
+    "edges": 396,
+    "width_median_px": 0.0,
+    "width_p90_px": 0.0,
+    "width_mean_px": 0.145,
+    "fringed_fraction": 0.0783,
+    "purple_edges": 28,
+    "green_edges": 0,
+    "purple_per_1000": 70.7,
+    "green_per_1000": 0.0,
+    "overthreshold_samples_by_hue": {
+     "red": 0,
+     "orange": 0,
+     "green": 1,
+     "cyan": 0,
+     "blue": 0,
+     "purple": 114
+    }
+   },
+   "0.8-1.0": {
+    "edges": 199,
+    "width_median_px": 0.0,
+    "width_p90_px": 0.0,
+    "width_mean_px": 0.02,
+    "fringed_fraction": 0.0352,
+    "purple_edges": 1,
+    "green_edges": 0,
+    "purple_per_1000": 5.0,
+    "green_per_1000": 0.0,
+    "overthreshold_samples_by_hue": {
+     "red": 0,
+     "orange": 0,
+     "green": 0,
+     "cyan": 0,
+     "blue": 0,
+     "purple": 8
+    }
+   }
+  }
+ },
+ "seconds": 21.5,
+ "input": "/home/user/lumen/corpus/lfi-native/4213_nikon-z-7-2.lfi",
+ "input_kind": "lfi (scene-linear)"
+}
