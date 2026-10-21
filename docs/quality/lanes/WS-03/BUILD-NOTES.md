@@ -29,11 +29,11 @@ ran from a release test build (`swift build -c release --build-tests -Xswiftc -e
 | 10 | `SliderScaleTests` passes. The `SliderDrag.swift` diff is empty. `BasicPanel.swift:227 scale: .reciprocal`. | as spec | pass |
 | 11 | `git diff --stat claude/inspiring-dirac-ulgpch -- Sources/LumenPipeline` is empty. The grep finds only comments (`AppleRawSource.swift:46-50`, now stale; see NEEDS §3). No kernel computes Kelvin or tint: WB reaches the GPU only as the CPU-built matrix. | as spec | pass |
 | 12 | `AutoWhiteBalance.estimate(_:asShot:excluding:) -> Estimate{kelvin,tint,confidence}` in the new file. `lumen-render autowb` prints `{"confidence","kelvin","seconds","tint"}`. The only edit to existing LumenRender code is `CLI.swift` +1 (the dispatch `case`); the command lives in the new file `AutoWB.swift`. | `swift build --target LumenCore --target LumenRender`; `git diff … -- Sources/LumenRender` | pass |
-| 13 | IN ΔE00: 1346 1.05, 967 1.77, 983 1.55, 3914 9.63, 864 1.59. Mean **3.12** (≤ 3.20). \|Δmired\| / \|Δtint\| vs chart-neutral: 3.9/1.6, 2.9/4.2, 7.4/2.2, 7.5/1.5. | `python3 $T/auto_eval.py` | pass (13b margin 0.08) |
-| 14 | OUT ΔE00: 1.68, 2.18, 1.86, 9.59, 3.16. Mean **3.69** (allowed 4.07). Each frame ≤ as-shot + 2.5. | same | pass |
-| 15 | 6929: −4.4 mired / −1.1 tint. 2545: +0.6 / −0.5. | same | pass |
-| 16 | skin_tones: +0.38 mired / +0.04 tint. skin_only: 0.0 / 0.0, chroma kept 1.00, max \|Δhue\| 0.0°. | same | pass |
-| 17 | flat_grey at 4000/+5: 0.000 / 0.000. 5 runs give 1 distinct result. Median time **0.082 s** on 6929. | same | pass |
+| 13 | (round 2) IN ΔE00: 1346 1.05, 967 1.76, 983 1.55, 3914 9.63, 864 **1.15**. Mean **3.03** (≤ 3.20). \|Δmired\| / \|Δtint\| vs chart-neutral: 3.9/1.5, 2.9/4.2, 7.4/2.2, 5.6/0.8. Round 1 was mean 3.12, with 864 at 1.59. | `python3 $T/auto_eval.py` | pass |
+| 14 | (round 2) OUT ΔE00: 1.71, 2.18, 1.87, 9.59, 0.73. Mean **3.22** (allowed 4.07). Each frame ≤ as-shot + 2.5. | same | pass |
+| 15 | (round 2) 6929: −5.3 mired / −1.4 tint. 2545: +0.6 / −0.5. | same | pass |
+| 16 | skin_tones: +0.39 mired / +0.04 tint. skin_only: 0.0 / 0.0, chroma kept 1.00, max \|Δhue\| 0.0°. | same | pass |
+| 17 | flat_grey at 4000/+5: 0.000 / 0.000. 5 runs give 1 distinct result. Median time **0.084 s** on 6929. | same | pass |
 | 18 | The `presetRow` LumenMenu has `LumenMenuItem(title: "Auto", symbol: "wand.and.stars", …)` under As Shot. An "Auto" button sits left of the eyedropper with the same modifiers (font `.lumenGlyphBody`, padding 5/3, `controlBackground`, `primaryText`, `radiusChip` clip, `.plain` style). The stale comment is gone. `presetName` is unchanged, with no Auto title and no recipe field. Not compiled (macOS-only target); `swiftc -parse` is clean on all three edited app files. | `grep -n "Auto" Sources/LumenApp/BasicPanel.swift` | needs the macOS CI build |
 | 19 | Rewritten tests are listed below. LumenCoreTests, all classes except ControlProofTests, in debug: **3059 executed, 0 failures, 6 skipped**. The base commit gives 3044 / 0 / 6. ControlProofTests in a release test build: **6/6 pass** after re-recording `raw.temp` and `raw.tint`. The drift test flagged exactly those two and no other record. | runcore2.sh; release xctest `LumenCoreTests.ControlProofTests` | pass |
 
@@ -49,13 +49,76 @@ V1–V3 (human judgement, sheets in `evidence/`):
   | +75 | 279° → 282° | 318° → 356° |
   | +150 | 304° → 296° | 299° → 321° |
 
-  The lawn is no longer yellow at −150, and the sky is less teal and less purple than before. At −150
-  the sky still reads cyan-blue (184°): green tint on a blue sky is cyan, and the Adobe model gives
-  the same. That part is for the human to judge. The sheet is 256-colour quantised to fit 400 KB, so
-  the flat (clipped) sky posterises. Unquantised: `scratchpad/build/v2_after.png`.
-- **V3** `after_auto_charts.png` (3/4 size, quantised). On 864, Auto is visibly closer to chart-neutral
-  than as-shot. On 3914, Auto ≈ as-shot (confidence 0.11), so it is no bluer. On 967 it is slightly warmer
-  than as-shot, toward neutral.
+  Against the V2 wording ("the sky stays blue, turning greener or pinker but never teal or purple, and
+  the lawn is never yellow at −150"), the measurements say:
+  - The lawn claim holds: 130° at −150 is green, not yellow (before: 104°).
+  - The sky claim does **not** hold literally. At −150 the sky is 184°, which is cyan/teal (before: 167°,
+    more teal). At +150 it is 296°, which is purple-magenta (before: 304°, more purple). Both ends moved
+    toward the claim, but neither end meets it.
+  - The cause is the isotherm tint axis itself, which line 4 pins to the Adobe model: a green
+    adaptation of a blue sky is cyan, and a magenta one is purple.
+  - The sheet is 256-colour quantised to fit under 400 KB, so the flat (clipped) sky posterises. The
+    unquantised sheet is `scratchpad/build/v2_after.png`.
+- **V3** `after_auto_charts.png` (regenerated in round 2; 3/4 size, quantised).
+  - 864: Auto (10379/+12.0) is close to chart-neutral (11024/+11.2). The greys match closely but not
+    indistinguishably: Auto is 5.6 mired (about 645 K) warmer than chart-neutral.
+  - 3914: Auto ≈ as-shot (confidence 0.12), so it is no bluer than as-shot.
+  - 967: Auto is slightly warmer than as-shot, toward neutral.
+
+## Round 2: the owner's Auto bar (within 300 K and a small tint of chart-neutral)
+
+Change: the as-shot prior's 1/e distance (`AutoWhiteBalance.priorScale`) goes from 0.15 to 0.25 ln-chroma,
+so a well-supported near-neutral cluster is trusted further from the as-shot. Nothing else changed. There
+is no frame-specific code and no chart rectangle in the estimator.
+
+Chart IN, autowb vs chart-neutral (Adobe numbers from `charts.py`):
+
+| frame | Auto | chart-neutral | ΔK | Δtint | ΔE00 | round 1 ΔK |
+|---|---|---|---|---|---|---|
+| 1346 | 5340/−6.0 | 5454/−7.6 | −114 | +1.5 | 1.05 | −113 |
+| 967 | 4806/+11.4 | 4740/+15.5 | +66 | −4.2 | 1.76 | +66 |
+| 983 | 5135/+15.4 | 4947/+13.1 | +188 | +2.2 | 1.55 | +188 |
+| 864 | 10379/+12.0 | 11024/+11.2 | **−645** | +0.8 | 1.15 | −845 |
+| 3914 | 4714/+48.1 | 5456/+32.2 | **−742** | **+16.0** | 9.63 | −742 |
+
+**The 300 K bar is met on 1346, 967 and 983, and not on 864 or 3914.** I stopped here because neither of
+the remaining two can be reached honestly. Measured reasons:
+
+- **864.** 300 K at 11 000 K is only 2.5 mired, about 0.02 in ln B/G. The near-neutral surfaces of the
+  frame are two clusters, luminance-weighted (`scratchpad/proto/ladder.py`):
+  - the printed card's paper and white border at ln B/G ≈ 0.075;
+  - its grey steps at ≈ 0.10, which is where chart-neutral sits.
+
+  Any near-neutral estimator averages the two. Even at full confidence and with no white-patch or
+  grey-world blend, it lands near 10 600 K (about −450 K). Choosing the steps over the paper would mean
+  knowing which is the chart. The audit already flags this card's inks as possibly non-neutral.
+  Luminance-weight variants (Y, √Y, count) moved 864 by at most ±60 K and made 967 worse.
+- **3914.** The chart greys are a real cluster (3.4 % of luminance) at Δ(ln R/G, ln B/G) = (−0.02, +0.32)
+  from the as-shot, the decode's B/G of 1.38. A rule that would pick that cluster over the scene also
+  picks the dense near-neutral clusters that the chart-OUT runs must ignore:
+  - 1346's cool background: 16 % of luminance at (+0.02, −0.16);
+  - 864's blue cloth: 30 % at (−0.02, +0.26).
+
+  Each of those is closer to as-shot and holds more luminance than 3914's greys, and taking either
+  breaks line 14 (1346 OUT ΔE 6.44 at full trust). A grey-ladder test (one chromaticity spanning many
+  luminance levels) does not separate them either: 3914-IN greys span 3.9 stops, 1346-OUT's background
+  3.0 and 3914-OUT's bark 3.0. 3914's as-shot is itself the outlier (AUDIT finding 7, SPEC N1).
+
+**All 25 corpus frames, before (round 1) and after.** Data: `scratchpad/build/all25_r1.json` and
+`all25_r2.json`. The largest move from as-shot is 10.4 mired (864, was 8.5). The next largest are 4213
+(−7.7) and 1332 (−5.5). No frame's answer changed by more than 10 mired between rounds; the largest
+change is 864 at −1.9 mired, and every other frame is within 1 mired / 1.3 tint. So there was no changed
+frame to re-inspect. Eight frames return as-shot (confidence ≤ 0.01).
+
+Also in round 2:
+- `boundedTintCaption`: when the as-shot-aware bound is ≤ 0 (a cool as-shot taken very warm), the caption
+  now reads "No magenta is available at N K from this file's as-shot neutral — the render holds tint at
+  X and stops there". Before, it said "bounded by physics at −13" with the slider at 0.
+- `lumen-render` usage text (`CLI.swift` `usage`) and the `main.swift` manual header now list `autowb`.
+  This was requested by the lane lead, so LumenRender's existing code now has two edited spots instead
+  of the single dispatch case line 12 describes.
+- Gates re-run: build clean; `AutoWhiteBalanceTests` 6/6; `auto_eval.py` all PASS (numbers in the table
+  at the top).
 
 ## Line 6: why it does not pass, and the diagonal-adaptation experiment (lane lead's request)
 

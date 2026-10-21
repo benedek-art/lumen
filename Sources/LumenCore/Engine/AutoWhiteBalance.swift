@@ -86,7 +86,7 @@ public enum AutoWhiteBalance {
     /// Luminance share at which the evidence term saturates.
     static let clusterShareForFullConfidence = 0.15
     /// Distance from as-shot (ln-chroma) at which the prior has fallen to 1/e.
-    static let priorScale = 0.15
+    static let priorScale = 0.25
     /// White-patch ↔ near-neutral disagreement at which agreement has fallen to 1/e.
     static let agreementScale = 0.3
     /// Blend weights.

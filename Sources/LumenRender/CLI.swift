@@ -143,6 +143,8 @@ enum LumenRenderCLI {
                           [--metrics sweep.json] [--tiles-dir dir]
       lumen-render keys   [--base r.json] [--json]
       lumen-render synth  --out test.lfi [--width 960] [--height 540]
+      lumen-render autowb --input in.lfi [--exclude x,y,w,h ...]
+                          (prints {"kelvin","tint","confidence","seconds"}; Adobe/DNG Temp/Tint)
     shared: --as-shot-kelvin 5500 --as-shot-tint 0 --iso N --space srgb|p3
             --no-dither --lut-size 33
     (full manual: the header of Sources/LumenRender/main.swift)

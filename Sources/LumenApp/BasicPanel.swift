@@ -330,8 +330,16 @@ struct BasicPanel: View {
                                            targetTint: shown).effectiveTint
         guard effective < shown - 0.5 else { return nil }
         let value = Int(effective.rounded())
-        return "Magenta is bounded by physics at \(value > 0 ? "+" : "")\(value) for "
-            + "\(Int(display.temperature.rounded())) K — the render uses that value."
+        let kelvin = Int(display.temperature.rounded())
+        // A cool as-shot taken to a very warm Temp turns the green–magenta axis before
+        // tint 0, so the bound can sit at or below zero. "Bounded at −13" with the
+        // slider at 0 reads as nonsense; what is true is that no magenta is left.
+        guard value > 0 else {
+            return "No magenta is available at \(kelvin) K from this file's as-shot "
+                + "neutral — the render holds tint at \(value) and stops there."
+        }
+        return "Magenta is bounded by physics at +\(value) for \(kelvin) K — the render "
+            + "uses that value."
     }
 
     /// Says which neutral the render is adapting from, because "Temp 5500" means
