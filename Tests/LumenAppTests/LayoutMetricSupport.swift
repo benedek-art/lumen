@@ -454,10 +454,10 @@ enum SliderInventory {
         SliderSpec("Texture", "BasicPanel.swift:616", .developTop, -100...100, step: 1),
         SliderSpec("Clarity", "BasicPanel.swift:632", .developTop, -100...100, step: 1),
         SliderSpec("Dehaze", "BasicPanel.swift:639", .developTop, -100...100, step: 1),
-        SliderSpec("Vibrance", "BasicPanel.swift:712", .developTop, -100...100, step: 1),
-        SliderSpec("Saturation", "BasicPanel.swift:719", .developTop, -100...100, step: 1),
-        SliderSpec("Density", "BasicPanel.swift:732", .developTop, 0...100, step: 1),
-        SliderSpec("Protect Skin", "BasicPanel.swift:743", .developTop, 0...100, step: 1),
+        SliderSpec("Vibrance", "BasicPanel.swift:697", .developTop, -100...100, step: 1),
+        SliderSpec("Saturation", "BasicPanel.swift:705", .developTop, -100...100, step: 1),
+        SliderSpec("Density", "BasicPanel.swift:713", .developTop, 0...100, step: 1),
+        SliderSpec("Protect Skin", "BasicPanel.swift:720", .developTop, 0...100, step: 1),
 
         // Colour — mixer, point colour, black and white.
         // The mixer's Hue, Saturation and Luminance views: one row per band, titled
@@ -467,18 +467,18 @@ enum SliderInventory {
         SliderSpec("Saturation", "ColorPanel.swift:304", .developTop, -100...100, step: 1),
         SliderSpec("Luminance", "ColorPanel.swift:308", .developTop, -100...100, step: 1),
         SliderSpec("Even out hues", "ColorPanel.swift:363", .developTop, 0...100, step: 1),
-        SliderSpec("Hue", "ColorPanel.swift:722", .developTop, -60...60, step: 1),
-        SliderSpec("Saturation", "ColorPanel.swift:727", .developTop, -100...100, step: 1),
-        SliderSpec("Luminance", "ColorPanel.swift:731", .developTop, -100...100, step: 1),
-        SliderSpec("Range", "ColorPanel.swift:735", .developTop, 0...100, step: 1),
+        SliderSpec("Hue", "ColorPanel.swift:730", .developTop, -60...60, step: 1),
+        SliderSpec("Saturation", "ColorPanel.swift:736", .developTop, -100...100, step: 1),
+        SliderSpec("Luminance", "ColorPanel.swift:741", .developTop, -100...100, step: 1),
+        SliderSpec("Range", "ColorPanel.swift:746", .developTop, 0...100, step: 1),
         // Lightroom's Range refinements (WS-32), subordinate to Range.
-        SliderSpec("Hue range", "ColorPanel.swift:485", .developTop, 0...100, step: 1,
+        SliderSpec("Hue range", "ColorPanel.swift:764", .developTop, 0...100, step: 1,
                    indented: true),
-        SliderSpec("Sat range", "ColorPanel.swift:490", .developTop, 0...100, step: 1,
+        SliderSpec("Sat range", "ColorPanel.swift:769", .developTop, 0...100, step: 1,
                    indented: true),
-        SliderSpec("Lum range", "ColorPanel.swift:495", .developTop, 0...100, step: 1,
+        SliderSpec("Lum range", "ColorPanel.swift:774", .developTop, 0...100, step: 1,
                    indented: true),
-        SliderSpec("Variance", "ColorPanel.swift:741", .developTop, -100...100, step: 1),
+        SliderSpec("Variance", "ColorPanel.swift:779", .developTop, -100...100, step: 1),
         // `ColorEngine.bandNames` — Magenta is the widest of the eight.
         SliderSpec("Magenta", "ColorPanel.swift:1043", .developTop, -100...100, step: 1),
 
@@ -712,13 +712,13 @@ enum SliderInventory {
         // The grade's single large wheel no longer has an untitled bar: since lane K1 its
         // Hue, Saturation and Luminance are three titled rows of the develop column,
         // written inside `LumenColorWheel` (detailRows) and mounted by LookPanel.
-        SliderSpec("Hue", "LumenControls.swift:2365 (mounted by LookPanel's grade wheel)",
+        SliderSpec("Hue", "LumenControls.swift:2374 (mounted by LookPanel's grade wheel)",
                    .developTop, 0...360, step: 1),
-        SliderSpec("Saturation", "LumenControls.swift:2373 (mounted by LookPanel's grade wheel)",
+        SliderSpec("Saturation", "LumenControls.swift:2382 (mounted by LookPanel's grade wheel)",
                    .developTop, 0...100, step: 1),
-        SliderSpec("Luminance", "LumenControls.swift:2378 (mounted by LookPanel's grade wheel)",
+        SliderSpec("Luminance", "LumenControls.swift:2387 (mounted by LookPanel's grade wheel)",
                    .developTop, -100...100, step: 1),
-        SliderSpec("", "LumenControls.swift:2450 (MaskPanel.swift:3025)", .maskWheelBar,
+        SliderSpec("", "LumenControls.swift:2450 (MaskPanel.swift:3111)", .maskWheelBar,
                    -1...1, step: 0.01, decimals: 2),
 
         // The Heal tool's bar on the loupe. Size is in pixels of the original file.

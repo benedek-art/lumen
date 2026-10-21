@@ -31,7 +31,11 @@ public enum PreviewCache {
     /// fold on a shared fine grid (Astra M04 / S-10), so thin-brush masks move.
     /// 8: the colour stage (S9) left the colour/grade cube and runs exactly (AI-03), so
     /// every stored preview of a photograph with a colour edit is a different picture.
-    public static let renderingRevision = 8
+    /// 9: the overnight quality merges change what nearly every edited photograph renders
+    /// (tone, curves, grain, sharpening, NR, lens, masks, colour), and WS-16 changes
+    /// Saturation/Vibrance/B&W without moving the recipe fingerprint, so stored previews
+    /// keyed on an unchanged fingerprint would be served stale.
+    public static let renderingRevision = 9
 
     /// Where payloads sit, relative to the cache directory (docs/15 §15.2).
     public static let directoryName = "previews"
