@@ -74,11 +74,16 @@ measurement behind each, rather than read generously in the report.
   mean 1.94° against 1.93°. The turn is the display shoulder (S14), not the wheel; the
   wheel itself holds working-space hue to < 1° (`GradeWheelsDisplayZoneTests`). Measure:
   `measure.py` `lum_hue_shift` plus the same patches under `develop.tone.exposure=1.5`.
-- **9 (amended).** Blending 0 is as hard as the 33-cube preview table can render without
-  disagreeing with the 65-cube export: on `grey_ramp` at Blending 0, 33 vs 65 max code
-  difference ≤ 2× base for a full Shadows tint (base 11) and ≤ 8 for a realistic teal and
-  orange (base 6); at Blending 50 within 1 code of base. Transition width (M, 33-cube)
-  strictly increasing 0 → 50 → 100, and > 0.35 at 100. Reason: the original "< 0.08 at
-  Blending 0" was met only by a 0.01 half-width the preview table cannot hold, which
-  rendered 56 code values differently from export. Measure: `lumen-render render
-  --lut-size 33` against `--lut-size 65` on the same settings, max abs code difference.
+- **9 (amended, corrected in round 3).** The original "< 0.08 at Blending 0" cannot be
+  met by any engine setting: the 33-cube preview table renders the Blending 0 transition
+  about 0.19 of display level wide whatever the half-width (0.184 / 0.196 / 0.200 at
+  0.04 / 0.08 / 0.12, verifier round 2). What the engine controls is how far the export
+  (65-cube) disagrees with the preview. Amended line: at Blending 0 on `grey_ramp`, the
+  33 vs 65 max code difference is at most 2× base for each of a full Shadows tint (base
+  11), a realistic teal and orange (base 6) and Midtones Luminance +1 (base 4); at
+  Blending 50 within 1 code of base for the same three; transition width (M, 33-cube)
+  strictly increasing 0 → 50 → 100 and > 0.35 at 100. "2× base" is the rule, chosen
+  because the base already disagreed and a lane should not make it more than twice as
+  bad; round 2's thresholds (22, 8) were set just above measured values and are
+  withdrawn. Closing the rest needs a finer preview table (NEEDS.md 4). Measure:
+  `lumen-render render --lut-size 33` against `--lut-size 65`, max abs code difference.

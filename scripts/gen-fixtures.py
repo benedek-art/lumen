@@ -3514,8 +3514,8 @@ REALISED_STOPS_PER_J_STOP = 3.0
 # Since lane K1 the zones live on DISPLAY LEVEL u = DisplayTransform.normalized_curve(x)
 # (neutral preset at the tone anchors), sampled into a 1024-step table exactly as the
 # Swift does, and pivots, Balance and Blending are denominated in u.
-MAXIMUM_HALF_WIDTH = 0.48
-MINIMUM_HALF_WIDTH = 0.08
+MAXIMUM_HALF_WIDTH = 0.44
+MINIMUM_HALF_WIDTH = 0.12
 MINIMUM_PIVOT_GAP = 0.02
 BALANCE_RANGE = 0.3
 LEVEL_SAMPLES = 1024
@@ -3643,9 +3643,11 @@ def gen_grade_checks():
     # to fall a full stop across a tenth of a stop of input.
     hard = ZoneWindows(blending=0.0)
     unscaled = solve_lum_scale(hard, LUM_RANGE_STOPS, 0.0, -LUM_RANGE_STOPS)
-    # (0.369 since lane K1: Blending 0's floor is half-width 0.08 of display level,
-    # the hardest edge the 33-cube preview table renders the same as the export.)
-    check(unscaled < 0.5,
+    # (Since lane K1 Blending 0's floor is half-width 0.12 of display level: the
+    # preview table cannot render a narrower edge, and narrower ones only make the
+    # export disagree with it. The case still needs scaling, just less.)
+    # The claim is that it NEEDS scaling at all (0.546 at the 0.12 floor).
+    check(unscaled < 1.0,
           f"the hard-crossover case did not need scaling ({unscaled:.3f}) — "
           "the test no longer covers what it was written for")
 

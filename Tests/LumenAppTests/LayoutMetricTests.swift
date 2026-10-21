@@ -364,8 +364,8 @@ final class LayoutMetricTests: XCTestCase {
             .filter(\.rowsAreTitled)
             .map { "\($0.rawValue) \(f($0.trackWidth(columnWidth: columnWidth)))" }
             .joined(separator: ", ")
-        return "track at column \(f(columnWidth)): \(titled); untitled wheel bars "
-            + "\(untitled(.gradeWheelBar)) / \(untitled(.maskWheelBar))"
+        return "track at column \(f(columnWidth)): \(titled); untitled wheel bar "
+            + "\(untitled(.maskWheelBar))"
     }
 
     // MARK: - (c) The value column
@@ -760,14 +760,9 @@ final class LayoutMetricTests: XCTestCase {
                 ".padding(.horizontal, 8) .padding(.vertical, 6)",
                 "footer gutter 8")
 
-        // The grading wheels' lightness bar, whose host is built out of the wheel's own
-        // diameter rather than out of any column — so the three literals that decide how
-        // wide its groove is live in two different files and none of them is a panel
-        // width.
-        try pin("Sources/LumenApp/LumenControls.swift",
-                ".padding(.leading, Lumen.valueWidth + 6) "
-                + ".frame(width: diameter + 2 * (Lumen.valueWidth + 6))",
-                "captioned wheel bar: counterweight and frame")
+        // The mask panel's compact wheel bar, whose host is built out of the wheel's own
+        // diameter rather than out of any column. (The grade's large wheel lost its
+        // captioned bar to three titled develop rows in lane K1.)
         try pin("Sources/LumenApp/LumenControls.swift",
                 "lightnessBar .frame(width: diameter + 40)",
                 "compact wheel bar frame \(f(PanelChain.maskWheelBarWidth)) at the 68 pt wheel")

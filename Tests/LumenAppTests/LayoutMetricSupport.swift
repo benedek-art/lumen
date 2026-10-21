@@ -187,13 +187,9 @@ enum PanelChain {
     static let exportEditorInset: CGFloat = 14
     static let dividerWidth: CGFloat = 1
 
-    /// The lightness bar under a grading wheel, in `LookPanel`'s single large wheel.
-    ///
-    /// `LumenColorWheel` centres it on the wheel by paying a counterweight equal to the
-    /// readout column — `.padding(.leading, valueWidth + 6)` inside a
-    /// `diameter + 2 × (valueWidth + 6)` frame — which means the groove comes out
-    /// exactly as wide as the wheel is, by construction rather than by eye. 150 is the
-    /// diameter `LookPanel.swift:800` asks for.
+    /// The diameter of `LookPanel`'s single large grading wheel. Since lane K1 its
+    /// Hue, Saturation and Luminance are titled rows of the develop column, so no row's
+    /// width depends on it; it is pinned so the wheel's size stays a deliberate number.
     static let gradeWheelDiameter: CGFloat = 150
     /// The same bar in the mask panel's compact four-up, which cannot pay the
     /// counterweight (two captioned bars would overrun a 272 pt column), so the row sits
@@ -260,10 +256,9 @@ enum PanelChain {
         case maskComponent
         /// The export sheet's editor column.
         case exportSheet
-        /// The lightness bar under the grade's single large wheel — a fixed frame built
-        /// from the wheel's own diameter, not from any column.
-        case gradeWheelBar
-        /// The same bar under one of the mask panel's four-up wheels.
+        /// The lightness bar under one of the mask panel's four-up wheels. (The grade's
+        /// single large wheel had one too, until lane K1 gave it three titled rows of
+        /// the develop column instead.)
         case maskWheelBar
         /// The Heal tool's HUD on the loupe — Size, Feather, Opacity.
         case healBar
@@ -278,7 +273,7 @@ enum PanelChain {
         /// column and both gaps — does not describe it and would report a 108-point host
         /// as having −42 points of track. Ask `SliderSpec.trackWidth`, which knows the
         /// title, for any row's actual groove.
-        var rowsAreTitled: Bool { self != .gradeWheelBar && self != .maskWheelBar }
+        var rowsAreTitled: Bool { self != .maskWheelBar }
 
         /// The width available to a row's content, given the develop column's width.
         func contentWidth(columnWidth: CGFloat) -> CGFloat {
@@ -296,10 +291,6 @@ enum PanelChain {
             case .exportSheet:
                 return exportSheetWidth - exportRecipeColumn - dividerWidth
                     - 2 * exportEditorInset
-            case .gradeWheelBar:
-                // `diameter + 2 × (valueWidth + rowGap)` of frame, less the leading
-                // counterweight of `valueWidth + rowGap` that centres it.
-                return gradeWheelDiameter + Lumen.valueWidth + rowGap
             case .maskWheelBar:
                 return maskWheelBarWidth
             case .healBar:
@@ -418,7 +409,8 @@ enum SliderInventory {
     /// Heal tool's Size, Feather and Opacity (a new host, `healBar`), the Looks LUT's
     /// Amount, and the export sheet's sequence Start at. 103 → 106 for the export
     /// sheet's Percent, Width and Height (the percentage and box resize modes).
-    static let callSiteCount = 106
+    // 109 since lane K1: the grade wheel's Hue, Saturation and Luminance rows.
+    static let callSiteCount = 109
 
     /// Every slider the app ships, resolved through its builder where the call site is
     /// a helper rather than a literal — `MaskPanel.adjustSlider`, `LookPanel.bipolarSlider`,

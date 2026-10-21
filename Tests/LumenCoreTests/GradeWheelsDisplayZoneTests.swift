@@ -31,7 +31,7 @@ final class GradeWheelsDisplayZoneTests: XCTestCase {
     }
 
     /// SPEC 9, engine side: Blending 0 is as hard an edge as the 33-cube preview table
-    /// holds (10→90 % within 0.1 of display level; `ZoneWindows.minimumHalfWidth`),
+    /// holds (10→90 % within 0.15 of display level; `ZoneWindows.minimumHalfWidth`),
     /// Blending 100 a broad overlap, and it widens monotonically.
     func testBlendingSpansHardToBroad() {
         func width(_ blending: Double) -> Double {
@@ -46,7 +46,7 @@ final class GradeWheelsDisplayZoneTests: XCTestCase {
             return u10 - u90
         }
         let hard = width(0), soft = width(50), broad = width(100)
-        XCTAssertLessThan(hard, 0.1)
+        XCTAssertLessThan(hard, 0.15)
         XCTAssertLessThan(hard, soft)
         XCTAssertLessThan(soft, broad)
         XCTAssertGreaterThan(broad, 0.5)

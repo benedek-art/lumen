@@ -77,9 +77,9 @@ import Foundation
 ///                                          p_s < p_h and rc is monotone
 /// ```
 /// Blending scales `hw` linearly from the hardest edge the preview table holds (0,
-/// `hw` = 0.08) through a soft overlap (50, `hw` = 0.28: the Midtones weight peaks at
+/// `hw` = 0.12) through a soft overlap (50, `hw` = 0.28: the Midtones weight peaks at
 /// 0.81 at mid-level) to crossfades nearly a whole display range wide (100, `hw` =
-/// 0.48), Lightroom's broad overlap at Blending 100.
+/// 0.44), Lightroom's broad overlap at Blending 100.
 public struct ZoneWindows: Sendable {
 
     /// Balance translates BOTH pivots; ±100 = ∓this much display level (+ moves them
@@ -90,14 +90,21 @@ public struct ZoneWindows: Sendable {
     /// Luminance ring does not fold the tone response where the display curve is
     /// steepest (at 1/6 the Midtones ring had to be held to 74 % by the limiter, at
     /// 0.25 to 98 %), and Lightroom's soft default overlap.
-    public static let maximumHalfWidth: Double = 0.48
-    /// Crossfade half-width at Blending 0. Not smaller: the grade is baked into a
-    /// 33-cube preview table and a 65-cube export table, and an edge narrower than a
-    /// preview cell renders differently in the two. At 0.01 a full Shadows tint put the
-    /// edge 0.055 of display level apart and differed by 56 code values (base 11); at
-    /// 0.08 the edge agrees and the residual is the gamut clip of a full-strength tint
-    /// near mid-grey (20 codes at sat 1, 7 at a realistic grade). Verifier round 1.
-    public static let minimumHalfWidth: Double = 0.08
+    public static let maximumHalfWidth: Double = 0.44
+    /// Crossfade half-width at Blending 0, display level.
+    ///
+    /// The grade is baked into a 33-cube preview table and a 65-cube export table, and
+    /// the preview cannot show an edge narrower than its cells: whatever this is set to,
+    /// the preview's Blending 0 transition (10→90 %) measures about 0.19 of display level
+    /// on the grey ramp (0.184 at half-width 0.04, 0.196 at 0.08, 0.200 at 0.12). What the
+    /// floor does decide is how differently the EXPORT renders the same edge: a full
+    /// Shadows tint at Blending 0 differed between the tables by 56 code values at 0.01,
+    /// 28 at 0.05, 20 at 0.08 and 17 at 0.12 (base 11), a realistic teal and orange by
+    /// 12 / 9 / 7 / 5 (base 6). 0.12 is the narrowest floor at which the two tables agree
+    /// about as well as the base did while the preview looks no softer. The rest of the
+    /// gap is the preview table's resolution, which only a finer preview table can close
+    /// (NEEDS.md). Verifier rounds 1 and 2.
+    public static let minimumHalfWidth: Double = 0.12
     /// Minimum separation between the pivots.
     public static let minimumPivotGap: Double = 0.02
     /// Where a STORED pivot may sit: the strip's 0…1 widened by Balance's reach.

@@ -17,3 +17,11 @@
    is part of why the bar looked "boxed". Lane K1 replaced that bar with aligned rows; if
    the snapshot harness gives initial focus to the first slider in every panel, other
    panels will show the same fill. Owner: U2 (`LumenSlider`).
+4. **Preview grade table resolution.** The S10 grade is baked into a 33-cube table for
+   the interactive preview and a 65-cube one for export. A zone edge narrower than a
+   33-cube cell renders differently in the two: at Blending 0 a full Shadows tint differs
+   by 17 code values between preview and export (base 11; realistic grade 5, base 6), and
+   the preview cannot show a Blending 0 transition narrower than about 0.19 of display
+   level. Lane K1 floored Blending 0 at a half-width of 0.12 to keep the two agreeing; a
+   finer (or log-reshaped) preview table would let Blending 0 be harder. Owner: whoever
+   owns `RenderPlan`'s table sizes / `PlanTableCache`.

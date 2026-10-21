@@ -431,10 +431,13 @@ final class BrillianceMonotoneTests: XCTestCase {
                             // the old search cannot see them at all, because its 64×
                             // ceiling floors every sample and reads the flattened
                             // profile as monotone — the defect this file documents.
-                            // So the closed form may only act where it has a reason: the
-                            // unlimited response's realised slope must dip under the
-                            // limiter's own 0.05 margin somewhere (it bends without
-                            // reversing), and the eased result must not fold.
+                            // So the closed form may only act where it has a reason, and
+                            // its reason is the shared knee: it eases once the request
+                            // reaches `knee` (0.8) of the cap, i.e. once the unlimited
+                            // response's realised slope falls below
+                            // 1 − 0.8 × (1 − margin) = 0.24 somewhere. A setting eased
+                            // with every slope above that would be limited for nothing.
+                            // And the eased result must not fold.
                             var minSlope: Double = .infinity
                             var t: Double = -9
                             while t < 5 {
@@ -450,8 +453,8 @@ final class BrillianceMonotoneTests: XCTestCase {
                                 t += 0.005
                             }
                             XCTAssertLessThan(
-                                minSlope, 0.05 + 0.02,
-                                "\(label) never comes near the limiter's margin (min "
+                                minSlope, 1 - 0.8 * (1 - 0.05) + 0.01,
+                                "\(label) never reaches the knee (min "
                                     + "slope \(minSlope)) and was still eased to \(now)")
                             let eased = worstReversal { realisedLuminance(graded, at: $0) }
                             XCTAssertLessThan(eased.code, Self.noise,
@@ -496,10 +499,10 @@ final class BrillianceMonotoneTests: XCTestCase {
             // Seven is B2-01's count (its headline twelve counts five uniform crushes
             // whose reversal is 3e-50 of luminance on an all-black frame). On the
             // display-level zone axis (lane K1) the soft Blendings overlap far more,
-            // so more two-zone settings fold under the old search: measured 11 at 50,
-            // 12 at 75, 15 at 100. Every one of them is limited and monotone now
+            // so more two-zone settings fold under the old search: measured 10 at 25,
+            // 11 at 50 and 75, 17 at 100 (7 at 0, as before). Every one of them is limited and monotone now
             // (asserted above).
-            let expected: [Double: Int] = [50: 11, 75: 12, 100: 15]
+            let expected: [Double: Int] = [25: 10, 50: 11, 75: 11, 100: 17]
             XCTAssertEqual(folded, expected[blending] ?? 7,
                            "\(folded) of the 125 combinations folded under the old "
                                + "search at Blending \(blending)")

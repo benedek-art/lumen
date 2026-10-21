@@ -2173,9 +2173,9 @@ struct LumenColorWheel: View {
                             trackStops: Lumen.wheelLightnessStops.map {
                                 LumenTrackStop(value: $0.value * 100, color: $0.color)
                             },
-                            help: "The zone's perceptual brightness, up to 1.5 stops "
-                                + "on neutral tones each way. Overlapping zone edits may "
-                                + "be eased to preserve tonal separation.",
+                            help: "The zone's perceptual brightness, up to "
+                                + "1.5 stops on neutral tones each way. Overlapping zone "
+                                + "edits may be eased to preserve tonal separation.",
                             onEditingChanged: onEditingChanged)
             } else {
                 lightnessBar

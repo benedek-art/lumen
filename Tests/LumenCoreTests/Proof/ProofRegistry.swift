@@ -629,11 +629,12 @@ enum ProofRegistry {
                 frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
                 // LANE K1. 26 was 70% of 33.79 when Blending ran from a 0.05 EV hard
                 // edge to an eased ceiling. On display-level zones it runs from a
-                // half-width of 0.08 — the hardest edge the 33-cube preview table renders
-                // the same as the 65-cube export (at 0.01 the two differed by 56 code
-                // values on a full Shadows tint) — to 0.48, and measures 21.08; the
-                // travel given up is the sub-cell edge the preview could not show
-                // faithfully. Re-derived by the registry's rule: 70% of 21.08.
+                // half-width of 0.12 to 0.44 of display level and measures 16.40: the
+                // hard end gave up the sub-cell edges the 33-cube preview table cannot
+                // render (they only made the export disagree with it — 56 code values
+                // at 0.01), and the soft end stops short of the old ceiling so that
+                // Blending 50 stays at 0.28. 15 is above the rule's 70% (11) and is
+                // kept because the control clears it — the registry's own precedent.
                 authorityFloor: 15,
                 // The eased ceiling this control used to return from is gone (two
                 // equal-width crossfades cannot drive the mid weight negative), and it
