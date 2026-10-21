@@ -1,0 +1,19 @@
+swept develop.tone.exposure over 6 values at 426x640 in 9.07 s → /home/user/lumen/docs/quality/lanes/WS-04/audit/sweep_6001_fujifilm-x-h2.png
+reference: the tile whose value is 0
+     value  meanEnc  dMeanEV     dE00  dE00p95    clip%
+        -2   0.0728   -2.282   12.511   27.574     0.00
+        -1   0.1306   -1.071    7.499   15.072     0.00
+         0   0.2176    0.000    0.000    0.000     0.00
+        +1   0.3408    1.028   10.897   19.310     0.00
+        +2   0.4916    1.940   24.825   37.784     0.28
+        +3   0.6437    2.643   39.065   53.206     5.46
+zone table: mean Δ encoded luminance ×255 (codes), zones of the reference tile
+     value     z0     z1     z2     z3     z4     z5     z6     z7     z8     z9
+    pixels  69720  84135  66728  20940   9730   4683   6914   6605   3185      0
+        -2  -11.9  -29.6  -45.5  -60.3  -74.3  -85.1  -83.1  -76.7  -76.8      -
+        -1   -8.1  -18.7  -28.3  -37.0  -43.9  -46.4  -38.9  -34.6  -32.6      -
+         0    0.0    0.0    0.0    0.0    0.0    0.0    0.0    0.0    0.0      -
+        +1   14.8   30.1   42.6   49.0   47.5   39.5   32.0   28.8   22.2      -
+        +2   39.3   74.3   91.3   92.6   85.6   71.0   58.5   52.4   34.2      -
+        +3   76.6  121.8  131.0  125.8  114.0   95.1   79.1   67.5   36.7      -
+metrics → /home/user/lumen/docs/quality/lanes/WS-04/audit/sweep_6001_fujifilm-x-h2.json

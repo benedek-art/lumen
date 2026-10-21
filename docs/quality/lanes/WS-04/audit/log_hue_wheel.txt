@@ -1,0 +1,23 @@
+swept develop.tone.exposure over 8 values at 640x640 in 11.21 s → /home/user/lumen/docs/quality/lanes/WS-04/audit/sweep_hue_wheel.png
+reference: the tile whose value is 0
+     value  meanEnc  dMeanEV     dE00  dE00p95    clip%
+        -3   0.0988   -4.182   33.430   39.545     0.00
+        -2   0.1854   -2.656   25.931   31.720     0.00
+        -1   0.3097   -1.233   15.197   18.768     0.00
+         0   0.4661    0.000    0.000    0.000     0.00
+        +1   0.6229    0.918   14.145   17.445     5.51
+        +2   0.7547    1.534   23.692   28.073    24.94
+        +3   0.8678    1.979   30.935   39.995    42.58
+        +4   0.9507    2.269   36.674   46.655    61.48
+zone table: mean Δ encoded luminance ×255 (codes), zones of the reference tile
+     value     z0     z1     z2     z3     z4     z5     z6     z7     z8     z9
+    pixels      0      0      0  21253 335583  52764      0      0      0      0
+        -3      -      -      -  -57.4  -94.1 -105.6      -      -      -      -
+        -2      -      -      -  -36.1  -72.2  -81.8      -      -      -      -
+        -1      -      -      -  -18.8  -40.5  -44.3      -      -      -      -
+         0      -      -      -    0.0    0.0    0.0      -      -      -      -
+        +1      -      -      -   31.1   40.9   37.9      -      -      -      -
+        +2      -      -      -   77.0   74.3   67.5      -      -      -      -
+        +3      -      -      -  111.6  103.8   90.3      -      -      -      -
+        +4      -      -      -  134.7  125.3  107.9      -      -      -      -
+metrics → /home/user/lumen/docs/quality/lanes/WS-04/audit/sweep_hue_wheel.json

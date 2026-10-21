@@ -1,0 +1,13 @@
+#!/bin/bash
+BIN=/home/user/lumen/.build/x86_64-unknown-linux-gnu/release/lumen-render
+A=/home/user/lumen/docs/quality/lanes/WS-04/audit
+cd /home/user/lumen
+for n in 6929_sony-ilce-7m4 6933_sony-ilce-7m4 2545_panasonic-dmc-gx85 1569_panasonic-dmc-gx80 2348_panasonic-dc-g9 6001_fujifilm-x-h2 1840_nikon-d850 4694_canon-eos-r5; do
+  read K T I < <(python3 -c "import json;h=json.load(open('corpus/lfi/$n.json'))['recipe_hint'];print(h['asShotKelvin'],h['asShotTint'],h['captureISO'] or 100)")
+  $BIN sweep --input corpus/lfi/$n.lfi --as-shot-kelvin $K --as-shot-tint $T --iso $I --key develop.tone.exposure --values -2,-1,0,1,2,3 --columns 3 --long-edge 640 --out $A/sweep_$n.png --metrics $A/sweep_$n.json --tiles-dir $A/tiles_$n > $A/log_$n.txt 2>&1 &
+done
+for n in skin_tones flat_grey grey_ramp colorchecker hue_wheel; do
+  $BIN sweep --input corpus/synthetic/$n.lfi --as-shot-kelvin 6503.7072 --as-shot-tint 9.77 --key develop.tone.exposure --values -3,-2,-1,0,1,2,3,4 --columns 4 --long-edge 640 --out $A/sweep_$n.png --metrics $A/sweep_$n.json > $A/log_$n.txt 2>&1 &
+done
+wait
+echo done

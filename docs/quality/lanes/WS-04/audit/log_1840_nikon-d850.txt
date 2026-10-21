@@ -1,0 +1,19 @@
+swept develop.tone.exposure over 6 values at 640x427 in 8.43 s → /home/user/lumen/docs/quality/lanes/WS-04/audit/sweep_1840_nikon-d850.png
+reference: the tile whose value is 0
+     value  meanEnc  dMeanEV     dE00  dE00p95    clip%
+        -2   0.0410   -2.971    9.359   25.622     0.00
+        -1   0.0801   -1.450    6.130   15.622     0.00
+         0   0.1452    0.000    0.000    0.000     0.00
+        +1   0.2335    1.102    8.644   16.239     0.00
+        +2   0.3496    2.002   18.469   27.470     0.00
+        +3   0.4992    2.841   31.254   45.723     0.00
+zone table: mean Δ encoded luminance ×255 (codes), zones of the reference tile
+     value     z0     z1     z2     z3     z4     z5     z6     z7     z8     z9
+    pixels 173541  41305   1764  11782  44888      0      0      0      0      0
+        -2  -12.2  -26.0  -45.0  -65.2  -71.8      -      -      -      -      -
+        -1   -8.3  -16.7  -27.9  -39.4  -42.2      -      -      -      -      -
+         0    0.0    0.0    0.0    0.0    0.0      -      -      -      -      -
+        +1   15.2   27.0   42.4   42.2   40.6      -      -      -      -      -
+        +2   40.2   68.7   90.3   77.4   74.7      -      -      -      -      -
+        +3   78.7  117.7  129.8  107.7  103.5      -      -      -      -      -
+metrics → /home/user/lumen/docs/quality/lanes/WS-04/audit/sweep_1840_nikon-d850.json

@@ -1,0 +1,12 @@
+== B. render(R with EV=k, x) vs render(R, 2^k x) ==
+default: max |code diff| over EV {-2,1,3}: 0.000000
+tone stack: max |code diff| over EV {-2,1,3}: 0.000000
+zones: max |code diff| over EV {-2,1,3}: 0.000000
+sat/vib: max |code diff| over EV {-2,1,3}: 0.000000
+grade wheels: max |code diff| over EV {-2,1,3}: 0.000000
+Punchy: max |code diff| over EV {-2,1,3}: 0.000000
+Linear: max |code diff| over EV {-2,1,3}: 0.000000
+vignette: max |code diff| over EV {-2,1,3}: 0.000000
+clarity+dehaze: max |code diff| over EV {-2,1,3}: 0.000000
+film portra: max |code diff| over EV {-2,1,3}: 0.000000
+WB 4200: max |code diff| over EV {-2,1,3}: 0.000000
