@@ -215,3 +215,50 @@ Each sheet goes into `evidence/` with its before (base commit) twin.
 Failing on the unfixed code: S1 S2 S4 S5 S6 S7 S8, M2 M4 M7 M8, P2 P3, B1 B2 B3 B4, C1 C2, H1 to
 H7, Q1 Q2 Q3, N2, K1 K2 K4 to K7, R1 R2 R4 R5, G1.
 Passing (regression guards): S3, M1, M3, M5, M6, P1, C3, Q4, N1, K3, R3, G3.
+
+## 15. Amendments, round 2 (after verify round 1)
+
+These lines **add to** sections 1 to 14. Every existing line ID keeps its meaning and threshold,
+except R5, which is refined here (R5a). Each line below has two baselines:
+
+- **head** is `e406d6e`, the round-1 build.
+- **base** is `e75523c`, which carries the unfixed code.
+
+Both were rendered with release `lumen-render` binaries built from those commits. The base was
+built in a temporary worktree with `--scratch-path`.
+
+New tools and frames (all in `tools/`):
+
+- `gen_frames.py` makes `strands_6000`, `glyphs_6000` and `g2probe_*`.
+- `strands.py`, `corners.py` and `probe_gain.py` are new measurement scripts.
+- `resconsist.py` now also prints `Nq`, `corr_max` and a below-floor flag.
+- `render_all.sh` has the new groups `strands`, `glyphs` and `g2probe`. These are also part of
+  the default "all".
+
+| ID | Claim | Threshold and command | Baseline head e406d6e | Baseline base e75523c |
+|---|---|---|---|---|
+| S9 | Texture has authority on **oriented** fine detail at normal contrast (hair, grass, weave), not only on isotropic texture | `python3 $T/strands.py $O/strands st6000 t100 t-100` and `... st2048 ...`. The frame has six bands: random-position hair/grass strokes (σ 1.5 px, ±20° of vertical) of depth 0.1 / 0.2 / 0.3 EV, and a grating of period 10 px@6000 (3.4 px at 2048) of amplitude 0.1 / 0.2 / 0.3 EV. Gain over the Texture band. **Every band** at both 6000 and 2048 must have t+100 gain **≥ 1.40** and t-100 gain **≤ 0.60**. S9 counts as PASS only if H1 and H2 also pass on the same build: oriented detail must not be bought back with rims on the 0.5 to 6 EV steps. | 6000 t+100: strokes 1.81 / 1.86 / 1.49, grating 1.42 / **1.000 / 1.000**; t-100: 0.26 / 0.34 / **0.62**, **0.61 / 1.000 / 1.000**. 2048 t+100: grating 0.3 EV **1.000**, 0.2 EV **1.125**; t-100: **0.89 / 1.000**. **FAIL** (the gate shuts at ≥ 0.2 EV oriented content). H1 and H2 PASS (0 %) | 6000 t+100 min **1.380** (strokes 0.1: 1.387, grating 0.3: 1.380), t-100 max **0.658**; 2048 PASS (t+100 ≥ 1.60, t-100 ≤ 0.574). **FAIL**, and H1 fails as well (28 %) |
+| H8 | Clarity does not mark convex corners or junctions | `python3 $T/corners.py <dir> <prefix> c100 c-100` on `$O/synth colorchecker`, `$O/synth skin_tones` (1600), and `$O/glyphs g1600`, `g6000` (twelve 1-2 EV squares, L, T, + and E glyphs). The metric is geometry-free: corner and junction pixels have a 2-D structure tensor on the identity, and straight-edge pixels lie more than 3·rc from any of them, with rc = 0.5 % L. For c±100 on all four frames: **corner max ≤ max(1.5 × straight max, 6)** and **corner max ≤ 15 codes** | c+100: cc 29.5 vs straight 11.4; skin_tones 26.1 vs 9.7; glyphs 34 vs 13 (1600) and 34 vs 20 (6000). c-100: skin_tones 14.1 vs 6.2; glyphs 1600 15 vs 9. **FAIL** (c-100 colorchecker and glyphs 6000 pass) | c+100: cc 8.3 / 7.1, skin_tones **15.2** / 15.2, glyphs 6000 10 / 9, glyphs 1600 **24** / 22. c-100 all pass (≤ 11 codes). **FAIL** (cap: skin_tones by 0.2 code, glyphs 1600 24) |
+| H8b | Texture does not mark corners or junctions either (regression guard) | same command, t±100 on the same four frames: corner max **≤ 20 codes** | cc 17.0 / 13.1, skin_tones 18.2 / 15.8, glyphs 6000 19 / 18, glyphs 1600 18 / 17. **PASS** (with 1 to 2 codes of margin) | cc **80 / 135**, skin_tones 62 / 48, glyphs 49 / 48 and 55 / 55. **FAIL** |
+| R5a | *Refines R5.* Below a stated noise floor, a frame drops out of the correlation part of R5 but still has to meet the strength ratio | `resconsist.py` (unchanged pairs, t±100) now prints `Nq`. This is the RMS of the 8-bit quantisation noise in the preview effect map, assuming independent rounding of both renders: per pixel, 2·(1/12)·(∂log2Y/∂code)². The **floor is max(0.03 EV, 2·Nq)**, and the tool marks `BELOW-FLOOR (corr exempt)` when the preview effect RMS is under it. A below-floor frame needs only the R5 ratio **[0.70, 1.30]**. Every other frame needs ratio [0.70, 1.30] and corr ≥ 0.70 as before. **Why this floor:** at effect RMS = 2·Nq the signal is S² = 3·Nq², so the best correlation a perfect implementation can reach is S²/(S² + Nq²) = 0.75. That is just above R5's 0.70. Below it, the corr criterion measures 8-bit rounding, not the control. On these frames Nq = 0.021 EV (983), 0.023 EV (2545) and 0.024 EV (6929), so the floor is 0.041 to 0.048 EV. | 983: RMS 0.0145 / 0.0164 EV, below the floor (0.041). Ratio 1.25 / 1.18 within [0.70, 1.30], corr exempt (0.61 / 0.64). 6929: 1.04 / 1.05, corr 0.93 / 0.92. 2545: 1.18 / 1.18, corr 0.87 / 0.84. **PASS** | 983 t-100: RMS 0.039, below the floor, but ratio **0.53**. 983 t+100: 0.045 (above the floor), ratio 0.55, corr **0.45**. 2545 ratio **1.60**, 6929 ratio **1.36**. **FAIL** |
+| U11 | The presence unit suite is fast | `swift build --build-tests && swift test --skip-build --filter PresenceBandTests` (debug, Linux, nothing else running). **Each test ≤ 5 s** and the suite ≤ 30 s, measured from XCTest's per-test times. The probes stay in the U1 to U10 contract: strips, and fewer or smaller probes, not looser thresholds. Long-edge-dependent probes must keep their long edge (e.g. a 6000 × 16 strip) and shrink the short edge or the number of periods instead. | U1 1.2 s; U2 47.0; U3 **216.5**; U4 25.2; U5 25.6; U6 17.5; U7 10.3; U8 **97.8**; U9 30.2; U10 40.2; total **511.5 s**. **FAIL** (9 of 10 tests over 5 s) | n/a (the suite does not exist at base) |
+| G2b | *Refines G2.* The GPU parity probes use content the edge gates leave open, so a dead GPU path fails them | `TextureSpectrumProbeTests` (TEXSPEC / CLARSPEC) and any new presence probe must use **2-D** content: an isotropic or product-of-sinusoids pattern, or band noise, at **≤ 0.05 EV** log amplitude, on a frame whose long edge is ≥ 2048 px. For every amount it asserts at the band centre (750 cpi for Texture, 60 cpi for Clarity), the **CPU reference gain must satisfy \|g − 1\| ≥ 0.30**. That check sits in the test as an assertion before the gpu/ref ratio is checked. If the reference cannot move, the ratio check proves nothing. Verified on Linux with the same content through `lumen-render`: `python3 $T/probe_gain.py $O/g2 <x20_tex\|2d05_tex\|x20_clar\|2d05_clar>`. `x20_*` is the test's current content (x-only ±20 % sinusoid); `2d05_*` is the proposed content (2-D, 0.05 EV), both at 4096 px. | current content: t±100 **1.000 / 1.000**, c±100 **1.000 / 1.000**, so the probe is vacuous. **FAIL**. The proposed 2-D 0.05 EV content gives t 1.732 / 0.315 and c 1.457 / 0.372, so it is usable | current content: t 1.285 / 0.824 (\|g−1\| < 0.30), c 1.958 / 0.570. **FAIL** for Texture |
+
+Notes for the builder and the verifier:
+
+- **S9 and H1/H2 together:** an edge gate can no longer use "locally oriented" as its edge
+  criterion. The 0.1 to 0.3 EV strokes and grating must count as texture, while the 0.5 EV and
+  larger isolated steps (H1, H2, H3) and the -1.5 EV lashes (K3) must still count as edges.
+  Amplitude, isolation or a scale-space contrast test can tell them apart. Orientation cannot.
+- **G5 still applies:** restoring `RobustnessTests.testPositiveTextureKeepsItsAuthorityOnFineDetail`
+  to its original amplitude (about 0.2 EV hair lines) is the unit-level twin of S9. Add it to §12
+  as **U12**: ±15 % (about 0.2 EV) 3 px oriented lines on a strip whose long edge is at least 2048
+  px. Required: t+100 gain ≥ 1.4 and t-100 gain ≤ 0.6, measured over the Texture band.
+- **H8 visual check:** the verifier also opens a 2x crop of `$O/glyphs/g1600_c100.png` against
+  `g1600_id.png` at a T-junction, and of `$O/synth/skin_tones_c100.png` at a patch corner. Look
+  for bright or dark rims that grow toward the corners.
+
+Amendment baseline summary:
+
+- **Head e406d6e:** S9 FAIL, H8 FAIL, H8b PASS, R5a PASS, U11 FAIL, G2b FAIL.
+- **Base e75523c:** S9 FAIL, H8 FAIL, H8b FAIL, R5a FAIL, U11 n/a, G2b FAIL.

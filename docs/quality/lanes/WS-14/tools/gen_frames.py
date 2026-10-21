@@ -17,6 +17,18 @@ preview-size version through the renderer's own area downsample.
   blobs_6000  6000x1000 eight smooth Gaussian blobs (soft gradients, bokeh-like) on 0.18: sigma
               15/30/60/120 px (0.25/0.5/1/2 % of the long edge) x amplitude +1 / -1 EV, centres
               x = 375 + 750 k, y = 500 (k = 0..7: (15,+1) (15,-1) (30,+1) (30,-1) (60,+1) ...)
+  strands_6000  6000x1200 ORIENTED fine detail at normal contrast (amendment S9): six 200-row bands.
+              Rows 0-599: random-position hair/grass-like strokes (dark, Gaussian cross-section
+              sigma 1.5 px, length 80-300 px, angle within +-20 deg of vertical, ~35 % cover),
+              stroke depth 0.1 / 0.2 / 0.3 EV. Rows 600-1199: a vertical sinusoidal grating of
+              period 10 px at 6000 (600 cpi; 3.4 px when rendered at 2048), amplitude 0.1 / 0.2 /
+              0.3 EV. Bands are separated by nothing: each band is analysed on its middle 160 rows.
+  glyphs_6000  6000x1000 twelve hard-edged shapes 360-440 px (square, L, T, +, text-like E, nested
+              squares) on 0.18 at +1 / +2 / -1 / -2 EV (amendment H8: convex corners and junctions vs straight edges)
+  g2probe_*   4096x64 (tex) / 4096x256 (clar) strips for the GPU-probe content check (amendment G2b): `g2probe_x20_tex` /
+              `g2probe_x20_clar` = the CURRENT TextureSpectrumProbe content (x-only, +-20 % linear)
+              at the band centre (750 cpi = 5.46 px, 60 cpi = 68.3 px at 4096); `g2probe_2d05_tex` /
+              `g2probe_2d05_clar` = proposed content: 2-D product of sinusoids, 0.05 EV, same periods
   noise_6000  6000x600 flat 0.18 with per-pixel Gaussian luminance noise, sigma 4 % of signal
   skin_6000   6000x1200 skin strip (MST-5 tone): large shading, mid-scale mottling (40-200 px
               periods, 0.08 EV), ~110k pores (Gaussian dips, sigma 1-3 px, -0.25 EV) i.e. 2-8 px
@@ -26,7 +38,7 @@ preview-size version through the renderer's own area downsample.
 import sys, os
 import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wslib import write_lfi, SRGB_TO_REC2020, STEPS_EV, SKIN, BLOBS
+from wslib import write_lfi, SRGB_TO_REC2020, STEPS_EV, SKIN, BLOBS, STRANDS_EV
 
 
 def pink(h, w, std, seed):
@@ -85,6 +97,61 @@ def gen(out, which):
             cx = 375 + 750 * k
             ev += amp * np.exp(-((xx - cx) ** 2 + (yy - 500) ** 2) / (2 * sig * sig))
         write_lfi(f"{out}/blobs_6000.lfi", grey(0.18 * 2.0 ** ev))
+    if "strands_6000" in which:
+        h, w = 1200, 6000
+        ev = np.zeros((h, w), np.float32)
+        r = np.random.default_rng(11)
+        for b, amp in enumerate(STRANDS_EV):
+            y0 = b * 200
+            acc = np.zeros((200 + 400, w), np.float32)      # strokes overhang the band, cropped
+            n = int(0.6 * w * 200 / (190 * 4.0))             # ~35 % cover by ~4 px wide strokes (overlaps)
+            for _ in range(n):
+                L = r.uniform(80, 300); th = np.radians(r.uniform(-20, 20))
+                cx, cy = r.uniform(0, w), r.uniform(0, 600)
+                t = np.arange(-L / 2, L / 2, 0.5)
+                xs, ys = cx + t * np.sin(th), cy + t * np.cos(th)
+                ix, iy = np.rint(xs).astype(int), np.rint(ys).astype(int)
+                m = (ix >= 0) & (ix < w) & (iy >= 0) & (iy < 600)
+                np.maximum.at(acc, (iy[m], ix[m]), 1.0)
+            F = np.fft.rfft2(acc)
+            fy = np.fft.fftfreq(600)[:, None]; fx = np.fft.rfftfreq(w)[None, :]
+            sg = 1.5
+            prof = np.fft.irfft2(F * np.exp(-2 * np.pi ** 2 * sg * sg * (fx ** 2 + fy ** 2)), s=(600, w))
+            prof = np.clip(prof / prof.max() * 2.5, 0, 1)                  # flat-topped strokes
+            ev[y0:y0 + 200] = -amp * prof[200:400]
+        x = np.arange(w)[None, :]
+        for b, amp in enumerate(STRANDS_EV):
+            ev[600 + b * 200:800 + b * 200] = amp * np.sin(2 * np.pi * x / 10.0)
+        write_lfi(f"{out}/strands_6000.lfi", grey(0.18 * 2.0 ** ev))
+    if "glyphs_6000" in which:
+        h, w = 1000, 6000
+        ev = np.zeros((h, w), np.float32)
+        amps = (1.0, 2.0, -1.0, -2.0)
+        for k in range(12):                      # 12 cells of 500 px, one shape each
+            cx, cy = 250 + 500 * k, 500
+            a = amps[k % 4]; kind = k % 6
+            if kind == 0:      # square
+                ev[cy - 180:cy + 180, cx - 180:cx + 180] += a
+            elif kind == 1:    # L
+                ev[cy - 180:cy + 180, cx - 180:cx - 90] += a; ev[cy + 90:cy + 180, cx - 90:cx + 180] += a
+            elif kind == 2:    # T
+                ev[cy - 180:cy - 90, cx - 180:cx + 180] += a; ev[cy - 90:cy + 180, cx - 45:cx + 45] += a
+            elif kind == 3:    # +
+                ev[cy - 45:cy + 45, cx - 210:cx + 210] += a; ev[cy - 210:cy + 210, cx - 45:cx + 45] += a
+            elif kind == 4:    # text-like 'E' with 36 px strokes
+                ev[cy - 180:cy + 180, cx - 120:cx - 84] += a
+                for y_ in (cy - 180, cy - 18, cy + 144):
+                    ev[y_:y_ + 36, cx - 120:cx + 120] += a
+            else:              # nested squares
+                ev[cy - 220:cy + 220, cx - 220:cx + 220] += a / 2; ev[cy - 90:cy + 90, cx - 90:cx + 90] += a / 2
+        write_lfi(f"{out}/glyphs_6000.lfi", grey(0.18 * 2.0 ** ev))
+    if "g2probe" in which:
+        w = 4096
+        for tag, per, h in (("tex", w / 750.0, 64), ("clar", w / 60.0, 256)):
+            yy, xx = np.mgrid[0:h, 0:w].astype(np.float64)
+            write_lfi(f"{out}/g2probe_x20_{tag}.lfi", grey(0.18 * (1 + 0.2 * np.sin(2 * np.pi * xx / per))))
+            ev = 0.05 * np.sin(2 * np.pi * xx / per) * np.sin(2 * np.pi * yy / per + 0.7)
+            write_lfi(f"{out}/g2probe_2d05_{tag}.lfi", grey(0.18 * 2.0 ** ev))
     if "noise_6000" in which:
         r = np.random.default_rng(7)
         img = 0.18 * (1 + 0.04 * r.standard_normal((600, 6000)))
@@ -122,6 +189,7 @@ def gen(out, which):
 if __name__ == "__main__":
     out = sys.argv[1]
     os.makedirs(out, exist_ok=True)
-    allf = ["pink_6000", "steps_6000", "ramp_tex", "ramp_lo", "blobs_6000", "noise_6000", "skin_6000"]
+    allf = ["pink_6000", "steps_6000", "ramp_tex", "ramp_lo", "blobs_6000", "noise_6000", "skin_6000",
+            "strands_6000", "glyphs_6000", "g2probe"]
     gen(out, sys.argv[2:] or allf)
     print("frames ->", out)

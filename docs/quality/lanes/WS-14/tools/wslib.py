@@ -93,3 +93,4 @@ SKIN = dict(W=6000, H=1200,
             lash_x0=4100, lash_pitch=30, lash_n=25, lash_w=3, lash_y=(100, 600),
             lip_y=900, lip_x=(4000, 6000))
 BLOBS = [(15, 1.0), (15, -1.0), (30, 1.0), (30, -1.0), (60, 1.0), (60, -1.0), (120, 1.0), (120, -1.0)]
+STRANDS_EV = (0.1, 0.2, 0.3)          # strands_6000: stroke bands rows 0-599, grating bands rows 600-1199

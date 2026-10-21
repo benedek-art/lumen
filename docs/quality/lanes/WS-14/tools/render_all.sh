@@ -1,19 +1,19 @@
 #!/bin/bash
 # Generate every WS-14 probe frame and render every image SPEC.md measures.
 # usage: bash docs/quality/lanes/WS-14/tools/render_all.sh OUT [group ...]     (run from repo root)
-#   groups: frames pink steps hardedge ramps blobs noise skin synth photos native   (default: all)
+#   groups: frames pink steps hardedge ramps blobs noise skin synth photos native strands glyphs g2probe   (default: all)
 #   env: BIN (lumen-render), PAR (parallel jobs, default 4)
 # Layout: OUT/frames/*.lfi  OUT/<group>/<prefix>_{id,t<v>,c<v>}.png
 # Cost on 4 cores: about 25-35 min for everything; native ~10 min, photos ~8 min.
 set -e
 OUT=$1; shift
-G=${*:-frames pink steps hardedge ramps blobs noise skin synth photos native}
+G=${*:-frames pink steps hardedge ramps blobs noise skin synth photos native strands glyphs g2probe}
 T=$(cd "$(dirname "$0")" && pwd)
 export BIN=${BIN:-$(swift build -c release --show-bin-path)/lumen-render}
 RS="$T/render_set.sh"
 F=$OUT/frames
 has() { [[ " $G " == *" $1 "* ]]; }
-if has frames || [ ! -f $F/blobs_6000.lfi ]; then python3 $T/gen_frames.py $F; fi
+if has frames || [ ! -f $F/glyphs_6000.lfi ]; then python3 $T/gen_frames.py $F; fi
 if has pink; then
   $RS $F/pink_6000.lfi $OUT/pink p6000 6000
   $RS $F/pink_6000.lfi $OUT/pink p3200 3200
@@ -33,6 +33,17 @@ fi
 if has blobs; then
   VALS="-100 50 100" $RS $F/blobs_6000.lfi $OUT/blobs b6000 6000
   VALS="-100 50 100" $RS $F/blobs_6000.lfi $OUT/blobs b1600 1600
+fi
+if has strands; then   # amendment S9
+  VALS="-100 -50 50 100" KEYS=texture $RS $F/strands_6000.lfi $OUT/strands st6000 6000
+  VALS="-100 -50 50 100" KEYS=texture $RS $F/strands_6000.lfi $OUT/strands st2048 2048
+fi
+if has glyphs; then    # amendment H8 (colorchecker / skin_tones come from the synth group)
+  VALS="-100 100" $RS $F/glyphs_6000.lfi $OUT/glyphs g6000 6000
+  VALS="-100 100" $RS $F/glyphs_6000.lfi $OUT/glyphs g1600 1600
+fi
+if has g2probe; then   # amendment G2b
+  for k in tex clar; do for c in x20 2d05; do VALS="-100 100" $RS $F/g2probe_${c}_$k.lfi $OUT/g2 ${c}_$k 4096; done; done
 fi
 if has noise; then VALS="-100 100" $RS $F/noise_6000.lfi $OUT/noise n6000 6000; fi
 if has skin; then VALS="-100 -50 50 100" $RS $F/skin_6000.lfi $OUT/skin k6000 6000; fi
