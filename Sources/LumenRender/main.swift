@@ -109,8 +109,8 @@
 // decode-time lens profile (distortion) and the RAW-domain stages before S3.
 //
 // LENS STAGE (WS-28), after S3 as in the app: Remove CA from a model measured on the
-// input (`LateralCAEstimator`, on the input at ≤ 4000 px — feed a native decode, CA is
-// sub-pixel at 2400), Defringe, and the embedded Sony vignetting record of the source
+// input's own pixels, tiles ranked on a 2048 px preview (the app's path; feed a native
+// decode, CA is sub-pixel at 2400), Defringe, and the embedded Sony vignetting record of the source
 // RAW, found through the .lfi sidecar's `source` (corpus layout) or `--lens-raw PATH`.
 // What was found is printed to stderr.
 //

@@ -77,6 +77,65 @@ final class LensStageTests: XCTestCase {
             Self.scene(dark: RGB(0.05, 0.03, 0.015), bright: RGB(0.45, 0.6, 0.95))))
     }
 
+    static func boxDown(_ img: ImageBuffer, _ k: Int) -> ImageBuffer {
+        let w = img.width / k, h = img.height / k
+        var out = ImageBuffer(width: w, height: h)
+        for y in 0..<h { for x in 0..<w { for c in 0..<3 {
+            var acc: Float = 0
+            for j in 0..<k { for i in 0..<k { acc += img.pixels[((y * k + j) * img.width + x * k + i) * 4 + c] } }
+            out.pixels[(y * w + x) * 4 + c] = acc / Float(k * k)
+        } } }
+        return out
+    }
+
+    // SPEC 2.1c: the app's path — tiles ranked on a downscaled preview, measured on
+    // native tiles fetched on demand — recovers the same magnification.
+    func testPreviewRankedNativeTileEstimate() throws {
+        let img = Self.scene(mr: { _ in 1.0006 }, mb: { _ in 0.99945 })
+        let model = try XCTUnwrap(LateralCAEstimator.estimate(
+            nativeWidth: img.width, nativeHeight: img.height, preview: Self.boxDown(img, 3)) { x, y, w, h in
+            guard x >= 0, y >= 0, x + w <= img.width, y + h <= img.height else { return nil }
+            var tile = ImageBuffer(width: w, height: h)
+            for yy in 0..<h { for k in 0..<(w * 4) {
+                tile.pixels[yy * w * 4 + k] = img.pixels[((y + yy) * img.width + x) * 4 + k] } }
+            return tile
+        })
+        for r in [0.3, 0.6, 0.9] {
+            XCTAssertEqual(model.red.scale(r2: r * r), 1.0006, accuracy: 6e-5, "red at r=\(r)")
+            XCTAssertEqual(model.blue.scale(r2: r * r), 0.99945, accuracy: 6e-5, "blue at r=\(r)")
+        }
+    }
+
+    // SPEC 2.5b: a channel whose radial bands disagree in sign (GX85 blue) is left
+    // alone, while a consistent channel in the same frame is kept.
+    func testSignMixedChannelIsLeftAlone() throws {
+        let half = 1000.0
+        var samples: [LateralCAEstimator.Sample] = []
+        for i in 0..<400 {
+            let r = 0.2 + 0.8 * Double(i % 80) / 80
+            let band = Int((r - 0.2) / 0.1)
+            let blue = (band % 2 == 0 ? 0.25 : -0.25) / half
+            samples.append(.init(r: r, redShift: 0.5 * r / half, blueShift: blue, weight: 1,
+                                 half: i % 2))
+        }
+        let model = try XCTUnwrap(LateralCAEstimator.estimate(samples: samples, halfDiagonal: half))
+        XCTAssertEqual(model.blue, .init())
+        XCTAssertEqual(model.red.shift(at: 1) * half, 0.5, accuracy: 0.01)
+    }
+
+    // SPEC 3.4b: Lightroom's minimum hue span — equal or reversed ends still cover 10
+    // units, inside 0…100.
+    func testDefringeHueMinimumSpan() {
+        let span = DefringeParams.purpleHueSpan.hi - DefringeParams.purpleHueSpan.lo
+        for (lo, hi) in [(50.0, 50.0), (52.0, 48.0), (0.0, 0.0), (100.0, 100.0)] {
+            let p = DefringeParams(Defringe(purpleAmount: 5, purpleHueLo: lo, purpleHueHi: hi),
+                                   longEdge: 1000)
+            XCTAssertEqual(p.purpleHi - p.purpleLo, span * 0.1, accuracy: 1e-9, "\(lo)-\(hi)")
+            XCTAssertGreaterThanOrEqual(p.purpleLo, DefringeParams.purpleHueSpan.lo - 1e-9)
+            XCTAssertLessThanOrEqual(p.purpleHi, DefringeParams.purpleHueSpan.hi + 1e-9)
+        }
+    }
+
     // SPEC 2.2: after correction the systematic misregistration is under 0.05 px
     // everywhere, and the corrected frame no longer yields a significant model.
     func testCorrectionLeavesUnderAFifthOfATenthOfAPixel() throws {

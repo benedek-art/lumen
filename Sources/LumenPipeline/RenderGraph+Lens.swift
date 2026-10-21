@@ -112,6 +112,8 @@ public final class LensInputsCache: @unchecked Sendable {
 
     private let lock = NSLock()
     private var held: [URL: LensInputs] = [:]
+    /// The file's own record, read once even while renders are too small to measure CA.
+    private var vignettes: [URL: VignetteGain?] = [:]
     private var order: [URL] = []
     private let limit = 64
 
@@ -120,7 +122,18 @@ public final class LensInputsCache: @unchecked Sendable {
         if let hit = held[url] { lock.unlock(); return hit }
         lock.unlock()
 
-        let vignette = EmbeddedLensProfile.read(url: url)?.gainPolynomial
+        let vignette: VignetteGain?
+        lock.lock()
+        let knownVignette = vignettes[url]
+        lock.unlock()
+        if let knownVignette {
+            vignette = knownVignette
+        } else {
+            vignette = EmbeddedLensProfile.read(url: url)?.gainPolynomial
+            lock.lock()
+            vignettes[url] = .some(vignette)
+            lock.unlock()
+        }
         let extent = decoded.extent
         let long = Swift.max(extent.width, extent.height)
         guard long >= Self.minimumMeasureLongEdge else {
@@ -136,7 +149,11 @@ public final class LensInputsCache: @unchecked Sendable {
         held[url] = result
         order.removeAll { $0 == url }
         order.append(url)
-        while order.count > limit { held.removeValue(forKey: order.removeFirst()) }
+        while order.count > limit {
+            let oldest = order.removeFirst()
+            held.removeValue(forKey: oldest)
+            vignettes.removeValue(forKey: oldest)
+        }
         lock.unlock()
         return result
     }
@@ -175,6 +192,7 @@ public final class LensInputsCache: @unchecked Sendable {
     public func forget(_ url: URL) {
         lock.lock()
         held.removeValue(forKey: url)
+        vignettes.removeValue(forKey: url)
         order.removeAll { $0 == url }
         lock.unlock()
     }

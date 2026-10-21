@@ -50,7 +50,20 @@ enum Renderer {
         // but a photograph's other colour structure reads larger when downsampled
         // (1840: 0.79 px at 4000 px against 0.48 px native, the independent tool's
         // residual zero at 0.46), so the finest decode available is the one to measure.
-        let ca = LateralCAEstimator.estimate(full)
+        // The app's path exactly (`LensInputsCache.measure`): tiles ranked on a 2048 px
+        // preview, measured on the input's own pixels — so what is verified here is
+        // what the app does.
+        let preview = InputImage.downsample(full, longEdge: 2048)
+        let ca = LateralCAEstimator.estimate(nativeWidth: full.width, nativeHeight: full.height,
+                                             preview: preview) { x, y, w, h in
+            guard x >= 0, y >= 0, x + w <= full.width, y + h <= full.height else { return nil }
+            var tile = ImageBuffer(width: w, height: h)
+            for yy in 0..<h {
+                let src = ((y + yy) * full.width + x) * 4, dst = yy * w * 4
+                for k in 0..<(w * 4) { tile.pixels[dst + k] = full.pixels[src + k] }
+            }
+            return tile
+        }
         var raw = lensRaw
         if raw == nil {
             let input = URL(fileURLWithPath: inputPath)

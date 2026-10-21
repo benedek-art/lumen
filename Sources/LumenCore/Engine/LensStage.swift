@@ -76,6 +76,8 @@ public enum LateralCAEstimator {
         public var redShift: Double     // half-diagonals
         public var blueShift: Double
         public var weight: Double
+        /// Which interleaved half of the tile grid (checkerboard parity) it came from.
+        public var half: Int = 0
     }
 
     /// Estimate the model from the photograph itself — Lightroom's Remove CA is the same
@@ -115,12 +117,40 @@ public enum LateralCAEstimator {
     ///    the correction matters most and an extrapolation into them is a guess (6001:
     ///    no tile past r = 0.8, and 0.74 px of blue correction invented there).
     static func estimate(samples: [Sample]?, halfDiagonal: Double) -> LateralCAModel? {
-        guard let samples else { return nil }
+        guard let samples, let all = fitModel(samples, halfDiagonal: halfDiagonal,
+                                              minimumTiles: minimumBandTiles) else { return nil }
+        // Split-half stability: the same fit on each interleaved half of the tile grid.
+        // A channel the two halves disagree on is a property of WHICH tiles were picked,
+        // not of the lens — verifier round 2 found 3437's blue moving 0.3 px and 6001
+        // gaining a 0.5 px model between two rankings of the same photograph — and is
+        // left alone.
+        let a = fitModel(samples.filter { $0.half == 0 }, halfDiagonal: halfDiagonal,
+                         minimumTiles: minimumBandTiles / 2)
+        let b = fitModel(samples.filter { $0.half == 1 }, halfDiagonal: halfDiagonal,
+                         minimumTiles: minimumBandTiles / 2)
+        func stable(_ k: KeyPath<LateralCAModel, LateralCAModel.Coefficients>)
+            -> LateralCAModel.Coefficients {
+            let full = all[keyPath: k]
+            let whole = full.shift(at: 1) * halfDiagonal
+            guard whole != 0 else { return full }
+            guard let a, let b else { return .init() }
+            let sa = a[keyPath: k].shift(at: 1) * halfDiagonal
+            let sb = b[keyPath: k].shift(at: 1) * halfDiagonal
+            let tolerance = Swift.max(0.15, 0.4 * abs(whole))
+            guard sa * whole > 0, sb * whole > 0, abs(sa - sb) <= tolerance else { return .init() }
+            return full
+        }
+        let model = LateralCAModel(red: stable(\.red), blue: stable(\.blue))
+        return model.isIdentity ? nil : model
+    }
+
+    static func fitModel(_ samples: [Sample], halfDiagonal: Double,
+                         minimumTiles: Int) -> LateralCAModel? {
         struct Band { var r: Double; var red: Double; var blue: Double; var n: Int }
         var bands: [Band] = []
         for (lo, hi) in fitBands {
             let inBand = samples.filter { $0.r >= lo && $0.r < hi }
-            guard inBand.count >= minimumBandTiles else { continue }
+            guard inBand.count >= minimumTiles else { continue }
             let red = inBand.map(\.redShift).sorted(), blue = inBand.map(\.blueShift).sorted()
             let r = inBand.map(\.r).reduce(0, +) / Double(inBand.count)
             bands.append(Band(r: r, red: red[red.count / 2], blue: blue[blue.count / 2],
@@ -155,7 +185,13 @@ public enum LateralCAEstimator {
                     // scale crosses zero inside it (1840 and GX85 blue, −0.26 px at
                     // r = 0.5 and +0.15 at the corner) is fitting texture, and the plain
                     // magnification stands.
-                    if k0 * (k0 + k2) > 0 { result = .init(k0: k0, k2: k2) }
+                    // "Reverses" means a real excursion both ways, 0.05 px or more: a
+                    // pure r² magnification fits with k0 ≈ 0 of either sign and is fine.
+                    let candidate = LateralCAModel.Coefficients(k0: k0, k2: k2)
+                    let shifts = (1...20).map { candidate.shift(at: Double($0) / 20) * halfDiagonal }
+                    if !(shifts.contains { $0 > 0.05 } && shifts.contains { $0 < -0.05 }) {
+                        result = candidate
+                    }
                 }
             }
             // A channel below the floor on its own is left exactly alone.
@@ -182,7 +218,7 @@ public enum LateralCAEstimator {
 
     public typealias TileFetch = (_ x: Int, _ y: Int, _ width: Int, _ height: Int) -> ImageBuffer?
 
-    public static func measure(_ image: ImageBuffer, maxTiles: Int = 600) -> [Sample]? {
+    public static func measure(_ image: ImageBuffer, maxTiles: Int = 900) -> [Sample]? {
         measure(nativeWidth: image.width, nativeHeight: image.height, preview: image,
                 maxTiles: maxTiles) { x, y, w, h in
             var tile = ImageBuffer(width: w, height: h)
@@ -201,7 +237,7 @@ public enum LateralCAEstimator {
     /// full-frame readback — and measures at the scale where the estimate is right
     /// (1840: 0.48 px native, 0.81 px measured on a 2560 px decode).
     public static func measure(nativeWidth w: Int, nativeHeight h: Int, preview: ImageBuffer,
-                               maxTiles: Int = 600, fetch: TileFetch) -> [Sample]? {
+                               maxTiles: Int = 900, fetch: TileFetch) -> [Sample]? {
         guard w >= 64, h >= 64 else { return nil }
         let pv = LogPlanes(preview, origin: (0, 0), peak: nil)
         let peak = pv.peak
@@ -280,7 +316,8 @@ public enum LateralCAEstimator {
             else { continue }
             let weight = Swift.min(red.weight, blue.weight)
             samples.append(Sample(r: rpx / norm, redShift: red.shift / norm,
-                                  blueShift: blue.shift / norm, weight: weight))
+                                  blueShift: blue.shift / norm, weight: weight,
+                                  half: (c.x0 / tile + c.y0 / tile) % 2))
         }
         return samples.count >= 12 ? samples : nil
     }
