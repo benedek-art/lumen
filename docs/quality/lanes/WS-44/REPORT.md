@@ -112,4 +112,8 @@ pathological 100k-point jitter is slower (121 → 469 ms) with identical output;
 `check-swift-surface.py` fails on base 84bcd7c in four sections (LumenRender Metrics/RecipeKeys/
 main, AppState labels, LumenType Font); this branch adds nothing to them.
 
-CI on ccad0bb: see the final line below.
+CI on ccad0bb (04:49 UTC): engine-linux PASS (all LumenCoreTests), GPU parity (macOS) PASS,
+Proof sweep PASS; fixtures-linux FAIL only on the four pre-existing surface sections listed
+above. UI layout (macOS, builds the app) PASSED on 41b2e63, which already had this
+MaskCanvas; build-macos, test-fast, app-bundle and UI layout on ccad0bb were still queued
+(macOS queue ~50 runs deep).
