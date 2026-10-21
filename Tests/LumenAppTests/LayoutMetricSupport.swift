@@ -687,13 +687,13 @@ enum SliderInventory {
         // The grade's single large wheel no longer has an untitled bar: since lane K1 its
         // Hue, Saturation and Luminance are three titled rows of the develop column,
         // written inside `LumenColorWheel` (detailRows) and mounted by LookPanel.
-        SliderSpec("Hue", "LumenControls.swift:2254 (mounted by LookPanel's grade wheel)",
+        SliderSpec("Hue", "LumenControls.swift:2365 (mounted by LookPanel's grade wheel)",
                    .developTop, 0...360, step: 1),
-        SliderSpec("Saturation", "LumenControls.swift:2262 (mounted by LookPanel's grade wheel)",
+        SliderSpec("Saturation", "LumenControls.swift:2373 (mounted by LookPanel's grade wheel)",
                    .developTop, 0...100, step: 1),
-        SliderSpec("Luminance", "LumenControls.swift:2267 (mounted by LookPanel's grade wheel)",
+        SliderSpec("Luminance", "LumenControls.swift:2378 (mounted by LookPanel's grade wheel)",
                    .developTop, -100...100, step: 1),
-        SliderSpec("", "LumenControls.swift:2329 (MaskPanel.swift:3016)", .maskWheelBar,
+        SliderSpec("", "LumenControls.swift:2441 (MaskPanel.swift:3016)", .maskWheelBar,
                    -1...1, step: 0.01, decimals: 2),
 
         // The Heal tool's bar on the loupe. Size is in pixels of the original file.
