@@ -67,17 +67,19 @@ final class LocalAdjustGroupTests: XCTestCase {
             field("clarity", \.clarity, -12),
             field("dehaze", \.dehaze, 33),
             field("sharpness", \.sharpness, -40),
+            field("noise", \.noise, 35),
+            field("noiseChroma", \.noiseChroma, 25),
         ],
     ]
 
     /// Fields no group owns. Changing one must light no dot, or a Reset somewhere would
     /// silently clear something the section it sits on never showed.
     ///
-    /// The first five are the carried-not-rendered set: they decode, round-trip and hash,
+    /// The first three are the carried-not-rendered set: they decode, round-trip and hash,
     /// and no stage reads them. The rest have their own headers with their own Resets.
+    /// (`noise` and `noiseChroma` were here while they rendered nothing; they render now
+    /// and the panel draws them in Presence & Detail, so they moved to `.detail`.)
     private static let unowned: [Field] = [
-        field("noise", \.noise, 40),
-        field("noiseChroma", \.noiseChroma, 40),
         field("moire", \.moire, 40),
         field("defringe", \.defringe, 40),
         field("grainAmount", \.grainAmount, 40),
@@ -154,7 +156,7 @@ final class LocalAdjustGroupTests: XCTestCase {
                 }
             }
             // And the fields no section owns are untouched — a section's Reset must not
-            // reach the five carried-not-rendered fields or the point colours.
+            // reach the three carried-not-rendered fields or the point colours.
             for f in Self.unowned {
                 XCTAssertTrue(f.equalsBefore(adjust, before),
                               "resetting \(group) changed \(f.name), which no section owns")
@@ -203,7 +205,8 @@ final class LocalAdjustGroupTests: XCTestCase {
         XCTAssertEqual(Self.members[.colour]?.count, 9,
                        "Colour draws Temp, Tint (in two spellings), Hue, Saturation, "
                            + "Vibrance and the Colorize pair")
-        XCTAssertEqual(Self.members[.detail]?.count, 4,
-                       "Presence & Detail draws Texture, Clarity, Dehaze, Sharpness")
+        XCTAssertEqual(Self.members[.detail]?.count, 6,
+                       "Presence & Detail draws Texture, Clarity, Dehaze, Noise, "
+                           + "Colour Noise, Sharpness")
     }
 }

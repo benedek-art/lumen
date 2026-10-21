@@ -25,15 +25,22 @@ public enum ReferenceRenderer {
         /// the one the app attaches its blob store to and the one the GPU graph reads,
         /// so a fallback render finds the same cube the graph did.
         public var luts: CreativeLUTLibrary
+        /// `(rendered long edge ÷ the file's own long edge)²`, the same number the
+        /// caller handed S3's `scaled(noiseScale:)` and the GPU graph's
+        /// `Options.noiseScale`. A mask's Noise rows (`LocalNoise`) obey the preview rule
+        /// S3 obeys, so they need it too; 1 for an export or a full-size render.
+        public var noiseScale: Double
 
         public init(strokeSets: [String: BrushStrokeSet] = [:],
                     aiMattes: [String: Plane] = [:],
                     grainSeed: UInt64 = FilmGrainProfile.defaultPlateSeed,
-                    luts: CreativeLUTLibrary = .shared) {
+                    luts: CreativeLUTLibrary = .shared,
+                    noiseScale: Double = 1) {
             self.strokeSets = strokeSets
             self.aiMattes = aiMattes
             self.grainSeed = grainSeed
             self.luts = luts
+            self.noiseScale = noiseScale
         }
     }
 
@@ -115,7 +122,8 @@ public enum ReferenceRenderer {
                                           // reference selects nothing, silently.
                                           masks: plan.allMasks))
             }
-            image = applyMasks(image, plan: plan, alphas: alphas, space: space)
+            image = applyMasks(image, plan: plan, alphas: alphas, space: space,
+                               noiseScale: inputs.noiseScale)
         }
 
         // S12 — creative sharpening, after local so masked clarity is never
@@ -251,10 +259,12 @@ public enum ReferenceRenderer {
 
     static func applyMasks(_ image: ImageBuffer, plan: RenderPlan,
                            alphas: [(mask: Mask, alpha: Plane)],
-                           space: RGBColorSpace) -> ImageBuffer {
+                           space: RGBColorSpace,
+                           noiseScale: Double = 1) -> ImageBuffer {
         var out = image
         for (mask, alpha) in alphas {
-            let adjusted = applyLocalAdjust(out, mask: mask, plan: plan, space: space)
+            let adjusted = applyLocalAdjust(out, mask: mask, plan: plan, space: space,
+                                            noiseScale: noiseScale)
             let blend = mask.blend
             for y in 0..<out.height {
                 for x in 0..<out.width {
@@ -405,7 +415,8 @@ public enum ReferenceRenderer {
     /// A mask's sub-recipe is a delta over the global parameters, evaluated with the
     /// same engines the global path uses — never a parallel implementation.
     static func applyLocalAdjust(_ image: ImageBuffer, mask: Mask, plan: RenderPlan,
-                                 space: RGBColorSpace) -> ImageBuffer {
+                                 space: RGBColorSpace,
+                                 noiseScale: Double = 1) -> ImageBuffer {
         let scale = Num.clamp(mask.amount, 0, 200) / 100.0
         let a = mask.adjust
         let front = LocalColourFront(mask: mask, plan: plan, space: space)
@@ -461,6 +472,14 @@ public enum ReferenceRenderer {
         // caller composites the result through the mask's alpha — the same shape the
         // colour half already had, and the reason a masked Clarity does not need its
         // own cropped decomposition.
+        //
+        // Noise and Colour Noise first: the global classical engine (`LocalNoise`),
+        // before anything that reads fine detail. Texture and sharpening would otherwise
+        // lift the very grain the row is asked to remove, which is the same reason S3
+        // sits ahead of S8 and S12 globally.
+        if let engine = LocalNoise.engine(for: mask, plan: plan) {
+            out = engine.scaled(noiseScale: noiseScale).apply(out, space: space)
+        }
         let texture = DetailEngine.scaledPresenceAmount(a.texture, strength: scale)
         let clarity = DetailEngine.scaledPresenceAmount(a.clarity, strength: scale)
         let dehaze = a.dehaze * scale
@@ -476,7 +495,7 @@ public enum ReferenceRenderer {
             out = DetailEngine.applyDehaze(out, amount: dehaze, decomposition: node)
             if sharpness > 0 {
                 out = DetailEngine.applySharpen(
-                    out, params: ManualSharpen(amount: Num.clamp(sharpness, 0, 150)),
+                    out, params: localSharpen(sharpness, plan: plan),
                     decomposition: node)
             } else if sharpness < 0 {
                 // Negative Sharpness is a blur, which `applySharpen` refuses by
@@ -485,12 +504,43 @@ public enum ReferenceRenderer {
                 // Preserve the 2.5 px maximum at the same 2560 px reference as
                 // positive sharpening. A fixed render-pixel blur fades on export.
                 let sigma = SpatialOps.frameDenominatedSigma(
-                    radius: Num.clamp(-sharpness / 100, 0, 1) * 2.5,
+                    radius: localSofteningRadius(sharpness),
                     longEdge: Swift.max(out.width, out.height))
                 out = SpatialOps.gaussianBlur(out, sigma: sigma)
             }
         }
         return out
+    }
+
+    /// Positive local Sharpness: the photographer's own Detail-panel sharpen with only
+    /// Amount replaced.
+    ///
+    /// It used to be `ManualSharpen(amount:)` with every other field at its default, so
+    /// a mask sharpened at Radius 1.0, Detail 25, no Masking and no halo control
+    /// whatever the global panel said. With global Radius 2 and Masking 60, a full-frame
+    /// mask at 100 differed from global Amount 100 by up to 50 codes. Radius, Detail,
+    /// Masking and Halo Suppression are how this photograph wants to be sharpened; the
+    /// mask decides where and how much. Public because the GPU graph reads the same
+    /// construction (`RenderGraph.applyLocalAdjust`).
+    public static func localSharpen(_ sharpness: Double, plan: RenderPlan) -> ManualSharpen {
+        var params = plan.detail.sharpen
+        params.amount = Num.clamp(sharpness, 0, 150)
+        return params
+    }
+
+    /// Negative local Sharpness → softening radius in pixels at the 2560 px reference
+    /// (`SpatialOps.frameDenominatedSigma` converts it to the render).
+    ///
+    /// √t rather than t. A linear radius put −10 at a quarter-pixel σ, where a discrete
+    /// Gaussian's neighbour weight is e⁻⁸ — measured on a GX85 frame at 2400 px, −10
+    /// moved the picture by 0.003 codes on average against 12.4 at −100, so the first
+    /// quarter of the slider did nothing visible. Blur is felt through its σ², and the
+    /// first fraction of a pixel buys almost none of it, so the square root spends the
+    /// travel where the eye sees a change. The ends are unchanged: 0 at 0 and 2.5 px at
+    /// −100.
+    public static func localSofteningRadius(_ sharpness: Double) -> Double {
+        guard sharpness.isFinite else { return 0 }
+        return Num.clamp(-sharpness / 100, 0, 1).squareRoot() * 2.5
     }
 
     /// A local Temp/Tint nudge. The mask panel's two sliders are RELATIVE — −100…+100

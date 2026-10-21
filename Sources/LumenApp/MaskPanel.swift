@@ -2424,25 +2424,44 @@ struct MaskPanel: View {
                     adjustSlider(mask.id, "Dehaze", \.dehaze, -100...100,
                                  help: "Cuts through the atmospheric veil over the "
                                      + "selected area, or lays more of it back on.")
+                    // Noise and Colour Noise sit between the presence trio and
+                    // Sharpness because that is the order the render runs them in:
+                    // noise reduction first, then the sharpening that would otherwise
+                    // lift the grain back up. Lightroom lists Noise after Sharpness;
+                    // this panel reads in the order the picture is made. Both are the
+                    // global classical engine
+                    // with the Detail panel's own Detail / Contrast / Smoothness,
+                    // so the mask decides where and how hard, not how.
+                    adjustSlider(mask.id, "Noise", \.noise, 0...100, bipolar: false,
+                                 help: "Smooths luminance grain inside the selection, "
+                                     + "on top of the global Noise Reduction. Use it on "
+                                     + "skies and shadows that need more than the rest.")
+                    adjustSlider(mask.id, "Colour Noise", \.noiseChroma, 0...100,
+                                 bipolar: false,
+                                 help: "Removes coloured speckle and blotches inside the "
+                                     + "selection without touching its detail.")
                     // Texture, Clarity and Dehaze reuse the global base–detail
-                    // decomposition, and negative Sharpness softens.
+                    // decomposition; Sharpness uses the global Radius, Detail and
+                    // Masking, and negative Sharpness softens.
                     adjustSlider(mask.id, "Sharpness", \.sharpness, -100...100,
                                  help: "Sharpens the edges inside the selection. "
                                      + "Negative softens, which is what makes this the "
                                      + "row a skin mask reaches for.")
-                    // DELIBERATELY ABSENT, and re-checked with this rebuild: local
-                    // Noise, Noise (chroma), Moiré, Defringe and Grain. All five are
-                    // fields on `LocalAdjust`, all five round-trip through the wire
-                    // format, and all five are read by NOTHING — `applyLocalAdjust`
-                    // and `LocalPlan` between them are the complete list of consumers,
-                    // and neither mentions any of them. So a slider here would move
-                    // while the picture did not, which is worse than an absent one
-                    // because it costs the photographer the time to find out.
+                    // DELIBERATELY ABSENT: Moiré, Defringe and Grain. Each is a field on
+                    // `LocalAdjust` that round-trips and that nothing renders, so a
+                    // slider here would move while the picture did not.
+                    //
+                    //   Moiré — there is no moiré engine in the tree at all, so there
+                    //   is nothing for a masked row to be the local half of.
+                    //   Defringe — the global defringe engine (lane C3) does not render
+                    //   yet; the local row follows it, not the other way round.
+                    //   Grain — Lightroom's masks have none either: grain is a property
+                    //   of the whole film, and the stock and creative grain amounts are
+                    //   not yet on one scale, so a local "50" would mean two things.
                     //
                     // If you are adding one back, add the render stage first; the
-                    // control is the easy half. The four above are here precisely
-                    // because they DO have one (`localDetail` on the GPU path, the
-                    // matching block in `ReferenceRenderer`).
+                    // control is the easy half (`MaskDeadFieldTests` fails the day it
+                    // renders, which is the reminder to come here).
                     //
                     // The row announcing the absence is gone too. There is nothing on
                     // screen for it to be about, and an apology for a control you

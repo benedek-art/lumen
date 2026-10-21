@@ -95,7 +95,8 @@
 //      Uniformity's measured band hues taken from the input when the mixer needs them;
 //   3. S3 classical denoise when the plan has one (`classicalDenoise.scaled(noiseScale:
 //      scale²)`), exactly as renderReference does;
-//   4. `ReferenceRenderer.render` → display-linear, still in Rec.2020 primaries;
+//   4. `ReferenceRenderer.render` → display-linear, still in Rec.2020 primaries, with
+//      the same scale² as `Inputs.noiseScale` so a mask's Noise rows obey S3's rule;
 //   5. the encode: ordered 8×8 Bayer dither of one sRGB code (`Dither`, added in the
 //      working primaries as `PipelineRenderer.applyDither` does), Rec.2020 → sRGB (or
 //      Display P3) matrix, clamp to [0,1], sRGB transfer, round(v × 255). That is
