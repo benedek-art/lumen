@@ -1,0 +1,26 @@
+== A. S6 matrix gain ==
+wb=asShot printerLights r=0: max rel err of M(EV)=2^EV*M(0) over EV in ±10, probes -1..65504: 0.0
+wb=asShot printerLights r=3: max rel err of M(EV)=2^EV*M(0) over EV in ±10, probes -1..65504: 0.0
+wb=3200.0 printerLights r=0: max rel err of M(EV)=2^EV*M(0) over EV in ±10, probes -1..65504: 0.0
+wb=3200.0 printerLights r=3: max rel err of M(EV)=2^EV*M(0) over EV in ±10, probes -1..65504: 0.0
+wb=9000.0 printerLights r=0: max rel err of M(EV)=2^EV*M(0) over EV in ±10, probes -1..65504: 0.0
+wb=9000.0 printerLights r=3: max rel err of M(EV)=2^EV*M(0) over EV in ±10, probes -1..65504: 0.0
+EV 1.0: buffer ratios out/in = 2.000000 2.000000 2.000000 2.000000 2.000000 2.000000 2.000000  exposureGain=2.0
+EV -1.0: buffer ratios out/in = 0.500000 0.500000 0.500000 0.500000 0.500000 0.500000 0.500000  exposureGain=0.5
+EV 10.0: buffer ratios out/in = 1024.000000 1024.000049 1024.000049 1024.000041 1024.000000 1024.000000 1024.000000  exposureGain=1024.0
+EV 11.0: buffer ratios out/in = 1024.000000 1024.000049 1024.000049 1024.000041 1024.000000 1024.000000 1024.000000  exposureGain=1024.0
+EV -11.0: buffer ratios out/in = 0.000977 0.000977 0.000977 0.000977 0.000977 0.000977 0.000977  exposureGain=0.0009765625
+== C. 0.18 grey placement (sRGB code, LUT33 / exact) ==
+EV -3: code(0.18 @EV) = 20.32  exact 20.32  code(0.18*2^k @EV0) = 20.32  display-linear Y=0.0072
+EV -2: code(0.18 @EV) = 41.29  exact 39.44  code(0.18*2^k @EV0) = 41.29  display-linear Y=0.0225
+EV -1: code(0.18 @EV) = 72.72  exact 70.41  code(0.18*2^k @EV0) = 72.72  display-linear Y=0.0661
+EV 0: code(0.18 @EV) = 117.65  exact 117.65  code(0.18*2^k @EV0) = 117.65  display-linear Y=0.1800
+EV 1: code(0.18 @EV) = 168.74  exact 168.58  code(0.18*2^k @EV0) = 168.74  display-linear Y=0.3954
+EV 2: code(0.18 @EV) = 207.17  exact 207.45  code(0.18*2^k @EV0) = 207.17  display-linear Y=0.6251
+EV 3: code(0.18 @EV) = 234.51  exact 234.51  code(0.18*2^k @EV0) = 234.51  display-linear Y=0.8269
+EV0 codes for scene stops vs grey: -9:0.5 -8:0.5 -6:1.5 -4:9.8 -2:41.3 -1:72.7 0:117.6 1:168.7 2:207.2 3:234.5 4:249.5 5:254.6 6:255.0
+== F. neutral roll-off: code of scene value v at EV k ==
+EV 0.0: 0.18->117.6  0.5->188.5  0.9->217.2  1.5->235.5  3.0->250.0  5.76->254.6
+EV 1.0: 0.18->168.7  0.5->221.3  0.9->240.1  1.5->250.0  3.0->254.7  5.76->255.0
+EV 2.0: 0.18->207.2  0.5->242.7  0.9->252.3  1.5->254.7  3.0->255.0  5.76->255.0
+EV 3.0: 0.18->234.5  0.5->253.6  0.9->255.0  1.5->255.0  3.0->255.0  5.76->255.0

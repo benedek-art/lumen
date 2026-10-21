@@ -333,18 +333,47 @@ public struct WhiteBalanceEngine: Sendable {
 public struct LinearStage: Sendable {
     public let matrix: Mat3
 
+    /// Whether the stage is skipped. The same 1e-12 test as `RG.applyMatrix`'s
+    /// identity skip, so both renderers skip on exactly the same plans, and an EV 0
+    /// default plan never touches a pixel.
+    public let isIdentity: Bool
+
+    /// The largest magnitude S6 may write, per channel: the half-float maximum.
+    ///
+    /// The GPU graph stores its intermediates as RGBAh, whose largest finite value is
+    /// 65504. At Exposure +10 (×1024) any scene value of 64 or more would overflow to
+    /// ±inf there, and the inset/outset matrices downstream have negative off-diagonals,
+    /// so inf − inf would reach the display as NaN. Clamping S6's output to the fp16
+    /// maximum, identically on the CPU (`apply`) and the GPU (`RG.applyMatrix`), keeps
+    /// such a pixel finite, and white, on both. It is a no-op for every value the
+    /// half-float store can hold, which is every value a photograph renders with below
+    /// +10 EV.
+    public static let outputLimit: Double = 65504
+
     public init(whiteBalance: WhiteBalanceEngine, exposureGain: Double, printerLightGains: RGB) {
         let gains = RGB(exposureGain * printerLightGains.r,
                         exposureGain * printerLightGains.g,
                         exposureGain * printerLightGains.b)
-        self.matrix = Mat3.diagonal(gains) * whiteBalance.matrix
+        self.init(matrix: Mat3.diagonal(gains) * whiteBalance.matrix)
     }
 
     public init(matrix: Mat3) {
         self.matrix = matrix
+        self.isIdentity = matrix.maxAbsDifference(.identity) < 1e-12
     }
 
-    public func apply(_ c: RGB) -> RGB { matrix.apply(c) }
+    /// The matrix, then the per-channel ±`outputLimit` clamp. The identity returns its
+    /// input untouched, as the GPU skip does. NaN passes through rather than being
+    /// clamped to a value, so an upstream defect stays visible instead of turning into
+    /// a plausible colour.
+    public func apply(_ c: RGB) -> RGB {
+        if isIdentity { return c }
+        let m = matrix.apply(c)
+        let l = Self.outputLimit
+        return RGB(Self.limit(m.r, l), Self.limit(m.g, l), Self.limit(m.b, l))
+    }
 
-    public var isIdentity: Bool { matrix.maxAbsDifference(.identity) < 1e-12 }
+    @inline(__always) private static func limit(_ x: Double, _ l: Double) -> Double {
+        x > l ? l : (x < -l ? -l : x)
+    }
 }

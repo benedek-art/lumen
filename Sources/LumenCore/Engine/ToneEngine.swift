@@ -478,7 +478,20 @@ public struct ToneEngine: Sendable {
 
     /// Scene-linear multiplier from the Exposure slider. Applied at S6, upstream of
     /// everything here, which is why it never invalidates the decode cache.
-    public var exposureGain: Double { pow(2, Num.clamp(tone.exposure, -10, 10)) }
+    ///
+    /// Clamped to ±10 stops, the slider's hard range, so a recipe value past it
+    /// renders exactly as the limit. `clampFinite`, not `clamp`: `Num.clamp` passes
+    /// NaN through, and `pow(2, NaN)` would turn every pixel of the frame into NaN.
+    /// A NaN Exposure means "no Exposure" (gain 1, S6 stays the identity); ±inf pin
+    /// to ±10 like any other out-of-range value.
+    public var exposureGain: Double {
+        pow(2, Num.clampFinite(tone.exposure, -Self.exposureLimit, Self.exposureLimit,
+                               fallback: 0))
+    }
+
+    /// The Exposure clamp, in stops. Equal to the slider's hard range (BasicPanel
+    /// Exposure, `hardRange: -10...10`).
+    public static let exposureLimit: Double = 10
 
     // MARK: - Zonal windows
 

@@ -1,0 +1,37 @@
+== D. sweep smoothness ==
+-- LUT33
+scene 0.001: nonMono=0 maxStep/0.01EV=0.227 @4.51  max|Δ²|=0.1072 @4.49  firstClip255@EV=-  dead(within 0<c<255): -5.0..-1.51
+scene 0.01: nonMono=0 maxStep/0.01EV=0.636 @4.18  max|Δ²|=0.3384 @3.42  firstClip255@EV=-  dead(within 0<c<255): -5.0..-4.83
+scene 0.05: nonMono=0 maxStep/0.01EV=0.635 @1.86  max|Δ²|=0.2711 @1.1  firstClip255@EV=-  dead(within 0<c<255): none
+scene 0.18: nonMono=0 maxStep/0.01EV=0.636 @0.01  max|Δ²|=0.3410 @-0.75  firstClip255@EV=-  dead(within 0<c<255): none
+scene 0.5: nonMono=0 maxStep/0.01EV=0.635 @-1.46  max|Δ²|=0.2041 @-2.22  firstClip255@EV=3.78  dead(within 0<c<255): none
+scene 1.0: nonMono=0 maxStep/0.01EV=0.635 @-2.46  max|Δ²|=0.2041 @-3.22  firstClip255@EV=2.78  dead(within 0<c<255): none
+scene 2.0: nonMono=0 maxStep/0.01EV=0.635 @-3.46  max|Δ²|=0.2041 @-4.22  firstClip255@EV=1.78  dead(within 0<c<255): none
+scene 4.0: nonMono=0 maxStep/0.01EV=0.635 @-4.46  max|Δ²|=0.1401 @-4.47  firstClip255@EV=0.78  dead(within 0<c<255): none
+scene 8.0: nonMono=0 maxStep/0.01EV=0.493 @-4.99  max|Δ²|=0.0458 @-1.72  firstClip255@EV=-0.22  dead(within 0<c<255): none
+scene 64.0: nonMono=0 maxStep/0.01EV=0.169 @-4.99  max|Δ²|=0.0458 @-4.72  firstClip255@EV=-3.22  dead(within 0<c<255): none
+grey codes EV -0.03..+0.03: 116.434 116.840 117.244 117.646 118.282 118.914 119.542
+-- LUT65
+scene 0.001: nonMono=0 maxStep/0.01EV=0.220 @4.88  max|Δ²|=0.0516 @4.87  firstClip255@EV=-  dead(within 0<c<255): -5.0..-1.51
+scene 0.01: nonMono=0 maxStep/0.01EV=0.606 @4.18  max|Δ²|=0.1631 @3.42  firstClip255@EV=-  dead(within 0<c<255): -5.0..-4.83
+scene 0.05: nonMono=0 maxStep/0.01EV=0.606 @1.86  max|Δ²|=0.1305 @1.1  firstClip255@EV=-  dead(within 0<c<255): none
+scene 0.18: nonMono=0 maxStep/0.01EV=0.606 @0.01  max|Δ²|=0.1644 @-0.75  firstClip255@EV=-  dead(within 0<c<255): none
+scene 0.5: nonMono=0 maxStep/0.01EV=0.605 @-1.46  max|Δ²|=0.1658 @-1.85  firstClip255@EV=3.78  dead(within 0<c<255): none
+scene 1.0: nonMono=0 maxStep/0.01EV=0.605 @-2.46  max|Δ²|=0.1658 @-2.85  firstClip255@EV=2.78  dead(within 0<c<255): none
+scene 2.0: nonMono=0 maxStep/0.01EV=0.605 @-3.46  max|Δ²|=0.1658 @-3.85  firstClip255@EV=1.78  dead(within 0<c<255): none
+scene 4.0: nonMono=0 maxStep/0.01EV=0.605 @-4.46  max|Δ²|=0.1658 @-4.85  firstClip255@EV=0.78  dead(within 0<c<255): none
+scene 8.0: nonMono=0 maxStep/0.01EV=0.519 @-4.99  max|Δ²|=0.0346 @-1.35  firstClip255@EV=-0.22  dead(within 0<c<255): none
+scene 64.0: nonMono=0 maxStep/0.01EV=0.150 @-4.99  max|Δ²|=0.0346 @-4.35  firstClip255@EV=-3.22  dead(within 0<c<255): none
+grey codes EV -0.03..+0.03: 116.206 116.688 117.168 117.646 118.252 118.855 119.454
+-- exact
+scene 0.001: nonMono=0 maxStep/0.01EV=0.190 @5.0  max|Δ²|=0.0010 @4.99  firstClip255@EV=-  dead(within 0<c<255): -5.0..-1.33
+scene 0.01: nonMono=0 maxStep/0.01EV=0.570 @4.18  max|Δ²|=0.0021 @4.16  firstClip255@EV=-  dead(within 0<c<255): -5.0..-4.65
+scene 0.05: nonMono=0 maxStep/0.01EV=0.570 @1.85  max|Δ²|=0.0021 @1.83  firstClip255@EV=-  dead(within 0<c<255): none
+scene 0.18: nonMono=0 maxStep/0.01EV=0.570 @0.01  max|Δ²|=0.0021 @-0.01  firstClip255@EV=4.99  dead(within 0<c<255): none
+scene 0.5: nonMono=0 maxStep/0.01EV=0.570 @-1.47  max|Δ²|=0.0021 @-1.49  firstClip255@EV=3.51  dead(within 0<c<255): none
+scene 1.0: nonMono=0 maxStep/0.01EV=0.570 @-2.47  max|Δ²|=0.0021 @-2.49  firstClip255@EV=2.51  dead(within 0<c<255): none
+scene 2.0: nonMono=0 maxStep/0.01EV=0.570 @-3.47  max|Δ²|=0.0021 @-3.49  firstClip255@EV=1.51  dead(within 0<c<255): none
+scene 4.0: nonMono=0 maxStep/0.01EV=0.570 @-4.47  max|Δ²|=0.0021 @-4.49  firstClip255@EV=0.51  dead(within 0<c<255): none
+scene 8.0: nonMono=0 maxStep/0.01EV=0.512 @-4.99  max|Δ²|=0.0012 @-4.99  firstClip255@EV=-0.49  dead(within 0<c<255): none
+scene 64.0: nonMono=0 maxStep/0.01EV=0.158 @-4.99  max|Δ²|=0.0011 @-4.99  firstClip255@EV=-3.49  dead(within 0<c<255): none
+grey codes EV -0.03..+0.03: 115.944 116.509 117.076 117.646 118.216 118.784 119.352

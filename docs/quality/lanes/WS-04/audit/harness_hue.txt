@@ -1,0 +1,105 @@
+== E. OKLab hue/chroma of shipped sRGB output vs EV (LUT33 pipeline; exact in brackets) ==
+-- sky blue scene rec2020 0.05,0.12,0.35: scene OKLab h=244.1 C=0.137
+  EV-3.0: code(4,21,40) L=0.192 C=0.047 h=252.7 [exact h=252.4 unclamped h=252.4 C=0.045] vsScene dh=8.6
+  EV-2.0: code(10,41,72) L=0.276 C=0.068 h=251.6 [exact h=252.4 unclamped h=252.4 C=0.065] vsScene dh=7.5
+  EV-1.0: code(25,70,117) L=0.389 C=0.093 h=252.5 [exact h=252.4 unclamped h=252.4 C=0.093] vsScene dh=8.4
+  EV0.0: code(40,104,171) L=0.510 C=0.124 h=252.5 [exact h=252.3 unclamped h=252.3 C=0.125] vsScene dh=8.4
+  EV0.5: code(46,119,193) L=0.560 C=0.136 h=252.0 [exact h=251.9 unclamped h=251.9 C=0.137] vsScene dh=7.9
+  EV1.0: code(53,134,212) L=0.608 C=0.142 h=250.9 [exact h=251.1 unclamped h=251.1 C=0.144] vsScene dh=6.8
+  EV1.5: code(72,149,228) L=0.657 C=0.141 h=251.3 [exact h=250.9 unclamped h=250.9 C=0.144] vsScene dh=7.2
+  EV2.0: code(92,165,241) L=0.707 C=0.134 h=251.2 [exact h=251.0 unclamped h=251.0 C=0.135] vsScene dh=7.1
+  EV2.5: code(124,183,248) L=0.765 C=0.112 h=251.4 [exact h=251.1 unclamped h=251.1 C=0.117] vsScene dh=7.3
+  EV3.0: code(155,202,253) L=0.824 C=0.087 h=251.0 [exact h=250.6 unclamped h=250.6 C=0.090] vsScene dh=6.9
+  EV3.5: code(187,221,255) L=0.883 C=0.059 h=248.4 [exact h=247.9 unclamped h=247.9 C=0.060] vsScene dh=4.3
+  EV4.0: code(216,238,255) L=0.939 C=0.032 h=240.7 [exact h=236.2 unclamped h=236.6 C=0.031] vsScene dh=-3.4
+-- skin scene rec2020 0.45,0.3,0.22: scene OKLab h=41.0 C=0.069
+  EV-3.0: code(52,37,32) L=0.281 C=0.026 h=37.9 [exact h=43.4 unclamped h=43.4 C=0.024] vsScene dh=-3.1
+  EV-2.0: code(89,68,58) L=0.405 C=0.034 h=45.6 [exact h=43.4 unclamped h=43.4 C=0.035] vsScene dh=4.5
+  EV-1.0: code(145,110,94) L=0.568 C=0.051 h=44.9 [exact h=43.4 unclamped h=43.4 C=0.049] vsScene dh=3.9
+  EV0.0: code(197,150,133) L=0.713 C=0.062 h=40.9 [exact h=43.7 unclamped h=43.7 C=0.062] vsScene dh=-0.1
+  EV0.5: code(217,169,148) L=0.773 C=0.064 h=45.3 [exact h=43.9 unclamped h=43.9 C=0.065] vsScene dh=4.2
+  EV1.0: code(233,186,165) L=0.825 C=0.062 h=45.0 [exact h=44.1 unclamped h=44.1 C=0.065] vsScene dh=4.0
+  EV1.5: code(247,200,180) L=0.869 C=0.060 h=44.4 [exact h=44.2 unclamped h=44.2 C=0.062] vsScene dh=3.4
+  EV2.0: code(255,214,196) L=0.907 C=0.052 h=45.3 [exact h=45.3 unclamped h=44.3 C=0.055] vsScene dh=4.3
+  EV2.5: code(255,227,212) L=0.934 C=0.037 h=49.0 [exact h=49.9 unclamped h=44.6 C=0.045] vsScene dh=8.0
+  EV3.0: code(255,240,228) L=0.964 C=0.023 h=61.0 [exact h=55.2 unclamped h=45.6 C=0.031] vsScene dh=19.9
+  EV3.5: code(255,249,244) L=0.985 C=0.009 h=58.3 [exact h=63.0 unclamped h=50.6 C=0.013] vsScene dh=17.3
+  EV4.0: code(255,254,253) L=0.998 C=0.002 h=82.7 [exact h=97.1 unclamped h=90.0 C=0.002] vsScene dh=41.6
+-- dark skin scene rec2020 0.2,0.12,0.08: scene OKLab h=41.0 C=0.065
+  EV-3.0: code(26,15,11) L=0.182 C=0.020 h=43.3 [exact h=43.2 unclamped h=43.2 C=0.020] vsScene dh=2.2
+  EV-2.0: code(48,32,25) L=0.261 C=0.029 h=44.6 [exact h=43.2 unclamped h=43.2 C=0.028] vsScene dh=3.6
+  EV-1.0: code(82,57,46) L=0.370 C=0.041 h=43.3 [exact h=43.2 unclamped h=43.2 C=0.040] vsScene dh=2.3
+  EV0.0: code(136,96,80) L=0.526 C=0.058 h=43.1 [exact h=43.2 unclamped h=43.2 C=0.057] vsScene dh=2.1
+  EV0.5: code(165,117,98) L=0.606 C=0.067 h=43.2 [exact h=43.2 unclamped h=43.2 C=0.067] vsScene dh=2.2
+  EV1.0: code(191,137,114) L=0.678 C=0.074 h=44.0 [exact h=43.5 unclamped h=43.5 C=0.074] vsScene dh=3.0
+  EV1.5: code(213,155,131) L=0.739 C=0.078 h=43.2 [exact h=43.8 unclamped h=43.8 C=0.080] vsScene dh=2.1
+  EV2.0: code(232,171,145) L=0.792 C=0.081 h=43.7 [exact h=44.1 unclamped h=44.1 C=0.081] vsScene dh=2.7
+  EV2.5: code(246,187,162) L=0.839 C=0.077 h=43.9 [exact h=44.3 unclamped h=44.3 C=0.079] vsScene dh=2.8
+  EV3.0: code(255,201,178) L=0.879 C=0.069 h=44.5 [exact h=45.7 unclamped h=44.5 C=0.073] vsScene dh=3.5
+  EV3.5: code(255,216,195) L=0.909 C=0.052 h=48.9 [exact h=50.0 unclamped h=44.9 C=0.062] vsScene dh=7.9
+  EV4.0: code(255,229,215) L=0.940 C=0.034 h=51.2 [exact h=54.8 unclamped h=45.8 C=0.046] vsScene dh=10.2
+-- sat red scene rec2020 0.45,0.04,0.03: scene OKLab h=22.7 C=0.237
+  EV-3.0: code(57,1,6) L=0.219 C=0.085 h=22.3 [exact h=22.6 unclamped h=22.6 C=0.084] vsScene dh=-0.3
+  EV-2.0: code(97,5,17) L=0.314 C=0.122 h=22.8 [exact h=22.6 unclamped h=22.6 C=0.120] vsScene dh=0.1
+  EV-1.0: code(158,10,34) L=0.445 C=0.174 h=22.5 [exact h=22.6 unclamped h=22.6 C=0.172] vsScene dh=-0.2
+  EV0.0: code(218,18,50) L=0.566 C=0.222 h=22.5 [exact h=22.6 unclamped h=22.6 C=0.222] vsScene dh=-0.2
+  EV0.5: code(243,22,56) L=0.614 C=0.241 h=22.7 [exact h=22.7 unclamped h=22.7 C=0.242] vsScene dh=0.0
+  EV1.0: code(255,33,63) L=0.640 C=0.245 h=22.6 [exact h=22.3 unclamped h=22.9 C=0.256] vsScene dh=-0.1
+  EV1.5: code(255,51,73) L=0.651 C=0.235 h=21.8 [exact h=21.9 unclamped h=23.2 C=0.261] vsScene dh=-0.9
+  EV2.0: code(255,86,93) L=0.684 C=0.205 h=22.1 [exact h=22.1 unclamped h=23.6 C=0.247] vsScene dh=-0.6
+  EV2.5: code(255,119,118) L=0.729 C=0.167 h=22.6 [exact h=22.4 unclamped h=23.4 C=0.212] vsScene dh=-0.1
+  EV3.0: code(255,155,149) L=0.790 C=0.121 h=23.3 [exact h=23.4 unclamped h=23.5 C=0.164] vsScene dh=0.7
+  EV3.5: code(255,189,181) L=0.856 C=0.078 h=26.5 [exact h=26.1 unclamped h=24.6 C=0.112] vsScene dh=3.8
+  EV4.0: code(255,217,208) L=0.915 C=0.044 h=32.6 [exact h=33.0 unclamped h=28.6 C=0.064] vsScene dh=9.9
+-- orange scene rec2020 0.55,0.22,0.03: scene OKLab h=54.4 C=0.168
+  EV-3.0: code(63,31,4) L=0.280 C=0.062 h=56.4 [exact h=56.1 unclamped h=56.1 C=0.062] vsScene dh=2.0
+  EV-2.0: code(109,57,12) L=0.404 C=0.092 h=55.2 [exact h=56.1 unclamped h=56.1 C=0.089] vsScene dh=0.8
+  EV-1.0: code(168,91,26) L=0.552 C=0.125 h=55.1 [exact h=56.1 unclamped h=56.1 C=0.124] vsScene dh=0.7
+  EV0.0: code(220,125,35) L=0.682 C=0.151 h=57.9 [exact h=56.9 unclamped h=56.9 C=0.153] vsScene dh=3.5
+  EV0.5: code(242,139,38) L=0.733 C=0.162 h=58.8 [exact h=58.7 unclamped h=58.7 C=0.163] vsScene dh=4.4
+  EV1.0: code(255,156,45) L=0.779 C=0.164 h=63.0 [exact h=62.4 unclamped h=61.3 C=0.168] vsScene dh=8.6
+  EV1.5: code(255,173,64) L=0.810 C=0.153 h=69.9 [exact h=69.7 unclamped h=64.3 C=0.167] vsScene dh=15.5
+  EV2.0: code(255,192,92) L=0.846 C=0.136 h=76.1 [exact h=75.8 unclamped h=67.3 C=0.153] vsScene dh=21.7
+  EV2.5: code(255,211,131) L=0.888 C=0.110 h=81.7 [exact h=81.2 unclamped h=71.0 C=0.125] vsScene dh=27.3
+  EV3.0: code(255,229,169) L=0.929 C=0.082 h=87.3 [exact h=87.5 unclamped h=77.3 C=0.090] vsScene dh=32.9
+  EV3.5: code(255,247,205) L=0.971 C=0.055 h=98.1 [exact h=97.4 unclamped h=90.3 C=0.055] vsScene dh=43.6
+  EV4.0: code(255,252,228) L=0.987 C=0.032 h=101.3 [exact h=102.7 unclamped h=98.5 C=0.034] vsScene dh=46.9
+-- sat green scene rec2020 0.06,0.3,0.05: scene OKLab h=152.3 C=0.220
+  EV-3.0: code(0,34,6) L=0.220 C=0.066 h=146.6 [exact h=146.4 unclamped h=151.8 C=0.075] vsScene dh=-5.7
+  EV-2.0: code(0,64,15) L=0.325 C=0.099 h=146.1 [exact h=146.4 unclamped h=151.8 C=0.108] vsScene dh=-6.2
+  EV-1.0: code(0,108,33) L=0.463 C=0.141 h=146.2 [exact h=146.4 unclamped h=151.8 C=0.155] vsScene dh=-6.0
+  EV0.0: code(0,161,54) L=0.617 C=0.186 h=146.5 [exact h=146.3 unclamped h=151.8 C=0.211] vsScene dh=-5.8
+  EV0.5: code(0,185,62) L=0.685 C=0.208 h=146.2 [exact h=146.2 unclamped h=151.8 C=0.235] vsScene dh=-6.0
+  EV1.0: code(0,206,71) L=0.741 C=0.224 h=146.3 [exact h=146.2 unclamped h=151.7 C=0.254] vsScene dh=-5.9
+  EV1.5: code(0,224,83) L=0.789 C=0.235 h=146.9 [exact h=146.7 unclamped h=151.4 C=0.263] vsScene dh=-5.3
+  EV2.0: code(0,237,100) L=0.826 C=0.237 h=148.3 [exact h=148.0 unclamped h=151.2 C=0.258] vsScene dh=-4.0
+  EV2.5: code(0,248,122) L=0.856 C=0.231 h=150.8 [exact h=150.3 unclamped h=151.0 C=0.238] vsScene dh=-1.5
+  EV3.0: code(92,255,146) L=0.890 C=0.201 h=150.9 [exact h=150.9 unclamped h=150.8 C=0.204] vsScene dh=-1.3
+  EV3.5: code(156,255,179) L=0.920 C=0.140 h=150.5 [exact h=150.6 unclamped h=150.2 C=0.151] vsScene dh=-1.7
+  EV4.0: code(198,255,207) L=0.949 C=0.086 h=149.4 [exact h=149.2 unclamped h=148.8 C=0.089] vsScene dh=-2.9
+-- foliage scene rec2020 0.08,0.14,0.04: scene OKLab h=138.8 C=0.103
+  EV-3.0: code(6,17,4) L=0.161 C=0.033 h=138.8 [exact h=139.1 unclamped h=139.1 C=0.032] vsScene dh=-0.0
+  EV-2.0: code(16,32,11) L=0.224 C=0.045 h=139.1 [exact h=139.1 unclamped h=139.1 C=0.045] vsScene dh=0.3
+  EV-1.0: code(32,60,25) L=0.324 C=0.067 h=139.5 [exact h=139.1 unclamped h=139.1 C=0.064] vsScene dh=0.6
+  EV0.0: code(61,103,48) L=0.467 C=0.096 h=138.8 [exact h=139.1 unclamped h=139.1 C=0.092] vsScene dh=-0.1
+  EV0.5: code(76,127,62) L=0.545 C=0.111 h=139.4 [exact h=139.1 unclamped h=139.1 C=0.110] vsScene dh=0.6
+  EV1.0: code(94,154,77) L=0.628 C=0.126 h=139.1 [exact h=139.1 unclamped h=139.1 C=0.127] vsScene dh=0.3
+  EV1.5: code(110,178,89) L=0.698 C=0.141 h=138.7 [exact h=138.9 unclamped h=138.9 C=0.141] vsScene dh=-0.2
+  EV2.0: code(125,199,103) L=0.758 C=0.149 h=138.7 [exact h=138.6 unclamped h=138.6 C=0.151] vsScene dh=-0.1
+  EV2.5: code(142,216,117) L=0.811 C=0.152 h=138.2 [exact h=138.2 unclamped h=138.2 C=0.155] vsScene dh=-0.6
+  EV3.0: code(159,230,133) L=0.856 C=0.147 h=137.6 [exact h=137.8 unclamped h=137.8 C=0.151] vsScene dh=-1.2
+  EV3.5: code(178,242,152) L=0.896 C=0.134 h=137.2 [exact h=137.2 unclamped h=137.2 C=0.138] vsScene dh=-1.7
+  EV4.0: code(197,250,173) L=0.929 C=0.114 h=136.4 [exact h=136.5 unclamped h=136.5 C=0.117] vsScene dh=-2.4
+-- deep blue scene rec2020 0.02,0.03,0.3: scene OKLab h=259.8 C=0.185
+  EV-3.0: code(3,5,34) L=0.140 C=0.061 h=270.8 [exact h=270.9 unclamped h=270.9 C=0.062] vsScene dh=11.0
+  EV-2.0: code(10,15,64) L=0.204 C=0.092 h=271.1 [exact h=270.9 unclamped h=270.9 C=0.089] vsScene dh=11.3
+  EV-1.0: code(24,31,108) L=0.293 C=0.131 h=271.1 [exact h=270.9 unclamped h=270.9 C=0.128] vsScene dh=11.3
+  EV0.0: code(40,52,161) L=0.393 C=0.174 h=270.7 [exact h=270.8 unclamped h=270.8 C=0.175] vsScene dh=10.9
+  EV0.5: code(46,60,185) L=0.433 C=0.195 h=270.6 [exact h=270.5 unclamped h=270.5 C=0.195] vsScene dh=10.8
+  EV1.0: code(53,67,206) L=0.469 C=0.211 h=270.8 [exact h=270.5 unclamped h=270.5 C=0.212] vsScene dh=11.0
+  EV1.5: code(61,76,224) L=0.504 C=0.222 h=271.4 [exact h=271.5 unclamped h=271.5 C=0.224] vsScene dh=11.6
+  EV2.0: code(83,86,237) L=0.546 C=0.221 h=275.2 [exact h=274.4 unclamped h=274.4 C=0.227] vsScene dh=15.4
+  EV2.5: code(108,103,246) L=0.598 C=0.207 h=279.4 [exact h=278.7 unclamped h=278.7 C=0.212] vsScene dh=19.6
+  EV3.0: code(134,126,252) L=0.661 C=0.181 h=283.0 [exact h=283.2 unclamped h=283.2 C=0.182] vsScene dh=23.2
+  EV3.5: code(168,155,254) L=0.740 C=0.141 h=288.4 [exact h=287.8 unclamped h=287.8 C=0.145] vsScene dh=28.6
+  EV4.0: code(198,183,255) L=0.817 C=0.101 h=293.4 [exact h=293.3 unclamped h=293.2 C=0.102] vsScene dh=33.6

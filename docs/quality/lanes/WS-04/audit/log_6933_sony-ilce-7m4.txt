@@ -1,0 +1,19 @@
+swept develop.tone.exposure over 6 values at 640x427 in 8.86 s → /home/user/lumen/docs/quality/lanes/WS-04/audit/sweep_6933_sony-ilce-7m4.png
+reference: the tile whose value is 0
+     value  meanEnc  dMeanEV     dE00  dE00p95    clip%
+        -2   0.0917   -2.893   17.228   35.257     0.00
+        -1   0.1693   -1.381   10.513   19.508     0.00
+         0   0.2862    0.000    0.000    0.000     0.00
+        +1   0.4359    1.114   13.331   19.732     0.00
+        +2   0.5976    1.954   27.573   37.931     0.02
+        +3   0.7451    2.560   40.409   53.146     0.28
+zone table: mean Δ encoded luminance ×255 (codes), zones of the reference tile
+     value     z0     z1     z2     z3     z4     z5     z6     z7     z8     z9
+    pixels  29948  76899  58498  37438  32090  21899  15695    665    148      0
+        -2  -15.7  -29.7  -46.0  -61.1  -75.3  -86.7  -91.3  -91.3  -80.6      -
+        -1  -10.6  -18.8  -28.5  -37.5  -44.8  -50.1  -47.2  -42.0  -34.5      -
+         0    0.0    0.0    0.0    0.0    0.0    0.0    0.0    0.0    0.0      -
+        +1   18.7   30.2   43.1   49.5   48.7   44.8   38.6   31.6   24.6      -
+        +2   48.1   74.8   92.2   93.7   87.2   78.5   66.8   53.3   39.3      -
+        +3   91.6  122.8  132.1  126.8  115.1  101.5   86.1   65.2   44.4      -
+metrics → /home/user/lumen/docs/quality/lanes/WS-04/audit/sweep_6933_sony-ilce-7m4.json

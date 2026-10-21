@@ -875,7 +875,32 @@ public struct RenderGraph {
         filter.bVector = CIVector(x: m.m[2][0], y: m.m[2][1], z: m.m[2][2], w: 0)
         filter.aVector = CIVector(x: 0, y: 0, z: 0, w: 1)
         filter.biasVector = CIVector(x: 0, y: 0, z: 0, w: 0)
-        return filter.outputImage ?? image
+        guard let product = filter.outputImage else { return image }
+        return Self.limitedToHalfFloat(product)
+    }
+
+    /// The GPU twin of `LinearStage.apply`'s clamp: every colour channel to
+    /// ±`LinearStage.outputLimit` (65504, the half-float maximum), alpha to [0, 1].
+    ///
+    /// Chained straight onto the colour matrix, so Core Image fuses the two into one
+    /// kernel and the clamp runs in float BEFORE the RGBAh store, which is the store
+    /// that would otherwise turn 64 × 2^10 = 65536 into +inf (and inf − inf into NaN
+    /// at the next matrix with a negative coefficient). Because `applyMatrix` is
+    /// where S6 runs on the GPU, the clamp lives here rather than at the S6 call line
+    /// (WS-01's). For the other callers it changes nothing that the half-float store
+    /// could have kept: a value inside ±65504 passes bit-for-bit, and the two callers
+    /// whose products can legitimately exceed it in an RGBAf context — the gamut
+    /// warning's 1/ε gate and dehaze's 1/airlight normalization — clamp to [0, 1]
+    /// right after, where 65504 and anything larger read the same. Alpha leaves the
+    /// matrix as the input's alpha (`aVector` = (0, 0, 0, 1)), which a Core Image
+    /// image keeps in [0, 1], so its clamp is the identity too.
+    static func limitedToHalfFloat(_ image: CIImage) -> CIImage {
+        let limit = CGFloat(LinearStage.outputLimit)
+        let clamp = CIFilter.colorClamp()
+        clamp.inputImage = image
+        clamp.minComponents = CIVector(x: -limit, y: -limit, z: -limit, w: 0)
+        clamp.maxComponents = CIVector(x: limit, y: limit, z: limit, w: 1)
+        return clamp.outputImage ?? image
     }
 
     // MARK: - S7 tone
