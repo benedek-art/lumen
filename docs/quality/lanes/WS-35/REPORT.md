@@ -203,4 +203,14 @@ hue track.
 
 ## CI
 
-(filled after the run)
+On fde01ec, which carries the same code as fcda14f, the round-3 verified commit
+(after it only docs, the evidence PNG and comments changed):
+
+- **Green:** Proof sweep, GPU parity, UI layout, UI snapshots (published under
+  `ui-snapshots/quality-k1-grading-wheels/`), and CI's build-macos, test-fast,
+  app-bundle and engine-linux.
+- **Red:** CI fixtures-linux, at the step "Swift surface". `scripts/check-swift-surface.py`
+  reports the same findings on the base commit 9068ded (6 unmatched initialisers incl.
+  `RecipeKeys.swift` `Range(...)`, five `set(_, forKey)` labels in `AppState`/`PanelLayout`,
+  `Font` in `LumenType.swift`). A local diff of the checker's full output, base vs HEAD,
+  differs only in counts. None of it is in this lane's files.
