@@ -1375,12 +1375,12 @@
     {
       "balance": -100.0,
       "blending": 0.0,
-      "halfWidth": 0.0035714285714285718,
+      "halfWidth": 0.01,
       "highLum": 0.0,
-      "highlightPivot": 0.812857142857143,
+      "highlightPivot": 0.97,
       "lumScale": 1.0,
       "midLum": 0.0,
-      "shadowPivot": 0.47285714285714286,
+      "shadowPivot": 0.63,
       "shadowsLum": 0.0,
       "weights": [
         {
@@ -1415,20 +1415,20 @@
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.5
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.62
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.67
         },
         {
@@ -1448,12 +1448,12 @@
     {
       "balance": -100.0,
       "blending": 0.0,
-      "halfWidth": 0.0035714285714285718,
+      "halfWidth": 0.01,
       "highLum": -1.0,
-      "highlightPivot": 0.812857142857143,
-      "lumScale": 0.04045424780615266,
+      "highlightPivot": 0.97,
+      "lumScale": 0.04394332832482893,
       "midLum": 0.0,
-      "shadowPivot": 0.47285714285714286,
+      "shadowPivot": 0.63,
       "shadowsLum": 1.0,
       "weights": [
         {
@@ -1488,20 +1488,20 @@
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.5
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.62
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.67
         },
         {
@@ -1521,12 +1521,12 @@
     {
       "balance": -100.0,
       "blending": 0.0,
-      "halfWidth": 0.0035714285714285718,
+      "halfWidth": 0.01,
       "highLum": 1.0,
-      "highlightPivot": 0.812857142857143,
+      "highlightPivot": 0.97,
       "lumScale": 1.0,
       "midLum": 0.0,
-      "shadowPivot": 0.47285714285714286,
+      "shadowPivot": 0.63,
       "shadowsLum": -1.0,
       "weights": [
         {
@@ -1561,20 +1561,20 @@
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.5
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.62
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.67
         },
         {
@@ -1594,12 +1594,12 @@
     {
       "balance": -100.0,
       "blending": 0.0,
-      "halfWidth": 0.0035714285714285718,
+      "halfWidth": 0.01,
       "highLum": 0.6,
-      "highlightPivot": 0.812857142857143,
-      "lumScale": 0.04494915905981094,
+      "highlightPivot": 0.97,
+      "lumScale": 0.04882591254329348,
       "midLum": -0.3,
-      "shadowPivot": 0.47285714285714286,
+      "shadowPivot": 0.63,
       "shadowsLum": 0.6,
       "weights": [
         {
@@ -1634,20 +1634,20 @@
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.5
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.62
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.67
         },
         {
@@ -1667,7 +1667,7 @@
     {
       "balance": 0.0,
       "blending": 0.0,
-      "halfWidth": 0.0035714285714285718,
+      "halfWidth": 0.01,
       "highLum": 0.0,
       "highlightPivot": 0.67,
       "lumScale": 1.0,
@@ -1695,20 +1695,20 @@
         },
         {
           "high": 0.0,
-          "mid": 0.5,
-          "shadows": 0.5,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.33
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.45
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.5
         },
         {
@@ -1718,8 +1718,8 @@
           "x": 0.62
         },
         {
-          "high": 0.5,
-          "mid": 0.5,
+          "high": 0.0,
+          "mid": 1.0,
           "shadows": 0.0,
           "x": 0.67
         },
@@ -1740,10 +1740,10 @@
     {
       "balance": 0.0,
       "blending": 0.0,
-      "halfWidth": 0.0035714285714285718,
+      "halfWidth": 0.01,
       "highLum": -1.0,
       "highlightPivot": 0.67,
-      "lumScale": 0.04045424780617083,
+      "lumScale": 0.046484456988164086,
       "midLum": 0.0,
       "shadowPivot": 0.33,
       "shadowsLum": 1.0,
@@ -1768,20 +1768,20 @@
         },
         {
           "high": 0.0,
-          "mid": 0.5,
-          "shadows": 0.5,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.33
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.45
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.5
         },
         {
@@ -1791,8 +1791,8 @@
           "x": 0.62
         },
         {
-          "high": 0.5,
-          "mid": 0.5,
+          "high": 0.0,
+          "mid": 1.0,
           "shadows": 0.0,
           "x": 0.67
         },
@@ -1813,7 +1813,7 @@
     {
       "balance": 0.0,
       "blending": 0.0,
-      "halfWidth": 0.0035714285714285718,
+      "halfWidth": 0.01,
       "highLum": 1.0,
       "highlightPivot": 0.67,
       "lumScale": 1.0,
@@ -1841,20 +1841,20 @@
         },
         {
           "high": 0.0,
-          "mid": 0.5,
-          "shadows": 0.5,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.33
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.45
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.5
         },
         {
@@ -1864,8 +1864,8 @@
           "x": 0.62
         },
         {
-          "high": 0.5,
-          "mid": 0.5,
+          "high": 0.0,
+          "mid": 1.0,
           "shadows": 0.0,
           "x": 0.67
         },
@@ -1886,10 +1886,10 @@
     {
       "balance": 0.0,
       "blending": 0.0,
-      "halfWidth": 0.0035714285714285718,
+      "halfWidth": 0.01,
       "highLum": 0.6,
       "highlightPivot": 0.67,
-      "lumScale": 0.04494915905981166,
+      "lumScale": 0.051649386298536853,
       "midLum": -0.3,
       "shadowPivot": 0.33,
       "shadowsLum": 0.6,
@@ -1914,20 +1914,20 @@
         },
         {
           "high": 0.0,
-          "mid": 0.5,
-          "shadows": 0.5,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.33
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.45
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.5
         },
         {
@@ -1937,8 +1937,8 @@
           "x": 0.62
         },
         {
-          "high": 0.5,
-          "mid": 0.5,
+          "high": 0.0,
+          "mid": 1.0,
           "shadows": 0.0,
           "x": 0.67
         },
@@ -1959,12 +1959,12 @@
     {
       "balance": 60.0,
       "blending": 0.0,
-      "halfWidth": 0.0035714285714285718,
+      "halfWidth": 0.01,
       "highLum": 0.0,
-      "highlightPivot": 0.5842857142857143,
+      "highlightPivot": 0.49000000000000005,
       "lumScale": 1.0,
       "midLum": 0.0,
-      "shadowPivot": 0.2442857142857143,
+      "shadowPivot": 0.15000000000000002,
       "shadowsLum": 0.0,
       "weights": [
         {
@@ -1981,104 +1981,31 @@
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.3
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.33
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.45
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.5
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 0.62
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 0.67
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 0.8
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 1.0
-        }
-      ]
-    },
-    {
-      "balance": 60.0,
-      "blending": 0.0,
-      "halfWidth": 0.0035714285714285718,
-      "highLum": -1.0,
-      "highlightPivot": 0.5842857142857143,
-      "lumScale": 0.04045424780618157,
-      "midLum": 0.0,
-      "shadowPivot": 0.2442857142857143,
-      "shadowsLum": 1.0,
-      "weights": [
-        {
-          "high": 0.0,
           "mid": 0.0,
           "shadows": 1.0,
-          "x": 0.0
+          "x": 0.3
         },
         {
           "high": 0.0,
           "mid": 0.0,
           "shadows": 1.0,
-          "x": 0.15
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.3
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
           "x": 0.33
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.45
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.7277222603392401,
+          "shadows": 0.27227773966075985,
           "x": 0.5
         },
         {
-          "high": 1.0,
-          "mid": 0.0,
+          "high": 0.0,
+          "mid": 1.0,
           "shadows": 0.0,
           "x": 0.62
         },
@@ -2105,13 +2032,13 @@
     {
       "balance": 60.0,
       "blending": 0.0,
-      "halfWidth": 0.0035714285714285718,
-      "highLum": 1.0,
-      "highlightPivot": 0.5842857142857143,
-      "lumScale": 1.0,
+      "halfWidth": 0.01,
+      "highLum": -1.0,
+      "highlightPivot": 0.49000000000000005,
+      "lumScale": 0.037172111740647384,
       "midLum": 0.0,
-      "shadowPivot": 0.2442857142857143,
-      "shadowsLum": -1.0,
+      "shadowPivot": 0.15000000000000002,
+      "shadowsLum": 1.0,
       "weights": [
         {
           "high": 0.0,
@@ -2127,31 +2054,31 @@
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.3
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.33
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.45
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.7277222603392401,
+          "shadows": 0.27227773966075985,
           "x": 0.5
         },
         {
-          "high": 1.0,
-          "mid": 0.0,
+          "high": 0.0,
+          "mid": 1.0,
           "shadows": 0.0,
           "x": 0.62
         },
@@ -2178,231 +2105,12 @@
     {
       "balance": 60.0,
       "blending": 0.0,
-      "halfWidth": 0.0035714285714285718,
-      "highLum": 0.6,
-      "highlightPivot": 0.5842857142857143,
-      "lumScale": 0.04494915905981183,
-      "midLum": -0.3,
-      "shadowPivot": 0.2442857142857143,
-      "shadowsLum": 0.6,
-      "weights": [
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.0
-        },
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.15
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.3
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.33
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.45
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.5
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 0.62
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 0.67
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 0.8
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 1.0
-        }
-      ]
-    },
-    {
-      "balance": -100.0,
-      "blending": 10.0,
-      "halfWidth": 0.021428571428571432,
-      "highLum": 0.0,
-      "highlightPivot": 0.812857142857143,
-      "lumScale": 1.0,
-      "midLum": 0.0,
-      "shadowPivot": 0.47285714285714286,
-      "shadowsLum": 0.0,
-      "weights": [
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.0
-        },
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.15
-        },
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.3
-        },
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.33
-        },
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.45
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.5
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.62
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.67
-        },
-        {
-          "high": 0.09549150281252583,
-          "mid": 0.9045084971874742,
-          "shadows": 0.0,
-          "x": 0.8
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 1.0
-        }
-      ]
-    },
-    {
-      "balance": -100.0,
-      "blending": 10.0,
-      "halfWidth": 0.021428571428571432,
-      "highLum": -1.0,
-      "highlightPivot": 0.812857142857143,
-      "lumScale": 0.24224131959894393,
-      "midLum": 0.0,
-      "shadowPivot": 0.47285714285714286,
-      "shadowsLum": 1.0,
-      "weights": [
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.0
-        },
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.15
-        },
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.3
-        },
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.33
-        },
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.45
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.5
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.62
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.67
-        },
-        {
-          "high": 0.09549150281252583,
-          "mid": 0.9045084971874742,
-          "shadows": 0.0,
-          "x": 0.8
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 1.0
-        }
-      ]
-    },
-    {
-      "balance": -100.0,
-      "blending": 10.0,
-      "halfWidth": 0.021428571428571432,
+      "halfWidth": 0.01,
       "highLum": 1.0,
-      "highlightPivot": 0.812857142857143,
+      "highlightPivot": 0.49000000000000005,
       "lumScale": 1.0,
       "midLum": 0.0,
-      "shadowPivot": 0.47285714285714286,
+      "shadowPivot": 0.15000000000000002,
       "shadowsLum": -1.0,
       "weights": [
         {
@@ -2437,8 +2145,8 @@
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.7277222603392401,
+          "shadows": 0.27227773966075985,
           "x": 0.5
         },
         {
@@ -2448,14 +2156,14 @@
           "x": 0.62
         },
         {
-          "high": 0.0,
-          "mid": 1.0,
+          "high": 1.0,
+          "mid": 0.0,
           "shadows": 0.0,
           "x": 0.67
         },
         {
-          "high": 0.09549150281252583,
-          "mid": 0.9045084971874742,
+          "high": 1.0,
+          "mid": 0.0,
           "shadows": 0.0,
           "x": 0.8
         },
@@ -2468,14 +2176,14 @@
       ]
     },
     {
-      "balance": -100.0,
-      "blending": 10.0,
-      "halfWidth": 0.021428571428571432,
+      "balance": 60.0,
+      "blending": 0.0,
+      "halfWidth": 0.01,
       "highLum": 0.6,
-      "highlightPivot": 0.812857142857143,
-      "lumScale": 0.2691171685018554,
+      "highlightPivot": 0.49000000000000005,
+      "lumScale": 0.0950131381108689,
       "midLum": -0.3,
-      "shadowPivot": 0.47285714285714286,
+      "shadowPivot": 0.15000000000000002,
       "shadowsLum": 0.6,
       "weights": [
         {
@@ -2510,597 +2218,13 @@
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.7277222603392401,
+          "shadows": 0.27227773966075985,
           "x": 0.5
         },
         {
           "high": 0.0,
           "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.62
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.67
-        },
-        {
-          "high": 0.09549150281252583,
-          "mid": 0.9045084971874742,
-          "shadows": 0.0,
-          "x": 0.8
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 1.0
-        }
-      ]
-    },
-    {
-      "balance": 0.0,
-      "blending": 10.0,
-      "halfWidth": 0.021428571428571436,
-      "highLum": 0.0,
-      "highlightPivot": 0.67,
-      "lumScale": 1.0,
-      "midLum": 0.0,
-      "shadowPivot": 0.33,
-      "shadowsLum": 0.0,
-      "weights": [
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.0
-        },
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.15
-        },
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.3
-        },
-        {
-          "high": 0.0,
-          "mid": 0.5,
-          "shadows": 0.5,
-          "x": 0.33
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.45
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.5
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.62
-        },
-        {
-          "high": 0.5,
-          "mid": 0.5,
-          "shadows": 0.0,
-          "x": 0.67
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 0.8
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 1.0
-        }
-      ]
-    },
-    {
-      "balance": 0.0,
-      "blending": 10.0,
-      "halfWidth": 0.021428571428571436,
-      "highLum": -1.0,
-      "highlightPivot": 0.67,
-      "lumScale": 0.24265652130508086,
-      "midLum": 0.0,
-      "shadowPivot": 0.33,
-      "shadowsLum": 1.0,
-      "weights": [
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.0
-        },
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.15
-        },
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.3
-        },
-        {
-          "high": 0.0,
-          "mid": 0.5,
-          "shadows": 0.5,
-          "x": 0.33
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.45
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.5
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.62
-        },
-        {
-          "high": 0.5,
-          "mid": 0.5,
-          "shadows": 0.0,
-          "x": 0.67
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 0.8
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 1.0
-        }
-      ]
-    },
-    {
-      "balance": 0.0,
-      "blending": 10.0,
-      "halfWidth": 0.021428571428571436,
-      "highLum": 1.0,
-      "highlightPivot": 0.67,
-      "lumScale": 1.0,
-      "midLum": 0.0,
-      "shadowPivot": 0.33,
-      "shadowsLum": -1.0,
-      "weights": [
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.0
-        },
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.15
-        },
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.3
-        },
-        {
-          "high": 0.0,
-          "mid": 0.5,
-          "shadows": 0.5,
-          "x": 0.33
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.45
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.5
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.62
-        },
-        {
-          "high": 0.5,
-          "mid": 0.5,
-          "shadows": 0.0,
-          "x": 0.67
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 0.8
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 1.0
-        }
-      ]
-    },
-    {
-      "balance": 0.0,
-      "blending": 10.0,
-      "halfWidth": 0.021428571428571436,
-      "highLum": 0.6,
-      "highlightPivot": 0.67,
-      "lumScale": 0.26957816062475476,
-      "midLum": -0.3,
-      "shadowPivot": 0.33,
-      "shadowsLum": 0.6,
-      "weights": [
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.0
-        },
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.15
-        },
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.3
-        },
-        {
-          "high": 0.0,
-          "mid": 0.5,
-          "shadows": 0.5,
-          "x": 0.33
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.45
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.5
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.62
-        },
-        {
-          "high": 0.5,
-          "mid": 0.5,
-          "shadows": 0.0,
-          "x": 0.67
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 0.8
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 1.0
-        }
-      ]
-    },
-    {
-      "balance": 60.0,
-      "blending": 10.0,
-      "halfWidth": 0.021428571428571432,
-      "highLum": 0.0,
-      "highlightPivot": 0.5842857142857143,
-      "lumScale": 1.0,
-      "midLum": 0.0,
-      "shadowPivot": 0.2442857142857143,
-      "shadowsLum": 0.0,
-      "weights": [
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.0
-        },
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.15
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.3
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.33
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.45
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.5
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 0.62
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 0.67
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 0.8
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 1.0
-        }
-      ]
-    },
-    {
-      "balance": 60.0,
-      "blending": 10.0,
-      "halfWidth": 0.021428571428571432,
-      "highLum": -1.0,
-      "highlightPivot": 0.5842857142857143,
-      "lumScale": 0.24265652130508145,
-      "midLum": 0.0,
-      "shadowPivot": 0.2442857142857143,
-      "shadowsLum": 1.0,
-      "weights": [
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.0
-        },
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.15
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.3
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.33
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.45
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.5
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 0.62
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 0.67
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 0.8
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 1.0
-        }
-      ]
-    },
-    {
-      "balance": 60.0,
-      "blending": 10.0,
-      "halfWidth": 0.021428571428571432,
-      "highLum": 1.0,
-      "highlightPivot": 0.5842857142857143,
-      "lumScale": 1.0,
-      "midLum": 0.0,
-      "shadowPivot": 0.2442857142857143,
-      "shadowsLum": -1.0,
-      "weights": [
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.0
-        },
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.15
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.3
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.33
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.45
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.5
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 0.62
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 0.67
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 0.8
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 1.0
-        }
-      ]
-    },
-    {
-      "balance": 60.0,
-      "blending": 10.0,
-      "halfWidth": 0.021428571428571432,
-      "highLum": 0.6,
-      "highlightPivot": 0.5842857142857143,
-      "lumScale": 0.26957816062475526,
-      "midLum": -0.3,
-      "shadowPivot": 0.2442857142857143,
-      "shadowsLum": 0.6,
-      "weights": [
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.0
-        },
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.15
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.3
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.33
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.45
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.5
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
           "shadows": 0.0,
           "x": 0.62
         },
@@ -3126,13 +2250,13 @@
     },
     {
       "balance": -100.0,
-      "blending": 50.0,
-      "halfWidth": 0.10714285714285715,
+      "blending": 10.0,
+      "halfWidth": 0.05600000000000001,
       "highLum": 0.0,
-      "highlightPivot": 0.812857142857143,
+      "highlightPivot": 0.97,
       "lumScale": 1.0,
       "midLum": 0.0,
-      "shadowPivot": 0.47285714285714286,
+      "shadowPivot": 0.63,
       "shadowsLum": 0.0,
       "weights": [
         {
@@ -3161,37 +2285,37 @@
         },
         {
           "high": 0.0,
-          "mid": 0.33556667663070827,
-          "shadows": 0.6644333233692917,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.45
         },
         {
           "high": 0.0,
-          "mid": 0.6937577932260512,
-          "shadows": 0.3062422067739488,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.5
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.62
+        },
+        {
+          "high": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
+          "x": 0.67
         },
         {
           "high": 0.0,
           "mid": 1.0,
           "shadows": 0.0,
-          "x": 0.67
-        },
-        {
-          "high": 0.40630934270713737,
-          "mid": 0.5936906572928626,
-          "shadows": 0.0,
           "x": 0.8
         },
         {
-          "high": 1.0,
-          "mid": 0.0,
+          "high": 0.872821082441583,
+          "mid": 0.12717891755841704,
           "shadows": 0.0,
           "x": 1.0
         }
@@ -3199,13 +2323,13 @@
     },
     {
       "balance": -100.0,
-      "blending": 50.0,
-      "halfWidth": 0.10714285714285715,
+      "blending": 10.0,
+      "halfWidth": 0.05600000000000001,
       "highLum": -1.0,
-      "highlightPivot": 0.812857142857143,
-      "lumScale": 0.9976719187334098,
+      "highlightPivot": 0.97,
+      "lumScale": 0.24528530179407104,
       "midLum": 0.0,
-      "shadowPivot": 0.47285714285714286,
+      "shadowPivot": 0.63,
       "shadowsLum": 1.0,
       "weights": [
         {
@@ -3234,37 +2358,37 @@
         },
         {
           "high": 0.0,
-          "mid": 0.33556667663070827,
-          "shadows": 0.6644333233692917,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.45
         },
         {
           "high": 0.0,
-          "mid": 0.6937577932260512,
-          "shadows": 0.3062422067739488,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.5
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.62
+        },
+        {
+          "high": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
+          "x": 0.67
         },
         {
           "high": 0.0,
           "mid": 1.0,
           "shadows": 0.0,
-          "x": 0.67
-        },
-        {
-          "high": 0.40630934270713737,
-          "mid": 0.5936906572928626,
-          "shadows": 0.0,
           "x": 0.8
         },
         {
-          "high": 1.0,
-          "mid": 0.0,
+          "high": 0.872821082441583,
+          "mid": 0.12717891755841704,
           "shadows": 0.0,
           "x": 1.0
         }
@@ -3272,13 +2396,13 @@
     },
     {
       "balance": -100.0,
-      "blending": 50.0,
-      "halfWidth": 0.10714285714285715,
+      "blending": 10.0,
+      "halfWidth": 0.05600000000000001,
       "highLum": 1.0,
-      "highlightPivot": 0.812857142857143,
+      "highlightPivot": 0.97,
       "lumScale": 1.0,
       "midLum": 0.0,
-      "shadowPivot": 0.47285714285714286,
+      "shadowPivot": 0.63,
       "shadowsLum": -1.0,
       "weights": [
         {
@@ -3307,37 +2431,37 @@
         },
         {
           "high": 0.0,
-          "mid": 0.33556667663070827,
-          "shadows": 0.6644333233692917,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.45
         },
         {
           "high": 0.0,
-          "mid": 0.6937577932260512,
-          "shadows": 0.3062422067739488,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.5
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.62
+        },
+        {
+          "high": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
+          "x": 0.67
         },
         {
           "high": 0.0,
           "mid": 1.0,
           "shadows": 0.0,
-          "x": 0.67
-        },
-        {
-          "high": 0.40630934270713737,
-          "mid": 0.5936906572928626,
-          "shadows": 0.0,
           "x": 0.8
         },
         {
-          "high": 1.0,
-          "mid": 0.0,
+          "high": 0.872821082441583,
+          "mid": 0.12717891755841704,
           "shadows": 0.0,
           "x": 1.0
         }
@@ -3345,13 +2469,13 @@
     },
     {
       "balance": -100.0,
-      "blending": 50.0,
-      "halfWidth": 0.10714285714285715,
+      "blending": 10.0,
+      "halfWidth": 0.05600000000000001,
       "highLum": 0.6,
-      "highlightPivot": 0.812857142857143,
-      "lumScale": 1.0,
+      "highlightPivot": 0.97,
+      "lumScale": 0.27249680018038736,
       "midLum": -0.3,
-      "shadowPivot": 0.47285714285714286,
+      "shadowPivot": 0.63,
       "shadowsLum": 0.6,
       "weights": [
         {
@@ -3380,37 +2504,37 @@
         },
         {
           "high": 0.0,
-          "mid": 0.33556667663070827,
-          "shadows": 0.6644333233692917,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.45
         },
         {
           "high": 0.0,
-          "mid": 0.6937577932260512,
-          "shadows": 0.3062422067739488,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.5
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.62
+        },
+        {
+          "high": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
+          "x": 0.67
         },
         {
           "high": 0.0,
           "mid": 1.0,
           "shadows": 0.0,
-          "x": 0.67
-        },
-        {
-          "high": 0.40630934270713737,
-          "mid": 0.5936906572928626,
-          "shadows": 0.0,
           "x": 0.8
         },
         {
-          "high": 1.0,
-          "mid": 0.0,
+          "high": 0.872821082441583,
+          "mid": 0.12717891755841704,
           "shadows": 0.0,
           "x": 1.0
         }
@@ -3418,8 +2542,8 @@
     },
     {
       "balance": 0.0,
-      "blending": 50.0,
-      "halfWidth": 0.10714285714285712,
+      "blending": 10.0,
+      "halfWidth": 0.05600000000000001,
       "highLum": 0.0,
       "highlightPivot": 0.67,
       "lumScale": 1.0,
@@ -3441,37 +2565,37 @@
         },
         {
           "high": 0.0,
-          "mid": 0.28711035421746334,
-          "shadows": 0.7128896457825367,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.3
         },
         {
           "high": 0.0,
-          "mid": 0.4999999999999999,
-          "shadows": 0.5000000000000001,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.33
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.45
+        },
+        {
+          "high": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
+          "x": 0.5
         },
         {
           "high": 0.0,
           "mid": 1.0,
           "shadows": 0.0,
-          "x": 0.5
-        },
-        {
-          "high": 0.16543469682057044,
-          "mid": 0.8345653031794296,
-          "shadows": 0.0,
           "x": 0.62
         },
         {
-          "high": 0.5,
-          "mid": 0.5,
+          "high": 0.0,
+          "mid": 1.0,
           "shadows": 0.0,
           "x": 0.67
         },
@@ -3491,11 +2615,11 @@
     },
     {
       "balance": 0.0,
-      "blending": 50.0,
-      "halfWidth": 0.10714285714285712,
+      "blending": 10.0,
+      "halfWidth": 0.05600000000000001,
       "highLum": -1.0,
       "highlightPivot": 0.67,
-      "lumScale": 0.9979765988184253,
+      "lumScale": 0.2598117428599664,
       "midLum": 0.0,
       "shadowPivot": 0.33,
       "shadowsLum": 1.0,
@@ -3514,37 +2638,37 @@
         },
         {
           "high": 0.0,
-          "mid": 0.28711035421746334,
-          "shadows": 0.7128896457825367,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.3
         },
         {
           "high": 0.0,
-          "mid": 0.4999999999999999,
-          "shadows": 0.5000000000000001,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.33
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.45
+        },
+        {
+          "high": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
+          "x": 0.5
         },
         {
           "high": 0.0,
           "mid": 1.0,
           "shadows": 0.0,
-          "x": 0.5
-        },
-        {
-          "high": 0.16543469682057044,
-          "mid": 0.8345653031794296,
-          "shadows": 0.0,
           "x": 0.62
         },
         {
-          "high": 0.5,
-          "mid": 0.5,
+          "high": 0.0,
+          "mid": 1.0,
           "shadows": 0.0,
           "x": 0.67
         },
@@ -3564,8 +2688,8 @@
     },
     {
       "balance": 0.0,
-      "blending": 50.0,
-      "halfWidth": 0.10714285714285712,
+      "blending": 10.0,
+      "halfWidth": 0.05600000000000001,
       "highLum": 1.0,
       "highlightPivot": 0.67,
       "lumScale": 1.0,
@@ -3587,37 +2711,37 @@
         },
         {
           "high": 0.0,
-          "mid": 0.28711035421746334,
-          "shadows": 0.7128896457825367,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.3
         },
         {
           "high": 0.0,
-          "mid": 0.4999999999999999,
-          "shadows": 0.5000000000000001,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.33
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.45
+        },
+        {
+          "high": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
+          "x": 0.5
         },
         {
           "high": 0.0,
           "mid": 1.0,
           "shadows": 0.0,
-          "x": 0.5
-        },
-        {
-          "high": 0.16543469682057044,
-          "mid": 0.8345653031794296,
-          "shadows": 0.0,
           "x": 0.62
         },
         {
-          "high": 0.5,
-          "mid": 0.5,
+          "high": 0.0,
+          "mid": 1.0,
           "shadows": 0.0,
           "x": 0.67
         },
@@ -3637,11 +2761,11 @@
     },
     {
       "balance": 0.0,
-      "blending": 50.0,
-      "halfWidth": 0.10714285714285712,
+      "blending": 10.0,
+      "halfWidth": 0.05600000000000001,
       "highLum": 0.6,
       "highlightPivot": 0.67,
-      "lumScale": 1.0,
+      "lumScale": 0.28862312745857194,
       "midLum": -0.3,
       "shadowPivot": 0.33,
       "shadowsLum": 0.6,
@@ -3660,37 +2784,37 @@
         },
         {
           "high": 0.0,
-          "mid": 0.28711035421746334,
-          "shadows": 0.7128896457825367,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.3
         },
         {
           "high": 0.0,
-          "mid": 0.4999999999999999,
-          "shadows": 0.5000000000000001,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.33
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.45
+        },
+        {
+          "high": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
+          "x": 0.5
         },
         {
           "high": 0.0,
           "mid": 1.0,
           "shadows": 0.0,
-          "x": 0.5
-        },
-        {
-          "high": 0.16543469682057044,
-          "mid": 0.8345653031794296,
-          "shadows": 0.0,
           "x": 0.62
         },
         {
-          "high": 0.5,
-          "mid": 0.5,
+          "high": 0.0,
+          "mid": 1.0,
           "shadows": 0.0,
           "x": 0.67
         },
@@ -3710,305 +2834,13 @@
     },
     {
       "balance": 60.0,
-      "blending": 50.0,
-      "halfWidth": 0.10714285714285712,
+      "blending": 10.0,
+      "halfWidth": 0.05600000000000001,
       "highLum": 0.0,
-      "highlightPivot": 0.5842857142857143,
+      "highlightPivot": 0.49000000000000005,
       "lumScale": 1.0,
       "midLum": 0.0,
-      "shadowPivot": 0.2442857142857143,
-      "shadowsLum": 0.0,
-      "weights": [
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.0
-        },
-        {
-          "high": 0.0,
-          "mid": 0.008856374635655584,
-          "shadows": 0.9911436253643444,
-          "x": 0.15
-        },
-        {
-          "high": 0.0,
-          "mid": 0.8644843137107057,
-          "shadows": 0.13551568628929433,
-          "x": 0.3
-        },
-        {
-          "high": 0.0,
-          "mid": 0.9755282581475768,
-          "shadows": 0.02447174185242318,
-          "x": 0.33
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.45
-        },
-        {
-          "high": 0.02781181488125939,
-          "mid": 0.9721881851187406,
-          "shadows": 0.0,
-          "x": 0.5
-        },
-        {
-          "high": 0.7499999999999999,
-          "mid": 0.2500000000000001,
-          "shadows": 0.0,
-          "x": 0.62
-        },
-        {
-          "high": 0.975528258147577,
-          "mid": 0.024471741852422957,
-          "shadows": 0.0,
-          "x": 0.67
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 0.8
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 1.0
-        }
-      ]
-    },
-    {
-      "balance": 60.0,
-      "blending": 50.0,
-      "halfWidth": 0.10714285714285712,
-      "highLum": -1.0,
-      "highlightPivot": 0.5842857142857143,
-      "lumScale": 0.997608641856209,
-      "midLum": 0.0,
-      "shadowPivot": 0.2442857142857143,
-      "shadowsLum": 1.0,
-      "weights": [
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.0
-        },
-        {
-          "high": 0.0,
-          "mid": 0.008856374635655584,
-          "shadows": 0.9911436253643444,
-          "x": 0.15
-        },
-        {
-          "high": 0.0,
-          "mid": 0.8644843137107057,
-          "shadows": 0.13551568628929433,
-          "x": 0.3
-        },
-        {
-          "high": 0.0,
-          "mid": 0.9755282581475768,
-          "shadows": 0.02447174185242318,
-          "x": 0.33
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.45
-        },
-        {
-          "high": 0.02781181488125939,
-          "mid": 0.9721881851187406,
-          "shadows": 0.0,
-          "x": 0.5
-        },
-        {
-          "high": 0.7499999999999999,
-          "mid": 0.2500000000000001,
-          "shadows": 0.0,
-          "x": 0.62
-        },
-        {
-          "high": 0.975528258147577,
-          "mid": 0.024471741852422957,
-          "shadows": 0.0,
-          "x": 0.67
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 0.8
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 1.0
-        }
-      ]
-    },
-    {
-      "balance": 60.0,
-      "blending": 50.0,
-      "halfWidth": 0.10714285714285712,
-      "highLum": 1.0,
-      "highlightPivot": 0.5842857142857143,
-      "lumScale": 1.0,
-      "midLum": 0.0,
-      "shadowPivot": 0.2442857142857143,
-      "shadowsLum": -1.0,
-      "weights": [
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.0
-        },
-        {
-          "high": 0.0,
-          "mid": 0.008856374635655584,
-          "shadows": 0.9911436253643444,
-          "x": 0.15
-        },
-        {
-          "high": 0.0,
-          "mid": 0.8644843137107057,
-          "shadows": 0.13551568628929433,
-          "x": 0.3
-        },
-        {
-          "high": 0.0,
-          "mid": 0.9755282581475768,
-          "shadows": 0.02447174185242318,
-          "x": 0.33
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.45
-        },
-        {
-          "high": 0.02781181488125939,
-          "mid": 0.9721881851187406,
-          "shadows": 0.0,
-          "x": 0.5
-        },
-        {
-          "high": 0.7499999999999999,
-          "mid": 0.2500000000000001,
-          "shadows": 0.0,
-          "x": 0.62
-        },
-        {
-          "high": 0.975528258147577,
-          "mid": 0.024471741852422957,
-          "shadows": 0.0,
-          "x": 0.67
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 0.8
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 1.0
-        }
-      ]
-    },
-    {
-      "balance": 60.0,
-      "blending": 50.0,
-      "halfWidth": 0.10714285714285712,
-      "highLum": 0.6,
-      "highlightPivot": 0.5842857142857143,
-      "lumScale": 1.0,
-      "midLum": -0.3,
-      "shadowPivot": 0.2442857142857143,
-      "shadowsLum": 0.6,
-      "weights": [
-        {
-          "high": 0.0,
-          "mid": 0.0,
-          "shadows": 1.0,
-          "x": 0.0
-        },
-        {
-          "high": 0.0,
-          "mid": 0.008856374635655584,
-          "shadows": 0.9911436253643444,
-          "x": 0.15
-        },
-        {
-          "high": 0.0,
-          "mid": 0.8644843137107057,
-          "shadows": 0.13551568628929433,
-          "x": 0.3
-        },
-        {
-          "high": 0.0,
-          "mid": 0.9755282581475768,
-          "shadows": 0.02447174185242318,
-          "x": 0.33
-        },
-        {
-          "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
-          "x": 0.45
-        },
-        {
-          "high": 0.02781181488125939,
-          "mid": 0.9721881851187406,
-          "shadows": 0.0,
-          "x": 0.5
-        },
-        {
-          "high": 0.7499999999999999,
-          "mid": 0.2500000000000001,
-          "shadows": 0.0,
-          "x": 0.62
-        },
-        {
-          "high": 0.975528258147577,
-          "mid": 0.024471741852422957,
-          "shadows": 0.0,
-          "x": 0.67
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 0.8
-        },
-        {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
-          "x": 1.0
-        }
-      ]
-    },
-    {
-      "balance": -100.0,
-      "blending": 100.0,
-      "halfWidth": 0.16448352474584815,
-      "highLum": 0.0,
-      "highlightPivot": 0.812857142857143,
-      "lumScale": 1.0,
-      "midLum": 0.0,
-      "shadowPivot": 0.47285714285714286,
+      "shadowPivot": 0.15000000000000002,
       "shadowsLum": 0.0,
       "weights": [
         {
@@ -4031,37 +2863,37 @@
         },
         {
           "high": 0.0,
-          "mid": 0.010625721551116296,
-          "shadows": 0.9893742784488837,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.33
         },
         {
           "high": 0.0,
-          "mid": 0.3917232790903544,
-          "shadows": 0.6082767209096456,
+          "mid": 0.0011574012449859783,
+          "shadows": 0.998842598755014,
           "x": 0.45
         },
         {
           "high": 0.0,
-          "mid": 0.628158881612278,
-          "shadows": 0.37184111838772205,
+          "mid": 0.5421705096716695,
+          "shadows": 0.45782949032833054,
           "x": 0.5
         },
         {
           "high": 0.0,
-          "mid": 0.993159720357244,
-          "shadows": 0.006840279642756075,
+          "mid": 1.0,
+          "shadows": 0.0,
           "x": 0.62
         },
         {
-          "high": 0.010625721551116296,
-          "mid": 0.9893742784488837,
+          "high": 0.9968402214605299,
+          "mid": 0.003159778539470137,
           "shadows": 0.0,
           "x": 0.67
         },
         {
-          "high": 0.4387621173396006,
-          "mid": 0.5612378826603994,
+          "high": 1.0,
+          "mid": 0.0,
           "shadows": 0.0,
           "x": 0.8
         },
@@ -4074,14 +2906,14 @@
       ]
     },
     {
-      "balance": -100.0,
-      "blending": 100.0,
-      "halfWidth": 0.16448352474584815,
+      "balance": 60.0,
+      "blending": 10.0,
+      "halfWidth": 0.05600000000000001,
       "highLum": -1.0,
-      "highlightPivot": 0.812857142857143,
-      "lumScale": 1.0,
+      "highlightPivot": 0.49000000000000005,
+      "lumScale": 0.20851248712333142,
       "midLum": 0.0,
-      "shadowPivot": 0.47285714285714286,
+      "shadowPivot": 0.15000000000000002,
       "shadowsLum": 1.0,
       "weights": [
         {
@@ -4104,37 +2936,37 @@
         },
         {
           "high": 0.0,
-          "mid": 0.010625721551116296,
-          "shadows": 0.9893742784488837,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.33
         },
         {
           "high": 0.0,
-          "mid": 0.3917232790903544,
-          "shadows": 0.6082767209096456,
+          "mid": 0.0011574012449859783,
+          "shadows": 0.998842598755014,
           "x": 0.45
         },
         {
           "high": 0.0,
-          "mid": 0.628158881612278,
-          "shadows": 0.37184111838772205,
+          "mid": 0.5421705096716695,
+          "shadows": 0.45782949032833054,
           "x": 0.5
         },
         {
           "high": 0.0,
-          "mid": 0.993159720357244,
-          "shadows": 0.006840279642756075,
+          "mid": 1.0,
+          "shadows": 0.0,
           "x": 0.62
         },
         {
-          "high": 0.010625721551116296,
-          "mid": 0.9893742784488837,
+          "high": 0.9968402214605299,
+          "mid": 0.003159778539470137,
           "shadows": 0.0,
           "x": 0.67
         },
         {
-          "high": 0.4387621173396006,
-          "mid": 0.5612378826603994,
+          "high": 1.0,
+          "mid": 0.0,
           "shadows": 0.0,
           "x": 0.8
         },
@@ -4147,14 +2979,14 @@
       ]
     },
     {
-      "balance": -100.0,
-      "blending": 100.0,
-      "halfWidth": 0.16448352474584815,
+      "balance": 60.0,
+      "blending": 10.0,
+      "halfWidth": 0.05600000000000001,
       "highLum": 1.0,
-      "highlightPivot": 0.812857142857143,
+      "highlightPivot": 0.49000000000000005,
       "lumScale": 1.0,
       "midLum": 0.0,
-      "shadowPivot": 0.47285714285714286,
+      "shadowPivot": 0.15000000000000002,
       "shadowsLum": -1.0,
       "weights": [
         {
@@ -4177,37 +3009,37 @@
         },
         {
           "high": 0.0,
-          "mid": 0.010625721551116296,
-          "shadows": 0.9893742784488837,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.33
         },
         {
           "high": 0.0,
-          "mid": 0.3917232790903544,
-          "shadows": 0.6082767209096456,
+          "mid": 0.0011574012449859783,
+          "shadows": 0.998842598755014,
           "x": 0.45
         },
         {
           "high": 0.0,
-          "mid": 0.628158881612278,
-          "shadows": 0.37184111838772205,
+          "mid": 0.5421705096716695,
+          "shadows": 0.45782949032833054,
           "x": 0.5
         },
         {
           "high": 0.0,
-          "mid": 0.993159720357244,
-          "shadows": 0.006840279642756075,
+          "mid": 1.0,
+          "shadows": 0.0,
           "x": 0.62
         },
         {
-          "high": 0.010625721551116296,
-          "mid": 0.9893742784488837,
+          "high": 0.9968402214605299,
+          "mid": 0.003159778539470137,
           "shadows": 0.0,
           "x": 0.67
         },
         {
-          "high": 0.4387621173396006,
-          "mid": 0.5612378826603994,
+          "high": 1.0,
+          "mid": 0.0,
           "shadows": 0.0,
           "x": 0.8
         },
@@ -4220,14 +3052,14 @@
       ]
     },
     {
-      "balance": -100.0,
-      "blending": 100.0,
-      "halfWidth": 0.16448352474584815,
+      "balance": 60.0,
+      "blending": 10.0,
+      "halfWidth": 0.05600000000000001,
       "highLum": 0.6,
-      "highlightPivot": 0.812857142857143,
-      "lumScale": 1.0,
+      "highlightPivot": 0.49000000000000005,
+      "lumScale": 0.520726339051895,
       "midLum": -0.3,
-      "shadowPivot": 0.47285714285714286,
+      "shadowPivot": 0.15000000000000002,
       "shadowsLum": 0.6,
       "weights": [
         {
@@ -4250,37 +3082,37 @@
         },
         {
           "high": 0.0,
-          "mid": 0.010625721551116296,
-          "shadows": 0.9893742784488837,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.33
         },
         {
           "high": 0.0,
-          "mid": 0.3917232790903544,
-          "shadows": 0.6082767209096456,
+          "mid": 0.0011574012449859783,
+          "shadows": 0.998842598755014,
           "x": 0.45
         },
         {
           "high": 0.0,
-          "mid": 0.628158881612278,
-          "shadows": 0.37184111838772205,
+          "mid": 0.5421705096716695,
+          "shadows": 0.45782949032833054,
           "x": 0.5
         },
         {
           "high": 0.0,
-          "mid": 0.993159720357244,
-          "shadows": 0.006840279642756075,
+          "mid": 1.0,
+          "shadows": 0.0,
           "x": 0.62
         },
         {
-          "high": 0.010625721551116296,
-          "mid": 0.9893742784488837,
+          "high": 0.9968402214605299,
+          "mid": 0.003159778539470137,
           "shadows": 0.0,
           "x": 0.67
         },
         {
-          "high": 0.4387621173396006,
-          "mid": 0.5612378826603994,
+          "high": 1.0,
+          "mid": 0.0,
           "shadows": 0.0,
           "x": 0.8
         },
@@ -4293,9 +3125,301 @@
       ]
     },
     {
+      "balance": -100.0,
+      "blending": 50.0,
+      "halfWidth": 0.28,
+      "highLum": 0.0,
+      "highlightPivot": 0.97,
+      "lumScale": 1.0,
+      "midLum": 0.0,
+      "shadowPivot": 0.63,
+      "shadowsLum": 0.0,
+      "weights": [
+        {
+          "high": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
+          "x": 0.0
+        },
+        {
+          "high": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
+          "x": 0.15
+        },
+        {
+          "high": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
+          "x": 0.3
+        },
+        {
+          "high": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
+          "x": 0.33
+        },
+        {
+          "high": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
+          "x": 0.45
+        },
+        {
+          "high": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
+          "x": 0.5
+        },
+        {
+          "high": 0.0,
+          "mid": 0.014321473635099613,
+          "shadows": 0.9856785263649004,
+          "x": 0.62
+        },
+        {
+          "high": 0.0,
+          "mid": 0.263040715942072,
+          "shadows": 0.736959284057928,
+          "x": 0.67
+        },
+        {
+          "high": 0.16284593129174735,
+          "mid": 0.7970143634889819,
+          "shadows": 0.040139705219270794,
+          "x": 0.8
+        },
+        {
+          "high": 0.5837531116523682,
+          "mid": 0.4162468883476318,
+          "shadows": 0.0,
+          "x": 1.0
+        }
+      ]
+    },
+    {
+      "balance": -100.0,
+      "blending": 50.0,
+      "halfWidth": 0.28,
+      "highLum": -1.0,
+      "highlightPivot": 0.97,
+      "lumScale": 0.9951617793225266,
+      "midLum": 0.0,
+      "shadowPivot": 0.63,
+      "shadowsLum": 1.0,
+      "weights": [
+        {
+          "high": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
+          "x": 0.0
+        },
+        {
+          "high": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
+          "x": 0.15
+        },
+        {
+          "high": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
+          "x": 0.3
+        },
+        {
+          "high": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
+          "x": 0.33
+        },
+        {
+          "high": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
+          "x": 0.45
+        },
+        {
+          "high": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
+          "x": 0.5
+        },
+        {
+          "high": 0.0,
+          "mid": 0.014321473635099613,
+          "shadows": 0.9856785263649004,
+          "x": 0.62
+        },
+        {
+          "high": 0.0,
+          "mid": 0.263040715942072,
+          "shadows": 0.736959284057928,
+          "x": 0.67
+        },
+        {
+          "high": 0.16284593129174735,
+          "mid": 0.7970143634889819,
+          "shadows": 0.040139705219270794,
+          "x": 0.8
+        },
+        {
+          "high": 0.5837531116523682,
+          "mid": 0.4162468883476318,
+          "shadows": 0.0,
+          "x": 1.0
+        }
+      ]
+    },
+    {
+      "balance": -100.0,
+      "blending": 50.0,
+      "halfWidth": 0.28,
+      "highLum": 1.0,
+      "highlightPivot": 0.97,
+      "lumScale": 1.0,
+      "midLum": 0.0,
+      "shadowPivot": 0.63,
+      "shadowsLum": -1.0,
+      "weights": [
+        {
+          "high": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
+          "x": 0.0
+        },
+        {
+          "high": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
+          "x": 0.15
+        },
+        {
+          "high": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
+          "x": 0.3
+        },
+        {
+          "high": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
+          "x": 0.33
+        },
+        {
+          "high": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
+          "x": 0.45
+        },
+        {
+          "high": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
+          "x": 0.5
+        },
+        {
+          "high": 0.0,
+          "mid": 0.014321473635099613,
+          "shadows": 0.9856785263649004,
+          "x": 0.62
+        },
+        {
+          "high": 0.0,
+          "mid": 0.263040715942072,
+          "shadows": 0.736959284057928,
+          "x": 0.67
+        },
+        {
+          "high": 0.16284593129174735,
+          "mid": 0.7970143634889819,
+          "shadows": 0.040139705219270794,
+          "x": 0.8
+        },
+        {
+          "high": 0.5837531116523682,
+          "mid": 0.4162468883476318,
+          "shadows": 0.0,
+          "x": 1.0
+        }
+      ]
+    },
+    {
+      "balance": -100.0,
+      "blending": 50.0,
+      "halfWidth": 0.28,
+      "highLum": 0.6,
+      "highlightPivot": 0.97,
+      "lumScale": 1.0,
+      "midLum": -0.3,
+      "shadowPivot": 0.63,
+      "shadowsLum": 0.6,
+      "weights": [
+        {
+          "high": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
+          "x": 0.0
+        },
+        {
+          "high": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
+          "x": 0.15
+        },
+        {
+          "high": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
+          "x": 0.3
+        },
+        {
+          "high": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
+          "x": 0.33
+        },
+        {
+          "high": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
+          "x": 0.45
+        },
+        {
+          "high": 0.0,
+          "mid": 0.0,
+          "shadows": 1.0,
+          "x": 0.5
+        },
+        {
+          "high": 0.0,
+          "mid": 0.014321473635099613,
+          "shadows": 0.9856785263649004,
+          "x": 0.62
+        },
+        {
+          "high": 0.0,
+          "mid": 0.263040715942072,
+          "shadows": 0.736959284057928,
+          "x": 0.67
+        },
+        {
+          "high": 0.16284593129174735,
+          "mid": 0.7970143634889819,
+          "shadows": 0.040139705219270794,
+          "x": 0.8
+        },
+        {
+          "high": 0.5837531116523682,
+          "mid": 0.4162468883476318,
+          "shadows": 0.0,
+          "x": 1.0
+        }
+      ]
+    },
+    {
       "balance": 0.0,
-      "blending": 100.0,
-      "halfWidth": 0.16448352474584813,
+      "blending": 50.0,
+      "halfWidth": 0.28,
       "highLum": 0.0,
       "highlightPivot": 0.67,
       "lumScale": 1.0,
@@ -4317,43 +3441,43 @@
         },
         {
           "high": 0.0,
-          "mid": 0.3587035528228,
-          "shadows": 0.6412964471772,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.3
         },
         {
           "high": 0.0,
-          "mid": 0.5000000000000002,
-          "shadows": 0.49999999999999983,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.33
         },
         {
           "high": 0.0,
-          "mid": 0.9555581389321788,
-          "shadows": 0.044441861067821276,
+          "mid": 0.016862940228570267,
+          "shadows": 0.9831370597714297,
           "x": 0.45
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.08119060946387013,
+          "shadows": 0.9188093905361299,
           "x": 0.5
         },
         {
-          "high": 0.27022275621453984,
-          "mid": 0.7297772437854602,
-          "shadows": 0.0,
+          "high": 6.02183478797258e-05,
+          "mid": 0.672383783356897,
+          "shadows": 0.3275559982952233,
           "x": 0.62
         },
         {
-          "high": 0.5,
-          "mid": 0.5,
-          "shadows": 0.0,
+          "high": 0.171009297972135,
+          "mid": 0.7930376459555208,
+          "shadows": 0.035953056072344225,
           "x": 0.67
         },
         {
-          "high": 0.9731323384145554,
-          "mid": 0.026867661585444624,
+          "high": 0.9046527142160703,
+          "mid": 0.0953472857839297,
           "shadows": 0.0,
           "x": 0.8
         },
@@ -4367,11 +3491,11 @@
     },
     {
       "balance": 0.0,
-      "blending": 100.0,
-      "halfWidth": 0.16448352474584813,
+      "blending": 50.0,
+      "halfWidth": 0.28,
       "highLum": -1.0,
       "highlightPivot": 0.67,
-      "lumScale": 1.0,
+      "lumScale": 0.8484124634176864,
       "midLum": 0.0,
       "shadowPivot": 0.33,
       "shadowsLum": 1.0,
@@ -4390,43 +3514,43 @@
         },
         {
           "high": 0.0,
-          "mid": 0.3587035528228,
-          "shadows": 0.6412964471772,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.3
         },
         {
           "high": 0.0,
-          "mid": 0.5000000000000002,
-          "shadows": 0.49999999999999983,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.33
         },
         {
           "high": 0.0,
-          "mid": 0.9555581389321788,
-          "shadows": 0.044441861067821276,
+          "mid": 0.016862940228570267,
+          "shadows": 0.9831370597714297,
           "x": 0.45
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.08119060946387013,
+          "shadows": 0.9188093905361299,
           "x": 0.5
         },
         {
-          "high": 0.27022275621453984,
-          "mid": 0.7297772437854602,
-          "shadows": 0.0,
+          "high": 6.02183478797258e-05,
+          "mid": 0.672383783356897,
+          "shadows": 0.3275559982952233,
           "x": 0.62
         },
         {
-          "high": 0.5,
-          "mid": 0.5,
-          "shadows": 0.0,
+          "high": 0.171009297972135,
+          "mid": 0.7930376459555208,
+          "shadows": 0.035953056072344225,
           "x": 0.67
         },
         {
-          "high": 0.9731323384145554,
-          "mid": 0.026867661585444624,
+          "high": 0.9046527142160703,
+          "mid": 0.0953472857839297,
           "shadows": 0.0,
           "x": 0.8
         },
@@ -4440,8 +3564,8 @@
     },
     {
       "balance": 0.0,
-      "blending": 100.0,
-      "halfWidth": 0.16448352474584813,
+      "blending": 50.0,
+      "halfWidth": 0.28,
       "highLum": 1.0,
       "highlightPivot": 0.67,
       "lumScale": 1.0,
@@ -4463,43 +3587,43 @@
         },
         {
           "high": 0.0,
-          "mid": 0.3587035528228,
-          "shadows": 0.6412964471772,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.3
         },
         {
           "high": 0.0,
-          "mid": 0.5000000000000002,
-          "shadows": 0.49999999999999983,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.33
         },
         {
           "high": 0.0,
-          "mid": 0.9555581389321788,
-          "shadows": 0.044441861067821276,
+          "mid": 0.016862940228570267,
+          "shadows": 0.9831370597714297,
           "x": 0.45
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.08119060946387013,
+          "shadows": 0.9188093905361299,
           "x": 0.5
         },
         {
-          "high": 0.27022275621453984,
-          "mid": 0.7297772437854602,
-          "shadows": 0.0,
+          "high": 6.02183478797258e-05,
+          "mid": 0.672383783356897,
+          "shadows": 0.3275559982952233,
           "x": 0.62
         },
         {
-          "high": 0.5,
-          "mid": 0.5,
-          "shadows": 0.0,
+          "high": 0.171009297972135,
+          "mid": 0.7930376459555208,
+          "shadows": 0.035953056072344225,
           "x": 0.67
         },
         {
-          "high": 0.9731323384145554,
-          "mid": 0.026867661585444624,
+          "high": 0.9046527142160703,
+          "mid": 0.0953472857839297,
           "shadows": 0.0,
           "x": 0.8
         },
@@ -4513,8 +3637,8 @@
     },
     {
       "balance": 0.0,
-      "blending": 100.0,
-      "halfWidth": 0.16448352474584813,
+      "blending": 50.0,
+      "halfWidth": 0.28,
       "highLum": 0.6,
       "highlightPivot": 0.67,
       "lumScale": 1.0,
@@ -4536,43 +3660,43 @@
         },
         {
           "high": 0.0,
-          "mid": 0.3587035528228,
-          "shadows": 0.6412964471772,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.3
         },
         {
           "high": 0.0,
-          "mid": 0.5000000000000002,
-          "shadows": 0.49999999999999983,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.33
         },
         {
           "high": 0.0,
-          "mid": 0.9555581389321788,
-          "shadows": 0.044441861067821276,
+          "mid": 0.016862940228570267,
+          "shadows": 0.9831370597714297,
           "x": 0.45
         },
         {
           "high": 0.0,
-          "mid": 1.0,
-          "shadows": 0.0,
+          "mid": 0.08119060946387013,
+          "shadows": 0.9188093905361299,
           "x": 0.5
         },
         {
-          "high": 0.27022275621453984,
-          "mid": 0.7297772437854602,
-          "shadows": 0.0,
+          "high": 6.02183478797258e-05,
+          "mid": 0.672383783356897,
+          "shadows": 0.3275559982952233,
           "x": 0.62
         },
         {
-          "high": 0.5,
-          "mid": 0.5,
-          "shadows": 0.0,
+          "high": 0.171009297972135,
+          "mid": 0.7930376459555208,
+          "shadows": 0.035953056072344225,
           "x": 0.67
         },
         {
-          "high": 0.9731323384145554,
-          "mid": 0.026867661585444624,
+          "high": 0.9046527142160703,
+          "mid": 0.0953472857839297,
           "shadows": 0.0,
           "x": 0.8
         },
@@ -4586,13 +3710,305 @@
     },
     {
       "balance": 60.0,
-      "blending": 100.0,
-      "halfWidth": 0.1644835247458481,
+      "blending": 50.0,
+      "halfWidth": 0.28,
       "highLum": 0.0,
-      "highlightPivot": 0.5842857142857143,
+      "highlightPivot": 0.49000000000000005,
       "lumScale": 1.0,
       "midLum": 0.0,
-      "shadowPivot": 0.24428571428571427,
+      "shadowPivot": 0.15000000000000002,
+      "shadowsLum": 0.0,
+      "weights": [
+        {
+          "high": 0.0,
+          "mid": 0.12717891755841715,
+          "shadows": 0.8728210824415829,
+          "x": 0.0
+        },
+        {
+          "high": 0.0,
+          "mid": 0.12864438724225935,
+          "shadows": 0.8713556127577406,
+          "x": 0.15
+        },
+        {
+          "high": 0.0,
+          "mid": 0.1591839289560455,
+          "shadows": 0.8408160710439545,
+          "x": 0.3
+        },
+        {
+          "high": 0.0,
+          "mid": 0.17691689195061633,
+          "shadows": 0.8230831080493837,
+          "x": 0.33
+        },
+        {
+          "high": 0.0,
+          "mid": 0.35197796619133626,
+          "shadows": 0.6480220338086637,
+          "x": 0.45
+        },
+        {
+          "high": 0.0,
+          "mid": 0.5084437318878726,
+          "shadows": 0.4915562681121274,
+          "x": 0.5
+        },
+        {
+          "high": 0.24058642258399915,
+          "mid": 0.7485455461365773,
+          "shadows": 0.010868031279423596,
+          "x": 0.62
+        },
+        {
+          "high": 0.6437725239543095,
+          "mid": 0.3562274760456905,
+          "shadows": 0.0,
+          "x": 0.67
+        },
+        {
+          "high": 1.0,
+          "mid": 0.0,
+          "shadows": 0.0,
+          "x": 0.8
+        },
+        {
+          "high": 1.0,
+          "mid": 0.0,
+          "shadows": 0.0,
+          "x": 1.0
+        }
+      ]
+    },
+    {
+      "balance": 60.0,
+      "blending": 50.0,
+      "halfWidth": 0.28,
+      "highLum": -1.0,
+      "highlightPivot": 0.49000000000000005,
+      "lumScale": 0.9335949943203906,
+      "midLum": 0.0,
+      "shadowPivot": 0.15000000000000002,
+      "shadowsLum": 1.0,
+      "weights": [
+        {
+          "high": 0.0,
+          "mid": 0.12717891755841715,
+          "shadows": 0.8728210824415829,
+          "x": 0.0
+        },
+        {
+          "high": 0.0,
+          "mid": 0.12864438724225935,
+          "shadows": 0.8713556127577406,
+          "x": 0.15
+        },
+        {
+          "high": 0.0,
+          "mid": 0.1591839289560455,
+          "shadows": 0.8408160710439545,
+          "x": 0.3
+        },
+        {
+          "high": 0.0,
+          "mid": 0.17691689195061633,
+          "shadows": 0.8230831080493837,
+          "x": 0.33
+        },
+        {
+          "high": 0.0,
+          "mid": 0.35197796619133626,
+          "shadows": 0.6480220338086637,
+          "x": 0.45
+        },
+        {
+          "high": 0.0,
+          "mid": 0.5084437318878726,
+          "shadows": 0.4915562681121274,
+          "x": 0.5
+        },
+        {
+          "high": 0.24058642258399915,
+          "mid": 0.7485455461365773,
+          "shadows": 0.010868031279423596,
+          "x": 0.62
+        },
+        {
+          "high": 0.6437725239543095,
+          "mid": 0.3562274760456905,
+          "shadows": 0.0,
+          "x": 0.67
+        },
+        {
+          "high": 1.0,
+          "mid": 0.0,
+          "shadows": 0.0,
+          "x": 0.8
+        },
+        {
+          "high": 1.0,
+          "mid": 0.0,
+          "shadows": 0.0,
+          "x": 1.0
+        }
+      ]
+    },
+    {
+      "balance": 60.0,
+      "blending": 50.0,
+      "halfWidth": 0.28,
+      "highLum": 1.0,
+      "highlightPivot": 0.49000000000000005,
+      "lumScale": 1.0,
+      "midLum": 0.0,
+      "shadowPivot": 0.15000000000000002,
+      "shadowsLum": -1.0,
+      "weights": [
+        {
+          "high": 0.0,
+          "mid": 0.12717891755841715,
+          "shadows": 0.8728210824415829,
+          "x": 0.0
+        },
+        {
+          "high": 0.0,
+          "mid": 0.12864438724225935,
+          "shadows": 0.8713556127577406,
+          "x": 0.15
+        },
+        {
+          "high": 0.0,
+          "mid": 0.1591839289560455,
+          "shadows": 0.8408160710439545,
+          "x": 0.3
+        },
+        {
+          "high": 0.0,
+          "mid": 0.17691689195061633,
+          "shadows": 0.8230831080493837,
+          "x": 0.33
+        },
+        {
+          "high": 0.0,
+          "mid": 0.35197796619133626,
+          "shadows": 0.6480220338086637,
+          "x": 0.45
+        },
+        {
+          "high": 0.0,
+          "mid": 0.5084437318878726,
+          "shadows": 0.4915562681121274,
+          "x": 0.5
+        },
+        {
+          "high": 0.24058642258399915,
+          "mid": 0.7485455461365773,
+          "shadows": 0.010868031279423596,
+          "x": 0.62
+        },
+        {
+          "high": 0.6437725239543095,
+          "mid": 0.3562274760456905,
+          "shadows": 0.0,
+          "x": 0.67
+        },
+        {
+          "high": 1.0,
+          "mid": 0.0,
+          "shadows": 0.0,
+          "x": 0.8
+        },
+        {
+          "high": 1.0,
+          "mid": 0.0,
+          "shadows": 0.0,
+          "x": 1.0
+        }
+      ]
+    },
+    {
+      "balance": 60.0,
+      "blending": 50.0,
+      "halfWidth": 0.28,
+      "highLum": 0.6,
+      "highlightPivot": 0.49000000000000005,
+      "lumScale": 1.0,
+      "midLum": -0.3,
+      "shadowPivot": 0.15000000000000002,
+      "shadowsLum": 0.6,
+      "weights": [
+        {
+          "high": 0.0,
+          "mid": 0.12717891755841715,
+          "shadows": 0.8728210824415829,
+          "x": 0.0
+        },
+        {
+          "high": 0.0,
+          "mid": 0.12864438724225935,
+          "shadows": 0.8713556127577406,
+          "x": 0.15
+        },
+        {
+          "high": 0.0,
+          "mid": 0.1591839289560455,
+          "shadows": 0.8408160710439545,
+          "x": 0.3
+        },
+        {
+          "high": 0.0,
+          "mid": 0.17691689195061633,
+          "shadows": 0.8230831080493837,
+          "x": 0.33
+        },
+        {
+          "high": 0.0,
+          "mid": 0.35197796619133626,
+          "shadows": 0.6480220338086637,
+          "x": 0.45
+        },
+        {
+          "high": 0.0,
+          "mid": 0.5084437318878726,
+          "shadows": 0.4915562681121274,
+          "x": 0.5
+        },
+        {
+          "high": 0.24058642258399915,
+          "mid": 0.7485455461365773,
+          "shadows": 0.010868031279423596,
+          "x": 0.62
+        },
+        {
+          "high": 0.6437725239543095,
+          "mid": 0.3562274760456905,
+          "shadows": 0.0,
+          "x": 0.67
+        },
+        {
+          "high": 1.0,
+          "mid": 0.0,
+          "shadows": 0.0,
+          "x": 0.8
+        },
+        {
+          "high": 1.0,
+          "mid": 0.0,
+          "shadows": 0.0,
+          "x": 1.0
+        }
+      ]
+    },
+    {
+      "balance": -100.0,
+      "blending": 100.0,
+      "halfWidth": 0.56,
+      "highLum": 0.0,
+      "highlightPivot": 0.97,
+      "lumScale": 1.0,
+      "midLum": 0.0,
+      "shadowPivot": 0.63,
       "shadowsLum": 0.0,
       "weights": [
         {
@@ -4603,69 +4019,69 @@
         },
         {
           "high": 0.0,
-          "mid": 0.10820717797008395,
-          "shadows": 0.891792822029916,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.15
         },
         {
           "high": 0.0,
-          "mid": 0.7536566355365275,
-          "shadows": 0.24634336446347255,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.3
         },
         {
           "high": 0.0,
-          "mid": 0.865081442952766,
-          "shadows": 0.134918557047234,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.33
         },
         {
-          "high": 0.02064780535939359,
-          "mid": 0.9793521946406064,
-          "shadows": 0.0,
+          "high": 0.0,
+          "mid": 0.001373010283205467,
+          "shadows": 0.9986269897167945,
           "x": 0.45
         },
         {
-          "high": 0.13961322237221907,
-          "mid": 0.8603867776277809,
-          "shadows": 0.0,
+          "high": 0.0,
+          "mid": 0.0134929097683264,
+          "shadows": 0.9865070902316736,
           "x": 0.5
         },
         {
-          "high": 0.6672463146446811,
-          "mid": 0.3327536853553189,
-          "shadows": 0.0,
+          "high": 0.0,
+          "mid": 0.19129801058280704,
+          "shadows": 0.808701989417193,
           "x": 0.62
         },
         {
-          "high": 0.8650814429527662,
-          "mid": 0.13491855704723377,
-          "shadows": 0.0,
+          "high": 0.03387806956998174,
+          "mid": 0.34393798849279333,
+          "shadows": 0.6221839419372249,
           "x": 0.67
         },
         {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
+          "high": 0.3191859001163119,
+          "mid": 0.4563650009698222,
+          "shadows": 0.22444909891386589,
           "x": 0.8
         },
         {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
+          "high": 0.5420252624646238,
+          "mid": 0.3886310516515805,
+          "shadows": 0.06934368588379569,
           "x": 1.0
         }
       ]
     },
     {
-      "balance": 60.0,
+      "balance": -100.0,
       "blending": 100.0,
-      "halfWidth": 0.1644835247458481,
+      "halfWidth": 0.56,
       "highLum": -1.0,
-      "highlightPivot": 0.5842857142857143,
+      "highlightPivot": 0.97,
       "lumScale": 1.0,
       "midLum": 0.0,
-      "shadowPivot": 0.24428571428571427,
+      "shadowPivot": 0.63,
       "shadowsLum": 1.0,
       "weights": [
         {
@@ -4676,69 +4092,69 @@
         },
         {
           "high": 0.0,
-          "mid": 0.10820717797008395,
-          "shadows": 0.891792822029916,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.15
         },
         {
           "high": 0.0,
-          "mid": 0.7536566355365275,
-          "shadows": 0.24634336446347255,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.3
         },
         {
           "high": 0.0,
-          "mid": 0.865081442952766,
-          "shadows": 0.134918557047234,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.33
         },
         {
-          "high": 0.02064780535939359,
-          "mid": 0.9793521946406064,
-          "shadows": 0.0,
+          "high": 0.0,
+          "mid": 0.001373010283205467,
+          "shadows": 0.9986269897167945,
           "x": 0.45
         },
         {
-          "high": 0.13961322237221907,
-          "mid": 0.8603867776277809,
-          "shadows": 0.0,
+          "high": 0.0,
+          "mid": 0.0134929097683264,
+          "shadows": 0.9865070902316736,
           "x": 0.5
         },
         {
-          "high": 0.6672463146446811,
-          "mid": 0.3327536853553189,
-          "shadows": 0.0,
+          "high": 0.0,
+          "mid": 0.19129801058280704,
+          "shadows": 0.808701989417193,
           "x": 0.62
         },
         {
-          "high": 0.8650814429527662,
-          "mid": 0.13491855704723377,
-          "shadows": 0.0,
+          "high": 0.03387806956998174,
+          "mid": 0.34393798849279333,
+          "shadows": 0.6221839419372249,
           "x": 0.67
         },
         {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
+          "high": 0.3191859001163119,
+          "mid": 0.4563650009698222,
+          "shadows": 0.22444909891386589,
           "x": 0.8
         },
         {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
+          "high": 0.5420252624646238,
+          "mid": 0.3886310516515805,
+          "shadows": 0.06934368588379569,
           "x": 1.0
         }
       ]
     },
     {
-      "balance": 60.0,
+      "balance": -100.0,
       "blending": 100.0,
-      "halfWidth": 0.1644835247458481,
+      "halfWidth": 0.56,
       "highLum": 1.0,
-      "highlightPivot": 0.5842857142857143,
+      "highlightPivot": 0.97,
       "lumScale": 1.0,
       "midLum": 0.0,
-      "shadowPivot": 0.24428571428571427,
+      "shadowPivot": 0.63,
       "shadowsLum": -1.0,
       "weights": [
         {
@@ -4749,69 +4165,69 @@
         },
         {
           "high": 0.0,
-          "mid": 0.10820717797008395,
-          "shadows": 0.891792822029916,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.15
         },
         {
           "high": 0.0,
-          "mid": 0.7536566355365275,
-          "shadows": 0.24634336446347255,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.3
         },
         {
           "high": 0.0,
-          "mid": 0.865081442952766,
-          "shadows": 0.134918557047234,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.33
         },
         {
-          "high": 0.02064780535939359,
-          "mid": 0.9793521946406064,
-          "shadows": 0.0,
+          "high": 0.0,
+          "mid": 0.001373010283205467,
+          "shadows": 0.9986269897167945,
           "x": 0.45
         },
         {
-          "high": 0.13961322237221907,
-          "mid": 0.8603867776277809,
-          "shadows": 0.0,
+          "high": 0.0,
+          "mid": 0.0134929097683264,
+          "shadows": 0.9865070902316736,
           "x": 0.5
         },
         {
-          "high": 0.6672463146446811,
-          "mid": 0.3327536853553189,
-          "shadows": 0.0,
+          "high": 0.0,
+          "mid": 0.19129801058280704,
+          "shadows": 0.808701989417193,
           "x": 0.62
         },
         {
-          "high": 0.8650814429527662,
-          "mid": 0.13491855704723377,
-          "shadows": 0.0,
+          "high": 0.03387806956998174,
+          "mid": 0.34393798849279333,
+          "shadows": 0.6221839419372249,
           "x": 0.67
         },
         {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
+          "high": 0.3191859001163119,
+          "mid": 0.4563650009698222,
+          "shadows": 0.22444909891386589,
           "x": 0.8
         },
         {
-          "high": 1.0,
-          "mid": 0.0,
-          "shadows": 0.0,
+          "high": 0.5420252624646238,
+          "mid": 0.3886310516515805,
+          "shadows": 0.06934368588379569,
           "x": 1.0
         }
       ]
     },
     {
-      "balance": 60.0,
+      "balance": -100.0,
       "blending": 100.0,
-      "halfWidth": 0.1644835247458481,
+      "halfWidth": 0.56,
       "highLum": 0.6,
-      "highlightPivot": 0.5842857142857143,
+      "highlightPivot": 0.97,
       "lumScale": 1.0,
       "midLum": -0.3,
-      "shadowPivot": 0.24428571428571427,
+      "shadowPivot": 0.63,
       "shadowsLum": 0.6,
       "weights": [
         {
@@ -4822,55 +4238,639 @@
         },
         {
           "high": 0.0,
-          "mid": 0.10820717797008395,
-          "shadows": 0.891792822029916,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.15
         },
         {
           "high": 0.0,
-          "mid": 0.7536566355365275,
-          "shadows": 0.24634336446347255,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.3
         },
         {
           "high": 0.0,
-          "mid": 0.865081442952766,
-          "shadows": 0.134918557047234,
+          "mid": 0.0,
+          "shadows": 1.0,
           "x": 0.33
         },
         {
-          "high": 0.02064780535939359,
-          "mid": 0.9793521946406064,
-          "shadows": 0.0,
+          "high": 0.0,
+          "mid": 0.001373010283205467,
+          "shadows": 0.9986269897167945,
           "x": 0.45
         },
         {
-          "high": 0.13961322237221907,
-          "mid": 0.8603867776277809,
-          "shadows": 0.0,
+          "high": 0.0,
+          "mid": 0.0134929097683264,
+          "shadows": 0.9865070902316736,
           "x": 0.5
         },
         {
-          "high": 0.6672463146446811,
-          "mid": 0.3327536853553189,
-          "shadows": 0.0,
+          "high": 0.0,
+          "mid": 0.19129801058280704,
+          "shadows": 0.808701989417193,
           "x": 0.62
         },
         {
-          "high": 0.8650814429527662,
-          "mid": 0.13491855704723377,
-          "shadows": 0.0,
+          "high": 0.03387806956998174,
+          "mid": 0.34393798849279333,
+          "shadows": 0.6221839419372249,
           "x": 0.67
         },
         {
-          "high": 1.0,
-          "mid": 0.0,
+          "high": 0.3191859001163119,
+          "mid": 0.4563650009698222,
+          "shadows": 0.22444909891386589,
+          "x": 0.8
+        },
+        {
+          "high": 0.5420252624646238,
+          "mid": 0.3886310516515805,
+          "shadows": 0.06934368588379569,
+          "x": 1.0
+        }
+      ]
+    },
+    {
+      "balance": 0.0,
+      "blending": 100.0,
+      "halfWidth": 0.56,
+      "highLum": 0.0,
+      "highlightPivot": 0.67,
+      "lumScale": 1.0,
+      "midLum": 0.0,
+      "shadowPivot": 0.33,
+      "shadowsLum": 0.0,
+      "weights": [
+        {
+          "high": 0.0,
+          "mid": 0.10049475732087543,
+          "shadows": 0.8995052426791246,
+          "x": 0.0
+        },
+        {
+          "high": 0.0,
+          "mid": 0.10115532748473699,
+          "shadows": 0.898844672515263,
+          "x": 0.15
+        },
+        {
+          "high": 0.0,
+          "mid": 0.1146642371046589,
+          "shadows": 0.8853357628953411,
+          "x": 0.3
+        },
+        {
+          "high": 0.0,
+          "mid": 0.12232960130032622,
+          "shadows": 0.8776703986996738,
+          "x": 0.33
+        },
+        {
+          "high": 0.0,
+          "mid": 0.1953517768156633,
+          "shadows": 0.8046482231843367,
+          "x": 0.45
+        },
+        {
+          "high": 0.003634324571262615,
+          "mid": 0.2582100622215346,
+          "shadows": 0.7381556132072028,
+          "x": 0.5
+        },
+        {
+          "high": 0.14920084611555084,
+          "mid": 0.4383749470672612,
+          "shadows": 0.41242420681718794,
+          "x": 0.62
+        },
+        {
+          "high": 0.3242993231103036,
+          "mid": 0.45580194043102823,
+          "shadows": 0.2198987364586682,
+          "x": 0.67
+        },
+        {
+          "high": 0.727104587168534,
+          "mid": 0.2676038974222752,
+          "shadows": 0.005291515409190817,
+          "x": 0.8
+        },
+        {
+          "high": 0.8995052426791244,
+          "mid": 0.10049475732087565,
+          "shadows": 0.0,
+          "x": 1.0
+        }
+      ]
+    },
+    {
+      "balance": 0.0,
+      "blending": 100.0,
+      "halfWidth": 0.56,
+      "highLum": -1.0,
+      "highlightPivot": 0.67,
+      "lumScale": 0.9853792754118144,
+      "midLum": 0.0,
+      "shadowPivot": 0.33,
+      "shadowsLum": 1.0,
+      "weights": [
+        {
+          "high": 0.0,
+          "mid": 0.10049475732087543,
+          "shadows": 0.8995052426791246,
+          "x": 0.0
+        },
+        {
+          "high": 0.0,
+          "mid": 0.10115532748473699,
+          "shadows": 0.898844672515263,
+          "x": 0.15
+        },
+        {
+          "high": 0.0,
+          "mid": 0.1146642371046589,
+          "shadows": 0.8853357628953411,
+          "x": 0.3
+        },
+        {
+          "high": 0.0,
+          "mid": 0.12232960130032622,
+          "shadows": 0.8776703986996738,
+          "x": 0.33
+        },
+        {
+          "high": 0.0,
+          "mid": 0.1953517768156633,
+          "shadows": 0.8046482231843367,
+          "x": 0.45
+        },
+        {
+          "high": 0.003634324571262615,
+          "mid": 0.2582100622215346,
+          "shadows": 0.7381556132072028,
+          "x": 0.5
+        },
+        {
+          "high": 0.14920084611555084,
+          "mid": 0.4383749470672612,
+          "shadows": 0.41242420681718794,
+          "x": 0.62
+        },
+        {
+          "high": 0.3242993231103036,
+          "mid": 0.45580194043102823,
+          "shadows": 0.2198987364586682,
+          "x": 0.67
+        },
+        {
+          "high": 0.727104587168534,
+          "mid": 0.2676038974222752,
+          "shadows": 0.005291515409190817,
+          "x": 0.8
+        },
+        {
+          "high": 0.8995052426791244,
+          "mid": 0.10049475732087565,
+          "shadows": 0.0,
+          "x": 1.0
+        }
+      ]
+    },
+    {
+      "balance": 0.0,
+      "blending": 100.0,
+      "halfWidth": 0.56,
+      "highLum": 1.0,
+      "highlightPivot": 0.67,
+      "lumScale": 1.0,
+      "midLum": 0.0,
+      "shadowPivot": 0.33,
+      "shadowsLum": -1.0,
+      "weights": [
+        {
+          "high": 0.0,
+          "mid": 0.10049475732087543,
+          "shadows": 0.8995052426791246,
+          "x": 0.0
+        },
+        {
+          "high": 0.0,
+          "mid": 0.10115532748473699,
+          "shadows": 0.898844672515263,
+          "x": 0.15
+        },
+        {
+          "high": 0.0,
+          "mid": 0.1146642371046589,
+          "shadows": 0.8853357628953411,
+          "x": 0.3
+        },
+        {
+          "high": 0.0,
+          "mid": 0.12232960130032622,
+          "shadows": 0.8776703986996738,
+          "x": 0.33
+        },
+        {
+          "high": 0.0,
+          "mid": 0.1953517768156633,
+          "shadows": 0.8046482231843367,
+          "x": 0.45
+        },
+        {
+          "high": 0.003634324571262615,
+          "mid": 0.2582100622215346,
+          "shadows": 0.7381556132072028,
+          "x": 0.5
+        },
+        {
+          "high": 0.14920084611555084,
+          "mid": 0.4383749470672612,
+          "shadows": 0.41242420681718794,
+          "x": 0.62
+        },
+        {
+          "high": 0.3242993231103036,
+          "mid": 0.45580194043102823,
+          "shadows": 0.2198987364586682,
+          "x": 0.67
+        },
+        {
+          "high": 0.727104587168534,
+          "mid": 0.2676038974222752,
+          "shadows": 0.005291515409190817,
+          "x": 0.8
+        },
+        {
+          "high": 0.8995052426791244,
+          "mid": 0.10049475732087565,
+          "shadows": 0.0,
+          "x": 1.0
+        }
+      ]
+    },
+    {
+      "balance": 0.0,
+      "blending": 100.0,
+      "halfWidth": 0.56,
+      "highLum": 0.6,
+      "highlightPivot": 0.67,
+      "lumScale": 1.0,
+      "midLum": -0.3,
+      "shadowPivot": 0.33,
+      "shadowsLum": 0.6,
+      "weights": [
+        {
+          "high": 0.0,
+          "mid": 0.10049475732087543,
+          "shadows": 0.8995052426791246,
+          "x": 0.0
+        },
+        {
+          "high": 0.0,
+          "mid": 0.10115532748473699,
+          "shadows": 0.898844672515263,
+          "x": 0.15
+        },
+        {
+          "high": 0.0,
+          "mid": 0.1146642371046589,
+          "shadows": 0.8853357628953411,
+          "x": 0.3
+        },
+        {
+          "high": 0.0,
+          "mid": 0.12232960130032622,
+          "shadows": 0.8776703986996738,
+          "x": 0.33
+        },
+        {
+          "high": 0.0,
+          "mid": 0.1953517768156633,
+          "shadows": 0.8046482231843367,
+          "x": 0.45
+        },
+        {
+          "high": 0.003634324571262615,
+          "mid": 0.2582100622215346,
+          "shadows": 0.7381556132072028,
+          "x": 0.5
+        },
+        {
+          "high": 0.14920084611555084,
+          "mid": 0.4383749470672612,
+          "shadows": 0.41242420681718794,
+          "x": 0.62
+        },
+        {
+          "high": 0.3242993231103036,
+          "mid": 0.45580194043102823,
+          "shadows": 0.2198987364586682,
+          "x": 0.67
+        },
+        {
+          "high": 0.727104587168534,
+          "mid": 0.2676038974222752,
+          "shadows": 0.005291515409190817,
+          "x": 0.8
+        },
+        {
+          "high": 0.8995052426791244,
+          "mid": 0.10049475732087565,
+          "shadows": 0.0,
+          "x": 1.0
+        }
+      ]
+    },
+    {
+      "balance": 60.0,
+      "blending": 100.0,
+      "halfWidth": 0.56,
+      "highLum": 0.0,
+      "highlightPivot": 0.49000000000000005,
+      "lumScale": 1.0,
+      "midLum": 0.0,
+      "shadowPivot": 0.15000000000000002,
+      "shadowsLum": 0.0,
+      "weights": [
+        {
+          "high": 0.009607359798384785,
+          "mid": 0.2861705117336171,
+          "shadows": 0.7042221284679981,
+          "x": 0.0
+        },
+        {
+          "high": 0.009822542321721195,
+          "mid": 0.2869570890988137,
+          "shadows": 0.7032203685794651,
+          "x": 0.15
+        },
+        {
+          "high": 0.014582040169661192,
+          "mid": 0.3022837993301512,
+          "shadows": 0.6831341605001876,
+          "x": 0.3
+        },
+        {
+          "high": 0.017561737874275618,
+          "mid": 0.310390562336198,
+          "shadows": 0.6720476997895264,
+          "x": 0.33
+        },
+        {
+          "high": 0.053499002450418554,
+          "mid": 0.3716463738960098,
+          "shadows": 0.5748546236535717,
+          "x": 0.45
+        },
+        {
+          "high": 0.09467726323735659,
+          "mid": 0.409544753227722,
+          "shadows": 0.4957779835349214,
+          "x": 0.5
+        },
+        {
+          "high": 0.36531479435608016,
+          "mid": 0.4494542450399418,
+          "shadows": 0.18523096060397803,
+          "x": 0.62
+        },
+        {
+          "high": 0.5726574889477157,
+          "mid": 0.3728393406634374,
+          "shadows": 0.05450317038884689,
+          "x": 0.67
+        },
+        {
+          "high": 0.914238639833632,
+          "mid": 0.08576136016636804,
           "shadows": 0.0,
           "x": 0.8
         },
         {
-          "high": 1.0,
-          "mid": 0.0,
+          "high": 0.9950905626682227,
+          "mid": 0.004909437331777289,
+          "shadows": 0.0,
+          "x": 1.0
+        }
+      ]
+    },
+    {
+      "balance": 60.0,
+      "blending": 100.0,
+      "halfWidth": 0.56,
+      "highLum": -1.0,
+      "highlightPivot": 0.49000000000000005,
+      "lumScale": 0.9999943229040706,
+      "midLum": 0.0,
+      "shadowPivot": 0.15000000000000002,
+      "shadowsLum": 1.0,
+      "weights": [
+        {
+          "high": 0.009607359798384785,
+          "mid": 0.2861705117336171,
+          "shadows": 0.7042221284679981,
+          "x": 0.0
+        },
+        {
+          "high": 0.009822542321721195,
+          "mid": 0.2869570890988137,
+          "shadows": 0.7032203685794651,
+          "x": 0.15
+        },
+        {
+          "high": 0.014582040169661192,
+          "mid": 0.3022837993301512,
+          "shadows": 0.6831341605001876,
+          "x": 0.3
+        },
+        {
+          "high": 0.017561737874275618,
+          "mid": 0.310390562336198,
+          "shadows": 0.6720476997895264,
+          "x": 0.33
+        },
+        {
+          "high": 0.053499002450418554,
+          "mid": 0.3716463738960098,
+          "shadows": 0.5748546236535717,
+          "x": 0.45
+        },
+        {
+          "high": 0.09467726323735659,
+          "mid": 0.409544753227722,
+          "shadows": 0.4957779835349214,
+          "x": 0.5
+        },
+        {
+          "high": 0.36531479435608016,
+          "mid": 0.4494542450399418,
+          "shadows": 0.18523096060397803,
+          "x": 0.62
+        },
+        {
+          "high": 0.5726574889477157,
+          "mid": 0.3728393406634374,
+          "shadows": 0.05450317038884689,
+          "x": 0.67
+        },
+        {
+          "high": 0.914238639833632,
+          "mid": 0.08576136016636804,
+          "shadows": 0.0,
+          "x": 0.8
+        },
+        {
+          "high": 0.9950905626682227,
+          "mid": 0.004909437331777289,
+          "shadows": 0.0,
+          "x": 1.0
+        }
+      ]
+    },
+    {
+      "balance": 60.0,
+      "blending": 100.0,
+      "halfWidth": 0.56,
+      "highLum": 1.0,
+      "highlightPivot": 0.49000000000000005,
+      "lumScale": 1.0,
+      "midLum": 0.0,
+      "shadowPivot": 0.15000000000000002,
+      "shadowsLum": -1.0,
+      "weights": [
+        {
+          "high": 0.009607359798384785,
+          "mid": 0.2861705117336171,
+          "shadows": 0.7042221284679981,
+          "x": 0.0
+        },
+        {
+          "high": 0.009822542321721195,
+          "mid": 0.2869570890988137,
+          "shadows": 0.7032203685794651,
+          "x": 0.15
+        },
+        {
+          "high": 0.014582040169661192,
+          "mid": 0.3022837993301512,
+          "shadows": 0.6831341605001876,
+          "x": 0.3
+        },
+        {
+          "high": 0.017561737874275618,
+          "mid": 0.310390562336198,
+          "shadows": 0.6720476997895264,
+          "x": 0.33
+        },
+        {
+          "high": 0.053499002450418554,
+          "mid": 0.3716463738960098,
+          "shadows": 0.5748546236535717,
+          "x": 0.45
+        },
+        {
+          "high": 0.09467726323735659,
+          "mid": 0.409544753227722,
+          "shadows": 0.4957779835349214,
+          "x": 0.5
+        },
+        {
+          "high": 0.36531479435608016,
+          "mid": 0.4494542450399418,
+          "shadows": 0.18523096060397803,
+          "x": 0.62
+        },
+        {
+          "high": 0.5726574889477157,
+          "mid": 0.3728393406634374,
+          "shadows": 0.05450317038884689,
+          "x": 0.67
+        },
+        {
+          "high": 0.914238639833632,
+          "mid": 0.08576136016636804,
+          "shadows": 0.0,
+          "x": 0.8
+        },
+        {
+          "high": 0.9950905626682227,
+          "mid": 0.004909437331777289,
+          "shadows": 0.0,
+          "x": 1.0
+        }
+      ]
+    },
+    {
+      "balance": 60.0,
+      "blending": 100.0,
+      "halfWidth": 0.56,
+      "highLum": 0.6,
+      "highlightPivot": 0.49000000000000005,
+      "lumScale": 1.0,
+      "midLum": -0.3,
+      "shadowPivot": 0.15000000000000002,
+      "shadowsLum": 0.6,
+      "weights": [
+        {
+          "high": 0.009607359798384785,
+          "mid": 0.2861705117336171,
+          "shadows": 0.7042221284679981,
+          "x": 0.0
+        },
+        {
+          "high": 0.009822542321721195,
+          "mid": 0.2869570890988137,
+          "shadows": 0.7032203685794651,
+          "x": 0.15
+        },
+        {
+          "high": 0.014582040169661192,
+          "mid": 0.3022837993301512,
+          "shadows": 0.6831341605001876,
+          "x": 0.3
+        },
+        {
+          "high": 0.017561737874275618,
+          "mid": 0.310390562336198,
+          "shadows": 0.6720476997895264,
+          "x": 0.33
+        },
+        {
+          "high": 0.053499002450418554,
+          "mid": 0.3716463738960098,
+          "shadows": 0.5748546236535717,
+          "x": 0.45
+        },
+        {
+          "high": 0.09467726323735659,
+          "mid": 0.409544753227722,
+          "shadows": 0.4957779835349214,
+          "x": 0.5
+        },
+        {
+          "high": 0.36531479435608016,
+          "mid": 0.4494542450399418,
+          "shadows": 0.18523096060397803,
+          "x": 0.62
+        },
+        {
+          "high": 0.5726574889477157,
+          "mid": 0.3728393406634374,
+          "shadows": 0.05450317038884689,
+          "x": 0.67
+        },
+        {
+          "high": 0.914238639833632,
+          "mid": 0.08576136016636804,
+          "shadows": 0.0,
+          "x": 0.8
+        },
+        {
+          "high": 0.9950905626682227,
+          "mid": 0.004909437331777289,
           "shadows": 0.0,
           "x": 1.0
         }

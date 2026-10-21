@@ -214,7 +214,9 @@ final class EngineLimitReadoutTests: XCTestCase {
                       caption)
     }
 
-    /// Measured: Brilliance Shadows +100 / Highlights −100 applies 34% on the zone rows.
+    /// Measured: Brilliance Shadows +100 / Highlights −100 applies 31% on the zone rows
+    /// (34% before lane K1 moved the zones onto display level). The caption must name
+    /// the render's own number, whatever it is.
     func testHeldBrillianceIsNamedWithTheRendersScale() throws {
         var recipe = Recipe()
         recipe.look.wheels.colorBalance.brilliance.shadows = 100
@@ -222,7 +224,8 @@ final class EngineLimitReadoutTests: XCTestCase {
         let scale = plannedGrade(recipe).colorBalance.appliedBrillianceScale
         XCTAssertEqual(AppliedReadout.brillianceScale(recipe), scale)
         let caption = try XCTUnwrap(AppliedReadout.brillianceCaption(recipe))
-        XCTAssertTrue(caption.contains("34%"), caption)
+        XCTAssertLessThan(scale, 0.5)
+        XCTAssertTrue(caption.contains(AppliedReadout.percent(scale)), caption)
     }
 
     // MARK: The panels read them

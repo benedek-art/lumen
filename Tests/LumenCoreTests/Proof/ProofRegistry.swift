@@ -576,7 +576,8 @@ enum ProofRegistry {
                 // inset (proof #16): a saturation push at the top of its travel walks
                 // colour into the gamut boundary, and softClip eases it back — the
                 // slider saturating against the display's own edge, pinned so growth
-                // is a regression. Shadows and mid never reach the boundary.
+                // is a regression. Shadows and mid hand back at most 0.27 on lane K1's
+                // display-level zones, under the ordinary ceiling.
                 declaredReversal: (id == "global" || id == "high") ? 3.915 : nil,
                 apply: { r, v in r.look.wheels[keyPath: path].sat = v }))
             out.append(ControlSpec(
@@ -1360,11 +1361,20 @@ enum ProofRegistry {
         // `brilliance.high` measured 189.93 and still clears its 178, so it KEEPS the
         // tighter floor rather than being loosened to 70% of its own new figure: a
         // floor a control provably clears is worth more than a consistent formula.
+        //
+        // LANE K1 MOVED THE ZONES ONTO DISPLAY LEVEL, and the same rule re-derives the
+        // two mid floors it moved. The Midtones zone used to span about −4.4…+0.4 EV —
+        // most of this wedge, because "shadows" ended ten code values above black — and
+        // now spans the middle third of the displayed range, about −0.9…+1.0 EV, where
+        // Lightroom puts it. Measured on the corrected engine: chroma.mid 157.10 ->
+        // 88.79, saturation.mid 154.42 -> 90.78; 70% of each is 62 and 63. The shadow
+        // fields went the other way (chroma 54.85 -> 149.76, saturation 54.04 ->
+        // 147.59) and KEEP their floors, which they now clear by four times.
         let floors: [String: Double] = [
             "chroma.global": 111, "chroma.shadows": 38,
-            "chroma.mid": 109, "chroma.high": 111,
+            "chroma.mid": 62, "chroma.high": 111,
             "saturation.global": 112, "saturation.shadows": 37,
-            "saturation.mid": 108, "saturation.high": 112,
+            "saturation.mid": 63, "saturation.high": 112,
             "brilliance.global": 178, "brilliance.shadows": 56,
             "brilliance.mid": 111, "brilliance.high": 178,
         ]
@@ -1377,6 +1387,14 @@ enum ProofRegistry {
                     frameName: "tonalColourWedge",
                     frame: { ProofFrames.tonalColourWedge() },
                     authorityFloor: floors["\(axisId).\(zoneId)"] ?? 3,
+                    // DECLARED, and from S14 rather than from this control: on lane K1's
+                    // display-level zones the Midtones Chroma row reaches bright saturated
+                    // wedge colours, and the display gamut compression hands back 5.192
+                    // code values at the top of the travel. The grade's own output
+                    // chroma is strictly monotone in the slider on every one of the
+                    // wedge's 2048 sampled pixels (measured); `cb.chroma.high` gives back
+                    // 2.1 for the same reason under the ordinary ceiling.
+                    declaredReversal: axisId == "chroma" && zoneId == "mid" ? 5.192 : nil,
                     apply: { r, v in
                         r.look.wheels.colorBalance[keyPath: axisPath][keyPath: zonePath] = v
                     }))

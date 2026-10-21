@@ -79,37 +79,33 @@ final class GradeStripAxisTests: XCTestCase {
         }
     }
 
-    /// The audit's own case: Whites +100 at Blending 50 renders a 0.1200 half-width,
-    /// and the factory axis would have drawn 0.1071.
-    func testAtWhitesPlusOneHundredTheStripDrawsTheWiderRenderedCrossfade() {
+    /// Whites +100 moves the display curve, so it moves the scene EV each pivot sits at,
+    /// and the strip and the engine must agree on where. (The crossfade width itself is
+    /// display level since lane K1 and no longer depends on the span.)
+    func testAtWhitesPlusOneHundredTheStripDrawsTheRenderedPivotsInStops() {
         let r = recipe(whites: 100, blacks: 0)
         let drawn = ZoneWindows(gradeOf: r)
         XCTAssertEqual(drawn.spanEV, 12.5, accuracy: 1e-12)
-        XCTAssertEqual(drawn.shadowHalfWidth, 1.5 / 12.5, accuracy: 1e-9,
-                       "the strip must draw the crossfade the engine renders at span 12.5, "
-                       + "not the factory axis's 1.5 / 14")
-        XCTAssertEqual(drawn.shadowHalfWidth, renderedWindows(r).shadowHalfWidth,
+        XCTAssertEqual(drawn.highlightPivotEV, renderedWindows(r).highlightPivotEV,
                        accuracy: 1e-12)
+        XCTAssertLessThan(drawn.highlightPivotEV, ZoneWindows().highlightPivotEV,
+                          "Whites +100 lowers the white anchor, so the 2/3 level sits "
+                              + "at a lower scene EV")
     }
 
-    /// Dropping a handle stores `handle − Balance shift`; the shift has to be converted
-    /// on the rendered span, or the pivot the engine solves is not where the handle was
-    /// released. Converted on 14 EV at Whites +100 and Balance ±100 it missed by 0.214 EV.
+    /// Dropping a handle stores `handle − Balance shift`, so the pivot the engine solves
+    /// is where the handle was released, at every Whites setting.
     func testABalanceShiftedHandleRendersWhereItWasReleasedWhenWhitesMove() {
         for balance in [-100.0, 100] {
             let r = recipe(whites: 100, blacks: 0, balance: balance)
-            let windows = ZoneWindows(gradeOf: r)
-            let released = 0.55
-            let stored = released - ZoneWindows.pivotShift(balance: balance,
-                                                           spanEV: windows.spanEV)
+            // Above the shadow handle at both Balance extremes (it sits at 0.63 at −100).
+            let released = 0.8
+            let stored = released - ZoneWindows.pivotShift(balance: balance)
             var dropped = r
             dropped.look.wheels.pivots = [r.look.wheels.pivots[0], stored]
             let rendered = renderedWindows(dropped)
             XCTAssertEqual(rendered.highlightPivot, released, accuracy: 1e-12,
                            "Balance \(balance): the rendered pivot must sit under the handle")
-            // And the factory span is measurably the wrong inverse here.
-            let factory = released - ZoneWindows.pivotShift(balance: balance, spanEV: 14)
-            XCTAssertEqual(abs(factory - stored) * windows.spanEV, 0.214, accuracy: 1e-3)
         }
     }
 

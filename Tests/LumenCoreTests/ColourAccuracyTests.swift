@@ -98,11 +98,12 @@ final class ColourAccuracyTests: XCTestCase {
 
     /// Lightroom's Balance: positive favours the Highlights wheel, negative Shadows.
     /// Before the fix +100 gave weights (0.306, 0.694, 0) at mid-axis: all shadows.
+    /// Measured at display mid-level, where the zones are defined since lane K1.
     func testGradeBalanceFavoursHighlightsWhenPositive() {
-        let plus = ZoneWindows(balance: 100).weights(atNormalized: 0.5)
+        let plus = ZoneWindows(balance: 100).weights(atLevel: 0.5)
         XCTAssertGreaterThan(plus.high, 0.1)
         XCTAssertEqual(plus.shadows, 0, accuracy: 1e-12)
-        let minus = ZoneWindows(balance: -100).weights(atNormalized: 0.5)
+        let minus = ZoneWindows(balance: -100).weights(atLevel: 0.5)
         XCTAssertGreaterThan(minus.shadows, 0.1)
         XCTAssertEqual(minus.high, 0, accuracy: 1e-12)
         let zero = ZoneWindows(balance: 0)

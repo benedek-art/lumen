@@ -42,13 +42,15 @@ final class GradeBalanceDirectionTests: XCTestCase {
     func testNegativeBalanceExtendsTheShadowsZoneLikeLightroom() {
         let neutral = ZoneWindows()
         let negative = ZoneWindows(balance: -100)
-        let atMinusTwo = -2.0
+        // −1 EV renders at about a third of display level, on the default shadow
+        // pivot, so it has room to gain shadow weight (−2 EV is already ~0.9 shadow).
+        let atMinusOne = -1.0
         XCTAssertGreaterThan(
-            negative.weights(at: atMinusTwo).shadows,
-            neutral.weights(at: atMinusTwo).shadows + 0.1,
-            "−100 Balance must give the Shadows wheel MORE of a −2 EV tone; got "
-                + "\(negative.weights(at: atMinusTwo).shadows) against "
-                + "\(neutral.weights(at: atMinusTwo).shadows) at Balance 0")
+            negative.weights(at: atMinusOne).shadows,
+            neutral.weights(at: atMinusOne).shadows + 0.1,
+            "−100 Balance must give the Shadows wheel MORE of a −1 EV tone; got "
+                + "\(negative.weights(at: atMinusOne).shadows) against "
+                + "\(neutral.weights(at: atMinusOne).shadows) at Balance 0")
         // Mid-grey must not become a pure highlight when the user asked for shadows.
         XCTAssertLessThan(negative.weights(at: 0).high, neutral.weights(at: 0).high + 1e-12,
                           "−Balance must not grow the Highlights zone")
@@ -58,15 +60,14 @@ final class GradeBalanceDirectionTests: XCTestCase {
     /// through `pivotShift`, so the handle a user drags and the pivot the engine
     /// renders can only disagree if this does.
     func testThePivotShiftIsTheOneTheWindowsApply() {
-        let span = 14.0
         for balance in [-100.0, -37, 0, 52, 100] {
             let windows = ZoneWindows(balance: balance)
-            let shift = ZoneWindows.pivotShift(balance: balance, spanEV: span)
+            let shift = ZoneWindows.pivotShift(balance: balance)
             XCTAssertEqual(windows.shadowPivot, GradingWheels.defaultPivots[0] + shift,
                            accuracy: 1e-15, "shadow pivot at Balance \(balance)")
             XCTAssertEqual(windows.highlightPivot, GradingWheels.defaultPivots[1] + shift,
                            accuracy: 1e-15, "highlight pivot at Balance \(balance)")
-            XCTAssertEqual(shift, -(balance / 100) * ZoneWindows.balanceRangeEV / span,
+            XCTAssertEqual(shift, -(balance / 100) * ZoneWindows.balanceRange,
                            accuracy: 1e-15)
         }
     }

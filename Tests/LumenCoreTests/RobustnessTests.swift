@@ -1465,17 +1465,15 @@ final class RobustnessTests: XCTestCase {
                     previous = half
                 }
 
-                // And never reaches the ceiling: at it the two crossfades meet at a
-                // point, and past it the mid zone's weight goes negative.
+                // There is no ceiling to reach since lane K1: on the display-level
+                // axis both crossfades are raised cosines of one width, so they may
+                // overlap past each other and the mid weight stays ≥ 0 (checked
+                // below, at the widest setting, where it would break first).
                 var wheels = GradingWheels()
                 wheels.blending = 100
                 wheels.balance = balance
                 wheels.pivots = pivots
                 let windows = ZoneWindows(wheels: wheels)
-                let ceiling = (windows.highlightPivot - windows.shadowPivot) / 2
-                XCTAssertLessThan(windows.shadowHalfWidth, ceiling,
-                                  "Blending 100 reached the ceiling exactly at balance "
-                                      + "\(balance), pivots \(pivots)")
                 var x = 0.0
                 while x <= 1 {
                     let w = windows.weights(atNormalized: x)

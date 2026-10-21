@@ -370,9 +370,11 @@ final class GradeJointLimiterTests: XCTestCase {
     func testTheFoldIsGoneAtEveryMeasuredSetting() {
         let cases: [(lum: Double, brilliance: Double, before: Double,
                      peakEV: Double, troughEV: Double)] = [
-            (1.0, 100, 46.8724, -0.535, 1.400),
-            (0.5, 20, 30.7537, -0.435, 1.310),
-            (0.3, 15, 4.3871, -0.050, 0.955),
+            // Re-measured on the display-level zone axis (lane K1). Before: 46.87 from
+            // −0.535 to 1.400 EV, 30.75 from −0.435 to 1.310, 4.39 from −0.050 to 0.955.
+            (1.0, 100, 50.1199, 0.315, 2.050),
+            (0.5, 20, 28.4015, 0.385, 1.865),
+            (0.3, 15, 2.0376, 0.645, 1.280),
         ]
         for c in cases {
             let wheels = opposed(wheelLum: c.lum, brilliance: c.brilliance)
@@ -651,28 +653,48 @@ final class GradeJointLimiterTests: XCTestCase {
     /// drift is the price of a shared budget under any split — once the pair is at the
     /// bound, more of one tool is less of the other — and at a seventh of one code
     /// value it is below what an 8-bit display can show.
+    ///
+    /// LANE K1 restated this on the display-level zone axis, measured at the zone
+    /// centres (display level 0.5 and 0.9) rather than at −0.5 / +1.5 EV, which were
+    /// the old axis's centres. There the drift the paragraph above prices is visible:
+    /// the separation rises to 1.611 stops by a third of the travel and then gives back
+    /// 0.013 stops (about a third of a code value) by full deflection, as Brilliance
+    /// keeps taking budget from the wheels. So the property is pinned as: strictly
+    /// rising until the bound, and never more than 0.02 stops below its own best after.
     func testThePairKeepsSeparatingTheZonesAsBothArePushed() {
+        let zones = ZoneWindows()
+        let midT: Double = zones.ev(atLevel: 0.5)
+        let highT: Double = zones.ev(atLevel: 0.9)
         var previous: Double = -.infinity
+        var best: Double = -.infinity
         for step in 1...40 {
             let lum: Double = Double(step) / 40
             let graded = engine(opposed(wheelLum: lum, brilliance: lum * 100))
-            let low: Double = realisedLuminance(graded, at: -0.5)
-                / (LumenLog.midGrey * pow(2.0, -0.5))
-            let high: Double = realisedLuminance(graded, at: 1.5)
-                / (LumenLog.midGrey * pow(2.0, 1.5))
+            let low: Double = realisedLuminance(graded, at: midT)
+                / (LumenLog.midGrey * pow(2.0, midT))
+            let high: Double = realisedLuminance(graded, at: highT)
+                / (LumenLog.midGrey * pow(2.0, highT))
             let separation: Double = log2(low / high)
-            XCTAssertGreaterThan(
-                separation, previous,
-                "wheels ±\(lum) with Brilliance ±\(lum * 100) separated the mid and "
-                    + "highlight zones by \(separation) stops, no more than the step "
-                    + "before it (\(previous)) — the pair has stopped responding")
+            if best < 1.6 {
+                XCTAssertGreaterThan(
+                    separation, previous,
+                    "wheels ±\(lum) with Brilliance ±\(lum * 100) separated the mid and "
+                        + "highlight zones by \(separation) stops, no more than the step "
+                        + "before it (\(previous)) — the pair has stopped responding "
+                        + "before reaching the bound")
+            } else {
+                XCTAssertGreaterThan(separation, best - 0.02,
+                                     "past the bound the pair gave back more than the "
+                                         + "shared budget's drift: \(separation) after "
+                                         + "\(best)")
+            }
+            best = Swift.max(best, separation)
             previous = separation
         }
-        XCTAssertEqual(previous, 1.5515, accuracy: 0.001,
-                       "the composed separation the full pair reaches has moved. It is "
-                           + "the monotonicity bound itself — about 1.55 stops across "
-                           + "the crossfade — and a change to it is a change to what "
-                           + "the pair is allowed to do.")
+        XCTAssertEqual(best, 1.6107, accuracy: 0.002,
+                       "the composed separation the pair reaches has moved. It is the "
+                           + "monotonicity bound itself, and a change to it is a change "
+                           + "to what the pair is allowed to do.")
     }
 
     /// THE DESIGN CALL, pinned as behaviour: the budget is split IN PROPORTION TO WHAT
@@ -703,14 +725,15 @@ final class GradeJointLimiterTests: XCTestCase {
 
         // THE LOPSIDED PAIR is where the splits separate. A full wheel opposition at
         // the shipped Blending has already spent the budget on its own — its own solve
-        // binds hard, at 0.600 — so under "whichever solve runs second pays" the grid's
+        // binds hard, at 0.622 — so under "whichever solve runs second pays" the grid's
         // allowance beside it would be what is left of a budget with nothing left in
         // it, and a Brilliance of ±5 would be scaled to about nothing. Proportional to
         // demand, the small control gives up the same FRACTION as the large one and
         // therefore a small absolute amount: it keeps three quarters of a move that was
         // small to begin with.
         let lopsided = engine(opposed(wheelLum: 1, brilliance: 5))
-        XCTAssertEqual(lopsided.lumScale, 0.600212485, accuracy: 1e-9,
+        // 0.600 on the old scene-EV zone axis, 0.622 on display level (lane K1).
+        XCTAssertEqual(lopsided.lumScale, 0.621917868, accuracy: 1e-9,
                        "the premise of this case is that the wheels alone are already "
                            + "at their own limit")
         XCTAssertGreaterThan(lopsided.colorBalance.appliedBrillianceScale, 0.7,
