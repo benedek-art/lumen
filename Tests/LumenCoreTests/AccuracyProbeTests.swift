@@ -47,27 +47,28 @@ final class AccuracyProbeTests: XCTestCase {
         }
     }
 
-    /// Temp writes the Kelvin it shows — anchored to the CIE standard, not to the
-    /// code's own locus (M2 calibration contract). The daylight branch of the locus
-    /// must land on the PUBLISHED D-illuminant chromaticities: D65 at (0.3127,
-    /// 0.3290) and D50 at (0.3457, 0.3585). The Kelvin values carry the 1968 c₂
-    /// revision (D65 ≈ 6504 K, D50 ≈ 5003 K) because that is what the published xy
-    /// pairs are defined at; a slider showing "6504" must mean the illuminant the
-    /// standard calls that. Tolerance 0.0015 in xy — the CIE polynomials are quoted
-    /// to four figures and the locus blends analytically, so anything past a
-    /// milli-xy is a real disagreement with the standard, not rounding.
+    /// Temp writes the Kelvin it shows — anchored to the published standard, not to
+    /// the code's own locus (M2 calibration contract). Since WS-03 the numbers are the
+    /// Adobe/DNG SDK pair Lightroom shows for the same light (the convention the
+    /// camera's as-shot pair arrives in), so the published D-illuminants must land at
+    /// THEIR Adobe pairs: D65 (0.3127, 0.3290) is 6503.7 / +9.77 and D50 (0.3457,
+    /// 0.3585) is 5000.7 / +9.56 — daylight sits about +10 tint off the blackbody
+    /// line, which is why Lightroom's Daylight preset is 5500 / +10. (The pre-WS-03
+    /// form asked tint 0 to land on D65, which was Lumen's own locus convention and
+    /// misread every camera's as-shot pair; AUDIT.md finding 1.) Tolerance 0.0015 in
+    /// xy as before; the conversion is in fact exact to ~1e-5.
     func testTheKelvinSliderLandsOnThePublishedDIlluminants() {
-        let d65 = ColorTemperature.chromaticity(kelvin: 6504, tint: 0)
+        let d65 = ColorTemperature.chromaticity(kelvin: 6503.7, tint: 9.77)
         XCTAssertEqual(d65.x, 0.3127, accuracy: 0.0015,
-                       "6504 K renders x=\(d65.x) against D65's published 0.3127")
+                       "6504 K / +9.77 renders x=\(d65.x) against D65's published 0.3127")
         XCTAssertEqual(d65.y, 0.3290, accuracy: 0.0015,
-                       "6504 K renders y=\(d65.y) against D65's published 0.3290")
+                       "6504 K / +9.77 renders y=\(d65.y) against D65's published 0.3290")
 
-        let d50 = ColorTemperature.chromaticity(kelvin: 5003, tint: 0)
+        let d50 = ColorTemperature.chromaticity(kelvin: 5000.7, tint: 9.56)
         XCTAssertEqual(d50.x, 0.3457, accuracy: 0.0015,
-                       "5003 K renders x=\(d50.x) against D50's published 0.3457")
+                       "5001 K / +9.56 renders x=\(d50.x) against D50's published 0.3457")
         XCTAssertEqual(d50.y, 0.3585, accuracy: 0.0015,
-                       "5003 K renders y=\(d50.y) against D50's published 0.3585")
+                       "5001 K / +9.56 renders y=\(d50.y) against D50's published 0.3585")
     }
 
     /// The four range sliders' endpoint targets, asserted through the full gain

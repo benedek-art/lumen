@@ -320,12 +320,26 @@ struct BasicPanel: View {
     private func boundedTintCaption(
         display: WhiteBalanceEngine.AsShotDisplay) -> String? {
         let shown = display.tint
-        guard shown > 0 else { return nil }
-        let effective = ColorTemperature.clampedTint(kelvin: display.temperature,
-                                                     tint: shown)
+        // The bound depends on the neutral the render adapts TO as well as on the
+        // target Kelvin (WS-03), so it is read off the same engine the render builds —
+        // `effectiveTint` is exactly the tint `adaptation` uses.
+        let neutral = asShotNeutral ?? .reference
+        let effective = WhiteBalanceEngine(asShotKelvin: neutral.kelvin,
+                                           asShotTint: neutral.tint,
+                                           targetKelvin: display.temperature,
+                                           targetTint: shown).effectiveTint
         guard effective < shown - 0.5 else { return nil }
-        return "Magenta is bounded by physics at +\(Int(effective.rounded())) for "
-            + "\(Int(display.temperature.rounded())) K — the render uses that value."
+        let value = Int(effective.rounded())
+        let kelvin = Int(display.temperature.rounded())
+        // A cool as-shot taken to a very warm Temp turns the green–magenta axis before
+        // tint 0, so the bound can sit at or below zero. "Bounded at −13" with the
+        // slider at 0 reads as nonsense; what is true is that no magenta is left.
+        guard value > 0 else {
+            return "No magenta is available at \(kelvin) K from this file's as-shot "
+                + "neutral — the render holds tint at \(value) and stops there."
+        }
+        return "Magenta is bounded by physics at +\(value) for \(kelvin) K — the render "
+            + "uses that value."
     }
 
     /// Says which neutral the render is adapting from, because "Temp 5500" means
@@ -357,11 +371,13 @@ struct BasicPanel: View {
                 LumenMenuItem(title: "As Shot", symbol: "camera",
                               detail: asShotDetail,
                               isSelected: presetName == "As Shot") { applyAsShot() }
-                // There is no Auto entry, and its absence is the whole design. It was
-                // here, disabled, with the reason written into its own label — a menu
-                // item whose only job was to announce that it does not work. A menu
-                // missing an entry teaches nothing; a menu apologising teaches that the
-                // app is unfinished. It comes back when scene statistics do.
+                // Auto is back now that scene statistics are (`AutoWhiteBalance`). It
+                // writes ordinary Temp/Tint numbers, the way the presets do, so it is
+                // never "selected": afterwards the title reads Custom, or a preset's
+                // name if the solved pair happens to be one. No recipe field remembers
+                // that Auto was pressed (WS-03 SPEC note N7).
+                LumenMenuItem(title: "Auto", symbol: "wand.and.stars",
+                              isSelected: false) { state.applyAutoWhiteBalance() }
                 LumenMenuDivider()
                 ForEach(wbIlluminants) { illuminant in
                     LumenMenuItem(title: illuminant.name,
@@ -373,6 +389,25 @@ struct BasicPanel: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            // Auto, one click from the eyedropper it sits beside and drawn exactly like
+            // it: both answer "what is neutral here?", one from the scene's statistics
+            // and one from the pixel you point at.
+            Button {
+                state.applyAutoWhiteBalance()
+            } label: {
+                Text("Auto")
+                    .font(.lumenGlyphBody)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 3)
+                    .background(Lumen.controlBackground)
+                    .foregroundStyle(Lumen.primaryText)
+                    .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip))
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Set Temp/Tint from the picture's own greys and highlights — "
+                  + "skin is left alone, and a frame with no neutral stays near as shot.")
 
             Button {
                 // Pressing it again disarms rather than stacking a second pick.

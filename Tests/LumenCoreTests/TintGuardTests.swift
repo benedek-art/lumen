@@ -233,8 +233,14 @@ final class TintGuardTests: XCTestCase {
         XCTAssertLessThan(warm.effectiveTint, 150,
                           "a +150 magenta at 2000 K is past the physical bound and "
                               + "must report as less")
+        // WS-03: the bound the render uses is as-shot-aware, so `effectiveTint` is the
+        // as-shot-aware clamp (it was the as-shot-free one, when the render used that).
         XCTAssertEqual(warm.effectiveTint,
-                       ColorTemperature.clampedTint(kelvin: 2000, tint: 150))
+                       ColorTemperature.clampedTint(kelvin: 2000, tint: 150,
+                                                    asShot: (5500, 0)))
+        XCTAssertLessThanOrEqual(warm.effectiveTint,
+                                 ColorTemperature.clampedTint(kelvin: 2000, tint: 150),
+                                 "the picture bound is never looser than the illuminant bound")
 
         let daylight = WhiteBalanceEngine(asShotKelvin: 5500, asShotTint: 0,
                                           targetKelvin: 5500, targetTint: 40)
@@ -243,5 +249,72 @@ final class TintGuardTests: XCTestCase {
         let green = WhiteBalanceEngine(asShotKelvin: 5500, asShotTint: 0,
                                        targetKelvin: 2000, targetTint: -150)
         XCTAssertEqual(green.effectiveTint, -150, "green is never clamped")
+    }
+
+    // MARK: - WS-03: the as-shot-aware guard (SPEC line 8)
+
+    /// The grid of `docs/quality/lanes/WS-03/tools/guard_grid.py`: 13 as-shots × target
+    /// 2000…50000 K in 20-mired steps × tint −150…+150 in 2.5. A 0.18 grey through the
+    /// engine's matrix never goes negative, and its OKLab `a` never falls more than
+    /// 0.003 below its running maximum as tint rises; +150…+300 never gives a negative
+    /// channel either.
+    func testNoInversionAcrossAsShotAndTargetGrid() {
+        let asShots: [(Double, Double)] = [
+            (2500, 0), (2850, 0), (3200, 0), (4000, 5), (4708, 48.2), (5000, 8), (5500, 10),
+            (6503.7072, 9.77), (7500, 10), (9365, 16.4), (10000, 10), (12000, 10), (5500, -20),
+        ]
+        let lab = OKLabTransform.working
+        var negative: [String] = []
+        var worstDrop = 0.0
+        var worstAt = ""
+        for asShot in asShots {
+            for mired in stride(from: 20.0, through: 500.0, by: 20) {
+                let kelvin = 1e6 / mired
+                var peak = -Double.infinity
+                for tint in stride(from: -150.0, through: 300.0, by: 2.5) {
+                    let out = WhiteBalanceEngine(asShotKelvin: asShot.0, asShotTint: asShot.1,
+                                                 targetKelvin: kelvin, targetTint: tint)
+                        .apply(neutral)
+                    guard out.isFinite, out.minComponent >= -1e-6 else {
+                        negative.append("\(asShot) → \(Int(kelvin)) K / \(tint)")
+                        break
+                    }
+                    guard tint <= 150 else { continue }
+                    let a = lab.toLab(out).a
+                    peak = Swift.max(peak, a)
+                    if peak - a > worstDrop {
+                        worstDrop = peak - a
+                        worstAt = "\(asShot) → \(Int(kelvin)) K / \(tint)"
+                    }
+                }
+            }
+        }
+        XCTAssertEqual(negative, [], "negative-channel lines")
+        XCTAssertLessThanOrEqual(worstDrop, 0.003, "OKLab a fell \(worstDrop) at \(worstAt)")
+        print("WS-03 SPEC 8: negative lines \(negative.count), max a drop \(worstDrop) at \(worstAt)")
+    }
+
+    /// …and it does not clamp ordinary work: from any as-shot of SPEC line 3 there is no
+    /// clamp at tint ≤ +25 for Temp ≥ 2500 K, and from 5500 / +10 none at +150 for
+    /// Temp ≥ 4500 K.
+    func testTheGuardLeavesOrdinaryWorkUnclamped() {
+        let asShots: [(Double, Double)] = [
+            (2850, 0), (3200, 0), (4000, 5), (4708, 48.2), (5000, 8), (5500, 10),
+            (6503.7072, 9.77), (7500, 10), (9365, 16.4), (5500, -15),
+        ]
+        for asShot in asShots {
+            for mired in stride(from: 20.0, through: 400.0, by: 2.5) {
+                let kelvin = 1e6 / mired
+                let limit = ColorTemperature.tintLimit(kelvin: kelvin,
+                                                       asShot: (asShot.0, asShot.1))
+                XCTAssertGreaterThanOrEqual(limit, 25, "\(asShot) → \(kelvin) K clamps at \(limit)")
+            }
+        }
+        for mired in stride(from: 20.0, through: 1e6 / 4500, by: 1) {
+            let kelvin = 1e6 / mired
+            let engine = WhiteBalanceEngine(asShotKelvin: 5500, asShotTint: 10,
+                                            targetKelvin: kelvin, targetTint: 150)
+            XCTAssertEqual(engine.effectiveTint, 150, "5500/+10 → \(kelvin) K clamps +150")
+        }
     }
 }

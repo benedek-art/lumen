@@ -38,6 +38,12 @@
 //                       (the same test frame scripts/proof/make_test_lfi.py writes,
 //                        for machines without numpy)
 //
+//   lumen-render autowb --input in.lfi --as-shot-kelvin K --as-shot-tint T
+//                       [--exclude x,y,w,h ...]
+//                       Auto white balance (AutoWhiteBalance): one JSON line
+//                       {"confidence","kelvin","seconds","tint"}, Temp/Tint in the slider's
+//                       Adobe/DNG convention. See AutoWB.swift.
+//
 //   Shared options (render, sweep):
 //     --as-shot-kelvin K   the file's as-shot neutral temperature (default 5500)
 //     --as-shot-tint T     the file's as-shot tint (default 0)

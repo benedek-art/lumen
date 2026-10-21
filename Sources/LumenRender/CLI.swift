@@ -254,6 +254,8 @@ enum LumenRenderCLI {
       lumen-render strokes --strokes s.json [--input in.lfi] [--long-edge 1024]
                           --out overlay.png [--mask-out m.png] [--pfm-out m.pfm]
                           [--metrics m.json] [--repeat N]   (header of Strokes.swift)
+      lumen-render autowb --input in.lfi [--exclude x,y,w,h ...]
+                          (prints {"kelvin","tint","confidence","seconds"}; Adobe/DNG Temp/Tint)
     shared: --as-shot-kelvin 5500 --as-shot-tint 0 --iso N --space srgb|p3
             --no-dither --lut-size 33 --resampler lanczos3|bicubic|bilinear
             --native-long-edge N
@@ -272,6 +274,7 @@ enum LumenRenderCLI {
             case "auto": try auto(args)
             case "match": try match(args)
             case "strokes": try strokes(args)
+            case "autowb": try autowb(args)
             case "help", "--help", "-h": print(usage)
             default: throw InputError.message("unknown command '\(args.command)'\n\(usage)")
             }
