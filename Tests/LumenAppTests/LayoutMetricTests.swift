@@ -534,6 +534,11 @@ final class LayoutMetricTests: XCTestCase {
             (["Shift", "Kelvin"],
              PanelChain.Host.developTop.contentWidth(columnWidth: Lumen.minimumPanelWidth) / 2,
              "MaskPanel.swift:2367 — mask white balance unit"),
+            // The row less the eyedropper's 24 pt frame and the HStack's 6 pt gap.
+            (ColorPanel.adjustOptions.map(\.label),
+             PanelChain.Host.developTop.contentWidth(columnWidth: Lumen.minimumPanelWidth)
+                - 24 - 6,
+             "ColorPanel.swift:191 — mixer Adjust"),
         ]
         var failures: [String] = []
         for control in controls {

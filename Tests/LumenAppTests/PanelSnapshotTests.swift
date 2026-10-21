@@ -253,6 +253,37 @@ final class PanelSnapshotTests: XCTestCase {
                               width: viewer.width, height: viewer.height) {
             SnapshotMaskOverlay(image: sample, overlay: overlay, container: viewer)
         }
+
+        // The Colour Mixer's four views (WS-31), appended after everything above so no
+        // earlier file changes. Yellow (band 2) carries the sample edit's Hue 12 and
+        // Saturation −18, so the Hue and Saturation views each show one moved row and
+        // Band view shows the edited mark on its swatch.
+        state.mixerBand = 2
+        let mixerViews: [(name: String, adjust: AppState.MixerAdjust, caption: String)] = [
+            ("panel-grade-colour-mixer-hue", .hue,
+             "Grade ▸ Colour, mixer Adjust set to Hue (eight band rows)"),
+            ("panel-grade-colour-mixer-saturation", .saturation,
+             "Grade ▸ Colour, mixer Adjust set to Saturation (eight band rows)"),
+            ("panel-grade-colour-mixer-luminance", .luminance,
+             "Grade ▸ Colour, mixer Adjust set to Luminance (eight band rows)"),
+        ]
+        for view in mixerViews {
+            state.mixerAdjust = view.adjust
+            await recorder.render(view.name, view.caption, width: width) {
+                SnapshotSectionCard(.color, isModified: recorder.isModified(.color)) {
+                    ColorPanel(only: .color)
+                }
+            }
+        }
+        state.mixerAdjust = .band
+        await recorder.render("panel-grade-colour-mixer-band-range",
+                              "Grade ▸ Colour, mixer in Band view with Yellow selected and "
+                                  + "the Band range fold opened",
+                              width: width, press: ["Band range"]) {
+            SnapshotSectionCard(.color, isModified: recorder.isModified(.color)) {
+                ColorPanel(only: .color)
+            }
+        }
     }
 
     // MARK: - The whole window, against a scanned folder

@@ -1553,6 +1553,17 @@ final class AppState: ObservableObject {
     @Published var mixerBand: Int = 0
     @Published var mixerAllBands: Bool = false
 
+    /// Which view the Colour Mixer shows: one attribute across all eight bands
+    /// (Lightroom's Hue, Saturation and Luminance tabs) or one band's three sliders.
+    /// View state, never written to a recipe; on `AppState` beside `mixerBand` so the
+    /// snapshot suite can set it, and so it survives the panel being rebuilt.
+    /// `mixerAllBands` above is no longer read by the panel (WS-31 NEEDS.md).
+    @Published var mixerAdjust: MixerAdjust = .band
+
+    enum MixerAdjust: String, CaseIterable, Hashable {
+        case hue, saturation, luminance, band
+    }
+
     /// Which mask the loupe is showing as an overlay, if any. Setting it rasterizes
     /// that mask's alpha.
     @Published var soloMaskOverlay: String? {
