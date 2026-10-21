@@ -276,14 +276,19 @@ final class PanelSnapshotTests: XCTestCase {
             }
         }
         state.mixerAdjust = .band
+        // Opened through its state, not `press:`: the fold's button never surfaced in the
+        // accessibility walk ("could not find \"Band range\""), so the click missed and
+        // the file came out identical to the collapsed state (verify R1, U5).
+        state.mixerRangeExpanded = true
         await recorder.render("panel-grade-colour-mixer-band-range",
                               "Grade ▸ Colour, mixer in Band view with Yellow selected and "
                                   + "the Band range fold opened",
-                              width: width, press: ["Band range"]) {
+                              width: width) {
             SnapshotSectionCard(.color, isModified: recorder.isModified(.color)) {
                 ColorPanel(only: .color)
             }
         }
+        state.mixerRangeExpanded = false
     }
 
     // MARK: - The whole window, against a scanned folder

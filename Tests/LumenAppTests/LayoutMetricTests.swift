@@ -538,7 +538,7 @@ final class LayoutMetricTests: XCTestCase {
             (ColorPanel.adjustOptions.map(\.label),
              PanelChain.Host.developTop.contentWidth(columnWidth: Lumen.minimumPanelWidth)
                 - 24 - 6,
-             "ColorPanel.swift:191 — mixer Adjust"),
+             "ColorPanel.swift:188 — mixer Adjust"),
         ]
         var failures: [String] = []
         for control in controls {
