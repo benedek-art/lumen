@@ -170,13 +170,13 @@ final class CurveGestureBackdropTests: XCTestCase {
         let afterLuma = stack.lumaCurve(stack.master(x))
         let expectMaster = w.r * stack.channelCurve(afterLuma, channel: 0)
             + w.g * afterLuma + w.b * afterLuma
-        XCTAssertEqual(stack.neutralTail(x, from: .master), expectMaster, accuracy: 1e-12)
+        XCTAssertEqual(stack.neutralTail(x, from: .master, weights: w), expectMaster, accuracy: 1e-12)
         let lumaOnly = stack.lumaCurve(x)
-        XCTAssertEqual(stack.neutralTail(x, from: .luma),
+        XCTAssertEqual(stack.neutralTail(x, from: .luma, weights: w),
                        w.r * stack.channelCurve(lumaOnly, channel: 0) + w.g * lumaOnly
                            + w.b * lumaOnly, accuracy: 1e-12)
-        XCTAssertEqual(stack.neutralTail(x, from: .channel(0)), 0.7, accuracy: 1e-12)
-        XCTAssertEqual(stack.neutralTail(x, from: .channel(1)), 0.5, accuracy: 1e-12)
+        XCTAssertEqual(stack.neutralTail(x, from: .channel(0), weights: w), 0.7, accuracy: 1e-12)
+        XCTAssertEqual(stack.neutralTail(x, from: .channel(1), weights: w), 0.5, accuracy: 1e-12)
     }
 
     // MARK: - The call sites
@@ -185,7 +185,7 @@ final class CurveGestureBackdropTests: XCTestCase {
         let source = try CurveMathTests.appSource("CurveEditorView.swift")
         for symbol in ["CurveEditing.placing(", "CurveEditing.DragAnchor(",
                        "anchor.follow(", "CurveBackdrop.inputCounts(",
-                       "curve.neutralTail(", "clickCount ?? 1) >= 2 {\n                deletePoint"] {
+                       "curve.neutralTail(", "if firstClickPoint == plotted[hit] { deletePoint(at: hit) }"] {
             XCTAssertTrue(source.contains(symbol), "CurveEditorView no longer calls \(symbol)")
         }
         XCTAssertFalse(source.contains("CurveStack.settingPoint(points"),

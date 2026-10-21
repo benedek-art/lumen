@@ -184,6 +184,9 @@ struct CurveEditorView: View {
     /// An ⌥-press on a point is a delete only if it is released where it was pressed;
     /// the moment it travels it is a fine-adjust drag instead (`endDrag` decides).
     @State private var pendingOptionDelete: Bool = false
+    /// Where the last single press took hold of a point, so the second click of a
+    /// double-click deletes that point and no other.
+    @State private var firstClickPoint: [Double]? = nil
     @State private var hoverLocation: CGPoint? = nil
     @State private var plotSize: CGSize = CGSize(width: 1, height: 1)
     /// Which region slider the pointer is on, and which one a drag is holding.
@@ -834,8 +837,9 @@ struct CurveEditorView: View {
         }
         let counts: [Double] = histogram.channelCounts(source).map { Double($0) }
         guard curve.isIdentity == false else { return CurveBackdrop.normalized(counts) }
+        let weights: RGB = RGBColorSpace.rec2020.luminanceWeights
         let input: [Double] = CurveBackdrop.inputCounts(counts) {
-            curve.neutralTail($0, from: stage)
+            curve.neutralTail($0, from: stage, weights: weights)
         }
         return CurveBackdrop.normalized(input)
     }
@@ -1011,16 +1015,20 @@ struct CurveEditorView: View {
             // double-click: a minimumDistance-0 drag claims every press, so a tap
             // gesture behind it never fires. The first click of the pair has already
             // grabbed the point without moving it, so the pair is one deletion.
-            if (NSApp.currentEvent?.clickCount ?? 1) >= 2 {
-                deletePoint(at: hit)
-                dragConsumed = true
-                return
-            }
             let plotted: [[Double]] = plottedPoints
             guard plotted.indices.contains(hit), plotted[hit].count >= 2 else {
                 dragConsumed = true
                 return
             }
+            if (NSApp.currentEvent?.clickCount ?? 1) >= 2 {
+                // Only the point the FIRST click took: when that click was an ⌥-click
+                // it has already deleted its point, and the second must not go on to
+                // take a neighbour that happens to be within reach.
+                if firstClickPoint == plotted[hit] { deletePoint(at: hit) }
+                dragConsumed = true
+                return
+            }
+            firstClickPoint = plotted[hit]
             dragPointIndex = hit
             pendingOptionDelete = fine
             dragAnchor = CurveEditing.DragAnchor(pointX: plotted[hit][0], pointY: plotted[hit][1],
@@ -1039,6 +1047,7 @@ struct CurveEditorView: View {
             dragConsumed = true
             return
         }
+        firstClickPoint = nil
         let plotX: Double = CurveEditing.clamp01(pointerX)
         let curveY: Double = CurveEditing.clamp01(evaluate(plotX))
         let points: [[Double]] = currentPoints

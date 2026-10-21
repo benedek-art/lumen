@@ -113,8 +113,12 @@ extension CurveStack {
     /// a neutral is the one colour whose luma every stage maps by the plotted curve
     /// exactly. RGB curves on a neutral split it into three channels; the luma of that is
     /// what a luma histogram measures, with the same weights `apply` uses.
-    public func neutralTail(_ x: Double, from stage: BackdropStage,
-                            space: RGBColorSpace = .rec2020) -> Double {
+    ///
+    /// `weights` is the luminance weights of the working space, passed in rather than
+    /// read here: `RGBColorSpace.luminanceWeights` derives them from the primaries (a
+    /// matrix inverse) on every read, and the backdrop calls this two thousand times a
+    /// frame — that alone was 2–3.5 ms of every hover frame.
+    public func neutralTail(_ x: Double, from stage: BackdropStage, weights w: RGB) -> Double {
         var v = Num.saturate(x)
         switch stage {
         case .channel(let c):
@@ -125,7 +129,6 @@ extension CurveStack {
         case .luma:
             v = lumaCurve(v)
         }
-        let w = space.luminanceWeights
         return w.r * channelCurve(v, channel: 0) + w.g * channelCurve(v, channel: 1)
             + w.b * channelCurve(v, channel: 2)
     }
