@@ -477,10 +477,12 @@ struct BasicPanel: View {
                         range: -100...100, hardRange: nil, defaultValue: 0,
                         step: 1, decimals: 0,
                         trackStops: Lumen.contrastStops,
-                        help: "Steepens or flattens the picture around the Pivot "
-                            + "below — midtones spread apart or gather while the ends "
-                            + "of the scale stay pinned, so it cannot clip a "
-                            + "highlight.")
+                        help: "Steepens or flattens the midtones around the Pivot "
+                            + "below. The white and black points stay where they are, "
+                            + "so a grey is never pushed past white or black, but "
+                            + "strong settings compress the brightest and darkest "
+                            + "tones and can clip bright saturated colours. It changes "
+                            + "lightness only; colours keep their saturation.")
             // Under Contrast, not behind a chevron of its own. The pivot is the thing
             // Lightroom hides — its Contrast is a fixed S-curve anchored near L≈50 and
             // never documented, ours is a slope around a number the photographer can
@@ -489,12 +491,13 @@ struct BasicPanel: View {
             LumenSlider(title: "Pivot",
                         value: binder.value(\.develop.tone.contrastPivot,
                                             "tone.contrastPivot"),
-                        range: -4...4, hardRange: nil, defaultValue: 0,
+                        range: -3...3, hardRange: -4...4, defaultValue: 0,
                         step: 0.01, decimals: 2,
                         help: "Where Contrast hinges, in stops from mid-grey — the "
                             + "tone it holds still. Raise it to anchor the brights "
                             + "and let contrast work the shadows; lower it for the "
-                            + "reverse.")
+                            + "reverse. With Contrast raised, a raised Pivot darkens "
+                            + "the picture overall and a lowered one brightens it.")
             // AND THE OTHER FIVE STAY PLAIN, which is a decision rather than an
             // omission, so here is both sides of it.
             //

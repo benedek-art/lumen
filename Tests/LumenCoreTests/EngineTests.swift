@@ -568,8 +568,14 @@ final class EngineTests: XCTestCase {
 
     /// And inside the window it does what the slider says: the slope at the pivot is
     /// the slope the control promises.
+    ///
+    /// The values are WS-06's slope law, `log2 σ = 0.96u − 0.17u² + 0.12u³`: 1.879 at
+    /// +100, 1.368 at +50, 0.420 at −100. They were 1.6 / 1.3 / 0.4 under the old linear
+    /// law `1 + 0.6u`, which made −100 about twice as strong as +100 in log-slope; see
+    /// `ToneEngine.contrastSlopeLinear`. `ContrastCurveTests.testContrastSlopeLaw` holds
+    /// the law's bands and its monotonicity in the slider.
     func testContrastHitsItsSlopeAtThePivot() {
-        for (contrast, expected) in [(100.0, 1.6), (50.0, 1.3), (-100.0, 0.4)] {
+        for (contrast, expected) in [(100.0, 1.879), (50.0, 1.368), (-100.0, 0.420)] {
             let e = ToneEngine(tone: Tone(contrast: contrast))
             let slope = (e.contrastMapped(0.05) - e.contrastMapped(-0.05)) / 0.1
             XCTAssertEqual(slope, expected, accuracy: 0.01, "contrast \(contrast)")
