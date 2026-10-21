@@ -10,8 +10,16 @@
 // and the tone gains re-print it. The shipped threshold, 0.375 EV, is the measured
 // knee: halo 0.052 EV, noise σ 0.010 EV, roughly 2x margin to each bar below.
 //
-// Both tests read the REAL constant, so a future edit in either direction turns
-// exactly one of them red with a message naming the failure a photographer would see.
+// WS-07 moved the threshold to 0.12 EV and took the mask's variance from the guide
+// smoothed at half the radius (`ReferenceRenderer.toneMask`). The 4 EV edge was never
+// the hard case: a guided filter halos worst at edges about 2√ε tall, and at 0.375 EV
+// a 1 EV step under the HDR combo got a 0.12 EV counter-ramp a radius wide.
+// `testShadowsDoNotHaloAcrossAModerateEdge` pins that one. The smoothed variance is what
+// lets the threshold drop without the mask following grain, which the noise test
+// still guards, now through the real mask function.
+//
+// Every test reads the REAL constants, so a future edit in either direction turns
+// one of them red with a message naming the failure a photographer would see.
 import XCTest
 @testable import LumenCore
 
@@ -66,10 +74,7 @@ final class ToneMaskEdgeTests: XCTestCase {
         let frame = stepFrame(baseEV: -1, deltaEV: 0, noise: 0.20)
         let luminance = frame.luminancePlane(space: .rec2020)
         let log = luminance.map { LumenLog.encode(Swift.max($0, 0)) }
-        let radius = Swift.max(Int(Double(frame.width) * 0.02), 2)
-        let mask = SpatialOps.exposureIndependentGuidedFilter(
-            luminance: log, radius: radius,
-            epsilon: ReferenceRenderer.toneMaskEpsilon, iterations: 1)
+        let mask = ReferenceRenderer.toneMask(log, longEdge: frame.width)
 
         let y = frame.height / 2
         var mean = 0.0, count = 0.0
@@ -84,7 +89,42 @@ final class ToneMaskEdgeTests: XCTestCase {
         XCTAssertLessThan(sigmaEV, 0.02,
             "the tone mask carries \(sigmaEV) EV of ripple on a flat frame under "
                 + "±0.2 EV noise — the gains will re-print the grain. The naive ÷24² "
-                + "threshold measured 0.090 EV here; over-tightening ε is how that "
-                + "happens.")
+                + "threshold measured 0.090 EV here; over-tightening ε, or measuring "
+                + "the variance on the unsmoothed guide, is how that happens.")
+    }
+
+    /// Shadows +100 on a 1 EV shadow/midtone step, the kind of edge a treeline makes
+    /// against an overcast sky: neither side may carry a ramp toward the edge. This
+    /// is the guided filter's worst case, an edge about 2√ε tall, where `a` sits near
+    /// 0.5 and the mask ramps across the whole window. At the old 0.375 EV threshold
+    /// it measured 0.12 EV here.
+    func testShadowsDoNotHaloAcrossAModerateEdge() {
+        var recipe = Recipe()
+        recipe.develop.tone.shadows = 100
+        recipe.develop.tone.highlights = -100
+        let plan = RenderPlan(recipe: recipe)
+        let frame = stepFrame(baseEV: -2.5, deltaEV: 1)
+        let radius = ReferenceRenderer.toneMaskRadius(longEdge: frame.width)
+        let rendered = ReferenceRenderer.applyTone(frame, plan: plan,
+                                                   longEdge: frame.width,
+                                                   space: .rec2020)
+        let y = frame.height / 2
+        let edge = frame.width / 2
+        func gain(_ x: Int) -> Double {
+            log2(Double(rendered[x, y].g) / Double(frame[x, y].g))
+        }
+        let farDark = gain(8), farBright = gain(frame.width - 8)
+        var haloEV = 0.0
+        for d in 3...(3 * radius) {
+            haloEV = Swift.max(haloEV, abs(gain(edge - 1 - d) - farDark),
+                               abs(gain(edge + d) - farBright))
+        }
+        XCTAssertGreaterThan(farDark - farBright, 0.3,
+            "the frame no longer exercises the mask: the two sides get gains only "
+                + "\(farDark - farBright) EV apart")
+        XCTAssertLessThan(haloEV, 0.06,
+            "Highlights −100 / Shadows +100 put a \(haloEV) EV ramp beside a 1 EV edge "
+                + "within the mask's reach: the glow along a treeline. The 0.375 EV "
+                + "threshold measured 0.12 EV here.")
     }
 }

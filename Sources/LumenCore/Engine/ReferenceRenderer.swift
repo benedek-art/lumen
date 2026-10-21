@@ -211,17 +211,28 @@ public enum ReferenceRenderer {
 
     // MARK: - Stages
 
-    /// The tone mask's contrast threshold: local structure flatter than this many
-    /// stops is one surface and gets one gain; anything steeper is an edge the mask
-    /// must not cross. MEASURED, not chosen (ToneMaskEdgeTests): at the shipped
-    /// ε=0.004 — √0.004 encoded × 24 EV/unit = 1.52 EV, the fifth instance of
-    /// BUILDING.md's units bug — Shadows +100 lifted the bright side of a 4 EV
-    /// shadow/midtone edge by 0.497 EV, a half-stop halo beside every backlit
-    /// subject. The naive ÷24² correction (0.06 EV) fails the other way: at ±0.2 EV
-    /// of high-ISO luminance noise the mask follows the grain at σ 0.090 EV and the
-    /// tone gains re-print it. 0.375 EV is the measured knee — halo 0.052 EV, noise
-    /// σ 0.010 EV — with about 2x margin to each bar.
-    public static let toneMaskContrastThresholdEV: Double = 0.375
+    /// The tone mask's contrast threshold: structure flatter than this many stops is
+    /// one surface and gets one gain; anything steeper is an edge the mask must not
+    /// cross.
+    ///
+    /// It was 0.375 EV and that was the wrong place on the guided filter's own
+    /// trade-off. A guided filter's halo is worst at edges about 2√ε tall, not at the
+    /// hard ones: there `a = var/(var+ε)` sits near 0.5 and the mask ramps across the
+    /// edge over the whole window. Measured at Highlights −100 / Shadows +100 (WS-07,
+    /// `docs/quality/lanes/WS-07`): a 0.75 EV step got a 0.17 EV counter-ramp 34 px
+    /// wide at 1600 px, a 1.5 EV step 0.18 EV, a 3 EV step 0.11 EV — the dark band
+    /// inside an overcast treeline, the glow beside a wall against the sky. The 4 EV
+    /// edge the old number was tuned on is past the bad zone, which is why it looked
+    /// fine (0.052 EV).
+    ///
+    /// 0.375 was held up by grain: on the raw guide a tighter threshold makes the mask
+    /// follow ISO 6400 noise (0.06 EV measured σ 0.090 EV of ripple) and leaf texture,
+    /// and the tone gains re-print both. The mask no longer measures its variance on
+    /// the raw guide (`toneMaskTextureFraction`), so that constraint is gone and the
+    /// threshold can sit where the halo wants it: 0.12 EV halves every step's halo
+    /// (0.08 / 0.04 / 0 / 0 EV at 0.75 / 1.5 / 3 / 5 EV) and ±0.4 EV of noise leaves
+    /// 0.011 EV of ripple, the same as before.
+    public static let toneMaskContrastThresholdEV: Double = 0.12
     /// The threshold CONVERTED to the encoded plane the mask runs on (rule 1 of the
     /// units section in BUILDING.md: write the conversion, not the result).
     public static var toneMaskEpsilon: Double {
@@ -229,14 +240,86 @@ public enum ReferenceRenderer {
         return encoded * encoded
     }
 
+    /// The tone mask's window: 2 % of the long edge, so the preview and the full-size
+    /// export draw the same mask at their own scale (measured, 6929 at 1600 vs 7008 px:
+    /// the tone gain agrees to 0.023 EV mean, the same as a mask with no spatial
+    /// extent at all, i.e. the resampling floor).
+    public static func toneMaskRadius(longEdge: Int) -> Int {
+        Swift.max(Int(Double(longEdge) * 0.02), 2)
+    }
+
+    /// The scale below which structure is TEXTURE, as a fraction of the mask radius.
+    /// The variance that decides "edge or surface" is measured on the guide after two
+    /// box passes of this radius, so leaf texture, grain and fine detail no longer
+    /// count as edges, while a real edge, which spans the window, keeps its variance.
+    ///
+    /// Why it exists: the plain self-guided mask followed foliage texture almost
+    /// pixel for pixel, so Shadows +100 lifted the dark gaps between leaves and filled
+    /// them in. Measured fine-detail retention (1.5 px band, toned / untoned) on six
+    /// corpus photos was 0.77-0.81 against 0.71-0.74 for NO mask at all (a global
+    /// curve): the mask was buying almost none of the local contrast it exists for.
+    /// With the variance measured at half the mask radius the mean over the six is
+    /// 0.93 against 0.91 before, at half the halo.
+    ///
+    /// Only the variance is taken from the smoothed guide. The mask is still
+    /// `mean(a)·I + mean(b)` on the unsmoothed log luminance, so an edge the mask
+    /// keeps is kept at full sharpness.
+    public static let toneMaskTextureFraction: Double = 0.5
+
+    public static func toneMaskTextureRadius(maskRadius: Int) -> Int {
+        Swift.max(Int((Double(maskRadius) * toneMaskTextureFraction).rounded()), 1)
+    }
+
+    /// The S7 mask: log luminance smoothed within surfaces and held at edges.
+    ///
+    /// A self-guided filter whose coefficients come from the guide smoothed at the
+    /// texture scale (above) and are applied to the unsmoothed log luminance —
+    /// `RenderGraph.guidedFilter(input: lum, guide: structure)` on the GPU, step for
+    /// step. Plain `box(S²) − box(S)²` for the variance, as before: the GPU holds it in
+    /// fp16, where that difference carries an error near ε, but where the variance is
+    /// that small the mask is within a quantum of `I` whatever `a` comes out as.
+    /// Simulated in fp16 against f64: 0.019 EV worst on a smooth ramp, +0.02 EV on a
+    /// 0.75 EV step. A centred variance, `box((S − box(S))²)`, avoids the cancellation
+    /// but measures a third of the variance at an edge and spreads it over twice the
+    /// width; it haloed worse at every threshold tried (0.13 EV at 0.75 EV for the same
+    /// detail), so the precision fix would have cost more than it bought.
+    public static func toneMask(_ log: Plane, longEdge: Int) -> Plane {
+        let radius = toneMaskRadius(longEdge: longEdge)
+        let textureRadius = toneMaskTextureRadius(maskRadius: radius)
+        let eps = toneMaskEpsilon
+        let structure = SpatialOps.boxBlur(SpatialOps.boxBlur(log, radius: textureRadius),
+                                           radius: textureRadius)
+        let mean = SpatialOps.boxBlur(structure, radius: radius)
+        let correlation = SpatialOps.boxBlur(structure.zip(structure) { $0 * $1 },
+                                             radius: radius)
+        var a = Plane(width: log.width, height: log.height)
+        var b = Plane(width: log.width, height: log.height)
+        for y in 0..<log.height {
+            for x in 0..<log.width {
+                let m = mean[x, y]
+                // f32 round-trip can push a near-zero variance slightly negative.
+                let v = Swift.max(correlation[x, y] - m * m, 0)
+                let av = v / (v + eps)
+                a[x, y] = av
+                b[x, y] = m * (1 - av)
+            }
+        }
+        let meanA = SpatialOps.boxBlur(a, radius: radius)
+        let meanB = SpatialOps.boxBlur(b, radius: radius)
+        var mask = Plane(width: log.width, height: log.height)
+        for y in 0..<log.height {
+            for x in 0..<log.width {
+                mask[x, y] = meanA[x, y] * log[x, y] + meanB[x, y]
+            }
+        }
+        return mask
+    }
+
     static func applyTone(_ image: ImageBuffer, plan: RenderPlan, longEdge: Int,
                           space: RGBColorSpace) -> ImageBuffer {
         let luminance = image.luminancePlane(space: space)
         let log = luminance.map { LumenLog.encode(Swift.max($0, 0)) }
-        let radius = Swift.max(Int(Double(longEdge) * 0.02), 2)
-        let mask = SpatialOps.exposureIndependentGuidedFilter(
-            luminance: log, radius: radius, epsilon: Self.toneMaskEpsilon,
-            iterations: 1)
+        let mask = toneMask(log, longEdge: longEdge)
 
         var out = image
         let lut = plan.toneGainLUT
