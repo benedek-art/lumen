@@ -29,6 +29,11 @@
 //
 //   lumen-render keys   [--base recipe.json] [--json]
 //
+//   lumen-render upright --input in.lfi [--long-edge 1024] [--modes level,vertical,full,auto]
+//                       [--out-dir dir]
+//                       (Upright: detected lines, each mode's solve, residual tilt before
+//                        and after — carried through the map and re-detected)
+//
 //   lumen-render synth  --out test.lfi [--width 960 --height 540]
 //                       (the same test frame scripts/proof/make_test_lfi.py writes,
 //                        for machines without numpy)
@@ -41,6 +46,9 @@
 //     --no-dither          skip the 8-bit ordered dither the preview/export apply
 //     --lut-size N         finish/grade table size (default 33 = the app's interactive
 //                          size; 65 = export size)
+//     --resampler F        S16's filter: lanczos3 (the stage, default), bicubic or
+//                          bilinear (what Core Image's transform sampled with) — for
+//                          comparison sheets only
 //
 // KEY PATHS are the recipe's JSON spelling, dotted: `develop.tone.exposure`,
 // `look.wheels.shadows.hue`, `develop.mixer.bands.3.sat` (numeric segments index
@@ -101,9 +109,13 @@
 //      Display P3) matrix, clamp to [0,1], sRGB transfer, round(v × 255). That is
 //      `PipelineRenderer.cgImage(from:)` plus the dither the preview and export apply.
 //
+//   4b. S16 geometry (`GeometryStage`: crop, straighten, flip, Upright, one Lanczos-3
+//      resample), after the render and before the encode, as renderReference runs it.
+//      An automatic Upright mode with no stored lines is solved from
+//      `UprightDetector.detect` on the input, as the app does when the mode is picked;
+//
 // Not rendered (no input for them): brush-stroke masks (no stroke blobs), AI mattes
-// (no Vision), heal strokes, creative LUT cubes not on the shared shelf, geometry
-// (crop/straighten/upright — the reference path has no geometry stage, GEO-17), lens
+// (no Vision), heal strokes, creative LUT cubes not on the shared shelf, lens
 // corrections and the RAW-domain stages before S3.
 //
 // METRICS (JSON, written with --metrics). All are computed on the encoded output BEFORE

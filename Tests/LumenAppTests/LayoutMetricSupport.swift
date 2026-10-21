@@ -418,7 +418,7 @@ enum SliderInventory {
     /// Heal tool's Size, Feather and Opacity (a new host, `healBar`), the Looks LUT's
     /// Amount, and the export sheet's sequence Start at. 103 → 106 for the export
     /// sheet's Percent, Width and Height (the percentage and box resize modes).
-    static let callSiteCount = 106
+    static let callSiteCount = 107
 
     /// Every slider the app ships, resolved through its builder where the call site is
     /// a helper rather than a literal — `MaskPanel.adjustSlider`, `LookPanel.bipolarSlider`,
@@ -470,6 +470,23 @@ enum SliderInventory {
         // Crop.
         SliderSpec("Angle", "CropPanel.swift:361", .developTop, -45...45,
                    step: 0.1, decimals: 1),
+        // Crop ▸ Transform (WS-25): one builder, `CropTransformSection.slider`, inside
+        // the Transform fold.
+        SliderSpec("Amount", "CropTransformSection.swift:178", .developDisclosure, 0...100, step: 1),
+        SliderSpec("Vertical", "CropTransformSection.swift:178", .developDisclosure, -100...100,
+                   step: 1),
+        SliderSpec("Horizontal", "CropTransformSection.swift:178", .developDisclosure,
+                   -100...100, step: 1),
+        SliderSpec("Rotate", "CropTransformSection.swift:178", .developDisclosure, -10...10,
+                   step: 0.1, decimals: 1),
+        SliderSpec("Aspect", "CropTransformSection.swift:178", .developDisclosure, -100...100,
+                   step: 1),
+        SliderSpec("Scale", "CropTransformSection.swift:178", .developDisclosure, 50...150,
+                   step: 1),
+        SliderSpec("X Offset", "CropTransformSection.swift:178", .developDisclosure,
+                   -100...100, step: 1),
+        SliderSpec("Y Offset", "CropTransformSection.swift:178", .developDisclosure,
+                   -100...100, step: 1),
 
         // Curve — the four parametric regions, all one shape.
         SliderSpec("Highlights", "CurveEditorView.swift:651", .developTop, -100...100, step: 1),

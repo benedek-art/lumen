@@ -253,6 +253,20 @@ final class PanelSnapshotTests: XCTestCase {
                               width: viewer.width, height: viewer.height) {
             SnapshotMaskOverlay(image: sample, overlay: overlay, container: viewer)
         }
+
+        // WS-25: the Crop section with its Transform fold opened, Upright Vertical
+        // chosen and a manual tilt, so the mode row's dot and the moved sliders show.
+        state.updateRecipe { r in
+            r.develop.geometry.upright = Upright(vertical: -18, aspect: 6, mode: .vertical)
+        }
+        await recorder.settle(0.3)
+        await recorder.render("panel-crop-transform-open",
+                              "Crop ▸ Transform fold opened, Upright Vertical",
+                              width: width) {
+            SnapshotSectionCard(.frame, isModified: recorder.isModified(.frame)) {
+                CropTransformSection(initiallyExpanded: true)
+            }
+        }
     }
 
     // MARK: - The whole window, against a scanned folder

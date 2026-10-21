@@ -2635,24 +2635,32 @@ public final class PipelineRenderer {
         return mean.isFinite ? mean : nil
     }
 
+    /// The straight lines Upright's automatic modes solve from (`UprightDetector`), found
+    /// once when a mode is chosen and stored in the recipe, so every later render — CPU
+    /// or GPU, proxy or export — solves the same homography. Read off the DECODE at the
+    /// detector's analysis size: the lines are a property of the scene, and no slider
+    /// downstream of the decode should be able to move them.
+    public func uprightSegments(source: any ImageSource, recipe: Recipe) -> [Upright.Segment]? {
+        let native = source.nativeLongEdge
+        let scale = native > 0
+            ? Swift.min(1.0, Double(UprightDetector.analysisLongEdge) / native) : 1.0
+        guard let decoded = source.decode(recipe: recipe, draft: true, scaleFactor: scale),
+              let buffer = Self.buffer(from: decoded, context: context) else { return nil }
+        return UprightDetector.detect(buffer)
+    }
+
     public static func sourceNormalized(displayedX u: Double, displayedY v: Double,
                                         geometry: Geometry,
                                         sourceSize: CGSize) -> CGPoint {
         guard sourceSize.width > 0, sourceSize.height > 0 else { return .zero }
-        let (orientation, _, target) = geometryRects(geometry, sourceSize: sourceSize)
-        guard target.width > 0, target.height > 0 else { return .zero }
-
-        // Into the straightened frame's coordinates. Core Image extents are bottom-up
-        // and `v` arrives top-down, so the y term flips.
-        let point = CGPoint(x: target.minX + CGFloat(u) * target.width,
-                            y: target.maxY - CGFloat(v) * target.height)
-
-        let inSource = orientation.isIdentity
-            ? point
-            : point.applying(orientation.inverted())
-
-        return CGPoint(x: inSource.x / sourceSize.width,
-                       y: 1 - inSource.y / sourceSize.height)
+        // `GeometryMap` is the inverse of what `applyGeometry` renders, Upright included:
+        // one definition, in LumenCore, checked against `geometryRects` in
+        // GeometryGPUParityTests rather than re-derived beside it.
+        let map = GeometryMap(geometry: geometry, sourceWidth: Int(sourceSize.width.rounded()),
+                              sourceHeight: Int(sourceSize.height.rounded()))
+        guard map.targetWidth > 0, map.targetHeight > 0 else { return .zero }
+        let s = map.sourceNormalized(displayedX: u, displayedY: v)
+        return CGPoint(x: s.x, y: s.y)
     }
 
     /// The exact inverse of `sourceNormalized`: where a stored source-normalized point
@@ -2662,15 +2670,11 @@ public final class PipelineRenderer {
                                            geometry: Geometry,
                                            sourceSize: CGSize) -> CGPoint {
         guard sourceSize.width > 0, sourceSize.height > 0 else { return .zero }
-        let (orientation, _, target) = geometryRects(geometry, sourceSize: sourceSize)
-        guard target.width > 0, target.height > 0 else { return .zero }
-
-        let inSource = CGPoint(x: CGFloat(nx) * sourceSize.width,
-                               y: (1 - CGFloat(ny)) * sourceSize.height)
-        let point = orientation.isIdentity ? inSource : inSource.applying(orientation)
-
-        return CGPoint(x: (point.x - target.minX) / target.width,
-                       y: (target.maxY - point.y) / target.height)
+        let map = GeometryMap(geometry: geometry, sourceWidth: Int(sourceSize.width.rounded()),
+                              sourceHeight: Int(sourceSize.height.rounded()))
+        guard map.targetWidth > 0, map.targetHeight > 0 else { return .zero }
+        let d = map.displayedNormalized(sourceX: nx, sourceY: ny)
+        return CGPoint(x: d.x, y: d.y)
     }
 
     /// How many displayed pixels one source pixel covers, along the long edge.
@@ -2684,7 +2688,11 @@ public final class PipelineRenderer {
         let (_, _, target) = geometryRects(geo, sourceSize: sourceSize)
         let targetLong = Swift.max(target.width, target.height)
         guard targetLong > 0 else { return 1 }
-        return displayedLongEdge / targetLong
+        // Upright's fill zoom magnifies the source on top of the crop; at the frame's
+        // centre one source pixel spans 1/minification straightened pixels.
+        let map = GeometryMap(geometry: geo, sourceWidth: Int(sourceSize.width.rounded()),
+                              sourceHeight: Int(sourceSize.height.rounded()))
+        return displayedLongEdge / targetLong / CGFloat(map.minification)
     }
 
     /// `allowUpscale` exists because `scale` was `min(1, …)` unconditionally, which
@@ -2705,65 +2713,48 @@ public final class PipelineRenderer {
                               scaleTo maxLongEdge: Int? = nil,
                               allowUpscale: Bool = false,
                               skipCrop: Bool = false) -> CIImage {
-        let geo = recipe.develop.geometry
         var out = image
 
-        // `geometryRects` works in a zero-origin frame, and both the rotation and the
-        // scale below are about the ORIGIN rather than the image's centre — so an image
-        // arriving at a non-zero origin would have its crop offset by exactly that
-        // origin. Making the assumption true costs nothing when it already is, and the
-        // function ends by re-normalizing anyway.
+        // `GeometryMap` works in a zero-origin frame. Making the assumption true costs
+        // nothing when it already is.
         if out.extent.origin != .zero {
             out = out.transformed(by: CGAffineTransform(translationX: -out.extent.origin.x,
                                                         y: -out.extent.origin.y))
         }
+        guard !out.extent.isInfinite, out.extent.width >= 1, out.extent.height >= 1 else {
+            return out
+        }
 
-        // The frame the crop is a fraction of is `CropGeometry`'s INSCRIBED rectangle,
-        // not the rotated frame's bounding box.
+        // ONE map and ONE resample, defined in LumenCore (`GeometryMap`,
+        // `GeometryResample`) and evaluated here by its kernel twin. The frame the crop
+        // is a fraction of is still `CropGeometry`'s inscribed rectangle — the map is
+        // built from `CropGeometry.resolve`, as `geometryRects` is.
         //
-        // It was `out.extent.applying(orientation)`, which returns the axis-aligned
-        // bounding box of the transformed rectangle — strictly larger than the picture,
-        // 12% larger in area for a 3:2 frame at 5°. The crop was a fraction of that, so
-        // the default crop of the whole frame on a straightened photograph included the
-        // four empty wedges rotation leaves behind, and nothing in the repository
-        // computed an inscribed rectangle to save it.
-        //
-        // The arithmetic is in LumenCore so it can be tested from a machine with no
-        // renderer, which is also why this file could carry the bug: it is `#if
-        // os(macOS)` and had no test of any kind.
-        var effective = geo
-        if skipCrop { effective.crop = Crop() }
-        // ONE definition, shared with the inverse the mask tools invert. `geometryRects`
-        // was factored out for exactly that reason and `applyGeometry` still carried its
-        // own copy of the arithmetic, so the two had already drifted — the comment on it
-        // says "rather than a second copy of it that can drift" above a second copy.
-        let rects = geometryRects(effective, sourceSize: out.extent.size)
-        let orientation = rects.orientation
-        let target = rects.target
-        var scale: CGFloat = 1
-        if let maxLongEdge {
-            let long = Swift.max(target.width, target.height)
-            if long > 0 {
-                let wanted = CGFloat(maxLongEdge) / long
-                scale = allowUpscale ? wanted : Swift.min(1, wanted)
-            }
-        }
+        // This was `out.transformed(by: orientation)`, which resamples through Core
+        // Image's default BILINEAR sampler (MTF 0.81 at 0.25 cy/px), followed — when a
+        // size was asked for — by a second, Lanczos resample. Two low-pass filters, the
+        // first of them soft, under a comment promising one. The CPU reference had no
+        // geometry at all, so nothing could say so.
+        let map = GeometryMap(geometry: recipe.develop.geometry,
+                              sourceWidth: Int(out.extent.width.rounded()),
+                              sourceHeight: Int(out.extent.height.rounded()),
+                              targetLongEdge: maxLongEdge, allowUpscale: allowUpscale,
+                              skipCrop: skipCrop)
+        if map.isIdentity { return out }
+        if let resampled = GeometryKernels.apply(out, map: map) { return resampled }
 
-        let combined = orientation.concatenating(
-            CGAffineTransform(scaleX: scale, y: scale))
-        if !combined.isIdentity {
-            out = abs(scale - 1) > 0.0001
-                ? scaled(out.transformed(by: orientation), by: scale)
-                : out.transformed(by: combined)
-        }
-
-        let scaledTarget = target.applying(CGAffineTransform(scaleX: scale, y: scale))
-        let clipped = scaledTarget.intersection(out.extent)
-        if !clipped.isNull, clipped.width >= 1, clipped.height >= 1 {
-            out = out.cropped(to: clipped)
-        }
-        return out.transformed(by: CGAffineTransform(
-            translationX: -out.extent.origin.x, y: -out.extent.origin.y))
+        // The kernels did not compile. Core Image's own transform keeps the framing
+        // right at the old, softer sampling, rather than delivering an uncropped frame.
+        // (`GeometryKernels.unavailable` names them; the roster is WS-58's, NEEDS.md.)
+        let m = map.outputToSource
+        let fOut = Homography(1, 0, 0, 0, -1, Double(map.outputHeight), 0, 0, 1)
+        let fSrc = Homography(1, 0, 0, 0, -1, out.extent.height, 0, 0, 1)
+        guard let forward = (fSrc * m * fOut).inverse, abs(forward.m6) < 1e-12,
+              abs(forward.m7) < 1e-12 else { return out }
+        let affine = CGAffineTransform(a: forward.m0, b: forward.m3, c: forward.m1,
+                                       d: forward.m4, tx: forward.m2, ty: forward.m5)
+        return out.clampedToExtent().transformed(by: affine)
+            .cropped(to: CGRect(x: 0, y: 0, width: map.outputWidth, height: map.outputHeight))
     }
 
     // MARK: - Resampling
@@ -2980,7 +2971,10 @@ public final class PipelineRenderer {
             // renders a different picture from the one the user was looking at.
             inputs: ReferenceRenderer.Inputs(strokeSets: strokeSets,
                                              aiMattes: mattes[source.url]?.planes ?? [:]))
-        guard let cgImage = Self.cgImage(from: rendered) else {
+        // S16 (WS-25): the CPU twin of `applyGeometry`, same map, same Lanczos-3 chain.
+        let framed = GeometryStage.apply(rendered, geometry: recipe.develop.geometry,
+                                         targetLongEdge: maxLongEdge)
+        guard let cgImage = Self.cgImage(from: framed) else {
             throw RenderError.renderFailed
         }
         return cgImage
