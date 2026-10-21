@@ -12,7 +12,8 @@ BIN = os.environ.get("LUMEN_RENDER", LUMEN + "/.build/x86_64-unknown-linux-gnu/r
 
 def as_shot(case):
     frame = {"983": "983_canon-eos-5d-mark-iv", "1840": "1840_nikon-d850",
-             "6929": "6929_sony-ilce-7m4"}.get(case.split("-")[0])
+             "6929": "6929_sony-ilce-7m4", "6933": "6933_sony-ilce-7m4",
+             "1192": "1192_fujifilm-x-t10"}.get(case.split("-")[0])
     if not frame:
         return []
     side = json.load(open(f"{LUMEN}/corpus/lfi/{frame}.json")).get("recipe_hint", {})

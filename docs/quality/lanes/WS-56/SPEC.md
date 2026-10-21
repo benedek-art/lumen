@@ -53,3 +53,20 @@ python3 docs/quality/lanes/WS-56/tools/heal_sheet.py <dir> <out.png> [case...]  
 - V1 `evidence/spots-sky.png`: at 3× zoom no healed sky dust is findable: no disc, no ring, no smoothed grain.
 - V2 `evidence/spots-texture.png`: no healed foliage, ivy or wall spot pastes a second defect (pit, sky hole) or leaves a ring of the original speck.
 - V3 `evidence/strokes.png`: a wire across the wall and its window heals without a copied window edge.
+
+## Round 2 amendments (after the first verifier FAIL)
+
+Added after verification, not before; the original lines above are unchanged and are
+still reported against.
+
+| # | claim | threshold | measured by |
+|---|---|---|---|
+| S12 | Dust auto-detect on a high-ISO sky (3.5 % pixel noise) still finds clear specks (30 %) and invents none | 3/3, 0 on the clean frame | `DustDetectionTests.testANoisySkyStillGivesUpItsDust` |
+| C3b | Spots straddling an object edge (6933 leaf/branch/trunk, 1192 mound: the verifier's grid) | ΔE ≤ natural, reported per case; judged by eye on `evidence/spots-edges.png` | evidence run |
+| C6 | Remove Dust on clean corpus frames (983, 1840, 6929, 6933, GX85 2545, R5 4694, R5 II 7881, D7200 832, Z6 3582, X-T10 1192) | ≤ 3 false detections in total | evidence run (`dust.txt`) |
+
+C3b is split out of C3 because the verifier showed that on these cases a lower ΔE
+against the truth can come with a WORSE picture (a pasted second branch, a pasted
+striped object): mean colour does not see foreign structure, so these are judged by
+eye, and the report says plainly that patch-copy heal cannot continue a trunk or an
+edge (Lightroom sends that job to its generative Remove).

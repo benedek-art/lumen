@@ -316,14 +316,16 @@ public enum SpotSourceSearch {
             }
             self.ringOffsets = ring
             // A grid a sixteenth of the radius apart (1.5 px at the working size) over
-            // the disc: dense enough that a pit or a speck two pixels across lands on a
-            // sample, because the outlier term below can only charge what it sees.
+            // the WHOLE disc, because the patch borrows out to the reach (a wall pit near
+            // the edge was pasted when the grid stopped at 0.95): dense enough that a pit
+            // or a speck two pixels across lands on a sample, because the outlier term
+            // below can only charge what it sees.
             var interior: [(Double, Double)] = []
             let n = Self.interiorGrid
             for j in -n...n {
                 for i in -n...n {
                     let u = Double(i) / Double(n), v = Double(j) / Double(n)
-                    guard u * u + v * v < 0.95 * 0.95 else { continue }
+                    guard u * u + v * v <= 1 else { continue }
                     interior.append((u * radius, v * radius))
                 }
             }
@@ -466,3 +468,4 @@ public enum SpotSourceSearch {
         }
     }
 }
+

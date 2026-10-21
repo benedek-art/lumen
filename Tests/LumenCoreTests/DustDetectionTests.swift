@@ -50,6 +50,22 @@ final class DustDetectionTests: XCTestCase {
         XCTAssertEqual(DustDetection.find(in: edge).count, 0)
     }
 
+    /// A noisy, high-ISO sky (3.5 % per-pixel noise at the working size) still gives up
+    /// its clear specks, and invents none.
+    func testANoisySkyStillGivesUpItsDust() {
+        let clean = HealQuality.sky(width: 600, height: 400, noise: 0.006)
+        var dusty = clean
+        let specks: [(Double, Double, Double)] = [(150, 120, 8), (420, 100, 12), (300, 300, 6)]
+        for s in specks { dusty = HealQuality.addDust(dusty, cx: s.0, cy: s.1, radius: s.2, depth: 0.3) }
+        let found = DustDetection.find(in: dusty)
+        for s in specks {
+            XCTAssertTrue(found.contains { hypot($0.x - s.0, $0.y - s.1) < s.2 },
+                          "missed the speck at (\(s.0), \(s.1)) on a noisy sky")
+        }
+        XCTAssertLessThanOrEqual(found.count, specks.count)
+        XCTAssertEqual(DustDetection.find(in: clean).count, 0)
+    }
+
     func testSensitivityFindsFainterDust() {
         let clean = HealQuality.sky(width: 300, height: 200, noise: 0.003)
         let faint = HealQuality.addDust(clean, cx: 150, cy: 100, radius: 8, depth: 0.05)
@@ -115,6 +131,12 @@ final class DustDetectionTests: XCTestCase {
               (1200, 1200, 8, 0.25)]),
             ("lfi/6929_sony-ilce-7m4.lfi", []),
             ("lfi/2545_panasonic-dmc-gx85.lfi", []),
+            ("lfi/4694_canon-eos-r5.lfi", []),
+            ("lfi/832_nikon-d7200.lfi", []),
+            ("lfi/6933_sony-ilce-7m4.lfi", []),
+            ("lfi/7881_canon-eos-r5-mark-ii.lfi", []),
+            ("lfi/3582_nikon-z-6.lfi", []),
+            ("lfi/1192_fujifilm-x-t10.lfi", []),
         ]
         var lines: [String] = []
         for (frame, specks) in frames {

@@ -19,6 +19,9 @@
 //     than each of the annulus's four quadrants by 60 % of its depth (round, not an
 //     edge or a line), no deeper than `maximumDepth` and SOFT (`softness`): dust is
 //     an out-of-focus shadow, and a dark thing with a hard rim is the photograph;
+//   · and the picture around it smooth over a WIDE window too (`maximumWideSigma`, on
+//     a band-pass plane): a surface whose marks merely look like dust between them —
+//     a speckled bowl, ridged wallpaper, plaster — is not searched;
 //   · candidates are kept best-first across scales, a weaker one dropped when it lies
 //     within the stronger one's radius.
 //
@@ -65,6 +68,15 @@ public enum DustDetection {
     /// skin, plaster. Beyond it the picture is texture, and a dark blob in texture is
     /// a leaf's shadow.
     public static let maximumSurroundSigma: Double = 0.08
+    /// The roughness limit over a WIDE window (`wideRadius` px or twice the annulus,
+    /// the speck and its halo left out), measured on the band-pass plane so neither a
+    /// gradient nor pixel noise is roughness: sky and skin are smooth across it; a
+    /// mottled bowl, a ridged wallpaper or a plaster wall is smooth only between its
+    /// marks, and its marks are not dust. 0.012 stops, measured on 10 corpus frames:
+    /// false detections 107 → 2; 8 of 9 planted sky specks found (the ninth sits 30 px
+    /// from a mountain's soft edge, which the wide window sees).
+    public static let maximumWideSigma: Double = 0.012
+    public static let wideRadius = 40
     /// Heal radius per unit of the scale it was found at.
     public static let radiusPerScale: Double = 4
     /// At most this many specks, deepest-scored first.
@@ -87,6 +99,20 @@ public enum DustDetection {
         let s = Num.clamp(sensitivity.isFinite ? sensitivity : 50, 0, 100) / 100
         let gain = pow(2, 1 - 2 * s)   // 2 at 0, 1 at 50, 0.5 at 100
         let sat = SummedArea(luma, w, h)
+        // The wide-window roughness is measured on a BAND-PASS plane (2 px box mean less
+        // 6 px box mean, Visualize Spots' filter): a sky's gradient is not roughness (a
+        // plain variance over 80 px lost every speck on 983's sky), and neither is its
+        // pixel noise, which the 5×5 mean averages away (a high-pass kept it, and lost
+        // every speck on a high-ISO sky) — what is left is marks: a mottled bowl, a
+        // ridged wallpaper, pits in plaster.
+        var detail = [Double](repeating: 0, count: w * h)
+        for y in 0..<h {
+            for x in 0..<w {
+                detail[y * w + x] = sat.mean(x - 2, y - 2, x + 2, y + 2)
+                    - sat.mean(x - 6, y - 6, x + 6, y + 6)
+            }
+        }
+        let detailSAT = SummedArea(detail, w, h)
 
         var found: [Speck] = []
         for r in scales {
@@ -115,6 +141,18 @@ public enum DustDetection {
                     let v = response[y * w + x]
                     let threshold = limit[y * w + x]
                     guard -v > threshold, -v <= maximumDepth else { continue }
+                    // Smooth over a wide window too, the speck and its halo left out:
+                    // the band-pass of a speck's own soft edge reaches past 2r, and
+                    // counted it as roughness against itself (983's 14 px speck).
+                    let wr = Swift.max(wideRadius, 2 * ro)
+                    let (wSum, wSq, wN) = detailSAT.sums(x - wr, y - wr, x + wr, y + wr)
+                    let (iSum, iSq, iN) = detailSAT.sums(x - ro, y - ro, x + ro, y + ro)
+                    let wideN = wN - iN
+                    if wideN > 0 {
+                        let wideMean = (wSum - iSum) / wideN
+                        let wideVar = Swift.max((wSq - iSq) / wideN - wideMean * wideMean, 0)
+                        guard wideVar.squareRoot() <= maximumWideSigma else { continue }
+                    }
                     var isMinimum = true
                     for dy in -1...1 where isMinimum {
                         for dx in -1...1 where !(dx == 0 && dy == 0) {

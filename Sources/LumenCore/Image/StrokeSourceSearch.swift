@@ -221,12 +221,13 @@ public enum StrokeSourceSearch {
                 let nx = len > 1e-12 ? -(b.y - a.y) / len : 0
                 let ny = len > 1e-12 ? (b.x - a.x) / len : 1
                 let v = vertices[i]
-                // Across the tube every eighth of a radius, and half a vertex spacing
+                // Across the WHOLE tube every eighth of a radius (the spot's full-disc
+                // rule), and half a vertex spacing
                 // along it too, so a two-pixel pit in a source is seen (the outlier term
                 // in `SpotSourceSearch.Scorer.contextCost`).
                 let ta = StrokeHeal.Point(ny, -nx)
                 for along in [0.0, 0.25] {
-                    for step in -7...7 {
+                    for step in -8...8 {
                         let c = Double(step) / 8 * radius
                         interior.append(StrokeHeal.Point(v.x + c * nx + along * radius * ta.x,
                                                          v.y + c * ny + along * radius * ta.y))

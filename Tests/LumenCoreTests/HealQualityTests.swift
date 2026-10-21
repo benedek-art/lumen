@@ -68,6 +68,10 @@ final class HealQualityTests: XCTestCase {
         Case(name: "6929-foliage-speck", frame: "lfi/6929_sony-ilce-7m4.lfi", defect: "speck", cx: 600, cy: 400, radius: 14),
         Case(name: "6929-foliage-dust", frame: "lfi/6929_sony-ilce-7m4.lfi", defect: "dust", cx: 1800, cy: 600, radius: 18),
         Case(name: "6929-ivy-speck", frame: "lfi/6929_sony-ilce-7m4.lfi", defect: "speck", cx: 500, cy: 840, radius: 12),
+        Case(name: "6933-leaf-dust", frame: "lfi/6933_sony-ilce-7m4.lfi", defect: "dust", cx: 480, cy: 240, radius: 16),
+        Case(name: "6933-branch-dust", frame: "lfi/6933_sony-ilce-7m4.lfi", defect: "dust", cx: 1200, cy: 160, radius: 16),
+        Case(name: "6933-trunk-dust", frame: "lfi/6933_sony-ilce-7m4.lfi", defect: "dust", cx: 1440, cy: 800, radius: 16),
+        Case(name: "1192-mound-dust", frame: "lfi/1192_fujifilm-x-t10.lfi", defect: "dust", cx: 720, cy: 959, radius: 16),
         Case(name: "6929-wall-dust", frame: "lfi/6929_sony-ilce-7m4.lfi", defect: "dust", cx: 400, cy: 1300, radius: 16),
     ]
 

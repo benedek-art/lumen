@@ -58,6 +58,8 @@ final class HealTool: ObservableObject {
     @Published var selectedStrokeIndex: Int?
     /// A Remove Dust search is running.
     @Published var findingDust: Bool = false
+    /// That search, so pressing the button again stops it.
+    var dustTask: Task<Void, Never>?
 }
 
 // MARK: - Verbs
@@ -295,14 +297,28 @@ extension AppState {
 
     /// A drag of a painted stroke's dashed source: the stroke at `index` becomes
     /// `stroke` (only its offset differs — `StrokeHandles.draggedSource`). One undo step
-    /// per drag; the blob is written on every event, as a spot drag writes its recipe.
-    func dragHealStrokeSource(index: Int, to stroke: BrushStroke, dragID: String) {
+    /// per drag. While the drag runs the set lives only in the session's stroke cache,
+    /// under the reference its bytes WILL have, so the preview follows the pointer with
+    /// no disk write per event; the bytes go to the blob store once, when it ends
+    /// (`writeHealStrokes`' order: bytes before the final reference).
+    func dragHealStrokeSource(index: Int, to stroke: BrushStroke, dragID: String,
+                              finished: Bool) {
         guard let photo = primarySelection else { return }
         var set = BrushStrokeSet(strokes: primaryHealStrokes)
         guard set.strokes.indices.contains(index) else { return }
         set.strokes[index] = stroke
-        writeHealStrokes(set, coalescingKey: "heal.stroke.source.\(dragID)",
-                         label: "Move Stroke Source", on: photo)
+        let key = "heal.stroke.source.\(dragID)"
+        if finished {
+            writeHealStrokes(set, coalescingKey: key, label: "Move Stroke Source", on: photo)
+            return
+        }
+        guard let payload = try? set.encode() else { return }
+        let ref = BrushStrokeSet.blobRef(for: payload)
+        remember(set, ref: ref)
+        updateRecipe(coalescingKey: key, label: "Move Stroke Source", targets: [photo]) { _, r in
+            r.develop.heal.strokesRef = ref
+            r.develop.heal.count = set.strokes.count
+        }
     }
 
     /// Remove Dust: every speck `DustDetection` finds on the primary photograph gets a
@@ -312,25 +328,57 @@ extension AppState {
     /// what the search looks for.
     func removeDust() {
         let tool = HealTool.shared
-        guard let photo = primarySelection, !tool.findingDust else { return }
+        if tool.findingDust {
+            tool.dustTask?.cancel()
+            return
+        }
+        guard let photo = primarySelection, let size = sourceFrameSize else { return }
         tool.findingDust = true
         let url = photo.id
         let current = recipe(for: photo)
         let mode = tool.mode
         let sensitivity = tool.visualizeThreshold
-        guard let size = sourceFrameSize else {
-            tool.findingDust = false
-            return
-        }
         let width = Int(size.width.rounded()), height = Int(size.height.rounded())
-        Task {
-            let spots = await renderCoordinator.dustSpots(url: url, recipe: current,
-                                                          mode: mode,
-                                                          sensitivity: sensitivity,
-                                                          sourceWidth: width,
-                                                          sourceHeight: height)
-            tool.findingDust = false
-            guard primarySelection?.id == url else { return }
+        tool.dustTask = Task {
+            defer {
+                tool.findingDust = false
+                tool.dustTask = nil
+            }
+            // Windows from the render actor one at a time; the detector off the main
+            // actor; then one source search per speck, each its own actor call.
+            var windows: [(specks: [DustDetection.Speck], window: SpotSourceSearch.Window,
+                           bufferWidth: Int, bufferHeight: Int)] = []
+            for probe in DustDetection.probes(sourceWidth: width, sourceHeight: height) {
+                guard !Task.isCancelled else { return }
+                guard let cut = await renderCoordinator.dustWindow(url: url, recipe: current,
+                                                                   probe: probe)
+                else { continue }
+                let specks = await Task.detached(priority: .userInitiated) {
+                    DustDetection.find(in: cut.buffer, sensitivity: sensitivity)
+                }.value
+                windows.append((specks, cut.window, cut.buffer.width, cut.buffer.height))
+            }
+            let existing = current.develop.heal.spots
+            let edge = Double(Swift.max(width, height))
+            var spots: [HealSpot] = []
+            for speck in DustDetection.merge(windows, sourceWidth: width, sourceHeight: height) {
+                guard !Task.isCancelled else { return }
+                let taken = (existing + spots).contains {
+                    hypot(($0.x - speck.x) * Double(width), ($0.y - speck.y) * Double(height))
+                        < ($0.radius + speck.radius) * edge * 0.5
+                }
+                guard !taken else { continue }
+                var spot = HealSpot(mode: mode, x: speck.x, y: speck.y, sourceX: speck.x,
+                                    sourceY: speck.y, radius: speck.radius)
+                let provisional = SpotHandles.provisionalSource(for: spot, sourceWidth: width,
+                                                                sourceHeight: height)
+                let found = await renderCoordinator.healAutoSource(
+                    url: url, recipe: current, spot: spot, priorSpots: existing + spots)
+                spot.sourceX = found?.x ?? provisional.x
+                spot.sourceY = found?.y ?? provisional.y
+                spots.append(spot)
+            }
+            guard !Task.isCancelled, primarySelection?.id == url else { return }
             guard !spots.isEmpty else {
                 statusMessage = "No dust found on smooth areas"
                 return
@@ -473,7 +521,7 @@ struct HealCanvas: View {
                         to: StrokeHandles.draggedSource(sg.origin,
                                                         dx: Double(now.x - sg.start.x),
                                                         dy: Double(now.y - sg.start.y)),
-                        dragID: sg.id)
+                        dragID: sg.id, finished: false)
                     return
                 }
                 if brush, grab == nil, let started = paintStarted {
@@ -512,7 +560,7 @@ struct HealCanvas: View {
                         to: StrokeHandles.draggedSource(sg.origin,
                                                         dx: Double(now.x - sg.start.x),
                                                         dy: Double(now.y - sg.start.y)),
-                        dragID: sg.id)
+                        dragID: sg.id, finished: true)
                     sliderGestureChanged(false)
                     return
                 }
@@ -716,14 +764,13 @@ struct HealToolBar: View {
             .help("Show an inverted edge view so sensor dust stands out. A view only: "
                   + "it is never saved or exported.")
             HStack(spacing: 6) {
-                Button(tool.findingDust ? "Finding Dust…" : "Remove Dust") {
+                Button(tool.findingDust ? "Stop Finding Dust" : "Remove Dust") {
                     state.removeDust()
                 }
                 .buttonStyle(.plain)
                 .font(.lumenCaption)
-                .disabled(tool.findingDust)
                 .help("Find sensor dust on smooth areas (sky, skin, walls) and heal "
-                      + "every speck in one step. The Threshold below sets how faint.")
+                      + "every speck in one step. Visualize Spots' Threshold sets how faint.")
                 Spacer(minLength: 0)
             }
             if tool.visualize {
