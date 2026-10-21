@@ -96,12 +96,14 @@ final class CreativeLUTTests: XCTestCase {
         }
     }
 
-    /// The display tap is SDR-referred: above display white it has nothing to say, and
-    /// clamps. Pinned so an HDR rendition's behaviour is a stated decision, not a surprise.
-    func testTheDisplayTapClampsAboveDisplayWhite() {
+    /// The display tap is SDR-referred: above display white the CUBE has nothing to say,
+    /// so the headroom is carried around the lookup and handed back (WS-30 SPEC L6). This
+    /// test used to pin the opposite — an identity cube flattening 3× white to 1× — which
+    /// threw away every EDR highlight and every P3 colour outside sRGB on a Mac screen.
+    func testTheDisplayTapHandsBackWhatIsAboveDisplayWhite() {
         let stage = CreativeLUTStage(tap: .display, amount: 100, cube: .identity(size: 2))
         let out = stage.apply(RGB(gray: 3))
-        XCTAssertLessThan(out.maxAbsDifference(RGB(gray: 1)), 1e-9)
+        XCTAssertLessThan(out.maxAbsDifference(RGB(gray: 3)), 1e-9)
     }
 
     /// The log tap's declared space: `LumenLog` in, `LumenLog` out.
@@ -114,13 +116,18 @@ final class CreativeLUTTests: XCTestCase {
         XCTAssertEqual(out.b, 2.0, accuracy: 1e-9)
     }
 
-    /// Amount is a linear blend against the stage's input, 0…100, clamped.
-    func testAmountBlendsAgainstTheInput() {
+    /// Amount scales the cube's departure IN ITS OWN ENCODING (here `LumenLog`), 0…200,
+    /// clamped. It was a linear-light blend capped at 100; WS-30 SPEC L4 says why not.
+    func testAmountScalesTheDepartureInTheCubesEncoding() {
         let c = RGB(0.3, 0.2, 0.1)
-        let full = CreativeLUTStage(tap: .log, amount: 100, cube: Self.cube).apply(c)
-        let half = CreativeLUTStage(tap: .log, amount: 50, cube: Self.cube).apply(c)
-        XCTAssertLessThan(half.maxAbsDifference(c + (full - c) * 0.5), 1e-12)
-        XCTAssertEqual(CreativeLUTStage(tap: .log, amount: 250, cube: Self.cube).amount, 1)
+        let e = LumenLog.encode(c)
+        let full = LumenLog.encode(CreativeLUTStage(tap: .log, amount: 100, cube: Self.cube).apply(c))
+        for amount in [50.0, 150, 200] {
+            let got = LumenLog.encode(CreativeLUTStage(tap: .log, amount: amount,
+                                                       cube: Self.cube).apply(c))
+            XCTAssertLessThan(got.maxAbsDifference(e + (full - e) * (amount / 100)), 1e-12)
+        }
+        XCTAssertEqual(CreativeLUTStage(tap: .log, amount: 250, cube: Self.cube).amount, 2)
         XCTAssertEqual(CreativeLUTStage(tap: .log, amount: .nan, cube: Self.cube).amount, 0)
     }
 

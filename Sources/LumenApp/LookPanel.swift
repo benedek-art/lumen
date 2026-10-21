@@ -242,13 +242,16 @@ struct LookPanel: View {
                           + "Log: Lumen's fixed log encoding of the scene, applied before "
                           + "the transform.")
 
+                // 0…200, Lightroom's profile Amount range and reading: past 100 the
+                // file's departure from the picture is extrapolated, in the LUT's own
+                // encoding, so 200 is twice the look rather than a blown-out one.
                 LumenSlider(title: "Amount", value: lutAmountBinding,
-                            range: 0...100, hardRange: nil,
+                            range: CreativeLUTStage.amountRange, hardRange: nil,
                             defaultValue: 100, step: 1, decimals: 0, bipolar: false,
                             help: "How much of the LUT lands — 100 is the file as it was "
-                                + "made, 0 is the picture without it. A LUT is a baked "
-                                + "rendition: it does not get Film Lab's exposure "
-                                + "latitude; for that, use a stock.")
+                                + "made, 0 is the picture without it, 200 is twice its "
+                                + "change. A LUT is a baked rendition: it does not get "
+                                + "Film Lab's exposure latitude; for that, use a stock.")
             }
         }
     }
@@ -373,31 +376,65 @@ struct LookPanel: View {
         // the other 60% of — so a row drawn above the divider would have read as "save
         // this at 40%", which is the one meaning it does not have.
         //
-        // Drawn only when there is something to apply. With no looks stored it would be
-        // a control over an empty list, and the empty list already draws nothing at all
-        // for the reason below.
-        if !state.savedLooks.isEmpty {
-            LumenSlider(title: "Amount", value: $applyAmount,
-                        range: LookSubset.amountRange,
-                        defaultValue: LookSubset.fullAmount, step: 1, decimals: 0,
-                        bipolar: false,
-                        help: "How much of a look lands when you apply it. 100 is the "
-                            + "look as it was saved; 40 puts the frame 40% of the way "
-                            + "from its own grade to the look's. The film stock, the "
-                            + "black-and-white treatment and the transform preset are "
-                            + "choices rather than amounts, so those arrive whole and "
-                            + "this dials their strength. It is spent as the look "
-                            + "lands: move it and apply again to change your mind.")
-        }
+        // Always drawn: the built-in looks below mean the list is never empty (it used
+        // to hide with no looks stored, as a control over an empty list).
+        LumenSlider(title: "Amount", value: $applyAmount,
+                    range: LookSubset.amountRange,
+                    defaultValue: LookSubset.fullAmount, step: 1, decimals: 0,
+                    bipolar: false,
+                    help: "How much of a look lands when you apply it. 100 is the "
+                        + "look as it was saved; 40 puts the frame 40% of the way "
+                        + "from its own grade to the look's. The film stock, the "
+                        + "black-and-white treatment and the transform preset are "
+                        + "choices rather than amounts, so those arrive whole and "
+                        + "this dials their strength. It is spent as the look "
+                        + "lands: move it and apply again to change your mind.")
 
         // An empty list draws nothing at all, deliberately. The field and
         // the Save button above it are the affordance; a sentence announcing
         // that a list is empty is a caption on absence. The paragraph that used
         // to close the list said what the banner said and what Save's tooltip
         // says — three statements of one sentence in one section.
+        // THE SHIPPED LOOKS FIRST, under their own small heading, then the
+        // photographer's. A built-in is an ordinary look (`BuiltInLooks`): its row
+        // applies through the same `apply` at the same Amount, and it has no menu,
+        // because there is nothing of the photographer's to rename or delete.
+        Text("Lumen")
+            .font(.lumenCaptionStrong)
+            .foregroundStyle(Lumen.secondaryText)
+            .padding(.top, 2)
+        ForEach(Array(BuiltInLooks.all.enumerated()), id: \.offset) { index, look in
+            builtInLookRow(look, index: index)
+        }
+        if !state.savedLooks.isEmpty {
+            Text("Yours")
+                .font(.lumenCaptionStrong)
+                .foregroundStyle(Lumen.secondaryText)
+                .padding(.top, 2)
+        }
         ForEach(state.savedLooks, id: \.id) { look in
             savedLookRow(look)
         }
+    }
+
+    /// One shipped look: its name applies it, its tooltip says what it does.
+    private func builtInLookRow(_ look: BuiltInLook, index: Int) -> some View {
+        let row = look.row(index: index)
+        return Button {
+            apply(row)
+        } label: {
+            Text(look.name)
+                .font(.lumenBody)
+                .foregroundStyle(Lumen.primaryText)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .lumenInteractive(radius: Lumen.radiusChip)
+        .help(look.summary + " " + applyHelp(row))
+        .frame(height: Lumen.rowHeight)
     }
 
     /// One saved look: its name applies it, and everything else about it lives in the
@@ -1083,19 +1120,20 @@ struct LookPanel: View {
                                + "twelve points is one full stop. Step it with , and "
                                + ". while watching the picture. Double-click to reset.")
                 printerRow("Red / Cyan", "r", lights.r, trimLimit, .control,
-                           help: "Red / Cyan — a printer's colour-timing trim: more "
-                               + "red light one way, more cyan the other, 1/12 stop "
-                               + "per point. Step it with ⌃, and ⌃. Double-click to "
+                           help: "Red / Cyan — a printer's colour-timing trim, 1/12 "
+                               + "stop per point. Plus makes the picture redder, minus "
+                               + "more cyan (Resolve's sign; a lab timer adds red light "
+                               + "to make a print cyan). Step it with ⌃, and ⌃. Double-click to "
                                + "reset.")
                 printerRow("Green / Mag", "g", lights.g, trimLimit, .option,
-                           help: "Green / Mag — a printer's colour-timing trim: more "
-                               + "green light one way, more magenta the other, 1/12 "
-                               + "stop per point. Step it with ⌥, and ⌥. Double-click "
+                           help: "Green / Mag — a printer's colour-timing trim, 1/12 "
+                               + "stop per point. Plus makes the picture greener, minus "
+                               + "more magenta. Step it with ⌥, and ⌥. Double-click "
                                + "to reset.")
                 printerRow("Blue / Yellow", "b", lights.b, trimLimit, .shift,
-                           help: "Blue / Yellow — a printer's colour-timing trim: "
-                               + "more blue light one way, more yellow the other, "
-                               + "1/12 stop per point. Step it with ⇧, and ⇧. "
+                           help: "Blue / Yellow — a printer's colour-timing trim, "
+                               + "1/12 stop per point. Plus makes the picture bluer, "
+                               + "minus more yellow. Step it with ⇧, and ⇧. "
                                + "Double-click to reset.")
             }
         }

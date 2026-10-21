@@ -374,10 +374,15 @@ final class LookRenderPresetDoorTests: XCTestCase {
         // guards. A new door added without a guard moves the counts apart.
         let doors = source.components(separatedBy: ".look = ").count - 1
         let guards = source.components(separatedBy: "carriedRenderPreset(").count - 1
+        // Paste Look no longer assigns: it goes through `LookSubset.applied(to:)`, the
+        // door the tests above prove, which also raises the version (WS-29 SPEC S5).
+        // That route is what keeps this test from checking nothing.
+        let routed = source.components(separatedBy: "look.applied(to: recipe)").count - 1
 
-        XCTAssertGreaterThan(doors, 0,
+        XCTAssertGreaterThan(doors + routed, 0,
                              "the assignment pattern stopped matching; this test would "
                              + "otherwise pass by checking nothing")
+        XCTAssertGreaterThan(routed, 0, "Paste Look stopped going through applied(to:)")
         XCTAssertEqual(guards, doors,
                        "\(doors) places assign a look whole and \(guards) restore the "
                        + "target's render preset. An unguarded one lays a second tone "

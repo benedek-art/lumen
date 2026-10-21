@@ -24,7 +24,7 @@
 //     display-linear Rec.2020 picture is converted to sRGB primaries, clamped to the
 //     cube's unit domain (an SDR-referred LUT has nothing to say about a value outside
 //     it — HDR headroom above white included), encoded, looked up, decoded and
-//     converted back.
+//     converted back, and the part the clamp removed is added back (`apply`).
 //   · `.log`: input and output are `LumenLog`-encoded linear Rec.2020 — the domain is
 //     the shaper's own ±12 stops around 0.18.
 //
@@ -40,7 +40,7 @@ public struct CreativeLUTStage: Sendable, Equatable {
 
     /// Where the stage runs and what space the cube expects.
     public let tap: LUTReference.Tap
-    /// 0…1 — the recipe's 0…100 Amount, clamped.
+    /// 0…2 — the recipe's 0…200 Amount, clamped.
     public let amount: Double
     /// The parsed cube, exactly as the file defines it.
     public let cube: LUT3D
@@ -68,36 +68,62 @@ public struct CreativeLUTStage: Sendable, Equatable {
                   ref: reference.ref)
     }
 
+    /// What Amount may ask for, in percent: 0 is no LUT, 100 the file as it was made,
+    /// 200 twice its departure from the input — Lightroom's profile Amount range, and
+    /// the same reading (WS-30 SPEC L4). Stated once; the panel's slider reads it.
+    public static let amountRange: ClosedRange<Double> = 0...200
+
     public init(tap: LUTReference.Tap, amount percent: Double, cube: LUT3D, ref: String = "") {
         self.tap = tap
-        self.amount = Num.clamp(percent.isFinite ? percent : 0, 0, 100) / 100
+        self.amount = Num.clamp(percent.isFinite ? percent : 0,
+                                Self.amountRange.lowerBound, Self.amountRange.upperBound) / 100
         self.cube = cube
         self.ref = ref
     }
 
-    /// Whether the blend can be skipped: at full Amount the output IS the mapped value,
-    /// and skipping the mix keeps it exact on both paths rather than `x + (y − x)·1`.
-    public var isFullStrength: Bool { amount >= 1 }
+    /// Whether the stage is at the file's own strength.
+    public var isFullStrength: Bool { amount == 1 }
 
     /// The stage, per pixel. `c` is working-space linear: scene-referred at the log tap,
     /// display-linear at the display tap.
+    ///
+    /// THE BLEND IS IN THE CUBE'S OWN ENCODING, not in linear light. Amount scales the
+    /// departure the file makes, `L(e) − e`, measured in the coordinates its author
+    /// graded in (sRGB code values at the display tap, `LumenLog` at the log tap), so
+    /// 50% is half the look as a viewer judges it and 200% is twice it. A linear-light
+    /// blend weighted every mix toward the brighter end and, extrapolated past 100, ran
+    /// away: a 1.25× log-contrast cube at 150% put a +3-stop highlight at 255× linear.
+    ///
+    /// AND WHAT THE CUBE CANNOT SEE IS HANDED BACK UNTOUCHED. A cube's domain is the unit
+    /// cube of its encoding. The part of a value outside it — a P3 or Rec.2020 colour
+    /// beyond sRGB, EDR headroom above SDR white, a scene value past the shaper's ±12
+    /// stops — is carried around the lookup as a residual `d − u` and added back, so an
+    /// identity cube is the identity on EVERY value (it used to clip a wide-gamut red
+    /// to sRGB on a P3 screen and flatten HDR highlights to white), and a creative cube
+    /// changes such a pixel exactly as it changes the nearest value it can see.
     public func apply(_ c: RGB) -> RGB {
-        let mapped = map(c)
-        if isFullStrength { return mapped }
-        return c + (mapped - c) * amount
-    }
-
-    /// The cube in its declared space, with no blend.
-    public func map(_ c: RGB) -> RGB {
         switch tap {
         case .log:
-            return LumenLog.decode(cube.sample(LumenLog.encode(c)))
+            let e = LumenLog.encode(c)
+            let u = e.map(Num.saturate)
+            let looked = cube.sample(u)
+            return LumenLog.decode(e + (looked - u) * amount)
         case .display:
-            let display = Self.workingToDisplay.apply(c).map(Num.saturate)
-            let encoded = TransferFunction.srgb.encode(display)
-            let looked = cube.sample(encoded)
-            return Self.displayToWorking.apply(TransferFunction.srgb.decode(looked))
+            let d = Self.workingToDisplay.apply(c)
+            let u = d.map(Num.saturate)
+            let e = TransferFunction.srgb.encode(u)
+            let looked = cube.sample(e)
+            // Floored at code 0, the one bound an extrapolated Amount can cross that has
+            // no meaning: there is no light below black. No ceiling — a code above 1 is
+            // headroom, and both decoders extend the curve the same way above 1.
+            let blended = (e + (looked - e) * amount).map { Swift.max($0, 0) }
+            return Self.displayToWorking.apply(TransferFunction.srgb.decode(blended) + (d - u))
         }
+    }
+
+    /// The cube in its declared space at full strength.
+    public func map(_ c: RGB) -> RGB {
+        CreativeLUTStage(tap: tap, amount: 100, cube: cube, ref: ref).apply(c)
     }
 }
 

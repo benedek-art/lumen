@@ -4564,7 +4564,11 @@ final class AppState: ObservableObject {
     /// again. It was plain, so Paste Look was always enabled — and before anything had
     /// been copied ⌥⌘V did nothing at all, no picture change and no message, which
     /// reads as the app being wedged (W2/D1-04).
-    @Published private var copiedLook: Look?
+    ///
+    /// A `LookSubset`, not a bare `Look`: the slice carries the version its vocabulary
+    /// was written in, so Paste Look can raise the target's stamp exactly as applying a
+    /// saved look does (WS-29 SPEC S5).
+    @Published private var copiedLook: LookSubset?
     /// The groups Copy Settings… ticked, travelling with `copiedRecipe`; nil after a
     /// plain ⌘C, which copies the whole recipe as it always has. Both whole-recipe
     /// pastes read it, so ⌘V after Copy Settings… pastes only what was ticked —
@@ -4679,16 +4683,19 @@ final class AppState: ObservableObject {
     /// selection gesture rather than a copy-paste-then-fix ritual.
     func copyLook() {
         guard let photo = primarySelection else { return }
-        copiedLook = recipe(for: photo).look
+        copiedLook = LookSubset.extracted(from: recipe(for: photo))
     }
 
+    /// The same door a saved look comes through, at full strength: `applied(to:)`
+    /// replaces the Look layer, keeps a rendered frame's register (`carriedRenderPreset`)
+    /// and RAISES `pipelineVersion` to what the look's vocabulary needs. Assigning
+    /// `recipe.look` directly skipped that last step, so a v2 look pasted onto a v1
+    /// recipe (`look.bw.enabled == false`, which a v1 reader renders as black and white)
+    /// left the document claiming a vocabulary it no longer held.
     func pasteLook() {
         guard let look = copiedLook else { return }
         updateRecipe(label: "Paste Look") { recipe in
-            let own = recipe.look.render.preset
-            recipe.look = look
-            recipe.look.render.preset =
-                LookSubset.carriedRenderPreset(look.render.preset, onto: own)
+            recipe = look.applied(to: recipe)
         }
     }
 

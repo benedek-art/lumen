@@ -182,7 +182,7 @@ public struct RenderParams: Codable, Equatable, Sendable {
 /// catalog's `BlobStore` beside the brush strokes, so the catalog backup carries them.
 /// `tap` is the DECLARED SPACE, input and output alike (a creative LUT maps a space onto
 /// itself): `.display` is sRGB-encoded, display-referred, applied after the transform;
-/// `.log` is `LumenLog`-encoded linear Rec.2020, applied before it. `amount` is 0…100,
+/// `.log` is `LumenLog`-encoded linear Rec.2020, applied before it. `amount` is 0…200,
 /// a blend against the stage's input. `name` is a label and nothing reads it but the
 /// panel. `CreativeLUTStage` is the whole of the rendering.
 ///
@@ -197,7 +197,7 @@ public struct LUTReference: Codable, Equatable, Sendable {
     public var ref: String        // "blob:xxh64:<hash>" or a bundled LUT id
     public var name: String
     public var tap: Tap
-    public var amount: Double     // 0…100
+    public var amount: Double     // 0…200 (`CreativeLUTStage.amountRange`)
 
     public init(ref: String, name: String = "", tap: Tap = .display, amount: Double = 100) {
         self.ref = ref

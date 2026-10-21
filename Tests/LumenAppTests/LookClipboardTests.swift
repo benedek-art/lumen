@@ -74,6 +74,28 @@ final class LookClipboardTests: XCTestCase {
                           "⌘C with nothing selected emptied the settings clipboard")
         }
     }
+
+    /// WS-29 SPEC S5. Paste Look is the saved-look door at full strength: the look lands
+    /// whole and the target's `pipelineVersion` is raised to what the look needs.
+    /// Substitution, red: `recipe.look = look` (the old body) leaves the stamp at 1.
+    @MainActor
+    func testPasteLookStatesTheVersionItsLookNeeds() async throws {
+        try await withSelectedPhoto { state, _ in
+            state.updateRecipe { recipe in
+                recipe.look.bw = BlackAndWhite(enabled: false)
+                recipe.pipelineVersion = 2
+            }
+            state.copyLook()
+            state.updateRecipe { recipe in
+                recipe.look = Look()
+                recipe.pipelineVersion = 1
+            }
+            state.pasteLook()
+            XCTAssertEqual(state.currentRecipe.look.bw?.enabled, false)
+            XCTAssertGreaterThanOrEqual(state.currentRecipe.pipelineVersion, 2,
+                                        "Paste Look left a v2 look under a v1 stamp")
+        }
+    }
 }
 
 #endif
