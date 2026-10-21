@@ -1096,8 +1096,9 @@ enum ProofRegistry {
             // Grain's amplitude envelope is √(p(1−p)) in DENSITY, so it peaks at mid
             // densities and vanishes at both ends: the frame is a ramp because a frame
             // at one density measures one point of a curve. It is a 4096-px ramp because
-            // the plate scale is a pitch on the PRINT converted to this render's pixels,
-            // floored at half a pixel — see `ProofFrames.grainField`. Both grain
+            // the grain's size is a pitch on the PRINT converted to this render's pixels,
+            // and on a small frame it would be far below a pixel — see
+            // `ProofFrames.grainField`. Both grain
             // controls sit on it so their two numbers are of the same grain.
             id: "film.grain.amount", panel: "Film Lab", displayName: "Grain",
             low: 0, high: 100,
@@ -1119,8 +1120,8 @@ enum ProofRegistry {
             // Sharpen Amount. 0.5…2.0 is the panel's range.
             //
             // On `grainField` and not the ramp, and this one is the reason that frame
-            // exists. `FilmGrainProfile.plateScale` floors a plate cell at half a pixel,
-            // and on a 256-px ramp the whole 0.5…2.0 travel evaluates to 0.04…0.17 —
+            // exists. On a 256-px ramp the grain is far below a pixel (the plate it was
+            // written for floored a cell at half a pixel), and on that ramp the whole 0.5…2.0 travel evaluates to 0.04…0.17 —
             // under the floor at every setting. It measured authority 0.00 with twenty
             // dead steps of twenty, which reads exactly like an inert control and is
             // not one. PROOF-06 records what that same arithmetic says about the
@@ -1161,7 +1162,14 @@ enum ProofRegistry {
             // back. The fraction it declares is now 81% of its authority against 37%,
             // which is high and is what a boundary control on a random field looks like
             // when its randomness is one-dimensional.
-            declaredReversal: 21.183,
+            //
+            // 21.183 → 25.502 with WS-40's procedural grain (authority 26.19 → 54.13, so
+            // 81% → 47% of it). The grain is drawn at grain size rather than as a tiled
+            // plate; a Size step still moves every grain (the field zooms), which is the
+            // same boundary-on-a-random-field reversal, now a smaller share of the
+            // control's effect. It is sensitive to the field's details: one change of
+            // the pixel aperture (0.816 → 0.825 px) moved it 36.3 → 25.5.
+            declaredReversal: 25.502,
             apply: { r, v in
                 var film = portra()
                 film.grain = FilmGrain(size: v, amount: 100)
@@ -1497,14 +1505,20 @@ enum ProofRegistry {
             // because this is one luminance field where that one is a stock's dye
             // layers. Declared, not asserted away: if it ever climbs, the record moves
             // and the reversal test says so at 1.05x.
-            declaredReversal: 14.623,
+            //
+            // 14.623 → 61.588 with WS-40's procedural grain, at authority 28.26 → 110.43:
+            // 52% → 56% of it, the same share. Every number grew because the grain is
+            // now at grain size and visible on this frame rather than a smooth plate.
+            declaredReversal: 61.588,
             // Amount at full: a size control on a field with no grain in it is the
             // INVALID PROBE docs/20 §P2 names, not a dead control.
             apply: { r, v in r.look.grain = CreativeGrain(amount: 100, size: v) }),
         ControlSpec(
-            // Octave persistence, 0.25…0.75 with 50 mapping to 0.5 exactly. The control
-            // `FilmGrain` does not have, and the one docs/27's "measured twice"
-            // disposition could not have been describing.
+            // Irregularity (`GrainField`): fewer, mixed-size grains and clumps toward 100.
+            // The control `FilmGrain` does not have, and the one docs/27's "measured
+            // twice" disposition could not have been describing. Monotone since WS-40
+            // kept the grain cells fixed across Roughness (one pattern morphing, not a
+            // new one per step).
             id: "look.grain.roughness", panel: "Effects", displayName: "Grain roughness",
             low: 0, high: 100, neutral: 50,
             frameName: "grainField", frame: { ProofFrames.grainField() },
