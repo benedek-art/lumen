@@ -55,8 +55,8 @@ in AUDIT.md §6, set before any corrected output existed.)
 2.7 On 6929 and 6001, which show no lens CA worth the name, no zone gets more than
 0.05 px worse with Remove CA on (do-no-harm; AUDIT.md §6).
 
-2.8 Photos whose lens shows no significant lateral CA (6929 at its 2400 px or native
-decode, if the estimator returns none) are bit-identical with Remove CA on and off.
+2.8 Photos whose lens shows no significant lateral CA (6929, 6001: the estimator returns no
+model at native size) are bit-identical with Remove CA on and off.
 
 ## 3. Defringe
 
@@ -109,7 +109,10 @@ return the input image object. `LensStageGPUParityTests` in `gpu-parity.yml`.
 Remove CA off | on. The red/cyan (or blue/yellow) edge pairs visible off are gone on;
 no new halo, no edge softening of the red or blue channel.
 
-6.2 `evidence/4213-castle-ca.png`: castle edge against flat sky, off | on, same reading.
+6.2 `evidence/4213-treeline-ca.png`: left treeline against flat sky (r ≈ 0.82), off | on, same
+reading. (The draft named the castle; it sits within r < 0.15 of the centre, where lateral CA
+is under 0.1 px, so it cannot show the correction. `evidence/3437-corner-ca.png` adds the
+T7i's blue-dominant case.)
 
 6.3 `evidence/defringe-sweep.png`: Purple Amount 0/2/5/10/20 on a high-contrast corner
 crop; fringes fade progressively; nothing away from edges changes colour.
