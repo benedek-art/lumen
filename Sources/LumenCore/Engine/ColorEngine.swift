@@ -1348,7 +1348,7 @@ public struct ColorEngine: Sendable {
         let weights = Self.selectionWeights(lch, Self.linearChroma(c, context: context), s)
         let weight = weights.weight
         let hueWeight = weights.hueWeight
-        guard hueWeight > 0 else { return c }
+        guard weight > 0 || hueWeight > 0 else { return c }
 
         var L = lch.L
         var C = lch.C
@@ -1404,7 +1404,8 @@ public struct ColorEngine: Sendable {
     }
 
     /// The swatch's selection at one colour: `weight` for Saturation, Luminance and
-    /// Variance, and `hueWeight` (≥ `weight`) for the hue rotation.
+    /// Variance, and `hueWeight` (the absolute selection, stretched ahead of the swatch)
+    /// for the hue rotation.
     private static func selectionWeights(_ lch: OKLCh, _ chi: (a: Double, b: Double),
                                          _ s: Swatch)
         -> (weight: Double, hueWeight: Double) {
@@ -1442,11 +1443,14 @@ public struct ColorEngine: Sendable {
         //              tolerances, flat to half the radius, C¹ rolloff to the edge;
         //   mixture  — the share `r` of the swatch's colour in it (linear light),
         //              ramped smoothly from `1 − σR` (nothing) to 1 (all), times the
-        //              same rolloff on hue and on lightness counted at `r` — a tint or a
+        //              same rolloff on hue and on lightness counted at HALF — a tint or a
         //              shade of the swatch is judged mostly on how much of the colour it
         //              kept, not on how far a white or a black carried its lightness.
-        //              (At `r²` the Luminance refinement lost its grip: a darker red
-        //              read as a shade whatever Lum range said.)
+        //              A constant, not `r` or `r²`: each factor of this reading is then
+        //              monotone along any blend, so their product is (`tL·r` peaks
+        //              half way, and with Sat range wide and Lum range tight the weight
+        //              rose as the colour left — verifier round 2). Still scaled by the
+        //              Luminance refinement, so a tight Lum range keeps its grip.
         //
         // WHY A RAMP OF ITS OWN and not one more term in the distance: the first draft
         // put `(1 − r)/σR` into the distance, which sends the share through the
@@ -1462,38 +1466,47 @@ public struct ColorEngine: Sendable {
         // come along at 0.06 under a skin swatch. A neutral has r = 0 and a mixture
         // weight of exactly 0.
         //
-        // The mixture reading is on only below the sample's OKLab chroma (fully by
-        // 0.9 of it) and is scaled by both chroma gates, so it is continuous
-        // everywhere, absent for anything as colourful as the swatch, and absent for a
+        // The mixture reading is scaled by both chroma gates, so it is absent for a
         // near-neutral sample or pixel, whose "share of the colour" is noise.
         let tL = dL / s.sigmaL
         let tC = dC / s.sigmaC
         let share = (chi.a * s.chiA + chi.b * s.chiB) * s.chiInverseNorm
-        // Faded out on OKLAB chroma approaching the sample's, not on the share: there
-        // the absolute reading is already at full along any blend, so the hand-over
-        // cannot dip (fading on the share did — the weight rose by up to 0.05 going AWAY
-        // from the swatch, a light line across every gradient, verifier round 1). And
-        // gated by the PIXEL's chroma, so a near-neutral is never selected on its share
-        // alone: in linear light a pale near-white carries as much chroma as a deep
-        // red, and its hue is noise.
+        // NO FADE. The reading used to be faded in below the sample's chroma (first on
+        // the share, then on 0.9–1.0 of the chroma, then on a quarter of the chroma
+        // tolerance); every version dipped somewhere, because while a fade runs the
+        // mixture reading sits ABOVE the absolute one and the weight climbs as the
+        // colour leaves — verifier rounds 1 and 2 found 0.05, 0.11 and, with a tight Lum
+        // range, 0.04. It needs none: it charges chroma above the sample's like the
+        // absolute reading does (`max(tC, 0)` below), folds shares above 1, and along
+        // any blend with a neutral each of its factors is monotone, so their product is.
+        // Gated by both chromas, so near-neutral samples and pixels gain nothing.
         let g = chromaGate(s.target.C) * chromaGate(lch.C)
-            * (1 - Num.smoothstep(0.9, 1.0, lch.C / Swift.max(s.target.C, 1e-9)))
         // More linear chroma than the swatch is not a mixture of it with a neutral — a
-        // brighter, paler colour (2062's cream pollen inside the petal) reads that way.
-        // Folded back down as `1/share`, so it leaves the reading as fast as a blend
-        // enters it, continuously at 1.
+        // brighter, paler colour reads that way. Folded back down as `1/share`, so it
+        // leaves the reading as fast as a blend enters it, continuously at 1.
         let r = share > 1 ? 1 / share : Swift.max(share, 0)
-        let mL = tL * r
+        let mL = 0.5 * tL
+        // A BLEND WITH A NEUTRAL POINTS EXACTLY ALONG THE SWATCH'S CHROMA. The angle
+        // between the two linear chroma vectors is the mixture reading's hue test, at
+        // half the hue tolerance and ungated: 2062's cream pollen sits inside the red
+        // petal at 31–82% of its share but 40° off it, and the gated OKLab hue term
+        // (its chroma is 0.03–0.06) let it in at 21% with ±8% pixel-to-pixel noise.
+        let cross = chi.b * s.chiA - chi.a * s.chiB
+        let dot = chi.a * s.chiA + chi.b * s.chiB
+        let angle = atan2(abs(cross), dot) * 180 / .pi
+        let mH = angle / 180 / (0.5 * s.sigmaH)
         let ramp = g > 0 ? g * Num.smoothstep(1 - s.sigmaR, 1, r) : 0
-        func selection(_ tH: Double) -> Double {
-            let absolute = 1 - Num.smoothstep(0.5, 1.0, (tL * tL + tC * tC + tH * tH).squareRoot())
-            guard ramp > 0 else { return absolute }
-            let mixture = ramp * (1 - Num.smoothstep(0.5, 1.0, (mL * mL + tH * tH).squareRoot()))
-            return Swift.max(absolute, mixture)
+        func absolute(_ tH: Double) -> Double {
+            1 - Num.smoothstep(0.5, 1.0, (tL * tL + tC * tC + tH * tH).squareRoot())
         }
         let tH = dH / s.sigmaH
         guard (tL * tL + tC * tC + tH * tH).isFinite else { return (0, 0) }
-        let weight = selection(tH)
+        var weight = absolute(tH)
+        if ramp > 0 {
+            let over = Swift.max(tC, 0)
+            weight = Swift.max(weight, ramp * (1 - Num.smoothstep(
+                0.5, 1.0, (mL * mL + over * over + mH * mH).squareRoot())))
+        }
         // THE HUE ROTATION GETS ITS OWN, WIDER REACH — along hue, ahead of the swatch,
         // and only when the shift needs it.
         //
@@ -1530,17 +1543,23 @@ public struct ColorEngine: Sendable {
         //   binds only for |shift| above 58.8° and there still holds the slope to
         //   |shift|/60 ≤ 1: flat at worst, never reversed.
         //
-        // Below the fold `k` is exactly 1 and the rotation is the selection's own
-        // `weight`, so saved looks there render as before. Saturation, Luminance and
-        // Variance always keep `weight`. `hueWeight ≥ weight` everywhere, so it is the
-        // one the early-out reads.
+        // Below the fold `k` is exactly 1 and the rotation is the absolute selection,
+        // so saved looks there render as before.
+        //
+        // THE ROTATION READS THE ABSOLUTE SELECTION ONLY, never the mixture reading.
+        // The mixture's hue test is an angle in linear opponent space, which turns
+        // faster than OKLab hue in places, so the fold bound above does not hold for it:
+        // with it, Hue −30° at Range 100 ran the output hue 0.9° backwards
+        // (`PointColourHueOrderTests`, verifier round 3 build). Saturation, Luminance and
+        // Variance read `weight`, which includes the mixture reading; a Hue turn on a
+        // soft edge is cut exactly as it always was.
         let hueWeight: Double
         if dh * s.shiftH > 0 {
             let k = Swift.min(Swift.max(1, abs(s.shiftH) / (0.98 * 60 * s.sigmaH)),
                               Swift.max(1, 1 / s.sigmaH))
-            hueWeight = selection(tH / k)
+            hueWeight = absolute(tH / k)
         } else {
-            hueWeight = weight
+            hueWeight = absolute(tH)
         }
         return (weight, hueWeight)
     }

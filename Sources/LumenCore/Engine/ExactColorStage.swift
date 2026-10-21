@@ -405,26 +405,30 @@ enum ExactColorTwin {
         let a = dL / t.w, b = dC / s.x, cc = dH / s.y
         // Two readings, the more generous wins — `ColorEngine.selectionWeights`.
         let chi = mul(u, 9, mul(u, 0, c))
-        let share = (chi.y * m.x + chi.z * m.y) * m.z
-        let gt = gate(t.y) * gate(l.y) * (1 - smoothstep(0.9, 1, l.y / max(t.y, 1e-9)))
+        let dot = chi.y * m.x + chi.z * m.y
+        let share = dot * m.z
+        let gt = gate(t.y) * gate(l.y)
         let r: Float = share > 1 ? 1 / share : max(share, 0)
-        let ma = a * r
+        let ma = 0.5 * a
+        let cross = chi.z * m.x - chi.y * m.y
+        let mh = (atan2(abs(cross), dot) * 57.2957795) / 180 / (0.5 * s.y)
         let ramp: Float = gt > 0 ? gt * smoothstep(1 - k.z, 1, r) : 0
-        func selection(_ h: Float) -> Float {
-            let absolute = 1 - smoothstep(0.5, 1, (a * a + b * b + h * h).squareRoot())
-            if !(ramp > 0) { return absolute }
-            return max(absolute, ramp * (1 - smoothstep(0.5, 1, (ma * ma + h * h).squareRoot())))
+        func absolute(_ h: Float) -> Float {
+            1 - smoothstep(0.5, 1, (a * a + b * b + h * h).squareRoot())
         }
         guard (a * a + b * b + cc * cc).squareRoot().isFinite else { return c }
-        let weight = selection(cc)
-        // The rotation's own reach, hue term only, leading side only —
-        // `ColorEngine.applySwatch` says why.
-        var hueWeight = weight
+        var weight = absolute(cc)
+        if ramp > 0 {
+            let over = max(b, 0)
+            weight = max(weight, ramp * (1 - smoothstep(0.5, 1, (ma * ma + over * over + mh * mh).squareRoot())))
+        }
+        // The rotation reads the absolute selection only — `ColorEngine.selectionWeights`.
+        var hueWeight = absolute(cc)
         if dh * s.z > 0 {
             let kk = min(max(1, abs(s.z) / (0.98 * 60 * s.y)), max(1, 1 / s.y))
-            hueWeight = selection(cc / kk)
+            hueWeight = absolute(cc / kk)
         }
-        guard hueWeight > 0 else { return c }
+        guard weight > 0 || hueWeight > 0 else { return c }
         var L = l.x, C = l.y, h = l.z
         let g = gate(l.y)
         let q = k.y
@@ -784,29 +788,28 @@ public enum ExactColorKernelSource {
         float ea = dL / t.w; float eb = dC / sg.x; float ec = dH / sg.y;
         vec3 chiLMS = \(mul(0, "c"));
         vec3 chi = \(mul(9, "chiLMS"));
-        float share = (chi.y * mx.x + chi.z * mx.y) * mx.z;
-        float gt = lumenGate(t.y) * lumenGate(l.y)
-            * (1.0 - lumenSmooth(0.9, 1.0, l.y / max(t.y, 1e-9)));
+        float cdot = chi.y * mx.x + chi.z * mx.y;
+        float share = cdot * mx.z;
+        float gt = lumenGate(t.y) * lumenGate(l.y);
+        float over = max(eb, 0.0);
         float rr = share > 1.0 ? 1.0 / share : max(share, 0.0);
-        float ma = ea * rr;
+        float ma = 0.5 * ea;
+        float ccross = chi.z * mx.x - chi.y * mx.y;
+        float mh = (atan(abs(ccross), cdot) * 57.2957795) / 180.0 / (0.5 * sg.y);
         float ramp = gt > 0.0 ? gt * lumenSmooth(1.0 - k.z, 1.0, rr) : 0.0;
         float d = sqrt(ea * ea + eb * eb + ec * ec);
         if (!(abs(d) < 3.0e38)) { return s; }
         float weight = 1.0 - lumenSmooth(0.5, 1.0, d);
         if (ramp > 0.0) {
-            weight = max(weight, ramp * (1.0 - lumenSmooth(0.5, 1.0, sqrt(ma * ma + ec * ec))));
+            weight = max(weight, ramp * (1.0 - lumenSmooth(0.5, 1.0, sqrt(ma * ma + over * over + mh * mh))));
         }
-        float hueWeight = weight;
+        float hueWeight = 1.0 - lumenSmooth(0.5, 1.0, d);
         if (dh * sg.z > 0.0) {
             float kk = min(max(1.0, abs(sg.z) / (0.98 * 60.0 * sg.y)), max(1.0, 1.0 / sg.y));
             float ek = ec / kk;
             hueWeight = 1.0 - lumenSmooth(0.5, 1.0, sqrt(ea * ea + eb * eb + ek * ek));
-            if (ramp > 0.0) {
-                hueWeight = max(hueWeight,
-                                ramp * (1.0 - lumenSmooth(0.5, 1.0, sqrt(ma * ma + ek * ek))));
-            }
         }
-        if (!(hueWeight > 0.0)) { return s; }
+        if (!(weight > 0.0) && !(hueWeight > 0.0)) { return s; }
         float L = l.x; float C = l.y; float h = l.z;
         float g = lumenGate(l.y);
         float qq = k.y;

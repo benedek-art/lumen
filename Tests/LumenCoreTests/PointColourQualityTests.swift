@@ -106,19 +106,41 @@ final class PointColourQualityTests: XCTestCase {
         let swatches = [rgb(0.55, 0.15, 28), rgb(0.45, 0.09, 110), rgb(0.70, 0.08, 56),
                         rgb(0.35, 0.12, 265), rgb(0.80, 0.10, 200)]
         let neutrals = [RGB(0.01, 0.01, 0.01), RGB(0.18, 0.18, 0.18), RGB(0.9, 0.9, 0.9)]
+        // Refinements too: with Sat range narrowed, a fade window fixed to the sample's
+        // chroma outlived the absolute reading and blends rose by 0.11 (verifier round 2).
+        let refinements: [(Double?, Double?)] = [(nil, nil), (0, nil), (0, 0), (100, 0), (0, 100)]
         for sample in swatches {
             for range in [0.0, 50, 100] {
-                let s = swatch(sample, range: range)
+              for (sat, lum) in refinements {
+                let s = swatch(sample, range: range, sat: sat, lum: lum)
                 for n in neutrals {
                     var previous = 1.0
                     for k in 0...400 {
                         let alpha = 1 - Double(k) / 400
                         let w = ColorEngine.pointSelectionWeight(mix(sample, n, alpha), of: s)
                         XCTAssertLessThanOrEqual(w, previous + 1e-9,
-                                                 "\(sample) → \(n), Range \(range), α \(alpha)")
+                                                 "\(sample) → \(n), Range \(range), "
+                                                     + "sat \(String(describing: sat)) "
+                                                     + "lum \(String(describing: lum)), α \(alpha)")
                         previous = w
                     }
                 }
+              }
+            }
+        }
+    }
+
+    /// A pale colour of a DIFFERENT hue inside the swatch's colour is not a tint of it.
+    /// 2062's cream pollen sits inside the red petal at 31–82% of its linear share but
+    /// about 40° off it, and came along at 21% with pixel-to-pixel noise (verifier
+    /// round 2). A true blend points exactly along the swatch's chroma.
+    func testAPaleColourOfAnotherHueIsNotReadAsATint() {
+        let red = rgb(0.55, 0.15, 28)
+        for range in [0.0, 50, 100] {
+            for (L, C, h) in [(0.75, 0.045, 70.0), (0.7, 0.035, 75), (0.65, 0.055, 68),
+                              (0.6, 0.05, 345)] {
+                let w = ColorEngine.pointSelectionWeight(rgb(L, C, h), of: swatch(red, range: range))
+                XCTAssertLessThan(w, 0.03, "L \(L) C \(C) h \(h) at Range \(range)")
             }
         }
     }
