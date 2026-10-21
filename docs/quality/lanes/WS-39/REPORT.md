@@ -31,7 +31,7 @@ Numbers from `measure.py --corpus` at `150c4df` and the builder's run (the verif
 | M9 Amount | PASS | stage exactly linear (unit, 1e-5); display steps 20.2 / 22.8 / 26.1 / 30.9% (band 15–35%, amended, see below) |
 | M10 stock defaults | **BLOCKED on WS-38** | Velvia 0 < Ektar 0.034 < Portra 0.202 < Gold 0.238, Tri-X neutral: PASS. cine250D 0.230 is not ≤ Ektar: its default Amount is a WS-38 stock literal (`NEEDS.md`) |
 | M11 corpus no cast | PASS | A100 mean dR in six flat regions: 2.5 / 7.0 / 5.9 / 4.9 / 5.5 / 4.1 → 0.0 / 0.0 / 0.4 / 0.07 / 0.05 / 0.01 codes |
-| M12 GPU = CPU | PASS by review; CI: see below | verifier matched every term (gate, layer matrix, clamps, per-channel sigmas, normalized weights, gain matrix, kernel argument order) |
+| M12 GPU = CPU | PASS | verifier matched every term; macOS GPU parity green on `150c4df` (same code as `dd791d3`): halation gate GPU/reference total glow 0.9967–0.9973 at E = 0.3, 0.5, 0.9, 1, 4 and both 0 at 0.25; glow spread GPU 404.7 vs reference 400.3 (1.1%), mass 3.540 vs 3.548; glow reaches pixels through `RenderGraph.build`. 257 pipeline tests, 0 failures |
 
 Visual lines: V1 PASS (`03_1192_glass_100pct.png`: the gold halo glass bleeds warm into the lead lines, wall and blue glass unchanged; subtle at the default). V2 PASS (`02_…`: snow, sky and chart whites unchanged; faint outlines only at chart-white edges). V3 PASS (`01_…`).
 
@@ -60,6 +60,7 @@ All in owned functions: `HalationProfile`, `FilmChain.halation/halationProfile`,
 - `swift build --target LumenCore --target LumenRender`: clean.
 - Linux tests: 3049 executed, 0 failures, 6 skipped (all LumenCoreTests classes except `ControlProofTests`, which runs over 50 minutes in a debug build; CI's release Proof sweep runs it and is green on `c2149ee`). `HalationControlTests` re-run at `150c4df`: 16/16.
 - Local workaround, not committed: Swift 6.0.3 rejects two trailing commas in `Sources/LumenApp/CompareView.swift` (pre-existing on base), which stops the Linux test bundle linking. Tests were run with those two commas removed temporarily.
+- macOS: GPU parity green on `150c4df`; Proof sweep green on `c2149ee`; UI snapshots green on `dd791d3`; `CI` and `UI layout` for `dd791d3` were still queued at 03:50 UTC (the runner queue is 50+ deep). `dd791d3` differs from `150c4df` only by a test rename and docs.
 - `scripts/check-swift-surface.py`: kernel and access passes clean; its one finding (`Font` in `LumenApp/LumenType.swift`) is outside this lane and pre-existing.
 
 ## Not fixed / for a human
