@@ -1,0 +1,895 @@
+diff --git a/Sources/LumenCore/Image/DetailEngine.swift b/Sources/LumenCore/Image/DetailEngine.swift
+index 57586a7..1429ffe 100644
+--- a/Sources/LumenCore/Image/DetailEngine.swift
++++ b/Sources/LumenCore/Image/DetailEngine.swift
+@@ -20,9 +20,9 @@
+ // Two anti-halo commitments, both structural rather than tuned:
+ //   · Clarity is a local Laplacian (§ applyClarity) — a per-level remap that cannot
+ //     reverse a gradient, so there is no overshoot to feather away.
+-//   · Dehaze never subtracts the airlight's colour and turns each pixel about an
+-//     edge-following pivot with a bounded exponent (§ applyDehaze), which is what keeps
+-//     skies their hue and treelines free of bands.
++//   · Dehaze inverts the haze model against a range-restricted dark channel that is
++//     carried to full resolution edge-aware (§ applyDehaze), so a sky beside a treeline
++//     never borrows the trees' black.
+ 
+ import Foundation
+ 
+@@ -190,7 +190,7 @@ public struct DetailEngine: Sendable {
+         /// with the GPU, on a proxy whose size does not depend on the render's.
+         public func airlight() -> RGB { dehazeField().airlight }
+ 
+-        /// The transmission `t = 1 − V/P` (veil over local white) at this decomposition's
++        /// The raw transmission `t = 1 − V/A` (veil over the airlight) at this decomposition's
+         /// resolution: the proxy fields, upsampled edge-aware against this image's own
+         /// log luminance. Kept for callers that want the map itself;
+         /// `applyDehaze` reads the same field through the same upsampling.
+@@ -203,9 +203,8 @@ public struct DetailEngine: Sendable {
+                 for x in 0..<width {
+                     let f = DetailEngine.dehazeUpsample(field, x: x, y: y, width: width,
+                                                         height: height, guide: guide[x, y])
+-                    t[x, y] = Num.clamp(1 - DetailEngine.dehazeVeilFraction(veil: f.veil,
+-                                                                             white: f.white),
+-                                        0.02, 1)
++                    t[x, y] = DetailEngine.dehazeRawTransmission(veil: f.veil,
++                                                                 airLuma: field.airLuma)
+                 }
+             }
+             cache.transmission = t
+@@ -395,44 +394,51 @@ public struct DetailEngine: Sendable {
+     /// by a function the GPU twin calls too.
+     ///
+     /// WS-15 rewrote this stage against a measured spec (docs/quality/lanes/WS-15/SPEC.md).
+-    /// What the old single-luminance-ratio form did on real frames, and what replaced it:
+     ///
+     /// · **Airlight.** The brightest 0.1 % of a full-resolution dark channel picked a
+     ///   ColorChecker's white patches, a pink tank lid and a white wall, and flipped
+     ///   between wall and sky with the render size. It is now the brightest LARGE region
+     ///   of the upper frame on the proxy (`dehazeAirlightEstimate`).
+     ///
+-    /// · **Recovery, about each surface's own level.** He's inversion
+-    ///   `J = (I − A·(1−t))/t` holds the AIRLIGHT fixed and pulls everything darker than
+-    ///   it down by the veil, so a frame whose sky is the airlight lost 1.5 EV at +100 and
+-    ///   every grey card, snow field or overcast cloud darker than the airlight was read
+-    ///   as veil and crushed. Here the model sets an exponent instead: removing the veil
+-    ///   `V` (ω × the dark channel) from a surface at level `P` has log-slope `P/(P − V)`,
+-    ///   and that slope, capped, is applied as a power law about `P` (see
+-    ///   `dehazePositivePixel` for why this shape and not the subtraction itself). The
+-    ///   relative contrast of every detail rises — the detail a veil hides — while each
+-    ///   surface keeps its exposure. A sky guard eases the exponent on bright flat
+-    ///   regions, where the dark channel reads full veil and full expansion made storm
+-    ///   skies.
++    /// · **Transmission.** `t = 1 − V/A`, V being ω × the dark channel (the minimum of
++    ///   the min channel) over a window of the proxy. The window is range-restricted:
++    ///   only samples within `dehazeRegionEV` of the centre's own level count, so a sky
++    ///   pixel beside a treeline does not borrow the trees' black (the classic dark-channel
++    ///   halo) and a tree does not borrow the sky. The field reaches full resolution by
++    ///   joint-bilateral upsampling against the full-resolution log luminance, which is
++    ///   the edge-aware refinement: a 256 px field follows a 6000 px treeline.
+     ///
+-    /// · **Fields are region-faithful.** `V` and `P` are a range-restricted minimum and
+-    ///   maximum: only samples within `dehazeRegionEV` of the pixel's own level count, so
+-    ///   each surface keeps its own black and white right up to its edge, and the trees
+-    ///   next to a sky do not inherit the sky's numbers or vice versa (the patch-wide halo
+-    ///   of the old min filter). They are
+-    ///   carried to full resolution by joint-bilateral upsampling against the
+-    ///   full-resolution log luminance, which is what lets a 256 px field follow a
+-    ///   6000 px treeline.
++    /// · **Recovery is the model inverted**, `J = A + (I − A)/t`, on luminance against a
++    ///   NEUTRAL airlight at A's luminance, with the colour carried as a ratio plus an
++    ///   OKLab chroma scale at fixed hue (the model's `(I − Y)/t`). Subtracting A's own
++    ///   colour per channel turns every neutral that is darker than the airlight toward
++    ///   the airlight's complement (a blue sky made snow and grey cards yellow), which the
++    ///   spec forbids (C4); the neutral form keeps neutrals exactly neutral and keeps hue.
++    ///   The slider is the fraction of the way from the input to the recovered image.
+     ///
+-    /// · **Colour.** Luminance is a ratio multiply (no hue change); chroma is then
+-    ///   restored in OKLab at FIXED hue, by the stretch — the model's `(I − Y)/t` that the
+-    ///   ratio form could not do, which is why +Dehaze used to DESATURATE. The airlight's
+-    ///   colour is never subtracted, so neutrals stay neutral and no sky turns magenta.
++    /// · **Protections**, each one a bound on the model rather than a different model:
++    ///   the transmission is floored (`dehazeTransmissionFloor`, docs/06's Distance); a
++    ///   bright, flat region (sky, snow, a white wall), where the dark channel reads full
++    ///   veil whatever the truth, keeps most of its transmission (the sky guard); the
++    ///   darkening any pixel can take is soft-capped (`dehazeMaxDarkenEV`) and fades to
++    ///   none at the frame's black (the toe), so shadows deepen but are not crushed; the
++    ///   brightening is soft-capped too.
+     ///
+-    /// Negative Dehaze runs the model forwards toward a near-neutral veil at the
+-    /// airlight's level, weighted by distance: the larger of the local veil fraction
+-    /// `V/P` (low local contrast reads far) and the sky signal (bright and flat), times
+-    /// the ground-plane cue that the lower frame is nearer.
++    /// Negative Dehaze runs the model forwards, `out = I·t′ + A′·(1 − t′)`, toward a
++    /// near-neutral veil A′ at the airlight's level, with `1 − t′` from the pixel's
++    /// distance: the larger of its own veil (`1 − t`, normalised to the frame) and the
++    /// sky signal, times the ground-plane cue that the lower frame is nearer.
++
++    /// TEMPORARY (WS-15 round 2 tuning): probe points "u,v;u,v".
++    static let dehazeProbe: [(Double, Double)] = (ProcessInfo.processInfo.environment["WS15_PROBE"] ?? "")
++        .split(separator: ";").compactMap { pair in
++            let q = pair.split(separator: ",").compactMap { Double($0) }
++            return q.count == 2 ? (q[0], q[1]) : nil
++        }
++    /// TEMPORARY (WS-15 round 2 tuning): environment override of a tuning constant.
++    static func dehazeTune(_ name: String, _ value: Double) -> Double {
++        ProcessInfo.processInfo.environment["WS15_" + name].flatMap(Double.init) ?? value
++    }
+ 
+     /// Long edge of the proxy every dehaze field is measured on. Fixed, so a 512 px
+     /// preview and a 6000 px export measure the same picture.
+@@ -454,20 +460,35 @@ public struct DetailEngine: Sendable {
+     /// selection sits on a coloured sky or object, and its colour is pulled toward its
+     /// own luminance until it is this saturated.
+     public static let dehazeAirlightMaxSaturation: Double = 0.3
+-    /// Window of the veil and local-white fields, fraction of the proxy's long edge,
+-    /// and their range limit: only window samples within this many EV of the centre's
+-    /// guide count, so each surface keeps its OWN black and white. A plain closing
+-    /// filled the dark tree tops between sky gaps with sky and pinned the fringe of a
+-    /// forest to the sky's white (−1 EV along every canopy, WS-15 build notes r5).
+-    public static let dehazeDarkReach: Double = 0.03
+-    public static let dehazeRegionEV: Double = 1.5
+-    /// Flatness (for the negative branch's sky term): quadrant-std window and EV band.
++    /// Dark-channel window, as a fraction of the proxy's long edge, and its range
++    /// limit: only window samples within this many EV of the centre's guide count.
++    public static let dehazeDarkReach: Double = dehazeTune("dehazeDarkReach", 0.03)
++    public static let dehazeRegionEV: Double = dehazeTune("dehazeRegionEV", 1.5)
++    /// The fields are read in two passes. The first finds each sample's surface level
++    /// (the geometric mean within `dehazeRegionEV` of its own guide); the second takes
++    /// the veil and level over the samples within `dehazeRegionCoreEV` of THAT level.
++    /// Admitted at ±1.5 EV of the pixel itself, the treetops just below a sky halved the
++    /// sky's veil for 80 px above every treeline (a halo); centred on the pixel itself
++    /// at a tight range, the veil followed each pixel's own brightness and a smooth
++    /// overcast sky came out in blotches. Centred on the surface's level, every pixel
++    /// of one surface reads the same samples.
++    public static let dehazeRegionCoreEV: Double = dehazeTune("dehazeRegionCoreEV", 0.5)
++    /// Flatness (the sky guard's "flat"): quadrant-std window and EV band.
+     public static let dehazeFlatReach: Double = 0.008
+-    public static let dehazeFlatLoEV: Double = 0.05
+-    public static let dehazeFlatHiEV: Double = 0.25
+-    /// The pivot's guided filter: window as a fraction of the long edge, and ε in EV².
+-    public static let dehazePivotReach: Double = 0.01
+-    public static let dehazePivotEpsilonEV: Double = 0.25
++    public static let dehazeFlatLoEV: Double = dehazeTune("dehazeFlatLoEV", 0.05)
++    public static let dehazeFlatHiEV: Double = dehazeTune("dehazeFlatHiEV", 0.25)
++    /// Uniformity: the same quadrant std read on a much finer band. A surface with no
++    /// texture at all (a painted card, a chart patch, a smooth wall) carries no
++    /// dark-channel evidence — its dark channel is its own level, veiled or not — so it
++    /// keeps `dehazeUniformGuard` of its veil whatever its brightness. Measured on the
++    /// proxies: chart patches and synthetic flats 0–0.01 EV, overcast and blue skies
++    /// 0.01–0.025, foliage, forest, meadow and snow 0.04 and up.
++    /// The share of the slope (texture gain) a bright flat region gives up on top of the
++    /// sky guard: a sky's structure is cloud and noise, not detail a veil hid.
++    public static let dehazeSkySlopeGuard: Double = dehazeTune("dehazeSkySlopeGuard", 0.7)
++    public static let dehazeUniformLoEV: Double = dehazeTune("dehazeUniformLoEV", 0.002)
++    public static let dehazeUniformHiEV: Double = dehazeTune("dehazeUniformHiEV", 0.006)
++    public static let dehazeUniformGuard: Double = dehazeTune("dehazeUniformGuard", 0.9)
+     /// Joint-bilateral upsampling: the guide distance, in EV, at which a proxy sample's
+     /// weight has fallen to e^−½. Texture inside one surface spans about ±1 EV; the
+     /// edges that must not be crossed (sky/treeline, wall/shadow) span three or more.
+@@ -478,73 +499,68 @@ public struct DetailEngine: Sendable {
+     /// to its pure neighbours.
+     public static let dehazePuritySigmaEV: Double = 0.5
+     /// Sky terms. "Bright" is luminance relative to the airlight's, per pixel.
+-    public static let dehazeSkyBrightLo: Double = 0.35
+-    public static let dehazeSkyBrightHi: Double = 0.8
+-    /// The sky guard: the share of the exponent a bright, flat region (sky, snow, a
+-    /// white wall) gives up. Flat bright regions read as heavily veiled to the dark
+-    /// channel, and full contrast expansion there is what made storm skies.
+-    public static let dehazeSkyGuard: Double = 0.7
+-    /// The largest exponent positive Dehaze applies at +100, and the black reference:
+-    /// the floor protects pixels below `dehazeToeReach ×` the frame's 1st-percentile
+-    /// proxy luminance.
+-    public static let dehazeMaxGamma: Double = 2.25
++    public static let dehazeSkyBrightLo: Double = dehazeTune("dehazeSkyBrightLo", 0.35)
++    public static let dehazeSkyBrightHi: Double = dehazeTune("dehazeSkyBrightHi", 0.8)
++    /// The sky guard: the share of its veil a bright, flat region (sky, snow, a white
++    /// wall) keeps. The dark channel reads such a region as almost pure veil whatever
++    /// the truth, and removing it all is what made storm skies and grey snow.
++    public static let dehazeSkyGuard: Double = dehazeTune("dehazeSkyGuard", 0.5)
++    /// The transmission floor, He's t₀, from docs/06's Distance (`dehazeDistance`):
++    /// 0.55 at Distance 0, 0.05 at 100.
++    public static var dehazeTransmissionFloor: Double {
++        Num.mix(0.55, 0.05, Num.clamp(dehazeDistance, 0, 100) / 100)
++    }
++    /// The most a surface's level is darkened at +100, in EV, approached softly
++    /// (tanh), and the most it is brightened, as a ratio.
++    public static let dehazeMaxDarkenEV: Double = dehazeTune("dehazeMaxDarkenEV", 1.5)
++    public static let dehazeMaxBrighten: Double = dehazeTune("dehazeMaxBrighten", 1.25)
++    /// The largest log-slope (detail gain) at +100, approached softly, and the share of
++    /// it applied below the surface's level (the darker half of a texture, where a
++    /// log-ratio is the largest change in the picture and the first to crush).
++    public static let dehazeMaxSlope: Double = dehazeTune("dehazeMaxSlope", 3.0)
++    public static let dehazeShadowShare: Double = dehazeTune("dehazeShadowShare", 0.6)
++    /// The pivot each pixel's detail is measured from: a self-guided filter of the
++    /// LumenLog guide, window as a fraction of the long edge, ε in EV².
++    public static let dehazePivotReach: Double = dehazeTune("dehazePivotReach", 0.01)
++    public static let dehazePivotEpsilonEV: Double = dehazeTune("dehazePivotEpsilonEV", 0.5)
++    /// The detail curve on `x = ln(Y/pivot)`: above the pivot `x/(1 + x/x₊)`, below it
++    /// `x·e^(−(x/x₋)²)`, which lets go of LARGE negative deviations — a dark pixel whose
++    /// pivot a bright neighbour has pulled up (a branch against the sky, the forest just
++    /// under it) is not darkened into a band.
++    public static let dehazeDetailSoftness: Double = dehazeTune("dehazeDetailSoftness", 2.0)
++    public static let dehazeDetailRelease: Double = dehazeTune("dehazeDetailRelease", 1.0)
++    /// How far the level change follows each surface's own level: it is evaluated at
++    /// `P^α·(ρ·A)^(1−α)`. The model darkens a darker surface more under the same veil;
++    /// followed fully (α = 1), a sparse canopy beside the sky (+1.2 EV over the dense
++    /// canopy behind it) is darkened 0.4 EV less than that canopy, which is a band.
++    public static let dehazeLevelFollow: Double = dehazeTune("dehazeLevelFollow", 0.6)
++    public static let dehazeLevelReference: Double = dehazeTune("dehazeLevelReference", 0.5)
++    /// The black floor: at +100 a pixel keeps at least `dehazeToeFloor` of
++    /// `min(Y, dehazeToeReach × black)`, black being the frame's 1st-percentile proxy
++    /// luminance; it ramps from identity at true black, and scales with the amount.
+     public static let dehazeToeReach: Double = 1.5
+-    /// Share of the exponent applied below and above the pivot, and the most any pixel
+-    /// is brightened (`J ≤ dehazeMaxBrighten × Y`, a min of two rising curves, so the
+-    /// tone curve stays monotone). The darkest tail of a texture takes the smaller
+-    /// share: a log-ratio there is the largest change in the picture and the first thing
+-    /// to read as a dark band along an edge, while the visible detail (measured as
+-    /// encoded contrast) lives mostly in the brighter half.
+-    public static let dehazeShadowShare: Double = 0.5
+-    /// The shape of the expansion: a deviation `x = ln(Y/P)` from the pivot gains
+-    /// `(γ − 1)·x·(1 − e^(−(x/x1)²))/(1 + |x|/x2)` (`dehazeDetailCurve`). The structure
+-    /// a veil flattens — paths, hedges, roof lines, a trunk against a meadow — sits
+-    /// several tenths of a stop from its pivot and gets close to the full slope; the
+-    /// fine low-amplitude texture of a dark canopy (and the noise in it) sits within
+-    /// `x1` and is spared, because amplifying it is what drew bands along every
+-    /// treeline once the display transform's shadow contrast was applied on top
+-    /// (measured 1.8× on 4213's forest). `x2` bounds the largest move.
+-    public static let dehazeDetailFloor: Double = 0.05
+-    public static let dehazeDetailSoftness: Double = 2.0
+-    public static let dehazeDetailRelease: Double = 1.0
+-    public static let dehazeHighlightShare: Double = 1.0
+-    public static let dehazeMaxBrighten: Double = 1.25
+-    /// Scale on the dark channel's veil at +100.
+-    public static let dehazeStrength: Double = 1.25
+-    /// The black floor: at +100 a pixel near the frame's black keeps at least this
+-    /// fraction of itself; it scales with the amount (`1 − a·(1 − floor)`), so a small
+-    /// amount cannot snap the deepest shadows to the floor.
+-    public static let dehazeToeFloor: Double = 0.65
+-    /// OKLab chroma restoration `1 + gain·(γ − 1)`, capped, and gated off below a
+-    /// small fraction of the airlight's luminance, where the "colour" is noise and a
+-    /// boost only pushes a channel into the black clip.
+-    public static let dehazeChromaGain: Double = 0.5
+-    public static let dehazeChromaMax: Double = 1.25
++    public static let dehazeToeFloor: Double = dehazeTune("dehazeToeFloor", 0.65)
++    /// OKLab chroma restoration: `1 + gain·(1/t − 1)` (the model's own chroma gain on a
++    /// neutral veil), capped, gated off below a small fraction of the airlight's
++    /// luminance (where the "colour" is noise) and eased off for colours already near
++    /// full saturation (more chroma there is clipped, and the clip turns hue).
++    public static let dehazeChromaGain: Double = dehazeTune("dehazeChromaGain", 1.0)
++    public static let dehazeChromaMax: Double = dehazeTune("dehazeChromaMax", 1.6)
+     public static let dehazeChromaGateLo: Double = 0.01
+     public static let dehazeChromaGateHi: Double = 0.05
+-    /// The boost also eases off for colours already near full saturation: they sit at
+-    /// the display gamut's edge, where more chroma is clipped and the clip turns hue
+-    /// (ColorChecker cyan by 5° in the first build).
+     public static let dehazeChromaSatLo: Double = 0.5
+     public static let dehazeChromaSatHi: Double = 0.9
+-    /// Negative branch: the share of the airlight's chroma in the veil's tint; how far
+-    /// chroma moves toward that tint per unit of compression; the most log-contrast
+-    /// compression at −100; the quantile of `V/P` that reads fully distant; the
+-    /// near-ground weight.
+-    public static let dehazeVeilChroma: Double = 0.3
+-    public static let dehazeVeilChromaBlend: Double = 0.4
+-    public static let dehazeVeilMax: Double = 0.6
+-    /// Share of the compression that also lifts each surface toward the airlight's
+-    /// level as a whole (the rest is contrast lost about the surface's own level).
+-    public static let dehazeVeilLift: Double = 0.12
+-    /// The veil's level relative to the airlight: a little above it, so a bright
+-    /// distant surface (a snow field, a pale sky) goes milky too rather than being the
+-    /// one thing the veil cannot lift.
+-    public static let dehazeVeilLevel: Double = 1.5
++    /// Negative branch: the most veil (`1 − t′`) at −100 on the most distant region; the
++    /// share of the airlight's chroma in the veil and its level relative to the
++    /// airlight's luminance; the quantile of `1 − t` that reads fully distant; and the
++    /// ground-plane weight (the veil falls to `dehazeVeilNearWeight` at the bottom).
++    public static let dehazeVeilMax: Double = dehazeTune("dehazeVeilMax", 0.6)
++    public static let dehazeVeilChroma: Double = dehazeTune("dehazeVeilChroma", 0.3)
++    public static let dehazeVeilLevel: Double = dehazeTune("dehazeVeilLevel", 1.0)
+     public static let dehazeVeilReferenceQuantile: Double = 0.9
+     public static let dehazeVeilNearStart: Double = 0.35
+     public static let dehazeVeilNearEnd: Double = 0.95
+-    public static let dehazeVeilNearWeight: Double = 0.3
++    public static let dehazeVeilNearWeight: Double = dehazeTune("dehazeVeilNearWeight", 0.15)
+ 
+     /// The airlight and the proxy pixels it was read from.
+     public struct DehazeAirlight: Sendable {
+@@ -555,28 +571,31 @@ public struct DetailEngine: Sendable {
+ 
+     /// Everything the dehaze stage measures from the image, at proxy resolution.
+     ///
+-    /// The three fields reach full resolution by joint-bilateral upsampling
++    /// The fields reach full resolution by joint-bilateral upsampling
+     /// (`dehazeUpsample`): each pixel takes its four nearest proxy samples, weighted
+     /// bilinearly AND by how close each sample's guide value is to the pixel's own. A
+     /// guided-filter (linear-model) upsampling was tried first and drew the halos it
+     /// exists to prevent: across a sky/forest edge its fit `a·guide + b` has a steep
+     /// slope, so the bright texture INSIDE the forest next to the sky read as sky-level
+-    /// veil and was crushed (WS-15 build notes, r3).
++    /// veil and was crushed (WS-15 build notes, round 1).
+     public struct DehazeField: Sendable {
+         public let airlight: RGB
+         public let airLuma: Double
+         public let selection: Plane
+         public let proxy: ImageBuffer
+         public let proxyGuide: Plane
+-        /// Raw proxy fields: veil `V` (absolute), the surface's level `P` (absolute; the
+-        /// pivot positive Dehaze turns about), flatness.
++        /// Raw proxy fields: the veil `V` (ω × the range-restricted dark channel,
++        /// absolute), the surface's level `P` (the range-restricted geometric mean of
++        /// luminance over the same samples), flatness (sky guard) and uniformity (no
++        /// texture at all).
+         public let veil: Plane
+-        public let white: Plane
++        public let level: Plane
+         public let flat: Plane
++        public let uniform: Plane
+         /// Per-sample purity weight, `exp(−var/(2σ²))` of the full-resolution guide
+         /// inside the block (1 when the proxy is the image itself).
+         public let purity: Plane
+-        /// The `V/P` that reads fully distant for negative Dehaze.
++        /// The veil fraction `V/A` that reads fully distant for negative Dehaze.
+         public let veilReference: Double
+         /// The frame's black reference: the 1st percentile of proxy luminance.
+         public let blackReference: Double
+@@ -588,23 +607,24 @@ public struct DetailEngine: Sendable {
+         return 1 / (2 * sigma * sigma)
+     }
+ 
+-    /// Joint-bilateral upsampling of the three proxy fields to a `width`×`height` frame,
+-    /// at the pixel whose own guide value is `g`. The four proxy samples around the
+-    /// pixel's centre (border repeated) are weighted bilinearly times
++    /// Joint-bilateral upsampling of the proxy fields to a `width`×`height` frame, at
++    /// the pixel whose own guide value is `g`. The four proxy samples around the pixel's
++    /// centre (border repeated) are weighted bilinearly times
+     /// `exp(−(g − gᵢ)²·scale)·purityᵢ + 1e-6`; the small floor keeps the bilinear answer
+-    /// where no neighbour resembles the pixel. `V` and `P` blend in LOG space: they are
+-    /// luminances, and a dark surface's veil must not be lifted by a bright neighbour's
+-    /// in proportion to the neighbour's level.
++    /// where no neighbour resembles the pixel. `V` blends in LOG space: it is a
++    /// luminance, and a dark surface's veil must not be lifted by a bright neighbour's in
++    /// proportion to the neighbour's level; `P` likewise.
+     @inline(__always)
+     static func dehazeUpsample(_ f: DehazeField, x: Int, y: Int, width: Int, height: Int,
+-                               guide g: Double) -> (veil: Double, white: Double, flat: Double) {
++                               guide g: Double)
++        -> (veil: Double, level: Double, flat: Double, uniform: Double) {
+         let pw = f.veil.width, ph = f.veil.height
+         let qx = (Double(x) + 0.5) * Double(pw) / Double(width) - 0.5
+         let qy = (Double(y) + 0.5) * Double(ph) / Double(height) - 0.5
+         let bx = Int(qx.rounded(.down)), by = Int(qy.rounded(.down))
+         let fx = qx - Double(bx), fy = qy - Double(by)
+         let scale = dehazeUpsampleRangeScale
+-        var sv = 0.0, sp = 0.0, sf = 0.0, sw = 0.0
++        var sv = 0.0, sp = 0.0, sf = 0.0, su = 0.0, sw = 0.0
+         for (j, wy) in [(0, 1 - fy), (1, fy)] {
+             let yy = Swift.min(Swift.max(by + j, 0), ph - 1)
+             for (i, wx) in [(0, 1 - fx), (1, fx)] {
+@@ -612,12 +632,13 @@ public struct DetailEngine: Sendable {
+                 let d = g - f.proxyGuide[xx, yy]
+                 let w = wx * wy * (exp(-d * d * scale) * f.purity[xx, yy] + 1e-6)
+                 sv += w * log(Swift.max(f.veil[xx, yy], 1e-6))
+-                sp += w * log(Swift.max(f.white[xx, yy], 1e-6))
++                sp += w * log(Swift.max(f.level[xx, yy], 1e-6))
+                 sf += w * f.flat[xx, yy]
++                su += w * f.uniform[xx, yy]
+                 sw += w
+             }
+         }
+-        return (exp(sv / sw), exp(sp / sw), sf / sw)
++        return (exp(sv / sw), exp(sp / sw), sf / sw, su / sw)
+     }
+ 
+     /// Proxy size for a frame: `dehazeProxyLongEdge` on the long edge, rounded the way
+@@ -712,22 +733,6 @@ public struct DetailEngine: Sendable {
+         dehazeErode(p.map { -$0 }, rx: rx, ry: ry).map { -$0 }
+     }
+ 
+-    /// The pivot plane: a self-guided filter of the LumenLog guide (window
+-    /// `dehazePivotReach` of the long edge, ε `dehazePivotEpsilonEV` EV²), decoded to
+-    /// linear. It follows any edge stronger than about √ε, so a blurred transition is
+-    /// its own pivot and is not overshot, and smooths texture below that, which is the
+-    /// detail the exponent expands. The decomposition's own base (ε 0.01 EV²) follows a
+-    /// hazy forest's texture too closely to leave any detail to expand.
+-    public static func dehazePivotPlane(_ image: ImageBuffer,
+-                                        space: RGBColorSpace = .rec2020) -> Plane {
+-        let guide = dehazeGuidePlane(image, space: space)
+-        let long = Double(Swift.max(image.width, image.height))
+-        let r = Swift.max(1, Int((dehazePivotReach * long).rounded()))
+-        let eps = dehazePivotEpsilonEV / (LumenLog.range * LumenLog.range)
+-        return SpatialOps.guidedFilter(input: guide, guide: guide, radius: r, epsilon: eps)
+-            .map { LumenLog.decode($0) }
+-    }
+-
+     /// Rectangular erosion (windowed minimum), border pixels repeated.
+     static func dehazeErode(_ p: Plane, rx: Int, ry: Int) -> Plane {
+         let w = p.width, h = p.height
+@@ -881,43 +886,78 @@ public struct DetailEngine: Sendable {
+             }
+         }
+         let r = Swift.max(1, Int((dehazeDarkReach * long).rounded()))
+-        // V: ω × the range-restricted minimum of the min channel; P: the range-restricted
+-        // geometric mean of luminance, over the same samples (the centre among them).
++        let rf = Swift.max(1, Int((dehazeFlatReach * long).rounded()))
++        let spread = dehazeQuadrantStd(guide, radius: rf)
++        // Pass 1: each sample's surface level, as an encoded guide value.
+         let tau = dehazeRegionEV / LumenLog.range
+-        var veil = Plane(width: w, height: h)
+-        var white = Plane(width: w, height: h)
++        var centre = Plane(width: w, height: h)
+         for y in 0..<h {
+             for x in 0..<w {
+                 let g0 = guide[x, y]
+-                var lo = minimum[x, y], logSum = 0.0, n = 0.0
++                var sum = 0.0, n = 0.0
+                 for yy in Swift.max(y - r, 0)...Swift.min(y + r, h - 1) {
+                     for xx in Swift.max(x - r, 0)...Swift.min(x + r, w - 1)
+                     where abs(guide[xx, yy] - g0) <= tau {
++                        sum += guide[xx, yy]
++                        n += 1
++                    }
++                }
++                centre[x, y] = sum / n
++            }
++        }
++        // Pass 2: V, ω × the minimum of the min channel, and P, the geometric mean of
++        // luminance, over the samples within the core range of that level.
++        let core = dehazeRegionCoreEV / LumenLog.range
++        var veil = Plane(width: w, height: h)
++        var level = Plane(width: w, height: h)
++        for y in 0..<h {
++            for x in 0..<w {
++                let c0 = centre[x, y]
++                var lo = Double.infinity, logSum = 0.0, n = 0.0
++                for yy in Swift.max(y - r, 0)...Swift.min(y + r, h - 1) {
++                    for xx in Swift.max(x - r, 0)...Swift.min(x + r, w - 1)
++                    where abs(guide[xx, yy] - c0) <= core {
+                         lo = Swift.min(lo, minimum[xx, yy])
+                         logSum += log(Swift.max(lum[xx, yy], 1e-9))
+                         n += 1
+                     }
+                 }
++                if n == 0 { lo = minimum[x, y]; logSum = log(Swift.max(lum[x, y], 1e-9)); n = 1 }
+                 veil[x, y] = dehazeOmega * lo
+-                white[x, y] = Swift.max(exp(logSum / n), lo)
++                level[x, y] = Swift.max(exp(logSum / n), lo)
++            }
++        }
++        // Pass 3, the refinement: a windowed minimum steps wherever a dark sample enters
++        // or leaves the window, which drew straight seams across a smooth sky. V is
++        // averaged (in log) over the same samples, which keeps it continuous.
++        var refined = Plane(width: w, height: h)
++        for y in 0..<h {
++            for x in 0..<w {
++                let c0 = centre[x, y]
++                var sum = 0.0, n = 0.0
++                for yy in Swift.max(y - r, 0)...Swift.min(y + r, h - 1) {
++                    for xx in Swift.max(x - r, 0)...Swift.min(x + r, w - 1)
++                    where abs(guide[xx, yy] - c0) <= core {
++                        sum += log(Swift.max(veil[xx, yy], 1e-9))
++                        n += 1
++                    }
++                }
++                refined[x, y] = n > 0 ? Swift.min(exp(sum / n), level[x, y]) : veil[x, y]
+             }
+         }
++        veil = refined
+ 
+-        let rf = Swift.max(1, Int((dehazeFlatReach * long).rounded()))
+-        let flat = SpatialOps.boxBlur(dehazeQuadrantStd(guide, radius: rf).map {
++        let flat = SpatialOps.boxBlur(spread.map {
+             1 - Num.smoothstep(dehazeFlatLoEV, dehazeFlatHiEV, $0 * LumenLog.range)
+         }, radius: 1)
++        let uniform = SpatialOps.boxBlur(dehazeDilate(spread, rx: rf, ry: rf).map {
++            1 - Num.smoothstep(dehazeUniformLoEV, dehazeUniformHiEV, $0 * LumenLog.range)
++        }, radius: 1)
+ 
+-
+-        // "Fully distant" for the negative branch: a high quantile of the local veil
+-        // fraction V/P over the frame, so the haziest region gets the full veil whatever
+-        // the frame's absolute haze level.
+-        var fractions = [Double]()
+-        fractions.reserveCapacity(w * h)
+-        for i in 0..<veil.values.count {
+-            fractions.append(dehazeVeilFraction(veil: Double(veil.values[i]),
+-                                                white: Double(white.values[i])))
+-        }
++        // "Fully distant" for the negative branch: a high quantile of the veil fraction
++        // V/A over the frame, so the haziest region gets the full veil whatever the
++        // frame's absolute haze level.
++        var fractions = veil.values.map { Num.clamp(Double($0) / airLuma, 0, 1) }
+         fractions.sort()
+         var lums = lum.values.map { Double($0) }
+         lums.sort()
+@@ -937,10 +977,26 @@ public struct DetailEngine: Sendable {
+         let reference = Swift.max(fractions.isEmpty ? 0 : fractions[qi], 0.05)
+         return DehazeField(airlight: airlight.rgb, airLuma: airLuma,
+                            selection: airlight.selection, proxy: proxy, proxyGuide: guide,
+-                           veil: veil, white: white, flat: flat, purity: purity,
++                           veil: veil, level: level, flat: flat, uniform: uniform,
++                           purity: purity,
+                            veilReference: reference, blackReference: black)
+     }
+ 
++    /// The pivot plane: a self-guided filter of the LumenLog guide (window
++    /// `dehazePivotReach` of the long edge, ε `dehazePivotEpsilonEV` EV²), decoded to
++    /// linear. It follows any edge stronger than about √ε, so a blurred transition is
++    /// its own pivot and is not overshot, and smooths texture below that, which is the
++    /// detail the model's slope expands.
++    public static func dehazePivotPlane(_ image: ImageBuffer,
++                                        space: RGBColorSpace = .rec2020) -> Plane {
++        let guide = dehazeGuidePlane(image, space: space)
++        let long = Double(Swift.max(image.width, image.height))
++        let r = Swift.max(1, Int((dehazePivotReach * long).rounded()))
++        let eps = dehazePivotEpsilonEV / (LumenLog.range * LumenLog.range)
++        return SpatialOps.guidedFilter(input: guide, guide: guide, radius: r, epsilon: eps)
++            .map { LumenLog.decode($0) }
++    }
++
+     public static func applyDehaze(_ image: ImageBuffer, amount: Double,
+                                    decomposition d: Decomposition) -> ImageBuffer {
+         let a = Num.clamp(amount, -100, 100) / 100
+@@ -950,9 +1006,18 @@ public struct DetailEngine: Sendable {
+         let space = d.space
+         let field = d.dehazeField()
+         let airLuma = field.airLuma
+-        let veilTint = dehazeVeilTint(field.airlight)
+-        // The pivot each pixel turns about: an edge-preserving base of this image.
+-        let base = dehazePivotPlane(image, space: space)
++        let veilColour = dehazeVeilColour(field.airlight, space: space)
++        let pivot = a > 0 ? dehazePivotPlane(image, space: space) : nil
++        if let path = ProcessInfo.processInfo.environment["WS15_DUMP"] {
++            // TEMPORARY (WS-15 round 2 analysis): dump the proxy fields.
++            var data = Data()
++            for plane in [field.proxyGuide, field.veil, field.flat, field.uniform] {
++                plane.values.withUnsafeBufferPointer { data.append(Data(buffer: $0)) }
++            }
++            try? data.write(to: URL(fileURLWithPath: path + ".bin"))
++            let meta = "{\"w\": \(field.veil.width), \"h\": \(field.veil.height), \"airLuma\": \(airLuma), \"air\": [\(field.airlight.r), \(field.airlight.g), \(field.airlight.b)], \"black\": \(field.blackReference), \"ref\": \(field.veilReference)}"
++            try? meta.write(toFile: path + ".json", atomically: true, encoding: .utf8)
++        }
+ 
+         var out = image
+         for y in 0..<h {
+@@ -961,18 +1026,23 @@ public struct DetailEngine: Sendable {
+                 let c = image[x, y]
+                 let g = LumenLog.encode(Swift.max(space.luminance(c), 0))
+                 let f = dehazeUpsample(field, x: x, y: y, width: w, height: h, guide: g)
+-                let pivot = base[x, y]
+-                if a > 0 {
+-                    out[x, y] = dehazePositivePixel(c, veil: f.veil, white: f.white, flat: f.flat,
+-                                                    pivot: pivot, airLuma: airLuma,
++                if dehazeProbe.contains(where: { Int(Double($0.0) * Double(w)) == x && Int(Double($0.1) * Double(h)) == y }) {
++                    let p = Swift.max(f.level, 1e-6), yy = space.luminance(c)
++                    let t = dehazeTransmission(veil: f.veil, flat: f.flat, uniform: f.uniform, level: p, airLuma: airLuma)
++                    let m = dehazeModel(level: p, transmission: t, airLuma: airLuma)
++                    print("PROBE", x, y, "y/A", yy / airLuma, "P/A", p / airLuma, "V/A", f.veil / airLuma, "flat", f.flat, "unif", f.uniform, "t", t, "level", m.level, "slope", m.slope, "x", log(yy / p))
++                }
++                if let pivot {
++                    out[x, y] = dehazePositivePixel(c, veil: f.veil, level: f.level, flat: f.flat,
++                                                    uniform: f.uniform, pivot: pivot[x, y],
++                                                    airLuma: airLuma,
+                                                     black: field.blackReference, amount: a,
+                                                     space: space)
+                 } else {
+-                    out[x, y] = dehazeNegativePixel(c, veil: f.veil, white: f.white,
+-                                                    flat: f.flat, pivot: pivot,
++                    out[x, y] = dehazeNegativePixel(c, veil: f.veil, flat: f.flat,
+                                                     row: row, airLuma: airLuma,
+                                                     reference: field.veilReference,
+-                                                    veilTint: veilTint, amount: a,
++                                                    veilColour: veilColour, amount: a,
+                                                     space: space)
+                 }
+             }
+@@ -980,19 +1050,35 @@ public struct DetailEngine: Sendable {
+         return out
+     }
+ 
+-    /// `V/P`, the local veil fraction: 0 where the region holds a true black, → ω where
+-    /// its darkest point sits at its white (flat, or fully veiled).
++    /// The raw transmission `1 − V/A`, clamped to [0.02, 1].
++    @inline(__always)
++    static func dehazeRawTransmission(veil: Double, airLuma: Double) -> Double {
++        Num.clamp(1 - veil / airLuma, 0.02, 1)
++    }
++
++    /// The sky signal: flat × bright (luminance relative to the airlight's).
++    @inline(__always)
++    static func dehazeSky(flat: Double, luma y: Double, airLuma: Double) -> Double {
++        Num.saturate(flat) * Num.smoothstep(dehazeSkyBrightLo, dehazeSkyBrightHi, y / airLuma)
++    }
++
++    /// The transmission positive Dehaze inverts at a surface of level `p`: the raw one,
++    /// raised toward 1 by the sky guard (bright and flat) or the uniform guard (no
++    /// texture), and floored at `dehazeTransmissionFloor`.
+     @inline(__always)
+-    static func dehazeVeilFraction(veil: Double, white: Double) -> Double {
+-        let p = Swift.max(white, 1e-6)
+-        return Num.clamp(veil / p, 0, 1)
++    static func dehazeTransmission(veil: Double, flat: Double, uniform: Double, level p: Double,
++                                   airLuma: Double) -> Double {
++        let raw = dehazeRawTransmission(veil: veil, airLuma: airLuma)
++        let guarded = Swift.max(dehazeSkyGuard * dehazeSky(flat: flat, luma: p, airLuma: airLuma),
++                                dehazeUniformGuard * Num.saturate(uniform))
++        return Swift.max(raw + (1 - raw) * guarded, dehazeTransmissionFloor)
+     }
+ 
+     /// Scale OKLab chroma by `s` at fixed hue AND fixed luminance. In cube-root LMS the
+     /// OKLab L axis is the grey direction, so the scale is `L + s·(lms′ − L)` there —
+     /// exactly hue-preserving — and a ratio multiply then puts the luminance back.
+     /// Holding OKLab L instead is not holding luminance: for dark saturated greens the
+-    /// two part by up to 0.7 EV, which drew bands along every forest edge (r6).
++    /// two part by up to 0.7 EV, which drew bands along every forest edge.
+     @inline(__always)
+     static func dehazeScaleChroma(_ c: RGB, by s: Double,
+                                   space: RGBColorSpace = .rec2020) -> RGB {
+@@ -1009,91 +1095,88 @@ public struct DetailEngine: Sendable {
+         return y0 > 0 && y1 > 0 ? out * (y0 / y1) : out
+     }
+ 
+-    /// Positive Dehaze for one pixel.
+-    ///
+-    /// A power law about the surface's own level `P` (the range-restricted geometric
+-    /// mean): `ln(J/P) = γ·ln(Y/P)` below it, a quarter of that above. The exponent is
+-    /// the haze model's log-slope at that level — removing a veil `V` from `Y` has slope
+-    /// `P/(P − V)` there — capped at `dehazeMaxGamma`, eased by the sky guard on bright
+-    /// flat regions and scaled by the amount. So the model decides HOW MUCH contrast a
+-    /// surface gets back, and every surface keeps its exposure.
+-    ///
+-    /// Two earlier forms failed the halo lines, and why is the design. A black-point
+-    /// subtraction `(Y − V)·…` has an unbounded slope near `V`, so ordinary brightness
+-    /// variation inside one dark surface became ±0.9 EV bands. Pinning at the surface's
+-    /// local maximum darkened a textured forest by 0.9 EV and the meadow beside it by
+-    /// 0.2, and that difference IS a band across their shared edge. A bounded exponent
+-    /// about each surface's own level turns brightness variation into at most `(γ − 1)`
+-    /// of itself and treats neighbouring surfaces alike. Below `dehazeToeReach ×` the
+-    /// frame's black reference the result is floored at a fraction of the input
+-    /// (`dehazeToeFloor` at +100). Chroma is restored in OKLab at fixed hue and
+-    /// luminance, by `(γ − 1)`.
++    /// The inverse model at a surface of level `p` under transmission `t`, linearised
++    /// in log luminance about that level: `ln J ≈ ln J(p) + s·ln(Y/p)`, with
++    /// `J(p) = (p − V′)/t`, `V′ = A·(1 − t)` and `s = p/(p − V′)` the model's own
++    /// log-slope there. Returned at +100 as the surface's log level change, soft-capped
++    /// at `dehazeMaxDarkenEV` below and `dehazeMaxBrighten` above, and the slope,
++    /// soft-capped at `dehazeMaxSlope`. A surface at or below the veil reads as the
++    /// full caps.
++    @inline(__always)
++    static func dehazeModel(level p: Double, transmission t: Double,
++                            airLuma: Double) -> (level: Double, slope: Double) {
++        let v = airLuma * (1 - t)
++        let down = dehazeMaxDarkenEV * M_LN2, up = log(dehazeMaxBrighten)
++        let k = dehazeMaxSlope - 1
++        let q = exp(dehazeLevelFollow * log(p)
++                    + (1 - dehazeLevelFollow) * log(dehazeLevelReference * airLuma))
++        let level: Double
++        if q > v {
++            let change = log((q - v) / (t * q))
++            level = change < 0 ? -down * tanh(-change / down) : up * tanh(change / up)
++        } else {
++            level = -down
++        }
++        let slope = p > v ? 1 + k * tanh((p / (p - v) - 1) / k) : dehazeMaxSlope
++        return (level, slope)
++    }
++
++    /// Positive Dehaze for one pixel: the inverse model linearised about the pixel's
++    /// pivot (`dehazeModel`), so a surface's level moves by the model's level change
++    /// and its texture by the model's slope — never the per-pixel inverse, whose slope
++    /// is unbounded at the veil and turned ordinary texture inside a dark forest into
++    /// bands. The luminance change is a ratio, so hue holds; chroma is scaled in OKLab
++    /// at fixed hue and luminance by the same slope (the model's `(I − Y)/t` relative
++    /// to `J`), shared by `dehazeChromaGain` and capped. The amount scales the log
++    /// change, so every setting is itself a monotone power law about the pivot; the
++    /// black floor below keeps the deepest shadows out of the clip.
+     @inline(__always)
+-    static func dehazePositivePixel(_ c: RGB, veil: Double, white: Double, flat: Double,
+-                                    pivot: Double, airLuma: Double, black: Double,
++    static func dehazePositivePixel(_ c: RGB, veil: Double, level: Double, flat: Double,
++                                    uniform: Double, pivot: Double, airLuma: Double,
++                                    black: Double,
+                                     amount a: Double, space: RGBColorSpace) -> RGB {
+         let y = space.luminance(c)
+-        let gamma = dehazeGamma(veil: veil, white: Swift.max(white, 1e-6), flat: flat, luma: y,
+-                                airLuma: airLuma, amount: a)
+-        let p = Swift.max(pivot, 1e-6)
+-        let yp = Swift.max(y, p * 1e-6)
+-        let share = yp < p ? dehazeShadowShare : dehazeHighlightShare
+-        let x = log(yp / p)
+-        let r = exp((gamma - 1) * share * dehazeDetailCurve(x))
++        guard y > 0 else { return c }
++        let p = Swift.max(level, 1e-6)
++        let t = dehazeTransmission(veil: veil, flat: flat, uniform: uniform, level: p,
++                                   airLuma: airLuma)
++        let model = dehazeModel(level: p, transmission: t, airLuma: airLuma)
++        let sky = dehazeSky(flat: flat, luma: p, airLuma: airLuma)
++        let slope = 1 + (model.slope - 1) * (1 - dehazeSkySlopeGuard * sky)
++        let x = log(y / Swift.max(pivot, 1e-9))
++        let detail = (slope - 1) * dehazeDetailCurve(x)
++        let j0 = y * exp(a * (model.level + detail))
+         // Floor in absolute terms below the frame's black reference, so the J(Y) curve
+-        // stays monotone (the max of two non-decreasing curves). A smooth maximum was
+-        // tried and is wrong here: where the curves nearly meet it sits between them,
+-        // so even +10 darkened every pixel within the floor's reach by ~1 % — a jump at
+-        // the start of the slider.
++        // stays monotone (the max of two non-decreasing curves), ramping from identity
++        // at true black to `f` at the reach.
+         let f = 1 - a * (1 - dehazeToeFloor)
+-        let j0 = yp * r
+-        // The floor ramps from identity at true black to `f` at the reach, so the deepest
+-        // shadows are never pushed into the black clip.
+         let reach = dehazeToeReach * black
+-        let jf = (1 - (1 - f) * Num.smoothstep(0, reach, yp)) * Swift.min(yp, reach)
+-        let j = Swift.max(j0, jf)
+-        // Both caps scale with the amount, so the slider stays even to +100 instead of
+-        // running into a fixed ceiling halfway.
+-        let k = Swift.min(j / yp, 1 + a * (dehazeMaxBrighten - 1))
+-        let chroma = Swift.min(1 + dehazeChromaGain * (gamma - 1), 1 + a * (dehazeChromaMax - 1))
++        let jf = (1 - (1 - f) * Num.smoothstep(0, reach, y)) * Swift.min(y, reach)
++        let k = Swift.max(j0, jf) / y
++        let chroma = Swift.min(1 + a * dehazeChromaGain * (slope - 1),
++                               1 + a * (dehazeChromaMax - 1))
+         let gate = Num.smoothstep(dehazeChromaGateLo, dehazeChromaGateHi, y / airLuma)
+             * (1 - Num.smoothstep(dehazeChromaSatLo, dehazeChromaSatHi, dehazeSaturation(c)))
+         let lifted = c * k
+-        return dehazeGamutSafe(lifted, dehazeScaleChroma(lifted, by: 1 + (chroma - 1) * gate))
++        return dehazeGamutSafe(lifted, dehazeScaleChroma(lifted, by: 1 + (chroma - 1) * gate,
++                                                         space: space))
+     }
+ 
+-    /// `(max − min)/max` of a colour, 0 for black or a colour with no positive channel.
+-    @inline(__always)
+-    static func dehazeSaturation(_ c: RGB) -> Double {
+-        let hi = c.maxComponent
+-        return hi > 1e-12 ? Num.saturate((hi - Swift.max(c.minComponent, 0)) / hi) : 0
+-    }
+-
+-    /// The detail curve. Above the pivot `x·(1 − e^(−(x/x1)²))/(1 + x/x2)`; below it
+-    /// `x·(1 − e^(−(x/x1)²))·e^(−(x/x3)²)`, which also lets go of LARGE negative
+-    /// deviations: a dark pixel whose pivot a bright neighbour has pulled up (the forest
+-    /// just under a sky) is not darkened into a band. `x + k·curve(x)` is strictly
+-    /// rising for `k ≤ 2` (checked numerically; the shadow side uses
+-    /// `k = (γ − 1)·dehazeShadowShare ≤ 1.5`).
++    /// The detail curve (see `dehazeDetailSoftness`). `x + k·curve(x)` is strictly
++    /// rising for `k ≤ 1.5` (checked numerically), which `dehazeMaxSlope` and
++    /// `dehazeShadowShare` keep it within.
+     @inline(__always)
+     static func dehazeDetailCurve(_ x: Double) -> Double {
+-        let u = x / dehazeDetailFloor
+-        let rise = x * (1 - exp(-u * u))
+-        if x >= 0 { return rise / (1 + x / dehazeDetailSoftness) }
++        if x >= 0 { return x / (1 + x / dehazeDetailSoftness) }
+         let v = x / dehazeDetailRelease
+-        return rise * exp(-v * v)
++        return dehazeShadowShare * x * exp(-v * v)
+     }
+ 
+-    /// The exponent of positive Dehaze at a pixel (see `dehazePositivePixel`).
++    /// `(max − min)/max` of a colour, 0 for black or a colour with no positive channel.
+     @inline(__always)
+-    static func dehazeGamma(veil: Double, white p: Double, flat: Double, luma y: Double,
+-                            airLuma: Double, amount a: Double) -> Double {
+-        let v = Num.clamp(veil, 0, p * dehazeOmega)
+-        let slope = p / Swift.max(p - v, 1e-9)
+-        let bright = Num.smoothstep(dehazeSkyBrightLo, dehazeSkyBrightHi, y / airLuma)
+-        let skyGuard = Num.saturate(flat) * bright
+-        let capped = Swift.min(Swift.max(slope, 1), dehazeMaxGamma) - 1
+-        return 1 + a * dehazeStrength * capped * (1 - dehazeSkyGuard * skyGuard)
++    static func dehazeSaturation(_ c: RGB) -> Double {
++        let hi = c.maxComponent
++        return hi > 1e-12 ? Num.saturate((hi - Swift.max(c.minComponent, 0)) / hi) : 0
+     }
+ 
+     /// Never let the chroma scale push a channel below zero from a colour that was not:
+@@ -1108,62 +1191,41 @@ public struct DetailEngine: Sendable {
+         return lifted.mix(scaled, w)
+     }
+ 
+-    /// The veil's chroma as an offset in cube-root LMS (where OKLab a, b are linear):
+-    /// `dehazeVeilChroma` of the airlight's own, so the veil leans toward the airlight's
+-    /// hue without painting its full colour.
+-    public static func dehazeVeilTint(_ airlight: RGB) -> RGB {
+-        let ctx = OKLabTransform.working
+-        let lms = ctx.rgbToLMS.apply(airlight)
+-        let p = RGB(Num.spow(lms.r, 1.0 / 3.0), Num.spow(lms.g, 1.0 / 3.0),
+-                    Num.spow(lms.b, 1.0 / 3.0))
+-        let row = OKLabTransform.lmsToLab.m[0]
+-        let l = row[0] * p.r + row[1] * p.g + row[2] * p.b
+-        return (p - RGB(gray: l)) * dehazeVeilChroma
++    /// The negative branch's veil colour A′: `dehazeVeilLevel ×` the airlight's
++    /// luminance, carrying `dehazeVeilChroma` of the airlight's own chroma, so the veil
++    /// leans toward the airlight's hue without painting its full colour.
++    public static func dehazeVeilColour(_ airlight: RGB,
++                                        space: RGBColorSpace = .rec2020) -> RGB {
++        let y = Swift.max(space.luminance(airlight), 1e-4)
++        let grey = RGB(gray: y)
++        return (grey + (airlight - grey) * dehazeVeilChroma) * dehazeVeilLevel
+     }
+ 
+-    /// Negative Dehaze for one pixel: a milky veil, the mirror of the positive side.
+-    /// Contrast is compressed about the surface's own level `P` — `ln(out/P) =
+-    /// (1 − c)·ln(Y/P)` below it, a quarter of that above — every surface is lifted
+-    /// toward the airlight's level by `(A/P)^(c·dehazeVeilLift)`, and chroma eases
+-    /// toward the veil's near-neutral tint. `c = amount × dehazeVeilMax × distance`;
+-    /// distance has no depth map, so it is the larger of the local veil fraction (low
+-    /// contrast reads far) and the sky signal (bright and flat), times the ground-plane
+-    /// cue (the lower frame is nearer). A blend toward a constant — the textbook
+-    /// forward model — lifted a dark trunk by 2 EV beside a meadow lifted by a few
+-    /// tenths, which is a band on the trunk's edge; compressing about each surface's
+-    /// level keeps neighbouring surfaces' changes alike.
++    /// The negative branch's distance at a pixel: the larger of its veil fraction
++    /// (relative to the frame's `reference`) and the sky signal, times the ground-plane
++    /// cue (row `v`, 0 = top).
+     @inline(__always)
+-    static func dehazeNegativePixel(_ c: RGB, veil: Double, white: Double, flat: Double,
+-                                    pivot: Double, row v: Double, airLuma: Double, reference: Double,
+-                                    veilTint: RGB, amount a: Double,
+-                                    space: RGBColorSpace) -> RGB {
+-        let y = space.luminance(c)
+-        let bright = Num.smoothstep(dehazeSkyBrightLo, dehazeSkyBrightHi, y / airLuma)
+-        let sky = Num.saturate(flat) * bright
+-        let haze = Num.saturate(dehazeVeilFraction(veil: veil, white: white) / reference)
++    static func dehazeDistanceWeight(veil: Double, flat: Double, luma y: Double, row v: Double,
++                                     airLuma: Double, reference: Double) -> Double {
++        let haze = Num.saturate((1 - dehazeRawTransmission(veil: veil, airLuma: airLuma))
++                                / reference)
++        let sky = dehazeSky(flat: flat, luma: y, airLuma: airLuma)
+         let near = 1 - (1 - dehazeVeilNearWeight)
+             * Num.smoothstep(dehazeVeilNearStart, dehazeVeilNearEnd, v)
+-        let distant = Swift.max(haze, sky) * near
+-        let compress = Num.saturate(-a) * dehazeVeilMax * distant
+-        let p = Swift.max(pivot, 1e-6)
+-        let yp = Swift.max(y, p * 1e-6)
+-        let share = yp < p ? 1 : dehazeHighlightShare
+-        let m = exp(compress * (share * log(p / yp)
+-                                + dehazeVeilLift * Swift.max(log(dehazeVeilLevel * airLuma / p), 0)))
+-        let lifted = c * m
+-        // Chroma toward the tint in cube-root LMS: (1 − t)·(root − L) + t·tint.
+-        let t = compress * dehazeVeilChromaBlend
+-        let ctx = OKLabTransform.working
+-        let lms = ctx.rgbToLMS.apply(lifted)
+-        let root = RGB(Num.spow(lms.r, 1.0 / 3.0), Num.spow(lms.g, 1.0 / 3.0),
+-                       Num.spow(lms.b, 1.0 / 3.0))
+-        let row = OKLabTransform.lmsToLab.m[0]
+-        let l = row[0] * root.r + row[1] * root.g + row[2] * root.b
+-        let q = RGB(gray: l) + (root - RGB(gray: l)) * (1 - t) + veilTint * t
+-        var out = ctx.lmsToRGB.apply(RGB(q.r * q.r * q.r, q.g * q.g * q.g, q.b * q.b * q.b))
+-        let y0 = space.luminance(lifted), y1 = space.luminance(out)
+-        if y0 > 0 && y1 > 0 { out = out * (y0 / y1) }
+-        return dehazeGamutSafe(lifted, out)
++        return Swift.max(haze, sky) * near
++    }
++
++    /// Negative Dehaze for one pixel: the forward model `I·t′ + A′·(1 − t′)` with
++    /// `1 − t′ = amount × dehazeVeilMax × distance`.
++    @inline(__always)
++    static func dehazeNegativePixel(_ c: RGB, veil: Double, flat: Double, row v: Double,
++                                    airLuma: Double, reference: Double, veilColour: RGB,
++                                    amount a: Double, space: RGBColorSpace) -> RGB {
++        let y = space.luminance(c)
++        let distance = dehazeDistanceWeight(veil: veil, flat: flat, luma: y, row: v,
++                                            airLuma: airLuma, reference: reference)
++        let s = Num.saturate(-a) * dehazeVeilMax * distance
++        return c * (1 - s) + veilColour * s
+     }
+ 
+     // MARK: - Capture sharpening (S4)
+diff --git a/Tests/LumenCoreTests/WS15TmpAuthorityProbe.swift b/Tests/LumenCoreTests/WS15TmpAuthorityProbe.swift
+new file mode 100644
+index 0000000..df3d103
+--- /dev/null
++++ b/Tests/LumenCoreTests/WS15TmpAuthorityProbe.swift
+@@ -0,0 +1,13 @@
++// TEMPORARY probe (WS-15 builder round 2) — measures only detail.dehaze's proof record.
++// Deleted before hand-back.
++import XCTest
++import LumenCore
++
++final class WS15TmpAuthorityProbe: XCTestCase {
++    func testDehazeProofRecordOnly() throws {
++        let spec = ProofRegistry.all.first { $0.id == "detail.dehaze" }!
++        let r = ProofRunner.measure(spec)
++        print("WS15PROBE " + ControlProofTests.recordJSON(r).replacingOccurrences(of: "\n", with: " "))
++        if ProcessInfo.processInfo.environment["WS15_WRITE"] == "1" { try ProofRecordStore.write(r) }
++    }
++}

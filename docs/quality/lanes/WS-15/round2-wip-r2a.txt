@@ -1,0 +1,377 @@
+rendered 99/99 into /home/user/lumen/docs/quality/lanes/WS-15/build-work/r2-a
+I1  PASS  Dehaze 0 renders pixel-identical to a recipe with no dehaze key  [max |diff| = 0 codes]
+       ok  983                                          0
+       ok  1840                                         0
+       ok  4213                                         0
+       ok  3437                                         0
+       ok  2545                                         0
+       ok  6929                                         0
+       ok  colorchecker                                 0
+       ok  hard_edge                                    0
+       ok  grey_ramp                                    0
+P1  PASS  Positive Dehaze clips no new shadows: pixels newly at code 0 (any channel)  [+50 <= 0.02 %, +100 <= 0.05 %]
+       ok  983 +50                                      0.0
+       ok  983 +100                                     0.0
+       ok  1840 +50                                     0.009
+       ok  1840 +100                                    0.028
+       ok  4213 +50                                     0.0
+       ok  4213 +100                                    0.0
+       ok  3437 +50                                     0.0
+       ok  3437 +100                                    0.004
+       ok  2545 +50                                     0.001
+       ok  2545 +100                                    0.002
+       ok  6929 +50                                     0.0
+       ok  6929 +100                                    0.0
+P2  PASS  Positive Dehaze keeps the deep shadows: p1 linear Y out/base  [+50 >= 0.70, +100 >= 0.50]
+       ok  983 +50                                      0.929
+       ok  983 +100                                     0.667
+       ok  1840 +50                                     0.85
+       ok  1840 +100                                    0.787
+       ok  4213 +50                                     0.894
+       ok  4213 +100                                    0.774
+       ok  3437 +50                                     0.883
+       ok  3437 +100                                    0.745
+       ok  2545 +50                                     0.932
+       ok  2545 +100                                    0.816
+       ok  6929 +50                                     0.901
+       ok  6929 +100                                    0.787
+P3  PASS  Exposure drift bounded (LR-like moderate darkening, estimated): mean linear Y change  [+50 in [-0.40, +0.10] EV, +100 in [-0.70, +0.10] EV]
+       ok  983 +50                                      -0.14
+       ok  983 +100                                     -0.269
+       ok  1840 +50                                     -0.077
+       ok  1840 +100                                    -0.153
+       ok  4213 +50                                     -0.178
+       ok  4213 +100                                    -0.351
+       ok  3437 +50                                     -0.208
+       ok  3437 +100                                    -0.402
+       ok  2545 +50                                     -0.13
+       ok  2545 +100                                    -0.258
+       ok  6929 +50                                     -0.177
+       ok  6929 +100                                    -0.348
+P4  PASS  4213 overcast sky does not turn to storm: sky0 OKLab L change at +100  [dL >= -0.15]
+       ok  4213 +100                                    -0.0544
+P5  FAIL  Haze-region local contrast rises (detail, not darkening): far-box local RMS contrast out/base  [4213: +50 >= 1.12, +100 >= 1.30; 983/1840/3437: +100 >= 1.15]
+       BAD 4213 +50                                     1.021
+       BAD 4213 +100                                    1.045
+       BAD 983 +100                                     1.066
+       BAD 1840 +100                                    1.028
+       BAD 3437 +100                                    1.023
+P6  PASS  Low-haze frames are not wrecked at +50: dE2000 vs base  [mean <= 2.5, p95 <= 6.0]
+       ok  2545 +50 mean                                1.97
+       ok  2545 +50 p95                                 3.94
+       ok  6929 +50 mean                                1.94
+       ok  6929 +50 p95                                 5.77
+P7  FAIL  No mottling on flat white surfaces: residual of OKLab L after an affine (exposure+contrast) fit to base, / base L std  [+50 <= 0.12, +100 <= 0.20 (6929 wall x2, 983 snow, 2545 house wall)]
+       ok  6929 wall_upper +50 (gain 1.01)              0.073
+       ok  6929 wall_upper +100 (gain 0.98)             0.09
+       ok  6929 white_wall +50 (gain 1.00)              0.085
+       ok  6929 white_wall +100 (gain 1.00)             0.139
+       ok  983 snow +50 (gain 1.08)                     0.094
+       ok  983 snow +100 (gain 1.14)                    0.178
+       BAD 2545 house_wall +50 (gain 1.09)              0.133
+       BAD 2545 house_wall +100 (gain 1.18)             0.265
+P8  FAIL  [LR-est] A dark object in front of a bright hazy background is deepened, not crushed: mean log2 Y change of the lit trunk minus that of the meadow beside it (3437)  [+50 >= -0.35 EV, +100 >= -0.70 EV]
+       BAD 3437 +50 (trunk -0.48, meadow -0.01)         -0.466
+       BAD 3437 +100 (trunk -0.96, meadow -0.03)        -0.933
+P9  FAIL  Strength: positive Dehaze is visibly strong (LR +100 is a strong effect), mean dE2000 vs dehaze 0  [4213: +50 >= 2.5, +100 >= 5.0; 983, 3437: +100 >= 3.0; 1840 (thin haze): +100 >= 2.0]
+       BAD 4213 +50                                     1.96
+       BAD 4213 +100                                    3.56
+       ok  983 +100                                     3.12
+       BAD 1840 +100                                    1.08
+       ok  3437 +100                                    3.69
+P10 FAIL  The existing proof authority floor for detail.dehaze holds (hazySky, peak code separation -100 vs +100; ProofRegistry floor 68, not lowered)  [records/detail.dehaze.json authority >= the registry authorityFloor, and the floor is still 68]
+       BAD record authority                             9.79
+       ok  registry floor                               68.0
+C1  FAIL  Blue-sky chroma does not fall, rises modestly (LR: "+Dehaze increases saturation"): sky0 C out/base  [+50 and +100 in [1.00, 1.40]]
+       ok  983 +50                                      1.078
+       ok  983 +100                                     1.125
+       BAD 1840 +50                                     0.987
+       BAD 1840 +100                                    0.975
+       ok  2545 +50                                     1.003
+       ok  2545 +100                                    1.007
+C2  PASS  Sky mean hue holds (no purple/cyan sky): sky0 OKLab hue shift  [|dh| <= 3.0 deg at +50, +100]
+       ok  983 +50                                      -0.89
+       ok  983 +100                                     -0.86
+       ok  1840 +50                                     0.18
+       ok  1840 +100                                    0.84
+       ok  2545 +50                                     0.13
+       ok  2545 +100                                    0.38
+C3  FAIL  No violet/cyan sky banding: per 2%-height strip of sky pixels in the skyband box, OKLab hue shift  [max |dh| <= 3.0 deg and max-min <= 4.0 deg at +50, +100]
+       ok  983 +50 max|dh|                              2.08
+       ok  983 +50 spread                               3.78
+       ok  983 +100 max|dh|                             2.79
+       BAD 983 +100 spread                              4.25
+       ok  1840 +50 max|dh|                             2.51
+       ok  1840 +50 spread                              3.73
+       BAD 1840 +100 max|dh|                            4.53
+       BAD 1840 +100 spread                             6.84
+       ok  2545 +50 max|dh|                             0.79
+       ok  2545 +50 spread                              1.27
+       ok  2545 +100 max|dh|                            1.59
+       ok  2545 +100 spread                             2.28
+C4  PASS  Neutrals stay neutral: OKLab a/b drift on snow, CC greys, white walls, overcast sky  [|da|,|db| <= 0.003 at +50, +100]
+       ok  983 snow +50                                 0.0
+       ok  983 snow +100                                0.0001
+       ok  983 cc_white_B1 +50                          0.0001
+       ok  983 cc_white_B1 +100                         0.0003
+       ok  983 cc_grey_E3 +50                           0.001
+       ok  983 cc_grey_E3 +100                          0.0011
+       ok  983 cc_grey_E4 +50                           0.0003
+       ok  983 cc_grey_E4 +100                          0.0006
+       ok  983 cc_grey_E5 +50                           0.0003
+       ok  983 cc_grey_E5 +100                          0.0002
+       ok  4213 tower_wall +50                          0.0004
+       ok  4213 tower_wall +100                         0.0008
+       ok  4213 sky_grey +50                            0.0002
+       ok  4213 sky_grey +100                           0.0004
+       ok  2545 house_wall +50                          0.0001
+       ok  2545 house_wall +100                         0.0002
+       ok  6929 white_wall +50                          0.0029
+       ok  6929 white_wall +100                         0.0027
+C5  FAIL  Snow / white walls are not crushed to grey: OKLab L change at +100  [snow, white walls dL >= -0.08; CC white B1 dL >= -0.05]
+       ok  983 snow                                     -0.0372
+       ok  983 cc_white_B1                              -0.0044
+       ok  4213 tower_wall                              -0.0274
+       ok  2545 house_wall                              -0.0125
+       BAD 6929 white_wall                              -0.0956
+C6  FAIL  Synthetic ColorChecker at +50/+100: greys keep lightness and neutrality, no rim/centre split, colours keep chroma and hue  [greys 19-24 dL >= -0.05 and |da|,|db| <= 0.003; every patch |rim-centre split| <= 0.02; C>0.02 patches chroma ratio >= 0.90, |dh| <= 3 deg]
+       ok  +50 worst grey dL (#22)                      -0.007
+       ok  +50 worst grey tint                          0.002
+       BAD +50 worst rim-centre (#22)                   -0.024
+       ok  +50 worst chroma ratio (#1)                  0.974
+       ok  +50 worst |dh| (#6)                          -0.83
+       ok  +100 worst grey dL (#22)                     -0.015
+       ok  +100 worst grey tint                         0.002
+       BAD +100 worst rim-centre (#22)                  -0.047
+       ok  +100 worst chroma ratio (#1)                 0.976
+       ok  +100 worst |dh| (#4)                         0.89
+C7  PASS  Synthetic hard_edge: flat 0.18 grey band not darkened; no rim around the bright disc  [band dL >= -0.05 at +100; |dL(annulus 1.03-1.12 R) - dL(annulus 1.4-1.6 R)| <= 0.02 at +100 and -100]
+       ok  +100 grey band dL                            -0.012
+       ok  +100 disc rim dL                             0.0
+       ok  -100 disc rim dL                             0.002
+C8  PASS  Synthetic grey_ramp stays monotone (no tone reversal) at +100 and -100  [continuous ramp: no column-to-column drop > 1 code; 15-step wedge: no step drops > 0.5 code]
+       ok  +100 ramp worst step (codes)                 0.0
+       ok  +100 wedge worst step (codes)                0.0
+       ok  -100 ramp worst step (codes)                 0.0
+       ok  -100 wedge worst step (codes)                0.0
+H1  FAIL  No horizon/canopy halo at +100 (2400 px): |near-edge minus far-plateau| of log2(out/base) along each edge profile  [<= 0.30 EV on every side of every profile (4213, 983, 2545, 1840, 3437)]
+       BAD 4213 sky_to_treeline_x300 bright             -0.318
+       ok  4213 sky_to_treeline_x300 dark               -0.21
+       BAD 4213 sky_to_treeline_x800 bright             -0.334
+       ok  4213 sky_to_treeline_x800 dark               -0.075
+       ok  983 sky_to_trees_x150 bright                 0.134
+       ok  983 sky_to_trees_x150 dark                   -0.092
+       ok  983 sky_to_snowpeak_y140 bright              -0.169
+       ok  983 sky_to_snowpeak_y140 dark                0.107
+       BAD 2545 sky_to_tree_y60 bright                  -0.461
+       BAD 2545 sky_to_tree_y60 dark                    0.361
+       ok  1840 sky_to_trees_x450 bright                -0.193
+       ok  1840 sky_to_trees_x450 dark                  -0.161
+       BAD 1840 sky_to_trees_x650 bright                -0.45
+       ok  1840 sky_to_trees_x650 dark                  -0.177
+       ok  3437 meadow_to_trunk_x430 bright             -0.015
+       ok  3437 meadow_to_trunk_x430 dark               -0.028
+H2  PASS  Halo band width at +100 (2400 px): pixels from the edge where |deviation| > 0.1 EV  [<= 48 px (2 % of the long edge) on every side of every profile]
+       ok  4213 sky_to_treeline_x300 bright             5
+       ok  4213 sky_to_treeline_x300 dark               5
+       ok  4213 sky_to_treeline_x800 bright             5
+       ok  4213 sky_to_treeline_x800 dark               0
+       ok  983 sky_to_trees_x150 bright                 0
+       ok  983 sky_to_trees_x150 dark                   0
+       ok  983 sky_to_snowpeak_y140 bright              18
+       ok  983 sky_to_snowpeak_y140 dark                1
+       ok  2545 sky_to_tree_y60 bright                  18
+       ok  2545 sky_to_tree_y60 dark                    7
+       ok  1840 sky_to_trees_x450 bright                3
+       ok  1840 sky_to_trees_x450 dark                  3
+       ok  1840 sky_to_trees_x650 bright                15
+       ok  1840 sky_to_trees_x650 dark                  3
+       ok  3437 meadow_to_trunk_x430 bright             0
+       ok  3437 meadow_to_trunk_x430 dark               0
+H3  FAIL  No halo from the negative veil at -100 (2400 px)  [<= 0.30 EV on every side of every profile]
+       ok  4213 sky_to_treeline_x300 bright             -0.252
+       ok  4213 sky_to_treeline_x300 dark               -0.101
+       ok  4213 sky_to_treeline_x800 bright             -0.237
+       ok  4213 sky_to_treeline_x800 dark               -0.256
+       ok  983 sky_to_trees_x150 bright                 -0.176
+       ok  983 sky_to_trees_x150 dark                   0.142
+       ok  983 sky_to_snowpeak_y140 bright              0.253
+       ok  983 sky_to_snowpeak_y140 dark                -0.113
+       BAD 2545 sky_to_tree_y60 bright                  0.94
+       BAD 2545 sky_to_tree_y60 dark                    -0.775
+       ok  1840 sky_to_trees_x450 bright                0.274
+       BAD 1840 sky_to_trees_x450 dark                  -0.394
+       ok  1840 sky_to_trees_x650 bright                0.205
+       ok  1840 sky_to_trees_x650 dark                  0.271
+       ok  3437 meadow_to_trunk_x430 bright             -0.042
+       ok  3437 meadow_to_trunk_x430 dark               -0.218
+A1  FAIL  Airlight is not picked from white/coloured objects: share of the selection inside forbidden boxes (CC chart, lamp, tank+pink lid, house wall)  [<= 0.05 at 512 and 2048 px]
+       BAD 983 L512                                     1.0
+       BAD 983 L2048                                    1.0
+       BAD 3437 L512                                    0.291
+       BAD 3437 L2048                                   0.487
+       BAD 2545 L512                                    1.0
+       BAD 2545 L2048                                   0.062
+A2  FAIL  3437 airlight (and hence its veil) is not magenta: green share g/(r+g+b) of A  [>= 0.315 at 512 and 2048 px]
+       ok  3437 L512                                    0.3196
+       BAD 3437 L2048                                   0.2987
+A3  FAIL  Airlight is resolution-stable: 512 vs 2048 px chromaticity distance and luminance ratio  [dist <= 0.010 and ratio in [0.90, 1.10] on all six]
+       ok  983 chroma dist                              0.0001
+       ok  983 luma ratio                               1.001
+       ok  1840 chroma dist                             0.0002
+       ok  1840 luma ratio                              1.001
+       ok  4213 chroma dist                             0.0
+       ok  4213 luma ratio                              1.0
+       BAD 3437 chroma dist                             0.0221
+       ok  3437 luma ratio                              1.081
+       BAD 2545 chroma dist                             0.1273
+       BAD 2545 luma ratio                              1.389
+       ok  6929 chroma dist                             0.0001
+       ok  6929 luma ratio                              1.002
+N1  PASS  Negative veil is atmospheric: far-box OKLab L lift / near (bottom 15 %) lift  [>= 1.20 at -50 and -100 on the five landscapes]
+       ok  983 -50                                      2.56
+       ok  983 -100                                     2.32
+       ok  1840 -50                                     6.29
+       ok  1840 -100                                    5.94
+       ok  4213 -50                                     6.62
+       ok  4213 -100                                    6.28
+       ok  3437 -50                                     2.39
+       ok  3437 -100                                    2.15
+       ok  2545 -50                                     6.18
+       ok  2545 -100                                    5.85
+N2  FAIL  Negative veil is near-neutral (no pink/mauve wash, no blue foreground): mean OKLab shift at -100  [near (bottom 15 %): hypot(da,db) <= 0.006 and da <= +0.003; far box: da <= +0.003 and db >= -0.006 (desaturation allowed), all six]
+       ok  983 near |dab| (da +0.0000)                  0.0001
+       ok  983 far da (db +0.0078)                      0.001
+       ok  1840 near |dab| (da +0.0004)                 0.0007
+       ok  1840 far da (db -0.0042)                     0.0013
+       ok  4213 near |dab| (da +0.0003)                 0.001
+       ok  4213 far da (db -0.0009)                     -0.0001
+       ok  3437 near |dab| (da +0.0006)                 0.0007
+       ok  3437 far da (db -0.0027)                     0.0001
+       ok  2545 near |dab| (da -0.0005)                 0.004
+       BAD 2545 far da (db -0.0123)                     -0.0006
+       ok  6929 near |dab| (da -0.0000)                 0.0011
+       BAD 6929 far da (db -0.0124)                     0.0073
+N3  PASS  Negative veil lifts the blacks of the distance (milky, not grey-cast): far-box p1 OKLab L rise at -100  [>= +0.02 on the five landscapes]
+       ok  983                                          0.074
+       ok  1840                                         0.027
+       ok  4213                                         0.031
+       ok  3437                                         0.116
+       ok  2545                                         0.123
+N4  FAIL  Negative contrast drop is monotone: far-box OKLab L std over 0,-10..-100 (512 px sweep)  [strictly decreasing and std(-100)/std(0) <= 0.85, all six]
+       ok  983 monotone                                 1
+       ok  983 ratio                                    0.674
+       ok  1840 monotone                                1
+       BAD 1840 ratio                                   0.951
+       BAD 4213 monotone                                0
+       BAD 4213 ratio                                   1.06
+       ok  3437 monotone                                1
+       ok  3437 ratio                                   0.699
+       ok  2545 monotone                                1
+       ok  2545 ratio                                   0.799
+       ok  6929 monotone                                1
+       ok  6929 ratio                                   0.759
+N5  PASS  Strength: negative Dehaze is a visible veil (LR -100 is a heavy mist), mean dE2000 vs dehaze 0 at -100  [4213 >= 3.0; 983, 3437 >= 2.5]
+       ok  4213 -100                                    3.82
+       ok  983 -100                                     3.07
+       ok  3437 -100                                    5.81
+S1  PASS  Monotone response: mean dE2000 vs dehaze 0 strictly increases with |value| on each side (512 px, step 10)  [strict, all six]
+       ok  983 pos min step                             0.257
+       ok  983 neg min step                             0.289
+       ok  1840 pos min step                            0.089
+       ok  1840 neg min step                            0.198
+       ok  4213 pos min step                            0.316
+       ok  4213 neg min step                            0.321
+       ok  3437 pos min step                            0.302
+       ok  3437 neg min step                            0.539
+       ok  2545 pos min step                            0.324
+       ok  2545 neg min step                            0.693
+       ok  6929 pos min step                            0.311
+       ok  6929 neg min step                            0.844
+S2  FAIL  Even response: max/min step of mean dE2000 per 10 units on each side  [<= 1.5, all six]
+       ok  983 pos                                      1.47
+       ok  983 neg                                      1.13
+       ok  1840 pos                                     1.26
+       ok  1840 neg                                     1.06
+       ok  4213 pos                                     1.28
+       ok  4213 neg                                     1.42
+       BAD 3437 pos                                     1.53
+       ok  3437 neg                                     1.24
+       ok  2545 pos                                     1.33
+       ok  2545 neg                                     1.31
+       ok  6929 pos                                     1.3
+       ok  6929 neg                                     1.4
+S3  PASS  No jump and no dead zone at 0: first step (0 to +-10) / median step on that side  [in [0.5, 1.5], all six]
+       ok  983 pos                                      1.26
+       ok  983 neg                                      1.1
+       ok  1840 pos                                     1.13
+       ok  1840 neg                                     1.0
+       ok  4213 pos                                     1.17
+       ok  4213 neg                                     1.23
+       ok  3437 pos                                     1.29
+       ok  3437 neg                                     1.2
+       ok  2545 pos                                     1.17
+       ok  2545 neg                                     1.24
+       ok  6929 pos                                     1.09
+       ok  6929 neg                                     1.29
+S4  FAIL  Rough strength balance: mean dE2000 at -100 / at +100 on the hazy frames  [in [0.50, 1.50] on 983, 1840, 4213, 3437]
+       ok  983                                          0.98
+       BAD 1840                                         2.04
+       ok  4213                                         1.07
+       BAD 3437                                         1.55
+R1  PASS  Preview (512) matches full size (2048 area-averaged to 512): excess mean dE2000 over the dehaze-0 pair  [<= 0.40 at +60 and -60, all six]
+       ok  983 +60                                      0.022
+       ok  983 -60                                      -0.009
+       ok  1840 +60                                     0.014
+       ok  1840 -60                                     -0.007
+       ok  4213 +60                                     0.032
+       ok  4213 -60                                     -0.035
+       ok  3437 +60                                     0.075
+       ok  3437 -60                                     -0.127
+       ok  2545 +60                                     0.159
+       ok  2545 -60                                     -0.3
+       ok  6929 +60                                     0.074
+       ok  6929 -60                                     -0.099
+R2  PASS  Preview vs full size, worst areas: excess p95 dE2000  [<= 1.20 at +60 and -60, all six]
+       ok  983 +60                                      0.089
+       ok  983 -60                                      -0.03
+       ok  1840 +60                                     0.055
+       ok  1840 -60                                     -0.022
+       ok  4213 +60                                     0.111
+       ok  4213 -60                                     -0.037
+       ok  3437 +60                                     0.215
+       ok  3437 -60                                     -0.325
+       ok  2545 +60                                     0.397
+       ok  2545 -60                                     -0.641
+       ok  6929 +60                                     0.202
+       ok  6929 -60                                     -0.332
+R3  PASS  Preview vs full size brightness: |mean encoded Y difference - the dehaze-0 difference|  [<= 1.5 codes at +60 and -60, all six]
+       ok  983 +60                                      0.05
+       ok  983 -60                                      -0.02
+       ok  1840 +60                                     0.06
+       ok  1840 -60                                     -0.04
+       ok  4213 +60                                     0.08
+       ok  4213 -60                                     -0.01
+       ok  3437 +60                                     0.22
+       ok  3437 -60                                     -0.11
+       ok  2545 +60                                     0.4
+       ok  2545 -60                                     -0.36
+       ok  6929 +60                                     0.3
+       ok  6929 -60                                     -0.63
+G1  PASS  GPU dehaze kernel carries the sky guard (bright-and-flat transmission floor)  [kernel source mentions a sky term and takes its inputs]
+       ok  Kernels.dehazeSource                         1
+G2  PASS  GPU negative branch uses the same distance as CPU: max(1 - t, skyness)  [kernel `distant` expression includes the sky term]
+       ok  distant = max(haze, sky) * nearW             1
+G3  FAIL  Sky-guard constants are named once in DetailEngine and read by both paths  [>= 3 `dehazeSky*` constants; each referenced in RenderGraph.swift or Kernels.swift and in CPU applyDehaze; no bare sky-guard smoothstep(0.5, 2.0)/(0.05, 0.35) literals in CPU applyDehaze]
+       BAD 4 names, all used both sides=False, CPU sky literals=0 0
+G4  PASS  GPU airlight rule is the CPU rule (no separate 0.99 x proxy-max threshold)  [RenderGraph.applyDehaze has no `* 0.99` threshold and calls the shared estimator / constants]
+       ok  no 0.99=True, shared estimator=True          1
+G5  PASS  GPU transmission guide radius derives from the image it filters (as CPU), not from options.longEdge  [no `Double(longEdge) * 0.02` in RenderGraph.applyDehaze]
+       ok  RenderGraph.applyDehaze                      1
+G6  PASS  BUILDING.md no longer lists the dehaze sky guard as reference-only  [no "sky guard is still reference-only"]
+       ok  BUILDING.md                                  1
+U   FAIL  Swift unit tests WS15DehazeSpecTests (+ corpus-gated WS15DehazeAirlightCorpusTests) exist and pass on Linux  [each named test passed (run with --swift)]
+       BAD not run (pass --swift)                       0
+(A-lines source: emulated pre-fix rule (airlight_probe.py))
+
+SUMMARY 24/44 lines PASS; failing: P5 P7 P8 P9 P10 C1 C3 C5 C6 H1 H3 A1 A2 A3 N2 N4 S2 S4 G3 U
