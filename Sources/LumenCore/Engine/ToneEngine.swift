@@ -1055,12 +1055,16 @@ extension AutoTone {
         -> Result {
         let predictor = Predictor(stats: stats, render: render)
         guard predictor.isUsable else { return Result(tone: Tone(), vibrance: 0) }
-        // A frame that is all black or all blown has no tones to place. Measured, an all-zero frame got Exposure +4,
-        // Shadows +50 and Whites +60 out of nothing. Auto leaves such a frame alone.
-        // Judged on the picture: the median at tone zero renders within 5 codes of
-        // black or of white.
-        let medianNow = predictor.encoded(predictor.anchorEV, Tone())
-        guard medianNow > 0.02, medianNow < 0.98 else {
+        // A frame that is all black or all blown has no tones to place: an all-zero
+        // frame got Exposure +4, Shadows +50 and Whites +60 out of nothing. Judged on the
+        // picture and on its EXTREMES, not its median: a raw underexposed by 4 EV has a
+        // median within 5 codes of black and real content above it, and rescuing it is
+        // what Auto is for (a median guard turned Auto off on 1840 at −2.5 EV). Black
+        // means even the brightest 1 % renders within 5 codes of black; blown means
+        // even the darkest 1 % renders within 5 codes of white.
+        let top = predictor.encoded(stats.interpolatedPercentileEV(0.99), Tone())
+        let bottom = predictor.encoded(stats.interpolatedPercentileEV(0.01), Tone())
+        guard top > 0.02, bottom < 0.98 else {
             return Result(tone: Tone(), vibrance: 0)
         }
         var t = Tone()

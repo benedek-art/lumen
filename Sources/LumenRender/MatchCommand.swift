@@ -42,7 +42,7 @@ extension LumenRenderCLI {
         let shutters = args.all("shutter"), apertures = args.all("aperture")
         let isos = args.all("iso-exif")
         let kelvins = args.all("as-shot-kelvin"), tints = args.all("as-shot-tint")
-        let base = try RecipeKeys.loadRecipe(path: args.string("base"))
+        let (base, _) = try recipe(args, baseKey: "base")
         var probe = base
         probe.develop.tone = Tone()
         var frames: [ExposureMatch.Frame<Int>] = []

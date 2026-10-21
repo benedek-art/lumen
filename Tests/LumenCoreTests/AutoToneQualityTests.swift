@@ -204,6 +204,19 @@ final class AutoToneQualityTests: XCTestCase {
         }
     }
 
+    /// The guard above must not catch a real underexposed photo: a frame 5 EV under,
+    /// whose median renders within a few codes of black but whose content is there,
+    /// is what Auto exists to rescue (verifier round 2: a median guard turned Auto off
+    /// on corpus frames 3 EV under).
+    func testAutoRescuesADeeplyUnderexposedFrame() {
+        let frame = ramp(-8, -2.5)
+        let before = percentile(luma(encoded(frame, Recipe())).sorted, 0.5)
+        XCTAssertLessThan(before, 0.05, "INVALID PROBE: the frame is not that dark")
+        let (result, _) = auto(frame)
+        XCTAssertGreaterThan(result.tone.exposure, 3)
+        XCTAssertGreaterThan(percentile(rendered(frame, result).sorted, 0.5), 0.2)
+    }
+
     /// On the Linear look there is no white or black point: Auto sets no endpoints and
     /// no Contrast there, only Exposure and the zonal sliders.
     func testAutoOnTheLinearLookLeavesTheEndpointsAlone() {

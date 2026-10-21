@@ -26,10 +26,10 @@ Measured with the commands in `SPEC.md` on all 25 corpus frames.
 | S6 6929/6933 Δmedian ≤ 0.01, Δmean ≤ 0.02 | PASS | 0.000 / 0.014 | 0.002 / 0.012 | 0.001 / 0.015 | 0.030 / 0.033 |
 | S7 Vibrance ≤ 15, ≥ 5 unless the crush loop lowered it | PASS | 5..15 | 5..15 | 0..15 | 0 |
 | S8 predicted vs rendered median ≤ 0.02 | PASS | max 0.012 | 0.018 | 0.004 | n/a |
-| S9 unit tests | PASS | `AutoToneQualityTests` 10/10, `EngineTests` 62/62, `ExposureMatch*` 17/17 | | | |
+| S9 unit tests | PASS | `AutoToneQualityTests` 11/11, `EngineTests` 62/62, `ExposureMatch*` 18/18 | | | |
 | S10 no render change | PASS | no diff under `Sources/LumenPipeline`, `RenderPlan`, `ReferenceRenderer` | | | |
 | S11 other looks | PASS | see the Punchy and Linear columns | | | |
-| S12 nothing out of nothing | PASS | all-black and all-blown frames get Tone(); on Linear no endpoints | | | |
+| S12 nothing out of nothing, rescue the dark | PASS | all-black and all-blown get Tone(); 1840, 7881, 4213 and 6929 darkened 2.5-4 EV all get Exposure +3.4..+4 | | | |
 
 The full `LumenCoreTests` suite (3,055 tests, `--parallel --skip ControlProofTests`, as CI runs it) passed
 at the round-1 commit with Swift 6.1.2. The round-2 suite runs are listed under Verification below.
@@ -63,7 +63,8 @@ It also had no idea of low key: it lifted the black jacket to grey and blew the 
 - *Vibrance* is +5..+15 from the proxy's mean OKLab chroma: more on muted frames, less on saturated
   ones. Saturation is never touched.
 - *Guards.* On the Linear look (identity clip) Auto writes no Whites, Blacks or Contrast. A frame
-  whose median renders within 5 codes of black or white is left alone.
+  whose brightest 1 % renders within 5 codes of black, or whose darkest 1 % renders within 5 codes
+  of white, is left alone. Underexposed frames with real content are still rescued.
 - *Statistics.* The proxy read (`AutoTone.statistics(encodedSRGB:)`) now also returns
   brightest/darkest-channel histograms, mean chroma and clip/crush fractions. The app and
   `lumen-render` share the one loop.
@@ -96,7 +97,18 @@ It also had no idea of low key: it lifted the black jacket to grey and blew the 
   - degenerate guard;
   - Vibrance rescaled to the corpus chroma range (now 5..15 across frames);
   - Match switched to a quadrant-minimum gradient correlation.
-- Round 2 verdict: see the end of this file.
+- Round 2: the verifier returned FAIL, narrowly. Every spec line passed and all round-1 defects
+  were fixed, but:
+  - The degenerate guard (on the median) turned Auto off on real frames 3 EV under.
+  - Match missed pans over about 15 % and in-between zooms.
+  - Match took 0.5 s per frame.
+  - `lumen-render match` ignored `--set`.
+- Round 3 fixes:
+  - the guard now reads the extremes;
+  - zoom × window search with a minimum window size, threshold 0.65;
+  - the median is taken only at the winning placement (1.7 s per pair, renders included);
+  - `match` honours `--set`.
+- Round 3 verdict: see the end of this file.
 
 ## What I could not fix / human judgement
 

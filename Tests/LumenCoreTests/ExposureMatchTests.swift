@@ -217,6 +217,15 @@ final class ExposureMatchMeasuredTests: XCTestCase {
         XCTAssertEqual(o.stopsBrighter, -0.5, accuracy: 0.05)
     }
 
+    /// A hair of zoom plus a re-aim: the whole frame has no room to move at 1.05, so
+    /// this needs the zoom and window search combined.
+    func testOverlapMeasuresASmallZoomWithAReaim() throws {
+        let reference = grid(cols: 64, rows: 43, field: (0, 0, 1))
+        let frame = grid(cols: 64, rows: 43, field: (0.12, 0.02, 1 / 1.05), offset: 0.25)
+        let o = try XCTUnwrap(ExposureMatch.measureOverlap(reference: reference, frame: frame))
+        XCTAssertEqual(o.stopsBrighter, 0.25, accuracy: 0.05)
+    }
+
     func testAMeasuredFrameIsMatchedOnItsMeasurementNotItsEXIF() {
         // 6929 (1/50, f/5.6, ISO 250) against 6933 (1/80, f/5.6, ISO 640): EXIF says
         // +0.68 EV, the shared view says +0.36.
