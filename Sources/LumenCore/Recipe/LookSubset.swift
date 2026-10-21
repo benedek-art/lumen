@@ -537,30 +537,57 @@ public struct LookSubset: Codable, Equatable, Sendable {
                              roughness: Num.mix(base.roughness, carried.roughness, t))
     }
 
-    /// The display transform, part of the way — which is mostly "not at all", and the
-    /// reason is the same argument `applied(to:)` already makes about this struct.
+    /// The display transform, part of the way.
     ///
-    /// `preset` names a KIND OF RENDERING, not a quantity, and it is additionally the
-    /// one field in the whole look with a register rule of its own; it lands whole and
-    /// `applied(to:)` then puts it through `carriedRenderPreset` exactly as it does at
-    /// full strength. The five overrides interpolate ONLY where both sides state one.
-    /// Where either side is nil the look's answer is taken whole, because nil is not a
-    /// number — it means "follow whatever the preset says", a value that lives in
-    /// `DisplayTransformParams.preset(named:)` and changes if a preset is ever retuned.
-    /// Resolving it here to interpolate through would write all five overrides into the
-    /// recipe and pin this build's tuning of the preset forever, which is precisely what
-    /// `RenderParams` keeps them optional to avoid.
+    /// `preset` names a KIND OF RENDERING, not a quantity — its attenuation, rotation and
+    /// purity restore have no override to walk — and it is additionally the one field in
+    /// the whole look with a register rule of its own; it lands whole and `applied(to:)`
+    /// then puts it through `carriedRenderPreset` exactly as it does at full strength.
+    ///
+    /// The four CURVE overrides walk between the two renderings actually on screen. A
+    /// nil override means "what the preset says", so on the side that has none the walk
+    /// starts (or ends) at the preset's own number. This used to take the look's answer
+    /// whole whenever either side was nil, and every look that set Contrast landed its
+    /// full contrast at 1% Amount: measured on `SavedLookReliabilityTests`'s busy look,
+    /// the picture's distance from the frame was 0.0124 at 10%, 0.0111 at 20% and 0.0098
+    /// at 30% — the slider walked AWAY from the look over its first third (WS-29 SPEC S2).
+    /// Both sides nil stays nil, so a look that never touched a curve pins nothing; one
+    /// side's number is already a pinned number, so resolving the other side's adds no
+    /// field the recipe did not already carry. At 100% `blended`'s early-out returns the
+    /// look's own nil untouched.
+    ///
+    /// `whiteTarget` keeps the old rule: its nil is "follow the display's live EDR
+    /// headroom", a fact about the screen at render time, not a number any preset holds.
+    ///
+    /// What still jumps is the preset itself (attenuation, rotation, purity restore): a
+    /// look that changes Soft to Punchy lands Punchy's palette at 1%, and the curve walk
+    /// can then read as a small step back over the first few percent. Categorical, like
+    /// the B&W switch, and stated in the Amount slider's help.
     private static func blendedRender(from own: RenderParams, toward carried: RenderParams,
                                       t: Double) -> RenderParams {
+        let ownCurve = DisplayTransformParams.preset(named: own.preset)
+        // The preset the frame ENDS on, which is not always the look's: a look saved off
+        // a delivered JPEG (Linear) keeps a RAW on its own preset (`carriedRenderPreset`),
+        // and resolving against the look's Linear walked Contrast toward 1.5 and then
+        // jumped to the RAW's 2.1 at 100%.
+        let carriedCurve = DisplayTransformParams.preset(
+            named: LookSubset.carriedRenderPreset(carried.preset, onto: own.preset))
+        func curve(_ mine: Double?, _ theirs: Double?,
+                   _ field: KeyPath<DisplayTransformParams, Double>) -> Double? {
+            if mine == nil, theirs == nil { return nil }
+            return Num.mix(mine ?? ownCurve[keyPath: field],
+                           theirs ?? carriedCurve[keyPath: field], t)
+        }
         func override(_ mine: Double?, _ theirs: Double?) -> Double? {
             guard let mine, let theirs else { return theirs }
             return Num.mix(mine, theirs, t)
         }
         var out = carried
-        out.contrast = override(own.contrast, carried.contrast)
-        out.skew = override(own.skew, carried.skew)
-        out.huePreservation = override(own.huePreservation, carried.huePreservation)
-        out.blackTarget = override(own.blackTarget, carried.blackTarget)
+        out.contrast = curve(own.contrast, carried.contrast, \.contrast)
+        out.skew = curve(own.skew, carried.skew, \.skew)
+        out.huePreservation = curve(own.huePreservation, carried.huePreservation,
+                                    \.huePreservation)
+        out.blackTarget = curve(own.blackTarget, carried.blackTarget, \.blackTarget)
         out.whiteTarget = override(own.whiteTarget, carried.whiteTarget)
         return out
     }

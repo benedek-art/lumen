@@ -369,34 +369,66 @@ public struct RenderGraph {
     /// the stock sRGB tone-curve filters: the IEC 61966-2-1 curve, the one
     /// `TransferFunction.srgb` is.
     ///
+    /// Term for term with the reference: the blend `e + (L − e)·a` and the residual
+    /// `+ (d − u)` are `addGlow` over a `subtract`, the two signed, unclamped kernels the
+    /// graph already compiles, so Amount can extrapolate to 200% (where `blendMask`
+    /// clamps its weight to 1) and what the cube's domain cut off comes back.
+    ///
     /// Nil means a stage could not be built; the caller then leaves the image as it was,
     /// the graph's rule for every stage (a frame missing its LUT is recoverable).
     static func applyCreativeLUT(_ image: CIImage, _ lut: CreativeLUTStage) -> CIImage? {
         let cube = CreativeLUTCubes.baked(lut)
-        let mapped: CIImage?
+        let extent = image.extent
+        let amount = CIVector(x: lut.amount, y: lut.amount, z: lut.amount)
         switch lut.tap {
         case .log:
-            mapped = throughShaper(image) { ColorCube.filter(cube, image: $0) }
+            // Clamped to the cube's OWN domain, per channel, as the reference does.
+            let domain = CIFilter.colorClamp()
+            domain.minComponents = CIVector(x: lut.cube.domainMin.r, y: lut.cube.domainMin.g,
+                                            z: lut.cube.domainMin.b, w: 0)
+            domain.maxComponents = CIVector(x: lut.cube.domainMax.r, y: lut.cube.domainMax.g,
+                                            z: lut.cube.domainMax.b, w: 1)
+            guard let e = KernelLibrary.apply(KernelLibrary.logEncode, extent: extent, [image])
+            else { return nil }
+            domain.inputImage = e
+            guard let u = domain.outputImage?.cropped(to: extent),
+                  let looked = ColorCube.filter(cube, image: u),
+                  let departure = subtract(looked, u),
+                  let blended = KernelLibrary.apply(KernelLibrary.addGlow, extent: extent,
+                                                    [e, departure, amount]),
+                  let decoded = KernelLibrary.apply(KernelLibrary.logDecode, extent: extent,
+                                                    [blended])
+            else { return nil }
+            return decoded.cropped(to: extent)
         case .display:
-            let display = applyMatrix(image, CreativeLUTStage.workingToDisplay)
-            guard let unit = clamped(display, low: 0, high: 1) else { return nil }
+            let d = applyMatrix(image, CreativeLUTStage.workingToDisplay)
+            // The cube's own domain in linear, floored at 0, as the reference does.
+            let low = CreativeLUTStage.domainLinear(lut.cube.domainMin).map { max($0, 0) }
+            let high = CreativeLUTStage.domainLinear(lut.cube.domainMax)
+            let domain = CIFilter.colorClamp()
+            domain.inputImage = d
+            domain.minComponents = CIVector(x: low.r, y: low.g, z: low.b, w: 0)
+            domain.maxComponents = CIVector(x: high.r, y: high.g, z: high.b, w: 1)
+            guard let u = domain.outputImage?.cropped(to: extent) else { return nil }
             let encode = CIFilter.linearToSRGBToneCurve()
-            encode.inputImage = unit
-            guard let encoded = encode.outputImage,
-                  let looked = ColorCube.filter(cube, image: encoded) else { return nil }
+            encode.inputImage = u
+            guard let e = encode.outputImage,
+                  let looked = ColorCube.filter(cube, image: e),
+                  let departure = subtract(looked, e),
+                  let blended = KernelLibrary.apply(KernelLibrary.addGlow, extent: extent,
+                                                    [e, departure, amount]),
+                  // The reference's floor at code 0; the ceiling is far past any code.
+                  let floored = clamped(blended, low: 0, high: 65504)
+            else { return nil }
             let decode = CIFilter.sRGBToneCurveToLinear()
-            decode.inputImage = looked
-            guard let linear = decode.outputImage else { return nil }
-            mapped = applyMatrix(linear, CreativeLUTStage.displayToWorking)
+            decode.inputImage = floored
+            guard let linear = decode.outputImage,
+                  let residual = subtract(d, u),
+                  let restored = KernelLibrary.apply(KernelLibrary.addGlow, extent: extent,
+                                                     [linear, residual, CIVector(x: 1, y: 1, z: 1)])
+            else { return nil }
+            return applyMatrix(restored, CreativeLUTStage.displayToWorking).cropped(to: extent)
         }
-        guard let mapped else { return nil }
-        let extent = image.extent
-        if lut.isFullStrength { return mapped.cropped(to: extent) }
-        // `blendMask` is `mix(base, over, m)`, which is the reference's
-        // `c + (mapped − c)·amount` term for term.
-        guard let amount = constant(RGB(gray: lut.amount), extent: extent) else { return nil }
-        return KernelLibrary.apply(KernelLibrary.blendMask, extent: extent,
-                                   [image, mapped, amount])
     }
 
     // MARK: - Soft proof's gamut flag

@@ -200,5 +200,47 @@ final class CreativeLUTParityTests: XCTestCase {
             XCTAssertEqual(try render(inert, inputs: Self.inputs, library: library), baseline)
         }
     }
+
+    /// WS-30 SPEC L8: the stage alone, GPU against `CreativeLUTStage.apply`, compared
+    /// UNCLAMPED — so the residual path (out-of-sRGB colours, EDR above white, scene past
+    /// the shaper) and the extrapolated Amount (200%, codes above 1 through
+    /// `sRGBToneCurveToLinear`) are measured, which `codeError`'s saturate cannot see.
+    func testTheStageAloneMatchesTheReferenceUnclampedAt200AndOutOfDomain() throws {
+        let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020))
+        let context = CIContext(options: [.workingColorSpace: space,
+                                          .workingFormat: CIFormat.RGBAf,
+                                          .cacheIntermediates: false])
+        let values: [RGB] = [
+            RGB(0.02, 0.02, 0.02), RGB(0.18, 0.18, 0.18), RGB(0.6, 0.3, 0.1),
+            RGB(0.8, 0.05, 0.05), RGB(0.05, 0.7, 0.03), RGB(2.5, 2.5, 2.5),
+            RGB(1.6, 0.9, 0.4), RGB(0.001, 0.4, 0.9),
+        ]
+        let width = values.count
+        let row = values.flatMap { [Float($0.r), Float($0.g), Float($0.b), Float(1)] }
+        let data = row.withUnsafeBufferPointer { Data(buffer: $0) }
+        let image = CIImage(bitmapData: data, bytesPerRow: 16 * width,
+                            size: CGSize(width: width, height: 1), format: .RGBAf,
+                            colorSpace: nil)
+        for tap in [LUTReference.Tap.display, .log] {
+            for amount in [50.0, 100, 200] {
+                let stage = CreativeLUTStage(tap: tap, amount: amount, cube: Self.crossChannel)
+                let output = try XCTUnwrap(RenderGraph.applyCreativeLUT(image, stage))
+                var pixels = [Float](repeating: 0, count: 4 * width)
+                pixels.withUnsafeMutableBytes { raw in
+                    context.render(output, toBitmap: raw.baseAddress!, rowBytes: 16 * width,
+                                   bounds: image.extent, format: .RGBAf, colorSpace: nil)
+                }
+                for (x, input) in values.enumerated() {
+                    let gpu = RGB(Double(pixels[4 * x]), Double(pixels[4 * x + 1]),
+                                  Double(pixels[4 * x + 2]))
+                    let want = stage.apply(input)
+                    let error = gpu.maxAbsDifference(want) / max(1, want.maxComponent)
+                    print("LUT_PARITY_STAGE \(tap) amount=\(amount) in=\(input) gpu=\(gpu) "
+                          + "ref=\(want) relError=\(error)")
+                    XCTAssertLessThan(error, 2e-3, "\(tap) \(amount)% at \(input)")
+                }
+            }
+        }
+    }
 }
 #endif
