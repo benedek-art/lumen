@@ -350,6 +350,63 @@ final class ZonesResponseTests: XCTestCase {
         }
     }
 
+    /// Z1.13 (round 3). Spill is a bound, not a target: with one zone at ±3, sweeping any
+    /// other zone from −3 to +3 in 0.01 EV steps moves no pivot by more than the step,
+    /// never moves a pivot the wrong way, and keeps the floor and C¹ everywhere. Round 2
+    /// failed this by 2 EV in one step: Darks +3 with Shadows nudged 0 → +0.05 dropped
+    /// Shadows from +2.045 to +0.05 and Darks from 3 to 1.005.
+    func testEverySliderMovesEveryPivotContinuouslyAndMonotonically() {
+        // The verifier's case, by name.
+        let nudged = Self.engine([3, 0.05, 0, 0, 0]).appliedZoneEV
+        XCTAssertEqual(nudged[0], 3, accuracy: 1e-12)
+        XCTAssertEqual(nudged[1], 3 - 2 * 2 * (1 - ToneEngine.zoneSlopeFloor) / Double.pi,
+                       accuracy: 1e-12)
+
+        var worstStep = 0.0, worstFall = 0.0, worstSlope = Double.infinity, worstBreak = 0.0
+        let T = Zones.defaultPivots.map { Self.ev(ofPivot: $0) }
+        for fixed in 0..<5 {
+            for sign in [-3.0, 3.0] {
+                for swept in 0..<5 where swept != fixed {
+                    var previous: [Double]? = nil
+                    for k in 0...600 {
+                        var ev = [Double](repeating: 0, count: 5)
+                        ev[fixed] = sign
+                        ev[swept] = -3 + Double(k) * 0.01
+                        let e = Self.engine(ev)
+                        let atPivots = T.map { e.zonePanelStops($0) }
+                        if let previous {
+                            for p in 0..<5 {
+                                worstStep = Swift.max(worstStep, abs(atPivots[p] - previous[p]))
+                                worstFall = Swift.max(worstFall, previous[p] - atPivots[p])
+                            }
+                        }
+                        previous = atPivots
+                        guard k % 20 == 0 else { continue }
+                        // (c) floor and C¹ at sampled settings.
+                        var y0 = Self.y(e, -12)
+                        for step in 1...400 {
+                            let t = -12 + Double(step) * 0.05
+                            let y1 = Self.y(e, t)
+                            worstSlope = Swift.min(worstSlope, (y1 - y0) / 0.05)
+                            y0 = y1
+                        }
+                        for t in T {
+                            let d = 1e-5, m = Self.y(e, t)
+                            let jump = abs((Self.y(e, t + d) - m) / d - (m - Self.y(e, t - d)) / d)
+                            worstBreak = Swift.max(worstBreak, jump)
+                        }
+                    }
+                }
+            }
+        }
+        print("ZonesResponse Z1.13: largest pivot step \(worstStep), largest fall \(worstFall), "
+              + "slowest slope \(worstSlope), largest break \(worstBreak)")
+        XCTAssertLessThanOrEqual(worstStep, 0.01 + 1e-9, "a pivot jumped by \(worstStep) EV")
+        XCTAssertLessThanOrEqual(worstFall, 1e-9, "a pivot fell by \(worstFall) EV as a slider rose")
+        XCTAssertGreaterThanOrEqual(worstSlope, 0.25 - 1e-9)
+        XCTAssertLessThanOrEqual(worstBreak, 0.01)
+    }
+
     /// Two touched zones that cannot both be honoured: held back, still monotone with
     /// the floor, and the untouched zone between them sits between their applied values.
     func testAConflictIsEasedAndKeepsTheFloor() {

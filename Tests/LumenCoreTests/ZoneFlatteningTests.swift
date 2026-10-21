@@ -30,7 +30,7 @@ final class ZoneFlatteningTests: XCTestCase {
     /// The audit's trigger, default pivots and Darks alone, no longer reaches the clamp;
     /// a recipe that still does is measured instead. Measured on Linux against the
     /// 1024-sample bake the renderer uses.
-    func testDarksAloneFlattensTheBandTheAuditMeasured() throws {
+    func testDarksAloneNoLongerFlattensAndContrastWithDarksIsMeasured() throws {
         // Darks +2 EV flattened −3.53…−1.80 EV and +4 EV −3.77…+0.08 EV before the ease.
         XCTAssertNil(darks(2).zoneFlattening(), "Darks +2 EV alone reached the clamp")
         XCTAssertNil(darks(4).zoneFlattening(), "Darks +4 EV alone reached the clamp")

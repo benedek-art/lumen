@@ -6,6 +6,110 @@ It makes feasible touched pairs exact, replaces the conflict soft knee with a co
 and applies the Z1.10 amendments marked "round 2b". All numbers are Linux, CPU
 reference, release build. `core-tests` = `bash /tmp/claude-0/bin/core-tests.sh LumenCoreTests.<Class>`.
 
+## Round 3 (on top of 7a5d206; answers VERIFY-round2.md)
+
+The sections after this one describe rounds 1–2b. Where they differ from this one (the conflict "cap" and
+"touched" wording), round 3 is the behaviour in the code.
+
+**Summary**
+
+| item | what changed |
+|---|---|
+| F1 | spill is a bound, not a target; `ToneEngine.zoneEase` rewritten as one projection |
+| F2 | the R5 crop is re-encoded at 345,659 B (300 × 320 tiles, full colour) |
+| nits | two misleading test names fixed; ZonesPanel captions grouped with their own row |
+
+**F1: `ToneEngine.zoneEase`**
+
+The touched/untouched split and its special-case passes are gone. They are replaced by one convex projection,
+solved exactly:
+
+- **Objective.** Minimise `Σ |v_i| · d_i²`. Here `d_i` is how far zone i is moved AGAINST its own sign. Moving a
+  zone with its sign (lifting a positive zone, lowering a negative one) costs nothing.
+- **Constraint.** Every seam's drop is ≤ its limit L. Ties go to the least movement.
+- **Method.** In `b_i = a_i + Σ_{k<i} L_k` the constraints say "b is non-decreasing", so the problem is an
+  isotonic regression. Pool Adjacent Violators solves it in one pass over the five zones.
+- **Pooled runs.** A run of one sign sits at its tightest request. A run holding both signs sits at the weighted
+  mean of its active terms, solved in closed form per breakpoint segment.
+- **Exactness.** A zone that is its own source is written back as `requested + (b − target)`, so "exact" is
+  exact to the bit.
+
+The numbers, with the verifier's case first:
+
+| recipe | applied (Darks … Brights) | note |
+|---|---|---|
+| Darks +3, Shadows +0.05 | 3.000 / 2.045 / 1.090 / 0.135 / 0 | round 2: Darks 1.005, Shadows 0.05 |
+| Darks +3, Shadows −0.05 | 2.966 / 2.011 / 1.056 / 0.101 / 0 | continuous across 0; Shadows reads "Applied +2.01 of −0.05 EV (conflicts with Darks)" |
+| Darks +3 (lone) | 3.000 / 2.045 / 1.090 / 0.135 / 0 | spill values unchanged |
+| Darks +3, Midtones −3 | 0.955 / 0 / −0.955 / 0 / 0 | same as 2b |
+| Darks +3, Shadows −3 | 0.477 / −0.477 / 0 / 0 / 0 | same as 2b |
+| Darks +3, Lights +0.5 | 3.000 / 2.045 / 1.090 / 0.500 / 0 | exact; Lights' own request is above the 0.135 carry |
+| Darks +3, Midtones −1 | 2.477 / 1.523 / 0.568 / 0 / 0 | shared by request size, 3 : 1; 2b gave Darks 1.43 and Mid −0.48 |
+
+In the Midtones −1 row both conflicting rows are captioned: "Applied +2.48 of +3.00 EV (conflicts with
+Midtones)" and "Applied +0.57 of −1.00 EV (conflicts with Darks)". Midtones crossing zero there is the bigger
+request winning; it is continuous and monotone.
+
+**New test `ZonesResponseTests.testEverySliderMovesEveryPivotContinuouslyAndMonotonically` (SPEC Z1.13).** Each
+zone is held at ±3 and each other zone is swept −3…+3 in 0.01 steps: 10 × 4 × 601 settings.
+
+| check | measured | threshold |
+|---|---|---|
+| largest pivot step | 0.0100000 (the slider step itself) | ≤ 0.01 |
+| largest fall | 8.9e-16 | ≤ 1e-9 |
+| slowest slope at sampled settings | 0.2508 | ≥ 0.25 |
+| largest one-sided break at the pivots | 4.3e-5 | ≤ 0.01 |
+
+The test also checks the verifier's case by name. Every earlier ZonesResponse, AppliedReadout, ZoneFlattening,
+ToneTwinClamp, RecipeCodecTolerance and Robustness assertion passes unchanged, including 2b's
+`testTheConflictCapIsContinuousAndMonotone` and the exact Darks +3 / Lights +0.5 pair. Z1.1 slowest slope is 0.2500008
+and Z1.2 largest break is 0.0036. The zone proof records re-measure identically (equal and opposite requests share
+exactly as the 2b cap did), so no record changed.
+
+**SPEC.** These lines are marked "Amended by lead, round 3: spill is a bound; projection rule":
+
+- the Z1 preamble;
+- Z1.6: unchanged, but it now also holds for a non-zero neighbour that is carried;
+- Z1.8: same-sign neighbours are no longer a conflict, and opposite requests share by size;
+- Z1.13: new, the sweep above.
+
+The spec's two old test names carry "(renamed in round 3 to …)".
+
+**Z1.10, re-measured on the round-3 build.** It is identical to 2b:
+
+- kinkFall is at most 0.33 on all 9 recipes;
+- kinkRise is at or below base on 8; Brights −3 reads 0.06 against a base of 0.00, accepted as noise by the
+  round-2 verifier;
+- minSlope is at least 0.15;
+- display-code flatEV is 0.00 except Mid −3 at 0.24, which is the display toe.
+
+**Test runs (round 3).**
+
+- Full LumenCoreTests (release, on top of 7a5d206 including WS-02): **3105 tests, 6 skipped, 0 failures**.
+- The targeted classes give 89 tests and 0 failures.
+- `swift build --target LumenCore --target LumenRender` is clean, and `check-swift-surface.py` passes.
+
+**F2.** `evidence/r5-darks-after-crop100.png` is 345,659 B. It is the same audit crop location, at 300 × 320 tiles,
+in full colour. Lone-zone renders did not change in round 3, so no other evidence needed regenerating. That covers
+every evidence sheet, since they are all single-zone sweeps.
+
+**Nits**
+
+- Renamed, assertions unchanged:
+  - `AppliedReadoutTests.testThePlacementStaysOnFixedStopsWhenWhitesAndBlacksMove` (was
+    `…FollowsTheAnchors…`);
+  - `ZoneFlatteningTests.testDarksAloneNoLongerFlattensAndContrastWithDarksIsMeasured` (was
+    `testDarksAloneFlattensTheBandTheAuditMeasured`).
+  - The only other citations were SPEC.md, now annotated, and VERIFY-round2.md, the verifier's record, which I
+    left as written.
+- **Panel caption.** Each zone row and its caption are now one group. There is half a row gap above the caption,
+  an extra row gap below it, and the caption is set under the track (indented by `Lumen.labelWidth + 6`), so it
+  reads as belonging to its own row. [macOS-CI] pending.
+- **Signed value field.** Not changed. `LumenSlider`'s readout formatter is shared (LumenControls.swift:1422), so
+  this is logged in NEEDS.
+- **Citations.** `check-citations.py` shows LookPanel.swift:800, MaskPanel.swift:2411 and ZonesPanel.swift:90 (the
+  comment line). The slider citations are now 171 and 209.
+
 ## What changed
 
 - **`ToneEngine` (`zonePanelStops`, `zoneAxis`, `appliedZoneEV`, `zoneEase`, `zoneSlopeFloor`).** The crossfade

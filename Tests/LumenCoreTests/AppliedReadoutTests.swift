@@ -100,7 +100,7 @@ final class AppliedReadoutTests: XCTestCase {
     /// stops (`ToneEngine.zoneAxis`), so do its pivots and its strip, and a mark placed
     /// through the live anchors would slide off the tones it names the moment Whites or
     /// Blacks moved.
-    func testThePlacementFollowsTheAnchorsWhitesAndBlacksMove() throws {
+    func testThePlacementStaysOnFixedStopsWhenWhitesAndBlacksMove() throws {
         let zones = darks(3)
         let moved = Tone(contrast: -100, whites: -60, blacks: 60)
         let engine = ToneEngine(tone: moved, zones: zones)

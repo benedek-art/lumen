@@ -717,34 +717,36 @@ public struct ToneEngine: Sendable {
     /// and stays at or above `zoneSlopeFloor` exactly when that drop is at most
     /// `limit = (1 − floor) · 2 · gap / π`, the gap in EV — 0.955 EV at the default gaps.
     ///
-    /// A REQUEST IS HONOURED AT ITS OWN PIVOT, AND THE EXCESS SPILLS. A zone the
-    /// photographer left at zero is free, so when a seam's drop would pass its limit the
-    /// untouched downhill neighbour moves by exactly the excess, and on outward: Darks +3
-    /// at the default pivots lifts Shadows to +2.05, Midtones to +1.09 and Lights to
-    /// +0.14, and Darks itself delivers +3.00. That is the smallest change that keeps
-    /// the floor, it is continuous in the slider, and it leaves no dead range — an
-    /// earlier round scaled the request instead and a lone zone stopped near +0.95 EV
-    /// whatever the slider said. A positive zone spills rightward and a negative one
-    /// leftward; past the end pivots the response is a flat shelf, so an end has room
-    /// for any amount. An untouched zone no conflict reaches never moves.
+    /// A REQUEST IS HONOURED, AND THE EXCESS SPILLS — AS A BOUND, NOT A TARGET. A
+    /// positive zone lifts the zones to its right to at least its own value less the
+    /// limits between; a negative zone pulls the zones to its left down to at most its
+    /// value plus the limits. Every other zone then sits at the value nearest its OWN
+    /// request inside those bounds. Darks +3 at the default pivots delivers +3.00 and
+    /// lifts Shadows to +2.05, Midtones to +1.09 and Lights to +0.14. A neighbour already
+    /// lifted by a carry stays where the carry put it until its own slider passes that
+    /// value — its row says "carried from Darks" — so nudging it off zero changes
+    /// nothing. Round 2 made any non-zero zone a hard target instead, and Shadows
+    /// +0.05 under Darks +3 collapsed the whole spill by 2 EV in one step.
     ///
-    /// A CONFLICT IS CAPPED. Only where two TOUCHED zones disagree by more than the
-    /// seams between them can carry (Darks +3 with Midtones −3; Darks +3 with Shadows
-    /// +0.5) is a request held back, by `solveZonalLimits`'s idea applied to the span:
-    /// the zone pulling it downhill is scaled toward zero until the span's drop is
-    /// exactly its capacity, the sum of its seams' limits. A span the spill can
-    /// reconcile is delivered exactly (Darks +3 with Lights +0.5 renders both as asked),
-    /// so scaling starts AT the capacity and the applied value is continuous through
-    /// it. No soft knee here: one would have to start below the capacity, holding back
-    /// spans that fit, or end above it, breaking the floor. Both ends of a span that pull
-    /// (a positive zone before a negative one) share one scale; otherwise a positive run
-    /// is settled right to left and a negative run left to right, each against its
-    /// neighbour's APPLIED value. The untouched zones inside the span then take the spill
-    /// between the two capped values. `AppliedReadout.zoneEasing` names both kinds of
-    /// move.
+    /// A CONFLICT IS SHARED. Where a carry runs into a request pulling the other way —
+    /// Darks +3 against Midtones −3 — both cannot be met, and the drop between them is
+    /// held at exactly what the seams carry. Each side gives way in inverse proportion
+    /// to its own request (each costs `|v| · (moved)²` against its own direction), so
+    /// two equal requests meet in the middle (+0.95 / −0.95), and a request near zero
+    /// gives way almost entirely, which is what makes crossing zero continuous.
+    ///
+    /// HOW. This is one convex problem, solved exactly: minimise `Σ |v_i| · d_i²`, where
+    /// `d_i` is how far zone i is moved AGAINST its own sign (a positive zone lowered, a
+    /// negative one raised — moving with its sign is free), subject to every seam's drop
+    /// ≤ its limit, with ties going to the least movement. Shifting each zone by the
+    /// limits before it (`b_i = a_i + Σ_{k<i} L_k`) turns the seam constraints into
+    /// `b` non-decreasing, so it is an isotonic regression and Pool Adjacent Violators
+    /// solves it in one pass over the five zones — no special cases, no iteration. The
+    /// map from every slider to every applied value is continuous and monotone
+    /// (`ZonesResponseTests.testEverySliderMovesEveryPivotContinuouslyAndMonotonically`).
     ///
     /// The gaps are each list's own, so a legacy list closer than `minimumPivotGap`
-    /// spills and eases harder instead of inverting.
+    /// spills and shares harder instead of inverting.
     public var appliedZoneEV: [Double] { zoneEaseReport.applied }
 
     /// The same solve with who moved whom, for `AppliedReadout.zoneEasing`.
@@ -754,9 +756,10 @@ public struct ToneEngine: Sendable {
     struct ZoneEase: Equatable, Sendable {
         /// Darks … Brights, as rendered.
         var applied: [Double]
-        /// For an untouched zone that moved, the touched zone whose excess it carries.
+        /// For a zone moved WITH its own sign (lifted, or for a negative zone lowered),
+        /// the zone whose carry moved it.
         var carriedFrom: [Int?]
-        /// For a touched zone held back, the touched zone it conflicts with.
+        /// For a zone moved AGAINST its own sign, the zone it conflicts with.
         var conflictsWith: [Int?]
     }
 
@@ -767,91 +770,102 @@ public struct ToneEngine: Sendable {
         var ease = ZoneEase(applied: requested,
                             carriedFrom: [Int?](repeating: nil, count: n),
                             conflictsWith: [Int?](repeating: nil, count: n))
-        guard pivots.count == n, requested.contains(where: { $0 != 0 }) else { return ease }
+        guard pivots.count == n, requested.contains(where: { $0 != 0 }),
+              requested.allSatisfy({ $0.isFinite }) else { return ease }
         // The largest drop seam i can carry above the floor, per EV of gap.
         let perGapEV: Double = 2 * (1 - zoneSlopeFloor) / Double.pi
         let span: Double = defaultWhiteAnchorEV - defaultBlackAnchorEV
-        var limits = [Double](repeating: 0, count: n - 1)
-        for i in 0..<(n - 1) {
-            let gapEV: Double = Swift.max(pivots[i + 1] - pivots[i], 0) * span
-            limits[i] = gapEV * perGapEV
+        // offset[i] = Σ_{k<i} L_k: in b = a + offset the seams say "b never falls".
+        var offset = [Double](repeating: 0, count: n)
+        for i in 1..<n {
+            let gapEV: Double = Swift.max(pivots[i] - pivots[i - 1], 0) * span
+            offset[i] = offset[i - 1] + gapEV * perGapEV
+        }
+        // Each zone's request in b.
+        var target = [Double](repeating: 0, count: n)
+        for i in 0..<n { target[i] = requested[i] + offset[i] }
+
+        // The common b of a pooled run of zones: the least movement that meets every
+        // request in it, or, when its requests conflict, the weighted compromise.
+        func pooledValue(_ first: Int, _ last: Int) -> Double {
+            var lower = -Double.infinity   // positive requests want b at least here
+            var upper = Double.infinity    // negative requests want b at most here
+            for i in first...last {
+                if requested[i] > 0 { lower = Swift.max(lower, target[i]) }
+                if requested[i] < 0 { upper = Swift.min(upper, target[i]) }
+            }
+            if lower <= upper {
+                if lower > -Double.infinity { return lower }
+                if upper < Double.infinity { return upper }
+                return target[first]       // an untouched zone on its own
+            }
+            // Conflict: minimise Σ_pos v (b − t)² over b < t plus Σ_neg |v| (b − t)²
+            // over b > t, on [upper, lower]. Piecewise quadratic and strictly convex
+            // there, so the minimiser is the weighted mean of the active terms on the
+            // one segment between breakpoints where that mean lands.
+            var knots = [upper, lower]
+            for i in first...last where requested[i] != 0
+                && target[i] > upper && target[i] < lower { knots.append(target[i]) }
+            knots.sort()
+            for k in 0..<(knots.count - 1) {
+                let mid = 0.5 * (knots[k] + knots[k + 1])
+                var weight = 0.0, moment = 0.0
+                for i in first...last {
+                    let v = requested[i]
+                    let active = (v > 0 && target[i] > mid) || (v < 0 && target[i] < mid)
+                    guard active else { continue }
+                    weight += abs(v)
+                    moment += abs(v) * target[i]
+                }
+                guard weight > 0 else { continue }
+                let b = moment / weight
+                if b >= knots[k] && b <= knots[k + 1] { return b }
+            }
+            return 0.5 * (upper + lower)   // unreachable: the derivative changes sign
         }
 
-        // 1. Conflicts between consecutive touched zones, over the seams between them.
-        let touched = requested.indices.filter { requested[$0] != 0 }
-        let t = touched.map { requested[$0] }
-        var a = t
-        var capacity = [Double](repeating: 0, count: Swift.max(touched.count - 1, 0))
-        for j in capacity.indices {
-            for i in touched[j]..<touched[j + 1] { capacity[j] += limits[i] }
+        // Pool Adjacent Violators over the five zones.
+        var blocks: [(first: Int, last: Int, value: Double)] = []
+        for i in 0..<n {
+            blocks.append((i, i, pooledValue(i, i)))
+            while blocks.count >= 2,
+                  blocks[blocks.count - 2].value > blocks[blocks.count - 1].value {
+                let right = blocks.removeLast()
+                let left = blocks.removeLast()
+                blocks.append((left.first, right.last, pooledValue(left.first, right.last)))
+            }
         }
-        // The drop span j may keep: all of it while it fits, the capacity after.
-        func eased(_ drop: Double, _ j: Int) -> Double {
-            Swift.max(Swift.min(drop, capacity[j]), 0)
+        var block = [Int](repeating: 0, count: n)
+        for (j, run) in blocks.enumerated() {
+            for i in run.first...run.last {
+                ease.applied[i] = requested[i] + (run.value - target[i])
+                block[i] = j
+            }
         }
-        // Spans both ends pull: one shared scale, independent of everything else.
-        for j in capacity.indices where t[j] > 0 && t[j + 1] < 0 {
-            let drop = t[j] - t[j + 1]
-            let kept = eased(drop, j)
-            guard kept < drop else { continue }
-            a[j] = t[j] * kept / drop
-            a[j + 1] = t[j + 1] * kept / drop
-            ease.conflictsWith[touched[j]] = touched[j + 1]
-            ease.conflictsWith[touched[j + 1]] = touched[j]
-        }
-        // Positive zones before a positive one, right to left.
-        for j in stride(from: capacity.count - 1, through: 0, by: -1)
-            where t[j] > 0 && t[j + 1] > 0 {
-            let drop = t[j] - a[j + 1]
-            guard drop > 0 else { continue }
-            let kept = eased(drop, j)
-            guard kept < drop else { continue }
-            a[j] = a[j + 1] + kept
-            ease.conflictsWith[touched[j]] = touched[j + 1]
-        }
-        // Negative zones after a negative one, left to right.
-        for j in capacity.indices where t[j] < 0 && t[j + 1] < 0 {
-            let drop = a[j] - t[j + 1]
-            guard drop > 0 else { continue }
-            let kept = eased(drop, j)
-            guard kept < drop else { continue }
-            a[j + 1] = a[j] - kept
-            ease.conflictsWith[touched[j + 1]] = touched[j]
-        }
-        for (j, i) in touched.enumerated() { ease.applied[i] = a[j] }
 
-        // 2. Spill. An untouched zone must sit no lower than the zone before it less
-        // that seam's limit, and no higher than the zone after it plus its limit; it
-        // takes the value nearest zero inside those bounds. Chained through untouched
-        // neighbours, so the bounds are the nearest touched value less (or plus) the
-        // limits in between, and step 1 has made every span's bounds meet.
-        var lower = [Double](repeating: -.infinity, count: n)
-        var lowerFrom = [Int?](repeating: nil, count: n)
-        for k in 0..<n {
-            if requested[k] != 0 {
-                lower[k] = ease.applied[k]
-                lowerFrom[k] = k
-            } else if k > 0 {
-                lower[k] = lower[k - 1] - limits[k - 1]
-                lowerFrom[k] = lowerFrom[k - 1]
-            }
+        // Who moved whom. A zone moved with its own sign was carried; one moved against
+        // it gave way in a conflict. The other party is the nearest zone in the same
+        // pooled run, on the side the push came from, that was not itself carried.
+        func moved(_ i: Int) -> Double { ease.applied[i] - requested[i] }
+        func carried(_ i: Int) -> Bool {
+            let d = moved(i)
+            return (requested[i] >= 0 && d > 0) || (requested[i] <= 0 && d < 0)
         }
-        var upper = [Double](repeating: .infinity, count: n)
-        var upperFrom = [Int?](repeating: nil, count: n)
-        for k in stride(from: n - 1, through: 0, by: -1) {
-            if requested[k] != 0 {
-                upper[k] = ease.applied[k]
-                upperFrom[k] = k
-            } else if k < n - 1 {
-                upper[k] = upper[k + 1] + limits[k]
-                upperFrom[k] = upperFrom[k + 1]
+        func source(of i: Int, leftward: Bool) -> Int? {
+            var k = leftward ? i - 1 : i + 1
+            while k >= 0 && k < n && block[k] == block[i] {
+                if requested[k] != 0 && !carried(k) { return k }
+                k += leftward ? -1 : 1
             }
+            return nil
         }
-        for k in 0..<n where requested[k] == 0 {
-            let v = Swift.min(Swift.max(0, lower[k]), upper[k])
-            ease.applied[k] = v
-            if v > 0 { ease.carriedFrom[k] = lowerFrom[k] }
-            if v < 0 { ease.carriedFrom[k] = upperFrom[k] }
+        for i in 0..<n where moved(i) != 0 {
+            let raised = moved(i) > 0
+            if carried(i) {
+                ease.carriedFrom[i] = source(of: i, leftward: raised)
+            } else {
+                ease.conflictsWith[i] = source(of: i, leftward: raised)
+            }
         }
         return ease
     }

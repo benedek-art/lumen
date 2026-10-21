@@ -163,20 +163,27 @@ struct ZonesPanel: View {
             ForEach(Self.register) { zone in
                 // One help for all five rows: the mechanics are shared, the tooltip's
                 // composed title names the zone, and the strip above draws where each
-                // one sits.
-                LumenSlider(title: zone.name,
-                            value: evBinding(zone.path, key: "zones.\(zone.name)"),
-                            range: -3...3, hardRange: -5...5,
-                            defaultValue: 0, step: Self.stopStep, decimals: 2,
-                            help: "Exposure for this zone alone, in stops. Its pull "
-                                + "is strongest at the zone's own pivot and fades to "
-                                + "nothing at its neighbours', so zones blend instead "
-                                + "of stepping.")
-                if let eased = easing.first(where: { $0.name == zone.name }) {
-                    Text(eased.caption)
-                        .font(.lumenCaption)
-                        .foregroundStyle(Lumen.secondaryText)
-                        .fixedSize(horizontal: false, vertical: true)
+                // one sits. The caption is grouped with ITS row — half the row gap above
+                // it, a whole one more below, and set under the track rather than the
+                // label — because at an even gap a reader attached "carried from Darks"
+                // to the row beneath (WS-08 round-2 verify).
+                VStack(alignment: .leading, spacing: Lumen.rowGap / 2) {
+                    LumenSlider(title: zone.name,
+                                value: evBinding(zone.path, key: "zones.\(zone.name)"),
+                                range: -3...3, hardRange: -5...5,
+                                defaultValue: 0, step: Self.stopStep, decimals: 2,
+                                help: "Exposure for this zone alone, in stops. Its pull "
+                                    + "is strongest at the zone's own pivot and fades to "
+                                    + "nothing at its neighbours', so zones blend instead "
+                                    + "of stepping.")
+                    if let eased = easing.first(where: { $0.name == zone.name }) {
+                        Text(eased.caption)
+                            .font(.lumenCaption)
+                            .foregroundStyle(Lumen.secondaryText)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.leading, Lumen.labelWidth + 6)
+                            .padding(.bottom, Lumen.rowGap)
+                    }
                 }
             }
 

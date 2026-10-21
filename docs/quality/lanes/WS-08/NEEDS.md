@@ -34,6 +34,17 @@ Things the WS-08 build found or relies on, in code it does not own. Nothing here
 - `GradeEngine.normalizedAxis` has the same Whites/Blacks coupling as Z3. The grading strip's zones move when the
   white or black point moves.
 
+## Shared controls (`LumenControls.swift`, owner of `LumenSlider`)
+
+- The round-2 verifier noted that the zone value fields read "3.00" and "0.00", while the captions under them are
+  signed and in EV ("+2.05 EV carried from Darks").
+- `LumenSlider` formats every readout with one shared `String(format: "%.\(decimals)f", value)`
+  (LumenControls.swift:1422), so a signed readout is a slider-wide option, not something ZonesPanel can change.
+- Suggested: a `signed: Bool` (and optionally a unit suffix) on `LumenSlider`, for bipolar stop-valued rows: the
+  zones, Global and Exposure.
+- The snapshot card for the two Zones cases is titled "Tone" because `SnapshotSectionCard` takes a
+  `WorkspaceSection`, and Zones is folded into Tone (docs/28 §5.1). That is a harness choice, not a panel defect.
+
 ## WS-05 (Basic panel)
 
 - `BasicPanel.zonesExpanded` is private `@State`, so the fold snapshot `panel-develop-tone-zones-open` still shows

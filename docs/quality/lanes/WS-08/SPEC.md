@@ -30,6 +30,18 @@ outward: Darks +3 → Shadows +2.05 → Midtones +1.09 → Lights +0.14 at the d
 requests (Brights −3 pulls Lights/Midtones/Shadows down). Only where two TOUCHED zones disagree by more than the seams
 between them can carry is a request held back, by the round-1 scaling/soft-knee ease over that span.
 
+*Amended by lead, round 3: spill is a bound; projection rule. Round 2 made any non-zero zone a hard target, so nudging a spilled-into neighbour off 0 collapsed
+the spill (Darks +3, Shadows 0 → +0.05 moved Shadows +2.045 → +0.05 and Darks 3 → 1.005). Now every zone's applied
+value is the value nearest its OWN request inside the bounds its neighbours impose: a positive zone bounds the
+zones to its right from below (`a_{i+1} ≥ a_i − L_i`), a negative zone bounds the zones to its left from above; a
+zone moved WITH its own sign (a positive zone lifted, a negative one lowered) is free, one moved AGAINST it costs
+`|v| · d²`. That is one convex projection of the request vector onto the feasible set (an isotonic regression in
+`b_i = a_i + Σ_{k<i} L_k`, solved exactly by Pool Adjacent Violators). Consequences: a lone zone is delivered exactly
+over ±3; the spill values are unchanged; a neighbour already lifted by a carry does not move until its own request
+passes the carried value (its caption says "carried from Darks" — accepted); requests that conflict share the
+excess in inverse proportion to their size (equal and opposite requests meet in the middle, as the round-2b cap
+did); and the whole map from every slider to every pivot value is continuous and monotone (Z1.13).*
+
 Grids. **G5** = {−3, −1.5, 0, 1.5, 3}^5 at the default pivots, with global ∈ {0, 3}. **G3** = {−3, 0, 3}^5 on each of:
 four min-gap pivot sets (one adjacent pair at exactly 1 EV, the others default); `[0, 1/14, 2/14, 3/14, 4/14]`; and 50
 seeded random ascending sets with every gap ≥ 1 EV. All lines below are in new
@@ -54,7 +66,8 @@ seeded random ascending sets with every gap ≥ 1 EV. All lines below are in new
   edits must not visibly move.
 - **Z1.6** `testTheEaseNeverGoesDead`. *Amended by lead, round 2 (no dead range).* For each zone alone at the default pivots and
   v ∈ [−3, 2.75] in 0.25 steps, `(y(T_z) at v+0.25 − y(T_z) at v) / 0.25 ≥ 0.99`, and the zone's applied value is v
-  (± 1e-12): a lone zone is delivered in full at its own pivot over the whole slider.
+  (± 1e-12): a lone zone is delivered in full at its own pivot over the whole slider. *Amended by lead, round 3: spill is a bound; projection rule: unchanged, and
+  it now also holds for a zone whose neighbour is non-zero but carried (Z1.13).*
 - **Z1.6b** `testALoneZoneSpillsItsExcessIntoItsNeighbours`. *Amended by lead, round 2.* Darks +3 at the default pivots gives
   `zonePanelStops` at the five pivots = 3, 3 − L, 3 − 2L, 3 − 3L, 0 (± 0.01 EV; L = 0.955), i.e. Shadows +2.045,
   Midtones +1.090, Lights +0.135 (± 0.001). Brights −3 is the mirror.
@@ -71,9 +84,18 @@ seeded random ascending sets with every gap ≥ 1 EV. All lines below are in new
   only to an infeasible span (sum of its seam limits < its drop), starting at that capacity, so applied is
   continuous and non-decreasing in the slider across the transition:
   `testTheConflictCapIsContinuousAndMonotone` (Darks 0…3 against Lights +0.5 and against Midtones −1, 0.01 steps:
-  exact while feasible, span drop = capacity ± 1e-9 after, no step > 0.01, never falling).*
+  exact while feasible, span drop = capacity ± 1e-9 after, no step > 0.01, never falling).* *Amended by lead, round 3: spill is a bound; projection rule: a
+  same-sign neighbour is no longer a conflict at all — Darks +3 with Lights +0.5 delivers both, and Lights is lifted
+  only once Darks' carry passes it; Darks +3 with Midtones −1 shares the excess by request size (Darks +2.48,
+  Midtones +0.57, both captioned "conflicts with …"). The 2b test keeps its assertions and passes.*
 - **Z1.8b** `testAConflictIsEasedAndKeepsTheFloor`. *Amended by lead, round 2.* Darks +3 with Midtones −3: both held back (|applied| < 3),
   the untouched Shadows between their applied values, slope ≥ 0.25 − 1e-9 over [−12, +8].
+- **Z1.13** `testEverySliderMovesEveryPivotContinuouslyAndMonotonically`. *Amended by lead, round 3: spill is a bound; projection rule (new).* For each zone at
+  ±3 at the default pivots, sweep each other zone from −3 to +3 in 0.01 EV steps: (a) no pivot value
+  (`zonePanelStops` at T0…T4) changes by more than 0.01 + 1e-9 per step; (b) every pivot value is non-decreasing in
+  the swept slider (no fall > 1e-9); (c) at every 20th step, slope ≥ 0.25 − 1e-9 over [−12, +8] at 0.05 EV and
+  one-sided slope jump at each pivot ≤ 0.01. Also, by name: Darks +3 with Shadows +0.05 applies Darks 3 and Shadows
+  3 − L (± 1e-12).
 - **Z1.9** `testTheClampNeverFiresOnAZonesOnlyRecipe`. `ToneEngine.zoneFlattening()` is nil for all of G5. It is read
   only; it is WS-07's function.
 - **Z1.10** Pipeline confirmation on the CPU reference: `BIN=… python3 tools/ramp_check.py /tmp/claude-0/ws08-after`.
@@ -97,7 +119,7 @@ seeded random ascending sets with every gap ≥ 1 EV. All lines below are in new
   RG.applyTone:897 `plan.toneGainCubeBaked`, built from the same bake). [macOS-CI] `gpu-parity.yml` and
   `ToneShippingGoldenTests` stay green.
 - **Z1.12** Tests that encode the old clamp and must change in the same commit, each with its reason in REPORT:
-  - `ZoneFlatteningTests.testDarksAloneFlattensTheBandTheAuditMeasured` and `testTheReportedBandIsFlatInTheBakedTable`
+  - `ZoneFlatteningTests.testDarksAloneFlattensTheBandTheAuditMeasured` (renamed in round 3 to `testDarksAloneNoLongerFlattensAndContrastWithDarksIsMeasured`) and `testTheReportedBandIsFlatInTheBakedTable`
     need a recipe that still reaches the clamp (e.g. Contrast −100 + Darks +3), or move to asserting nil.
   - `ToneTwinClampTests` must reach the clamp the same way. Its assertions are WS-07's and stay.
   - `AppliedReadoutTests` zone cases are rewritten for `zoneEasing`.
@@ -141,7 +163,7 @@ Brights is inert on raws because there is no content up there, not because of a 
   `ZonesResponseTests.testWhitesAndBlacksDoNotMoveTheZones`: with Mid +1, and each of Whites ±100 and Blacks ±100,
   `zonePanelStops(t)` equals the untouched-tone value within 1e-12 for all t ∈ [−12, 8]. The Mid peak (found at
   0.001 EV) moves by < 0.01 EV. Today it moves −0.96 / +0.96 / −0.54 / +0.54 EV.
-  `AppliedReadoutTests.testThePlacementFollowsTheAnchorsWhitesAndBlacksMove` encodes the old coupling and is inverted
+  `AppliedReadoutTests.testThePlacementFollowsTheAnchorsWhitesAndBlacksMove` (renamed in round 3 to `testThePlacementStaysOnFixedStopsWhenWhitesAndBlacksMove`) encodes the old coupling and is inverted
   (placement must NOT move), with the reason given.
 
 ## Z4. Minimum pivot gap = 1 EV
