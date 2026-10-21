@@ -90,7 +90,7 @@ final class MaskRangeGPUParityTests: XCTestCase {
     }
 
     private func cases(_ picture: ImageBuffer) -> [(name: String, mask: Mask, soft: Bool)] {
-        var out: [(String, Mask, Bool)] = []
+        var out: [(name: String, mask: Mask, soft: Bool)] = []
         for channel in [nil, MaskChannel.red, .green, .blue, .max, .min] {
             for smooth in [0.0, 25, 100] {
                 out.append(("band \(channel?.rawValue ?? "luma") smooth \(smooth)",
@@ -195,6 +195,38 @@ final class MaskRangeGPUParityTests: XCTestCase {
         }
     }
 
+    /// The renderer's own precision: half-float intermediates. The kernels see a
+    /// half-float stage and write half-float alpha in production, so the share test is
+    /// repeated there with a 4e-3 threshold (half a code value at 8 bits).
+    func testRangeKernelsHoldInHalfFloat() throws {
+        try XCTSkipUnless(KernelLibrary.rangeMasksAvailable)
+        let half = CIContext(options: [.workingColorSpace: NSNull(),
+                                       .outputColorSpace: NSNull(),
+                                       .workingFormat: CIFormat.RGBAh])
+        let size = (w: 331, h: 197)
+        let buffer = picture(size.w, size.h)
+        let extent = CGRect(x: 0, y: 0, width: size.w, height: size.h)
+        for (name, mask, _) in cases(buffer) {
+            let reference = MaskRaster.combine(mask: mask,
+                                               size: (width: size.w, height: size.h),
+                                               source: buffer)
+            let alpha = try XCTUnwrap(MaskGPU.alpha(for: mask, extent: extent,
+                                                    source: image(buffer)))
+            var bytes = [Float](repeating: 0, count: size.w * size.h * 4)
+            bytes.withUnsafeMutableBytes { raw in
+                half.render(alpha, toBitmap: raw.baseAddress!, rowBytes: size.w * 16,
+                            bounds: extent, format: .RGBAf, colorSpace: nil)
+            }
+            var past = 0
+            for i in 0..<(size.w * size.h)
+            where abs(Double(bytes[i * 4]) - reference[i % size.w, i / size.w]) > 4e-3 {
+                past += 1
+            }
+            XCTAssertLessThan(Double(past) / Double(size.w * size.h), 5e-3,
+                              "\(name) in half float: \(past) pixels past 4e-3")
+        }
+    }
+
     /// A colour-range fixture that selects nothing would pass the comparison above
     /// trivially. Pin that the sampled colours are actually selected.
     func testTheColourFixtureSelectsSomething() throws {
@@ -238,12 +270,23 @@ final class MaskRangeGPUParityTests: XCTestCase {
         XCTAssertEqual(MaskRaster.refineRadius(feather: 1, longEdge: 1024), 0)
         XCTAssertTrue(MaskGPU.isGPUEvaluable(guided, longEdge: 1024))
 
+        // Each one VALID, so the refusal is the kind switch and not `validationError`.
         for kind in [MaskKind.brush, .polygon, .similarity, .similarityLine, .aiSubject,
                      .depthRange, .maskRef] {
-            let c = MaskComponent(op: .add, kind: kind)
+            var c = MaskComponent(op: .add, kind: kind)
+            c.strokesRef = "blob:xxh64:0000000000000000"
+            c.path = [[0.1, 0.1], [0.9, 0.1], [0.5, 0.9]]
+            c.samples = [[0.2, 0.2, 0.2]]
+            c.line = [0.1, 0.1, 0.9, 0.9]
+            c.depthLo = 0.2; c.depthHi = 0.6
+            c.maskRef = "other"
+            c.prompt = [[0.5, 0.5]]
             XCTAssertFalse(MaskGPU.isGPUEvaluable(
                 Mask(id: "k", components: [band(0.2, 0.6, smooth: 50), c]),
                 longEdge: longEdge), "\(kind) has no GPU form")
+            if kind != .aiSubject {
+                XCTAssertNil(c.validationError(), "\(kind) fixture must be valid")
+            }
         }
         var bad = band(0.2, 0.6, smooth: 50)
         bad.hi = nil

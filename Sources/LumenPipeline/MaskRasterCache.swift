@@ -45,7 +45,7 @@
 // whatever the bake would cost, so a plain brush stroke committed on mouse-up showed the
 // mask WITHOUT the stroke for the next frame and popped in a frame or two later. The
 // cache now remembers how long each mask's last bake took, and a draft miss on a mask
-// whose bake fits `synchronousBakeBudget` bakes in line: exact on the first frame, at
+// whose bake fits `synchronousBakeBudget` (8 ms in the renderer) bakes in line: exact on the first frame, at
 // the price of a few milliseconds the frame can afford. A mask that is expensive to
 // bake (a guided refine, an AI matte with Follow) keeps the stale door.
 
@@ -71,12 +71,20 @@ public final class MaskRasterCache {
     static let settleResidencyBudget = 192 * 1024 * 1024
 
     /// A draft miss bakes in line when this mask's previous bake took no longer than
-    /// this, instead of serving the previous raster. Half a 60 Hz frame: a plain brush
-    /// or polygon at the 1024 proxy fits on an M-series Mac, a guided refine does not.
-    static let synchronousBakeBudget: Double = 8 // ms
+    /// this, instead of serving the previous raster. The renderer passes
+    /// `interactiveSynchronousBakeBudget`; zero (the default) is the old rule, every
+    /// draft miss with a previous raster served stale, which the queue tests pin.
+    let synchronousBakeBudget: Double
 
-    /// Whether a raster of this size is one the cache will hold. Read by the renderer
-    /// so it memoizes the mask image over exactly the planes this cache retains.
+    /// Half a 60 Hz frame: a plain brush or polygon at the 1024 proxy fits on an
+    /// M-series Mac, a guided refine does not.
+    static let interactiveSynchronousBakeBudget: Double = 8 // ms
+
+    init(synchronousBakeBudget: Double = 0) {
+        self.synchronousBakeBudget = synchronousBakeBudget
+    }
+
+    /// Whether a raster of this size is one the settle rung will hold.
     static func retains(width: Int, height: Int) -> Bool {
         Swift.max(width, height) <= DraftLadder.interactiveLongEdgeCeiling
             && width * height * MemoryLayout<Float>.stride <= settleResidencyBudget
@@ -165,7 +173,8 @@ public final class MaskRasterCache {
             return held.entry.plane
         }
         let previous = entries.first { $0.maskID == maskID }?.entry
-        let cheap = (bakeCost[maskID] ?? .infinity) <= Self.synchronousBakeBudget
+        let cheap = synchronousBakeBudget > 0
+            && (bakeCost[maskID] ?? .infinity) <= synchronousBakeBudget
         guard allowStale, !cheap, let previous, previous.identity == identity else {
             // A SETTLE CANCELS THE DRAG'S LEFTOVER RASTER.
             //

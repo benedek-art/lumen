@@ -124,7 +124,8 @@ public final class PipelineRenderer {
 
     /// Rasters kept across frames so a draft can run S11 without paying
     /// `MaskRaster.combine` per mouse event. See the type's header for the contract.
-    private let maskRasters = MaskRasterCache()
+    private let maskRasters = MaskRasterCache(
+        synchronousBakeBudget: MaskRasterCache.interactiveSynchronousBakeBudget)
 
     /// The CIImage last built over each mask's draft raster, so a frame handed the SAME
     /// held plane (an exact hit, or a stale serve of `previous.plane`) does not copy it
@@ -1716,14 +1717,20 @@ public final class PipelineRenderer {
             }
             // The stage input the GPU range kernels sample: the same `localStageInput`
             // graph, over the decode's own extent, never read back. Built only when an
-            // eligible mask reads the picture; if it cannot be built, those masks go
-            // back to the CPU path, which then builds its own stage for them.
+            // eligible mask reads the picture; if it cannot be built, `alpha` declines
+            // those masks and they go back to the CPU path below.
             let gpuStage: CIImage? = eligible.contains(where: MaskGPU.readsPicture)
                 ? gpuMaskStage(decoded: decoded, plan: plan, strokeSets: strokeSets) : nil
-            let gpuEligible = Set(eligible.filter {
-                gpuStage != nil || !MaskGPU.readsPicture($0)
-            }.map(\.id))
-            let cpuMasks = plan.masks.filter { !gpuEligible.contains($0.id) }
+            // The GPU alphas FIRST, so a mask the GPU path declines after all (a kernel
+            // that will not apply) is a CPU mask when the CPU stage is decided, and
+            // never rasterizes against a missing picture.
+            var gpuAlphas: [String: CIImage] = [:]
+            for mask in eligible {
+                if let gpu = MaskGPU.alpha(for: mask, extent: extent, source: gpuStage) {
+                    gpuAlphas[mask.id] = gpu
+                }
+            }
+            let cpuMasks = plan.masks.filter { gpuAlphas[$0.id] == nil }
             let source = maskStage(decoded: decoded, plan: plan,
                                    width: width, height: height, extent: extent,
                                    strokeSets: strokeSets, masks: cpuMasks)
@@ -1814,8 +1821,7 @@ public final class PipelineRenderer {
                 // so it never enters the raster cache, never misses it, and can never
                 // be served one gesture stale. That staleness IS the tail the owner
                 // reported dragging a radial (docs/35 §5.1).
-                if gpuEligible.contains(mask.id),
-                   let gpu = MaskGPU.alpha(for: mask, extent: extent, source: gpuStage) {
+                if let gpu = gpuAlphas[mask.id] {
                     graph.maskImages[mask.id] = gpu
                     continue
                 }
@@ -1907,11 +1913,8 @@ public final class PipelineRenderer {
                 // own size (132 MB on a 33 MP frame, plus the image's own copy) and
                 // pinning one here would undo MaskRasterCache's retention rule. An
                 // uncached bake is fresh storage every frame and could never hit.
-                // And the settle rung's rasters too, now that the cache holds them
-                // (lane M9): a settle whose raster is a hit should not copy 45 MB into a
-                // new bitmap either. `maskImage` keys the two rungs apart.
-                let memoize = cached
-                    && MaskRasterCache.retains(width: alpha.width, height: alpha.height)
+                let memoize = cached && allowStaleRasters
+                    && alpha.values.count <= Self.maskRasterLongEdge * Self.maskRasterLongEdge
                 guard let image = maskImage(maskID: mask.id, plane: alpha,
                                             extent: extent, memoize: memoize) else {
                     continue
@@ -2336,12 +2339,8 @@ public final class PipelineRenderer {
     func maskImage(maskID: String, plane: Plane, extent: CGRect,
                    memoize: Bool) -> CIImage? {
         guard memoize else { return Self.image(from: plane, targetExtent: extent) }
-        // One slot per mask per rung, so a settle between two drags does not evict the
-        // draft's image (and the next settle the settle's).
-        let settleRung = Swift.max(plane.width, plane.height) > Self.maskRasterLongEdge
-        let slot = settleRung ? maskID + Self.settleMemoSuffix : maskID
         maskImageMemoLock.lock()
-        if let held = maskImageMemo[slot],
+        if let held = maskImageMemo[maskID],
            held.extent == extent,
            held.plane.width == plane.width, held.plane.height == plane.height,
            held.plane.values.withUnsafeBufferPointer({ a in
@@ -2357,42 +2356,21 @@ public final class PipelineRenderer {
         // should not wait on it.
         guard let image = Self.image(from: plane, targetExtent: extent) else { return nil }
         maskImageMemoLock.lock()
-        if maskImageMemo[slot] == nil, maskImageMemo.count >= Self.maskImageMemoLimit {
+        if maskImageMemo[maskID] == nil, maskImageMemo.count >= Self.maskImageMemoLimit {
             // Coarse, like `forgetMattes`: a plan with more raster masks than this
             // simply builds its images the old way.
             maskImageMemo.removeAll()
         }
-        if settleRung {
-            // The settle images are each a copy of a settle raster; held under the same
-            // byte budget as the raster cache's settle rung; others go once it is spent.
-            let bytes: (MaskImageMemo) -> Int = {
-                $0.plane.values.count * MemoryLayout<Float>.stride
-            }
-            var total = bytes(MaskImageMemo(plane: plane, extent: extent, image: image))
-            for (key, held) in maskImageMemo where key.hasSuffix(Self.settleMemoSuffix)
-                && key != slot {
-                total += bytes(held)
-                if total > MaskRasterCache.settleResidencyBudget {
-                    maskImageMemo.removeValue(forKey: key)
-                }
-            }
-        }
-        maskImageMemo[slot] = MaskImageMemo(plane: plane, extent: extent, image: image)
+        maskImageMemo[maskID] = MaskImageMemo(plane: plane, extent: extent, image: image)
         maskImageMemoLock.unlock()
         return image
     }
-
-    private static let settleMemoSuffix = "\u{1}settle"
 
     /// Drops memo entries for masks the current plan no longer has, so a deleted mask
     /// or the previous photograph's stack does not stay pinned.
     func pruneMaskImages(keeping ids: Set<String>) {
         maskImageMemoLock.lock()
-        maskImageMemo = maskImageMemo.filter {
-            let id = $0.key.hasSuffix(Self.settleMemoSuffix)
-                ? String($0.key.dropLast(Self.settleMemoSuffix.count)) : $0.key
-            return ids.contains(id)
-        }
+        maskImageMemo = maskImageMemo.filter { ids.contains($0.key) }
         maskImageMemoLock.unlock()
     }
 

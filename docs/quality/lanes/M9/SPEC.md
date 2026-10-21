@@ -18,7 +18,7 @@ test -c release -Xswiftc -enable-testing --filter MaskRasterCostBenchTests`).
    (bakes delta 0) for a raster up to the 4096 interactive ceiling; the retained bytes
    never exceed `MaskRasterCache.settleResidencyBudget`; a raster above the interactive
    ceiling (an export) is not retained.
-   `MaskSpeedTests.testSettleRastersAreHeldWithinTheirByteBudget` (macOS CI).
+   `MaskPerfTests.testTheRasterCacheHoldsSettleRastersWithinItsByteBudget` (macOS CI).
 3. **Range masks never touch the CPU.** A mask made of any of linear, radial, luminance
    range, luminosity and colour range, with whole-mask invert and Levels, renders with 0
    bakes and 0 stage readbacks (`LazyStageBuffer.renderCount` unchanged) on draft and
@@ -27,16 +27,25 @@ test -c release -Xswiftc -enable-testing --filter MaskRasterCostBenchTests`).
    smoothness values), luminosity (three series, levels 1 and 3.5) and colour range (1,
    3 and 8 samples, three Refine values), plus Levels, the GPU alpha against
    `MaskRaster.rasterize`/`refined` on the same stage buffer at 256², 331×197 and
-   128×320: worst pixel < 2e-3, and < 0.1 % of pixels differ by more than 1e-3.
-   `MaskGPUParityTests.testRangeKernelsMatchTheReference` (macOS CI).
+   128×320: < 0.1 % of pixels differ by more than 1e-3, and on every soft selection
+   (smoothness > 0, every luminosity and colour case) the worst pixel is < 2e-3. A hard
+   band (smoothness 0) is a step, so only the share applies there. Repeated through a
+   half-float (production) context: < 0.5 % of pixels past 4e-3.
+   `MaskRangeGPUParityTests.testRangeKernelsMatchTheReference`,
+   `testRangeKernelsHoldInHalfFloat` (macOS CI).
 5. **Fast-path eligibility is exact.** Any refine step that is not pointwise (Refine
    feather with radius ≥ 1, Edge ≠ 0, Blur σ > 0.05), any brush, polygon, similarity,
-   AI, depth or reference component sends the mask to the CPU path; the existing
-   `testAnythingNeedingThePictureOrTheChainIsRefused` stays green.
-6. **A brush dab is visible in the first draft frame after commit.** After one stroke
-   is appended to a plain (no refine) brush mask, the next draft frame is an exact key
-   bake, not a stale serve: `staleServes` delta 0, and the frame's alpha equals a cold
-   render's. `MaskSpeedTests.testACheapBrushBakeIsNeverServedStale` (macOS CI).
+   AI, depth or reference component sends the mask to the CPU path.
+   `MaskRangeGPUParityTests.testOnlyPointwiseChainsAndRangeKindsTakeTheGPUPath`, with
+   each refused kind given valid fields so the refusal is the kind check.
+6. **A cheap bake is never served stale.** In the renderer's cache, a draft miss on a
+   mask whose last draft bake took ≤ 8 ms bakes in line: the frame gets the new raster
+   and `staleServes` does not move; a mask whose bake exceeds the budget still rides
+   the previous raster and converges. This is what puts a plain brush stroke into the
+   first draft frame after mouse-up. Cache-level, not a pipeline brush render: whether
+   a real 1024 brush fold fits 8 ms is machine-dependent and is in "for the owner".
+   `MaskSpeedTests.testACheapBrushBakeIsNeverServedStale`,
+   `testAnExpensiveBakeStillServesStaleOnADraft` (macOS CI).
 7. **No regression.** Every pre-existing LumenPipelineTests and LumenCoreTests test
    passes, except tests that encoded the old refusal to hold settle rasters, which are
    updated in the same commit with the reason in REPORT.md.

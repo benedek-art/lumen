@@ -21,7 +21,7 @@ final class MaskSpeedTests: XCTestCase {
                                               .outputColorSpace: NSNull(),
                                               .workingFormat: CIFormat.RGBAf])
 
-    private final class Fixture: ImageSource {
+    private final class SpeedFixture: ImageSource {
         let url: URL
         let nativeLongEdge: Double
         let nativePixelSize: (width: Int, height: Int)
@@ -55,7 +55,7 @@ final class MaskSpeedTests: XCTestCase {
         }
     }
 
-    private func export(_ renderer: PipelineRenderer, _ source: Fixture,
+    private func export(_ renderer: PipelineRenderer, _ source: SpeedFixture,
                         _ recipe: Recipe) throws -> ImageBuffer {
         let image = try renderer.exportedImage(source: source, recipe: recipe,
                                                using: ExportRecipe(name: "Mask speed"))
@@ -85,7 +85,7 @@ final class MaskSpeedTests: XCTestCase {
     /// raster. Before lane M9 the cache refused those, and every settle rasterized every
     /// CPU mask again whatever the edit was.
     func testAdjustmentOnlyEditsNeverRebakeAtSettle() throws {
-        let source = Fixture(longEdge: 1100, name: "adjust")
+        let source = SpeedFixture(longEdge: 1100, name: "adjust")
         var r = Recipe()
         r.develop.denoise.mode = .off
         var mask = Mask(id: "outline", components: [outline()])
@@ -102,6 +102,18 @@ final class MaskSpeedTests: XCTestCase {
         }
         XCTAssertEqual(MaskRasterCache.currentStats.bakes, bakes,
                        "an adjustment-only edit rasterized the selection again")
+
+        // And on draft frames, at the 1024 proxy.
+        _ = try renderer.renderPreview(source: source, recipe: r, maxLongEdge: 1100,
+                                       draft: true, coarseDecode: true)
+        let draftBakes = MaskRasterCache.currentStats.bakes
+        for step in 1...3 {
+            r.masks[0].adjust.exposure = 1 + 0.3 * Double(step)
+            _ = try renderer.renderPreview(source: source, recipe: r, maxLongEdge: 1100,
+                                           draft: true, coarseDecode: true)
+        }
+        XCTAssertEqual(MaskRasterCache.currentStats.bakes, draftBakes,
+                       "an adjustment-only drag rasterized the selection on a draft")
         r.masks[0].adjust.exposure = 1
         r.masks[0].amount = 100
         let back = try export(renderer, source, r)
@@ -114,7 +126,7 @@ final class MaskSpeedTests: XCTestCase {
 
     func testRangeMasksTakeTheGPUPath() throws {
         try XCTSkipUnless(KernelLibrary.rangeMasksAvailable)
-        let source = Fixture(longEdge: 1100, name: "range")
+        let source = SpeedFixture(longEdge: 1100, name: "range")
         var linear = MaskComponent(op: .intersect, kind: .linear)
         linear.line = [0.5, 0.1, 0.5, 0.9]
         var colour = MaskComponent(op: .add, kind: .colorRange)
@@ -122,12 +134,15 @@ final class MaskSpeedTests: XCTestCase {
         var luminosity = MaskComponent(op: .add, kind: .luminosity)
         luminosity.series = .darks
         luminosity.level = 2
-        var sky = Mask(id: "sky", components: [band(), linear])
+        var radial = MaskComponent(op: .subtract, kind: .radial)
+        radial.center = [0.7, 0.4]
+        radial.radii = [0.15, 0.2]
+        var sky = Mask(id: "sky", components: [band(), linear, radial])
         sky.adjust.exposure = -0.7
         var picked = Mask(id: "picked", components: [colour, luminosity])
         picked.invert = true
         picked.refine.levelsGamma = 1.6
-        picked.adjust.saturation = -30
+        picked.adjust.sat = -30
 
         var r = Recipe()
         r.develop.denoise.mode = .off
@@ -139,6 +154,11 @@ final class MaskSpeedTests: XCTestCase {
         for exposure in [0.0, 0.5, 1.0] {
             r.develop.tone.exposure = exposure
             frames.append(try export(renderer, source, r))
+        }
+        for exposure in [0.2, 0.7] {
+            r.develop.tone.exposure = exposure
+            _ = try renderer.renderPreview(source: source, recipe: r, maxLongEdge: 1100,
+                                           draft: true, coarseDecode: true)
         }
         XCTAssertEqual(MaskRasterCache.currentStats.bakes, bakes,
                        "a range mask was rasterized on the CPU")
@@ -154,7 +174,7 @@ final class MaskSpeedTests: XCTestCase {
     /// pipeline hands the kernels the picture the CPU path would have sampled.
     func testTheRangeAlphaOverTheRealStageIsTheCPUDefinition() throws {
         try XCTSkipUnless(KernelLibrary.rangeMasksAvailable)
-        let source = Fixture(longEdge: 600, name: "stage")
+        let source = SpeedFixture(longEdge: 600, name: "stage")
         var r = Recipe()
         r.develop.denoise.mode = .off
         r.develop.tone.exposure = 0.6
@@ -191,7 +211,8 @@ final class MaskSpeedTests: XCTestCase {
     // MARK: - 3. a cheap bake is never served stale
 
     func testACheapBrushBakeIsNeverServedStale() {
-        let cache = MaskRasterCache()
+        let cache = MaskRasterCache(
+            synchronousBakeBudget: MaskRasterCache.interactiveSynchronousBakeBudget)
         let a = Plane(width: 64, height: 32, fill: 0.25)
         let b = Plane(width: 64, height: 32, fill: 0.75)
         _ = cache.plane(maskID: "brush", key: "k0", identity: "photo",
@@ -206,10 +227,11 @@ final class MaskSpeedTests: XCTestCase {
 
     /// And the door stays open for the masks it exists for.
     func testAnExpensiveBakeStillServesStaleOnADraft() {
-        let cache = MaskRasterCache()
+        let cache = MaskRasterCache(
+            synchronousBakeBudget: MaskRasterCache.interactiveSynchronousBakeBudget)
         let a = Plane(width: 64, height: 32, fill: 0.25)
         let b = Plane(width: 64, height: 32, fill: 0.75)
-        let slow = MaskRasterCache.synchronousBakeBudget / 1000 * 3
+        let slow = MaskRasterCache.interactiveSynchronousBakeBudget / 1000 * 3
         _ = cache.plane(maskID: "refined", key: "k0", identity: "photo",
                         allowStale: true) {
             Thread.sleep(forTimeInterval: slow)

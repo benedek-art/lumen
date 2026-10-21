@@ -92,8 +92,9 @@ enum MaskGPU {
     // the drag wore the previous one (the band's edge a gesture behind the tones, snapping
     // at the pause), and every settle rasterized it again on one core at up to 4096 px —
     // 100–600 ms of a frame on the measuring container (docs/quality/lanes/M9/REPORT.md).
-    // Evaluated here they cost one pass each over pixels the frame renders anyway, at the
-    // frame's own resolution, and nothing is cached or can be stale.
+    // Evaluated here they cost the stage input as a second GPU graph (`gpuMaskStage`) plus
+    // one pass per component (one per sample for a colour range), at the frame's own
+    // resolution, and nothing is cached or can be stale.
     //
     // WHAT IS ELIGIBLE: every component one of linear, radial, lumaRange, luminosity,
     // colorRange, valid and with finite parameters; and a refinement chain that is
