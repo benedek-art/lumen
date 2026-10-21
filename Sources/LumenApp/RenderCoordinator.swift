@@ -895,6 +895,66 @@ actor RenderCoordinator {
                                              sourceHeight: found.sourceHeight)
     }
 
+    /// The distinct offsets `/` cycles through for an existing painted stroke, best
+    /// first (`StrokeSourceSearch.rankedOffsets`), in the same S5 input
+    /// `healStrokeAutoOffset` searches — so the first is the offset painting it picked.
+    func healStrokeOffsetCandidates(url: URL, recipe: Recipe, stroke: BrushStroke,
+                                    priorStrokes: [BrushStroke]) -> [(dx: Double, dy: Double)] {
+        guard let source = try? self.source(for: url),
+              let found = renderer.healStrokeSearchBuffer(source: source, recipe: recipe,
+                                                          stroke: stroke,
+                                                          priorStrokes: priorStrokes)
+        else { return [] }
+        return StrokeSourceSearch.rankedOffsets(for: stroke, in: found.buffer,
+                                                window: found.window,
+                                                sourceWidth: found.sourceWidth,
+                                                sourceHeight: found.sourceHeight)
+    }
+
+    /// Sensor dust on a photograph (`DustDetection`), searched in the S5 input through
+    /// every existing spot — so a speck already healed is not found again — window by
+    /// window (`DustDetection.probes`, the heal search's own tap), then each found speck
+    /// given a source by `SpotSourceSearch` through the specks before it, exactly as a
+    /// click would. Source-normalized spots, ready to append; empty when nothing is found.
+    func dustSpots(url: URL, recipe: Recipe, mode: HealMode, sensitivity: Double,
+                   sourceWidth: Int, sourceHeight: Int) -> [HealSpot] {
+        guard sourceWidth > 0, sourceHeight > 0,
+              let source = try? self.source(for: url) else { return [] }
+        let existing = recipe.develop.heal.spots
+        let frame = (w: sourceWidth, h: sourceHeight)
+        var windows: [(specks: [DustDetection.Speck], window: SpotSourceSearch.Window,
+                       bufferWidth: Int, bufferHeight: Int)] = []
+        for probe in DustDetection.probes(sourceWidth: frame.w, sourceHeight: frame.h) {
+            guard !Task.isCancelled else { return [] }
+            guard let found = renderer.healSearchBuffer(source: source, recipe: recipe,
+                                                        spot: probe, priorSpots: existing)
+            else { continue }
+            windows.append((DustDetection.find(in: found.buffer, sensitivity: sensitivity),
+                            found.window, found.buffer.width, found.buffer.height))
+        }
+        let edge = Double(Swift.max(frame.w, frame.h))
+        var spots: [HealSpot] = []
+        for speck in DustDetection.merge(windows, sourceWidth: frame.w, sourceHeight: frame.h) {
+            guard !Task.isCancelled else { return [] }
+            // Not where a spot already is.
+            let taken = (existing + spots).contains {
+                hypot(($0.x - speck.x) * Double(frame.w), ($0.y - speck.y) * Double(frame.h))
+                    < ($0.radius + speck.radius) * edge * 0.5
+            }
+            guard !taken else { continue }
+            var spot = HealSpot(mode: mode, x: speck.x, y: speck.y, sourceX: speck.x,
+                                sourceY: speck.y, radius: speck.radius)
+            let provisional = SpotHandles.provisionalSource(for: spot, sourceWidth: frame.w,
+                                                            sourceHeight: frame.h)
+            let found = healAutoSource(url: url, recipe: recipe, spot: spot,
+                                       priorSpots: existing + spots)
+            spot.sourceX = found?.x ?? provisional.x
+            spot.sourceY = found?.y ?? provisional.y
+            spots.append(spot)
+        }
+        return spots
+    }
+
     /// The fourth tap: the COLOUR stage's input, S3 through S8 — what
     /// `ColorEngine.apply` compares a global Point Colour swatch against. The global
     /// eyedropper stored `sampleWorking` (post-S6) while the engine compared here,

@@ -186,7 +186,9 @@ final class SpotSourceSearchTests: XCTestCase {
         let large = HealSpot(x: 0.5, y: 0.5, sourceX: 0.5, sourceY: 0.5, radius: 0.1)
         let scaled = SpotSourceSearch.window(for: large, sourceWidth: 6000,
                                              sourceHeight: 4000)
-        XCTAssertEqual(scaled.scale, SpotSourceSearch.workingRadius / 600, accuracy: 1e-12)
+        // Scaled to the spot's REACH: 600 px of circle plus the default feather's half
+        // radius beyond it (`SpotRetouch.reach`).
+        XCTAssertEqual(scaled.scale, SpotSourceSearch.workingRadius / 900, accuracy: 1e-12)
         XCTAssertLessThan(scaled.bufferWidth, 400)
     }
 }

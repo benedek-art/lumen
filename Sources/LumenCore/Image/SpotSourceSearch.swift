@@ -16,8 +16,17 @@
 //     the surroundings do. A source whose rim matches but whose middle holds an edge, a
 //     second blemish or a highlight would paste that in; its interior variance beyond the
 //     destination ring's is charged.
+//   · Context terms (`Scorer.contextCost`, WS-56): texture ENERGY (a flat source on a
+//     textured picture used to win the raw SSD), CONSISTENCY (the source's middle must
+//     look like its own ring), LEVEL for Heal (re-lighting a different structure makes
+//     holes), and OUTLIERS (one pit or sky gap in the source is a new defect).
 //   · A small preference for nearer sources, so equally good candidates resolve to the
 //     one in the most similar light, and the answer is deterministic.
+//
+// The radius every distance is measured in is the spot's REACH, its feather included
+// (`SpotRetouch.reach`): the context ring lies beyond everything the spot writes, and a
+// source may come no nearer than the reach plus the circle, so no written pixel ever
+// borrows from inside the circle.
 //
 // Everything is measured in the shaper's log domain (`LumenLog.encode`) rather than in
 // scene-linear, so a difference means the same thing in shadow and in highlight.
@@ -37,8 +46,9 @@ import Foundation
 
 public enum SpotSourceSearch {
 
-    /// Candidate distances from the destination, in radii. The smallest is just over a
-    /// diameter, so the source disc never overlaps the destination disc.
+    /// Candidate distances from the destination, in units of half the clearance (the
+    /// spot's reach plus its circle — a diameter when there is no feather). The
+    /// smallest is just over it, so no written pixel borrows from inside the circle.
     public static let candidateDistances: [Double] = [2.1, 2.6, 3.2, 4.0, 5.0]
     public static let candidateDirections = 32
     /// Radii, in units of the spot radius, at which the context ring is sampled.
@@ -74,9 +84,7 @@ public enum SpotSourceSearch {
     public static func window(for spot: HealSpot, sourceWidth: Int,
                               sourceHeight: Int) -> Window {
         let w = Double(sourceWidth), h = Double(sourceHeight)
-        let radius = Swift.max(
-            Num.clamp(spot.radius, HealSpot.radiusRange.lowerBound,
-                      HealSpot.radiusRange.upperBound) * Swift.max(w, h), 0.5)
+        let radius = SpotRetouch.reach(of: spot, edge: Swift.max(w, h))
         let extent = radius * reach
         let cx = spot.x * w, cy = spot.y * h
         let x0 = StrokeHeal.boundedIndex(floor(cx - extent), lower: 0, upper: sourceWidth - 1)
@@ -98,14 +106,12 @@ public enum SpotSourceSearch {
         let w = Double(sourceWidth), h = Double(sourceHeight)
         let toBufferX = Double(buffer.width) / Double(window.width)
         let toBufferY = Double(buffer.height) / Double(window.height)
-        let radius = Swift.max(
-            Num.clamp(spot.radius, HealSpot.radiusRange.lowerBound,
-                      HealSpot.radiusRange.upperBound) * Swift.max(w, h), 0.5)
+        let radius = SpotRetouch.reach(of: spot, edge: Swift.max(w, h))
         let cx = (spot.x * w - Double(window.x)) * toBufferX
         let cy = (spot.y * h - Double(window.y)) * toBufferY
         guard let best = bestSource(in: buffer, centerX: cx, centerY: cy,
                                     radius: radius * Swift.min(toBufferX, toBufferY),
-                                    mode: spot.mode)
+                                    core: SpotRetouch.core(of: spot), mode: spot.mode)
         else { return nil }
         return ((best.x / toBufferX + Double(window.x)) / w,
                 (best.y / toBufferY + Double(window.y)) / h)
@@ -124,21 +130,21 @@ public enum SpotSourceSearch {
     /// The best source centre for a spot at (`centerX`, `centerY`) of `radius`, all in
     /// `image`'s own pixels, or nil when no candidate lies wholly inside the frame.
     public static func bestSource(in image: ImageBuffer, centerX: Double, centerY: Double,
-                                  radius: Double,
+                                  radius: Double, core: Double = 1,
                                   mode: HealMode) -> (x: Double, y: Double)? {
         guard radius.isFinite, centerX.isFinite, centerY.isFinite, radius > 0 else {
             return nil
         }
         let encoded = image.map { LumenLog.encode($0) }
         let scorer = Scorer(image: encoded, cx: centerX, cy: centerY, radius: radius,
-                            heal: mode == .heal)
+                            heal: mode == .heal, core: core)
 
         var best: (dx: Double, dy: Double, score: Double)?
         for distance in candidateDistances {
             for k in 0..<candidateDirections {
                 let theta = 2 * Double.pi * Double(k) / Double(candidateDirections)
-                let dx = cos(theta) * distance * radius
-                let dy = sin(theta) * distance * radius
+                let dx = cos(theta) * distance * scorer.clearance / 2
+                let dy = sin(theta) * distance * scorer.clearance / 2
                 guard let score = scorer.score(dx: dx, dy: dy) else { continue }
                 if best == nil || score < best!.score { best = (dx, dy, score) }
             }
@@ -192,20 +198,20 @@ public enum SpotSourceSearch {
     /// them — two candidates that refine into the same texture are one choice, and a
     /// re-pick that moved the source by a pixel would look like a key that did nothing.
     public static func rankedSources(in image: ImageBuffer, centerX: Double, centerY: Double,
-                                     radius: Double, mode: HealMode,
+                                     radius: Double, core: Double = 1, mode: HealMode,
                                      limit: Int = alternativeCount) -> [(x: Double, y: Double)] {
         guard limit > 0, radius.isFinite, centerX.isFinite, centerY.isFinite, radius > 0 else {
             return []
         }
         let encoded = image.map { LumenLog.encode($0) }
         let scorer = Scorer(image: encoded, cx: centerX, cy: centerY, radius: radius,
-                            heal: mode == .heal)
+                            heal: mode == .heal, core: core)
         var candidates: [(index: Int, dx: Double, dy: Double, score: Double)] = []
         for distance in candidateDistances {
             for k in 0..<candidateDirections {
                 let theta = 2 * Double.pi * Double(k) / Double(candidateDirections)
-                let dx = cos(theta) * distance * radius
-                let dy = sin(theta) * distance * radius
+                let dx = cos(theta) * distance * scorer.clearance / 2
+                let dy = sin(theta) * distance * scorer.clearance / 2
                 guard let score = scorer.score(dx: dx, dy: dy) else { continue }
                 candidates.append((candidates.count, dx, dy, score))
             }
@@ -237,14 +243,13 @@ public enum SpotSourceSearch {
         let w = Double(sourceWidth), h = Double(sourceHeight)
         let toBufferX = Double(buffer.width) / Double(window.width)
         let toBufferY = Double(buffer.height) / Double(window.height)
-        let radius = Swift.max(
-            Num.clamp(spot.radius, HealSpot.radiusRange.lowerBound,
-                      HealSpot.radiusRange.upperBound) * Swift.max(w, h), 0.5)
+        let radius = SpotRetouch.reach(of: spot, edge: Swift.max(w, h))
         let cx = (spot.x * w - Double(window.x)) * toBufferX
         let cy = (spot.y * h - Double(window.y)) * toBufferY
         return rankedSources(in: buffer, centerX: cx, centerY: cy,
                              radius: radius * Swift.min(toBufferX, toBufferY),
-                             mode: spot.mode, limit: limit).map {
+                             core: SpotRetouch.core(of: spot), mode: spot.mode,
+                             limit: limit).map {
             (($0.x / toBufferX + Double(window.x)) / w,
              ($0.y / toBufferY + Double(window.y)) / h)
         }
@@ -264,9 +269,7 @@ public enum SpotSourceSearch {
                                   sourceHeight: Int) -> (x: Double, y: Double)? {
         guard !candidates.isEmpty else { return nil }
         let w = Double(sourceWidth), h = Double(sourceHeight)
-        let radius = Swift.max(
-            Num.clamp(spot.radius, HealSpot.radiusRange.lowerBound,
-                      HealSpot.radiusRange.upperBound) * Swift.max(w, h), 0.5)
+        let radius = SpotRetouch.reach(of: spot, edge: Swift.max(w, h))
         let tolerance = 0.5 * radius
         let current = candidates.firstIndex { candidate in
             hypot((candidate.x - spot.sourceX) * w, (candidate.y - spot.sourceY) * h)
@@ -283,14 +286,20 @@ public enum SpotSourceSearch {
         let cy: Double
         let radius: Double
         let heal: Bool
+        /// The nearest a source centre may be: the spot's reach plus its circle, so no
+        /// pixel the spot writes borrows from inside the circle — the blemish. (The
+        /// feather bands may overlap; they hold clean picture.)
+        let clearance: Double
         let ringOffsets: [(Double, Double)]
         let interiorOffsets: [(Double, Double)]
         let destinationRing: [RGB]
         let destinationRingMean: RGB
         let destinationRingVariance: Double
 
-        init(image: ImageBuffer, cx: Double, cy: Double, radius: Double, heal: Bool) {
+        init(image: ImageBuffer, cx: Double, cy: Double, radius: Double, heal: Bool,
+             core: Double = 1) {
             self.image = image
+            self.clearance = radius * (1 + Num.clamp(core, 0, 1))
             self.cx = cx
             self.cy = cy
             self.radius = radius
@@ -306,11 +315,16 @@ public enum SpotSourceSearch {
                 }
             }
             self.ringOffsets = ring
-            var interior: [(Double, Double)] = [(0, 0)]
-            for (r, n) in [(0.35, 8), (0.65, 12), (0.9, 16)] {
-                for k in 0..<n {
-                    let theta = 2 * Double.pi * Double(k) / Double(n)
-                    interior.append((cos(theta) * r * radius, sin(theta) * r * radius))
+            // A grid a sixteenth of the radius apart (1.5 px at the working size) over
+            // the disc: dense enough that a pit or a speck two pixels across lands on a
+            // sample, because the outlier term below can only charge what it sees.
+            var interior: [(Double, Double)] = []
+            let n = Self.interiorGrid
+            for j in -n...n {
+                for i in -n...n {
+                    let u = Double(i) / Double(n), v = Double(j) / Double(n)
+                    guard u * u + v * v < 0.95 * 0.95 else { continue }
+                    interior.append((u * radius, v * radius))
                 }
             }
             self.interiorOffsets = interior
@@ -330,7 +344,7 @@ public enum SpotSourceSearch {
                   sx + margin <= Double(image.width), sy + margin <= Double(image.height)
             else { return nil }
             let distance = (dx * dx + dy * dy).squareRoot()
-            guard distance >= 2 * radius else { return nil }
+            guard distance >= clearance else { return nil }
 
             let ring = ringOffsets.map { image.bilinear(sx + $0.0, sy + $0.1) }
             let ringMean = Self.mean(ring)
@@ -353,12 +367,85 @@ public enum SpotSourceSearch {
             // scored on already demands it.)
             let penalty = Swift.max(
                 interiorVariance - 2 * destinationRingVariance - Self.varianceFloor, 0)
-            return ssd + 2 * penalty + 1e-6 * distance / radius
+            let context = Self.contextCost(
+                heal: heal, ring: (ringMean, Self.variance(ring, mean: ringMean)),
+                interior: (Self.mean(interior), interiorVariance,
+                           Self.peakDeviation(interior, from: ringMean)),
+                destination: (destinationRingMean, destinationRingVariance))
+            return ssd + 2 * penalty + context + 1e-6 * distance / radius
+        }
+
+        /// What a ring SSD cannot see, shared by the spot and the stroke scorers (means
+        /// and variances log-encoded, variances summed over channels).
+        ///
+        /// TEXTURE ENERGY. A raw SSD prefers a FLAT candidate on a textured picture:
+        /// against a ring of variance σ², a flat ring scores σ² and an equally textured
+        /// but uncorrelated one 2σ², so on foliage the search picked a patch of shadow
+        /// and the heal pasted a smooth disc (1840's canopy: texture ratio 0.30).
+        /// Charging the difference in texture amplitude — the ring's, and an interior
+        /// flatter than the context — makes the flat patch cost 3σ².
+        ///
+        /// CONSISTENCY. The candidate's middle must look like its own surroundings: a
+        /// source whose ring matches but whose centre holds a cluster of sky gaps, a
+        /// second blemish or a highlight pastes that in, and Heal's re-lighting only
+        /// moves its level. Charged on the interior mean against the candidate ring's.
+        ///
+        /// LEVEL, for Heal. The re-lighting makes a source in other light usable, but on
+        /// texture a "level" difference is usually a structure difference — a thinner
+        /// canopy with more sky through it reads brighter — and re-lighting that turns
+        /// its sky gaps into dark holes. So Heal still prefers a source in the
+        /// destination's own light; Clone's raw SSD already demands it in full.
+        ///
+        /// OUTLIERS. A source can be right on average and still hold one dark pit or one
+        /// bright sky hole in its middle, which the heal then pastes in as a NEW spot —
+        /// the means and variances of the interior barely move for it. The interior's
+        /// worst sample beyond 2.5σ of the candidate's own ring (and a floor) is charged
+        /// directly.
+        static func contextCost(heal: Bool, ring: (mean: RGB, variance: Double),
+                                interior: (mean: RGB, variance: Double, peak: Double),
+                                destination: (mean: RGB, variance: Double)) -> Double {
+            func norm2(_ c: RGB) -> Double { c.r * c.r + c.g * c.g + c.b * c.b }
+            let sigmaD = destination.variance.squareRoot()
+            let ringSigma = ring.variance.squareRoot()
+            // Against the candidate's OWN surroundings: a pit is an outlier because the
+            // wall around it is smooth, whatever the destination's ring holds (6929's
+            // wall spot has a brick edge in its ring that hid the pit at max(σ, σD)).
+            let outlier = Swift.max(interior.peak - 2.5 * ringSigma - outlierFloor, 0)
+            let flatness = Swift.max(0.7 * sigmaD - interior.variance.squareRoot(), 0)
+            var cost = 2 * (ringSigma - sigmaD) * (ringSigma - sigmaD)
+                + 4 * flatness * flatness
+                + 4 * norm2(interior.mean - ring.mean)
+            cost += Self.outlierWeight * outlier * outlier
+            if heal { cost += healLevelWeight * norm2(ring.mean - destination.mean) }
+            return cost
+        }
+
+        /// Log-encoded distance below which no single sample counts as an outlier: about
+        /// a sixth of a stop.
+        static let outlierFloor: Double = 0.007
+        /// Decisive on purpose: a pasted second defect is the worst thing a heal does.
+        static let outlierWeight: Double = 40
+
+        /// The largest distance (log-encoded, Euclidean over channels) of any sample
+        /// from `mean`.
+        static func peakDeviation(_ values: [RGB], from mean: RGB) -> Double {
+            var peak = 0.0
+            for v in values {
+                let d = v - mean
+                peak = Swift.max(peak, (d.r * d.r + d.g * d.g + d.b * d.b).squareRoot())
+            }
+            return peak
         }
 
         /// Variance (log-encoded, summed over channels) below which an interior counts as
         /// flat: about half a percent of the shaper's range as a standard deviation.
         static let varianceFloor: Double = 3e-5
+        /// Interior grid half-width in steps: 16 steps to the radius.
+        static let interiorGrid = 16
+        /// How much of the level difference a Heal source is still charged, against
+        /// Clone's whole. 0.5 measured: the canopy case (1840) went from ΔE 7.1 to 1.0 with
+        /// no sky case above 0.05.
+        static let healLevelWeight: Double = 0.5
 
         static func mean(_ values: [RGB]) -> RGB {
             guard !values.isEmpty else { return .zero }

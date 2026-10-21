@@ -66,7 +66,9 @@ final class SpotRetouchTests: XCTestCase {
         XCTAssertEqual(inertRender.pixels, rendered.pixels)
     }
 
-    /// Outside the radius not one bit moves, whatever the spot does inside it.
+    /// Outside the spot's reach — the circle plus its feather, which lies OUTSIDE the
+    /// circle (`SpotRetouch.featherReach`): 6 px at Feather 50 reaches 9 px — not one
+    /// bit moves, whatever the spot does inside it.
     func testPixelsOutsideTheRadiusAreUntouched() {
         let image = rampWithBlemish()
         let s = spot(.heal, x: 40, y: 30, sx: 60, sy: 30, radiusPx: 6, edge: 96,
@@ -76,7 +78,7 @@ final class SpotRetouchTests: XCTestCase {
         for y in 0..<image.height {
             for x in 0..<image.width {
                 let dx = Double(x) + 0.5 - 40, dy = Double(y) + 0.5 - 30
-                if dx * dx + dy * dy >= 36 {
+                if dx * dx + dy * dy >= 9 * 9 {
                     XCTAssertEqual(out[x, y], image[x, y], "pixel (\(x), \(y)) outside moved")
                 } else if out[x, y] != image[x, y] {
                     changedInside += 1
@@ -120,10 +122,15 @@ final class SpotRetouchTests: XCTestCase {
     // MARK: - Heal
 
     /// Heal on a linear ramp: the source sits at a different level of the ramp, so a
-    /// clone carries the wrong brightness; the Poisson membrane of a linear boundary
-    /// difference is that same constant, so Heal reproduces the ramp to float precision
-    /// and the blemish is gone. Clone, from the same source, is measurably wrong — the
-    /// two modes must differ in exactly the way docs/09 says they do.
+    /// clone carries the wrong brightness; Heal re-lights it and the blemish is gone.
+    /// Clone, from the same source, is measurably wrong — the two modes must differ in
+    /// exactly the way docs/09 says they do.
+    ///
+    /// The membrane lives in the log domain (WS-56), where a LINEAR ramp's ratio is not
+    /// exactly harmonic, and the rim is low-passed, which shrinks a gradient's first
+    /// harmonic by a fraction of a percent; both together leave 3e-4 on values near
+    /// 0.25 — a tenth of an 8-bit code. Exactness in its own domain is held by
+    /// `testHealReproducesAnExponentialRampAlmostExactly`.
     func testHealRelightsTheSourceToTheDestinationAndCloneDoesNot() {
         let image = rampWithBlemish()
         func truth(_ x: Int, _ y: Int) -> RGB {
@@ -146,9 +153,37 @@ final class SpotRetouchTests: XCTestCase {
                 cloneError = Swift.max(cloneError, cloned[x, y].maxAbsDifference(truth(x, y)))
             }
         }
-        XCTAssertLessThan(healError, 1e-5, "heal did not reproduce the harmonic ramp")
+        XCTAssertLessThan(healError, 1e-3, "heal did not re-light the patch to the ramp")
         // 30 px right and 10 px down: 0.12 + 0.02 = 0.14 brighter in red, ×1.1 in blue.
         XCTAssertGreaterThan(cloneError, 0.1, "clone re-lit the patch, which it must not")
+    }
+
+    /// A ramp that is linear in STOPS is harmonic in the domain the membrane lives in,
+    /// so Heal reproduces it from a source two stops darker; what is left is the rim
+    /// low-pass's attenuation of the gradient. Clone carries the two-stop error.
+    func testHealReproducesAnExponentialRampAlmostExactly() {
+        var image = ImageBuffer(width: 96, height: 64)
+        func truth(_ x: Int, _ y: Int) -> RGB {
+            let ev = 0.05 * Double(x) - 0.02 * Double(y)
+            return RGB(0.05, 0.04, 0.06) * pow(2, ev)
+        }
+        for y in 0..<64 { for x in 0..<96 { image[x, y] = truth(x, y) } }
+        for y in 26..<34 { for x in 36..<44 { image[x, y] = RGB(0.9, 0.1, 0.1) } }
+        let heal = spot(.heal, x: 40, y: 30, sx: 80, sy: 30, radiusPx: 6, edge: 96,
+                        feather: 0, width: 96, height: 64)
+        var clone = heal
+        clone.mode = .clone
+        let healed = SpotRetouch.apply(image, spots: [heal])
+        let cloned = SpotRetouch.apply(image, spots: [clone])
+        var healStops = 0.0, cloneStops = 0.0
+        for y in 24..<36 { for x in 34..<46 {
+            let dx = Double(x) + 0.5 - 40, dy = Double(y) + 0.5 - 30
+            guard dx * dx + dy * dy < 25 else { continue }
+            healStops = Swift.max(healStops, abs(log2(healed[x, y].g / truth(x, y).g)))
+            cloneStops = Swift.max(cloneStops, abs(log2(cloned[x, y].g / truth(x, y).g)))
+        } }
+        XCTAssertLessThan(healStops, 0.01, "heal is not exact in its own domain")
+        XCTAssertGreaterThan(cloneStops, 1.9, "the clone should carry the two stops")
     }
 
     /// The membrane is a weighted mean: a constant rim gives that constant everywhere,
@@ -199,7 +234,9 @@ final class SpotRetouchTests: XCTestCase {
             worst = Swift.max(worst, abs(out[x, 30].r - ramp(x)))
         }
         // The slope across the core is 0.12; a flat fill would miss by half of it.
-        XCTAssertLessThan(worst, 0.004, "the membrane did not rebuild the slope")
+        // 0.006, not the additive membrane's 0.004: the membrane lives in the log domain
+        // (WS-56), where a ramp linear in LIGHT is not harmonic; it misses by 0.0041.
+        XCTAssertLessThan(worst, 0.006, "the membrane did not rebuild the slope")
     }
 
     // MARK: - Edge, opacity, order
@@ -303,9 +340,16 @@ final class SpotRetouchTests: XCTestCase {
     /// The radius is a fraction of the LONG edge, so a spot is a circle in pixels on a
     /// portrait frame too.
     func testTheRadiusIsMeasuredOnTheLongEdge() {
-        let s = HealSpot(x: 0.5, y: 0.5, sourceX: 0.2, sourceY: 0.2, radius: 0.1)
+        var s = HealSpot(x: 0.5, y: 0.5, sourceX: 0.2, sourceY: 0.2, radius: 0.1,
+                         feather: 0)
         XCTAssertEqual(SpotRetouch.resolve(s, width: 300, height: 200)?.radius ?? 0, 30)
         XCTAssertEqual(SpotRetouch.resolve(s, width: 200, height: 300)?.radius ?? 0, 30)
+        // The feather reaches beyond the circle: Feather 50 adds half a radius, and the
+        // circle itself stays the flat core.
+        s.feather = 50
+        let soft = SpotRetouch.resolve(s, width: 300, height: 200)
+        XCTAssertEqual(soft?.radius ?? 0, 45, accuracy: 1e-12)
+        XCTAssertEqual((soft?.rin ?? 0) * (soft?.radius ?? 0), 30, accuracy: 1e-9)
     }
 
     // MARK: - Recipe, fingerprint, XMP

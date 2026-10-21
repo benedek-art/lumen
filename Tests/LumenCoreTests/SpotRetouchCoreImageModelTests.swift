@@ -128,15 +128,19 @@ final class SpotRetouchCoreImageModelTests: XCTestCase {
         let h = Double(src.height)
         let n = Double(SpotRetouch.boundarySamples), m = SpotRetouch.boundarySubsamples
         let arc = 6.283185307179586 / n
-        var acc = RGB.zero
+        var dacc = RGB.zero, sacc = RGB.zero, total = 0.0
         for j in 0..<m {
-            let theta = arc * (Double(k) + (Double(j) + 0.5) / Double(m) - 0.5)
-            let ux = cos(theta) * s.radius, uy = sin(theta) * s.radius
-            let dv = src.sample(s.cx + ux, h - (s.cy + uy))
-            let sv = src.sample(s.sx + ux, h - (s.sy + uy))
-            acc = acc + dv - sv
+            let f = (Double(j) + 0.5) / Double(m)
+            let theta = arc * (Double(k) + SpotRetouch.boundaryArc * (f - 0.5))
+            let sw = sin(3.141592653589793 * f)
+            let w = sw * sw
+            let r = s.radius + SpotRetouch.rimMargin
+            let ux = cos(theta) * r, uy = sin(theta) * r
+            dacc = dacc + src.sample(s.cx + ux, h - (s.cy + uy)) * w
+            sacc = sacc + src.sample(s.sx + ux, h - (s.sy + uy)) * w
+            total += w
         }
-        return acc / Double(m)
+        return LumenLog.encode(dacc / total) - LumenLog.encode(sacc / total)
     }
 
     /// `lumenSpotApply` at `destCoord()` = (dx, dy): premultiplied RGBA.
@@ -162,12 +166,13 @@ final class SpotRetouchCoreImageModelTests: XCTestCase {
             var total = 0.0
             for k in 0..<SpotRetouch.boundarySamples {
                 let theta = arc * Double(k)
-                let ddx = relx - cos(theta), ddy = rely - sin(theta)
+                let rr = s.radius + SpotRetouch.rimMargin
+                let ddx = (px - s.cx) / rr - cos(theta), ddy = (py - s.cy) / rr - sin(theta)
                 let w = 1 / Swift.max(ddx * ddx + ddy * ddy, 1e-6)
                 acc = acc + rim[k] * w
                 total += w
             }
-            fill = fill + acc / total
+            fill = LumenLog.decode(LumenLog.encode(fill) + acc / total)
         }
         return (base.mix(fill, a), 1)
     }
@@ -252,47 +257,41 @@ final class SpotRetouchCoreImageModelTests: XCTestCase {
 
     // MARK: - The anchor
 
-    /// The broken shape reproduces the macOS lane's own numbers, so the model is Core
-    /// Image's behaviour and not a guess at it. Values from the lane log of 1c6ac52's
-    /// parent run (docs/audit-2026-10/ci/ci-SpotRetouchGPUParityTests.txt).
+    /// The broken shape reproduces the macOS lane's finding, so the model is Core
+    /// Image's behaviour and not a guess at it: every pixel outside the box held the
+    /// value of the nearest pixel of the box grown by one (docs/audit-2026-10/ci/
+    /// ci-SpotRetouchGPUParityTests.txt — pixel (0, 0) held (111, 77) for a box of
+    /// x 112..<153, y 78..<119).
+    ///
+    /// This used to pin the lane's per-case worst differences (0.34–0.54) to 1e-9. Those
+    /// numbers were the PRE-WS-56 heal: an additive membrane, a four-point rim and a
+    /// feather inside the circle. WS-56 changed all three on both renderers, so the
+    /// numbers describe arithmetic that no longer exists; what the lane established —
+    /// the clamp-to-edge smear of the margin — is a property of the GRAPH, and is what
+    /// is held here, on every case and size the lane ran. (The numeric anchor is in git
+    /// history at c1c8e23.)
     func testTheModelReproducesTheMacOSLane() throws {
         let broken = Guards(kernelClearOutsideDisc: false, cropToBox: false)
-        // Every case the lane ran. The single-spot cases agree to 1e-9; the overlapping
-        // pair to 1e-5, because its second spot reads the first one's GPU rounding.
-        let lane: [String: Double] = [
-            "heal, feathered, fractional offset@256": 0.40102419257164,
-            "clone, hard edge@256": 0.39056654274463654,
-            "heal at half opacity, full feather@256": 0.43079762160778046,
-            "heal sourced off the edge@256": 0.3732494115829468,
-            "two overlapping spots@256": 0.3681756854057312,
-            "heal, feathered, fractional offset@331": 0.4131138473749161,
-            "clone, hard edge@331": 0.40196533501148224,
-            "heal at half opacity, full feather@331": 0.4344725012779236,
-            "heal sourced off the edge@331": 0.41174502670764923,
-            "two overlapping spots@331": 0.38346466422080994,
-            "heal, feathered, fractional offset@128": 0.5099508911371231,
-            "clone, hard edge@128": 0.48892004787921906,
-            "heal at half opacity, full feather@128": 0.5351442769169807,
-            "heal sourced off the edge@128": 0.4094025194644928,
-            "two overlapping spots@128": 0.33870014548301697,
-        ]
         for size in [(256, 256), (331, 197), (128, 320)] {
             let input = scene(size.0, size.1)
-            for (name, spots) in cases() {
-                let expected = try XCTUnwrap(lane["\(name)@\(size.0)"])
-                XCTAssertEqual(measure(input, spots, broken).worst, expected,
-                               accuracy: spots.count > 1 ? 1e-5 : 1e-9,
-                               "\(name) @\(size.0)x\(size.1)")
+            for (name, spots) in cases() where spots.count == 1 {
+                let s = try XCTUnwrap(SpotRetouch.resolve(spots[0], width: size.0,
+                                                          height: size.1))
+                let result = measure(input, spots, broken)
+                XCTAssertGreaterThan(result.movedOutside, 0, "\(name): the smear is the bug")
+                // Top-down margin of the box, clamped to the frame.
+                let x0 = s.minX - 1, x1 = s.maxX, y0 = s.minY - 1, y1 = s.maxY
+                for (x, y) in [(0, 0), (size.0 - 1, 0), (0, size.1 - 1),
+                               (size.0 - 1, size.1 - 1)] {
+                    let mx = Swift.min(Swift.max(x, x0), x1)
+                    let my = Swift.min(Swift.max(y, y0), y1)
+                    guard !(x0...x1).contains(x) || !(y0...y1).contains(y) else { continue }
+                    XCTAssertEqual(result.gpu[x, y].maxAbsDifference(
+                        input.clampedSample(mx, my)), 0, accuracy: 1e-12,
+                        "\(name) @\(size.0): corner (\(x), \(y)) is the margin pixel")
+                }
             }
         }
-        // The lane's corner pixels: the box's one-pixel margin, clamped outward.
-        let input = scene(331, 197)
-        let gpu = measure(input, cases()[0].spots, broken).gpu
-        XCTAssertEqual(gpu[0, 0], input[111, 77])
-        XCTAssertEqual(gpu[330, 0], input[153, 77])
-        XCTAssertEqual(gpu[0, 196], input[111, 119])
-        XCTAssertEqual(gpu[330, 196], input[153, 119])
-        XCTAssertEqual(gpu[0, 0].r, 0.23477379977703094, accuracy: 1e-12, "lane log, (0, 0)")
     }
 
     /// Either guard alone keeps the promise; the source carries both.

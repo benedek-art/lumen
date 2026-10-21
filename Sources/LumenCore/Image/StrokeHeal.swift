@@ -8,24 +8,28 @@
 // each stroke's `retouch` naming the mode and the source offset. Size is the stroke's
 // diameter as a fraction of the long edge, feather its soft edge, density its opacity.
 //
-// THE SHAPE is a TUBE: every pixel within one radius of the stroke's centreline, with
-// the spot's edge rule applied to the distance — `alpha = opacity · (1 − smoothstep(rin,
-// 1, d / R))`. The centreline is the recorded polyline, resampled to evenly spaced
+// THE SHAPE is a TUBE: every pixel within the REACH of the stroke's centreline — its
+// half-width plus the feather, which lies outside the painted width as a spot's does
+// (`SpotRetouch.featherReach`) — with the spot's edge rule applied to the distance:
+// `alpha = opacity · (1 − smoothstep(rin, 1, d / R))`, `rin` the painted half-width ÷
+// the reach. The centreline is the recorded polyline, resampled to evenly spaced
 // vertices half a radius apart (fewer if the stroke would need more than
 // `maxVertices`). Spacing in radii, not pixels, is what keeps the vertex list the same
 // at every render size.
 //
-// CLONE is `I(p + d)`, as for a spot.
+// CLONE is `I(p + d)`, as for a spot, `d` rounded to whole pixels.
 //
-// HEAL is the spot's closed form carried to the tube: `I(p + d) + M(p)`, where `M`
-// interpolates the boundary difference `I_dst − I_src` measured at RIM SAMPLES — one on
-// each side of every vertex at one radius out, and `capSamples` round each end — with
-// weights `1 / |p − b_k|²` (in radii). On a disc those samples and that weight ARE the
-// spot's Poisson integral; across a straight tube the inverse-square weights summed
-// along each side give each side `π / distance`, which is linear interpolation from one
-// wall to the other — the exact harmonic solution for a strip. So a stroke inherits the
-// light on both sides of it, and meets the picture at its ends, with no solver and no
-// iteration, and the GPU does the same sums.
+// HEAL is the spot's closed form carried to the tube, in the spot's LOG domain:
+// `encode(f) = encode(I(p + d)) + M(p)`, where `M` interpolates the boundary log ratio
+// measured at RIM SAMPLES — one on each side of every vertex, one pixel outside the
+// reach, and `capSamples` round each end, each the Hann-weighted mean of `subsamples`
+// points across `rimArc` vertex spacings — with weights `1 / |p − b_k|²` (in radii).
+// On a disc those samples and that weight ARE the spot's Poisson integral; across a
+// straight tube the inverse-square weights summed along each side give each side
+// `π / distance`, which is linear interpolation from one wall to the other — the exact
+// harmonic solution for a strip. So a stroke inherits the light on both sides of it,
+// and meets the picture at its ends, with no solver and no iteration, and the GPU does
+// the same sums.
 //
 // A rim sample that falls inside the tube — the inside of a bend, a stroke crossing
 // itself — is dropped: it would measure the blemish rather than its surroundings. Each
@@ -43,8 +47,18 @@ public enum StrokeHeal {
     /// Rim samples round each end of the stroke, between its two side samples.
     public static let capSamples = 7
     public static var maxBoundarySamples: Int { 2 * maxVertices + 2 * capSamples }
-    /// Points averaged along the rim for each rim sample (odd: centred on the sample).
-    public static let subsamples = 3
+    /// Points averaged along the rim for each rim sample (odd: centred on the sample),
+    /// Hann-weighted across `rimArc` rim spacings — the spot's low-pass
+    /// (`SpotRetouch.subsampleWeight`), so one leaf on the rim is not a boundary value.
+    public static let subsamples = 9
+    public static let rimArc: Double = 3
+
+    /// Sub-sample `j`'s weight (`j` in 0..<subsamples).
+    @inlinable
+    public static func subsampleWeight(_ j: Int) -> Double {
+        let t = sin(Double.pi * (Double(j) + 0.5) / Double(subsamples))
+        return t * t
+    }
 
     public struct Point: Sendable, Equatable {
         public var x: Double
@@ -130,19 +144,22 @@ public enum StrokeHeal {
         guard opacity > 0 else { return nil }
 
         let w = Double(width), h = Double(height)
-        let radius = Swift.max(
+        let radius = reach(of: stroke, edge: Swift.max(w, h))
+        let tube = Swift.max(
             Num.clamp(stroke.size / 2, HealSpot.radiusRange.lowerBound,
                       HealSpot.radiusRange.upperBound) * Swift.max(w, h), 0.5)
-        let feather = Num.clamp(stroke.feather, 0, 100) / 100
-        let pixelGuard = Num.saturate(1.0 / Swift.max(radius, 1))
-        let rin = Num.clamp(Swift.max(1 - feather, pixelGuard), 0, 1 - 1e-6)
+        // The spot's rules: the feather lies OUTSIDE the painted tube, so everything the
+        // brush covered is replaced at full opacity; the offset is whole pixels, so the
+        // borrowed grain is real pixels and not a bilinear blur of them.
+        let rin = Num.clamp(tube / radius, 0, 1 - 1e-6)
 
         let points = stroke.points.map { Point($0.x * w, $0.y * h) }
-        let offset = Point(retouch.dx * w, retouch.dy * h)
+        let offset = Point((retouch.dx * w).rounded(), (retouch.dy * h).rounded())
         guard points.allSatisfy(usable), usable(offset) else { return nil }
         let vertices = resample(points, spacing: radius * 0.5)
         guard !vertices.isEmpty else { return nil }
-        let (rim, steps) = rimSamples(vertices, radius: radius)
+        // One pixel outside the reach, as a spot's rim (`SpotRetouch.rimMargin`).
+        let (rim, steps) = rimSamples(vertices, radius: radius + SpotRetouch.rimMargin)
 
         var minX = Double.infinity, minY = Double.infinity
         var maxX = -Double.infinity, maxY = -Double.infinity
@@ -159,6 +176,23 @@ public enum StrokeHeal {
             maxX: boundedIndex(ceil(maxX + radius), lower: 0, upper: width),
             maxY: boundedIndex(ceil(maxY + radius), lower: 0, upper: height))
         return geometry.isEmpty ? nil : geometry
+    }
+
+    /// The tube's half-width plus its feather, in pixels of a frame with long edge
+    /// `edge` — `SpotRetouch.reach`'s rule for a brush.
+    public static func reach(of stroke: BrushStroke, edge: Double) -> Double {
+        let tube = Swift.max(
+            Num.clamp(stroke.size.isFinite ? stroke.size / 2 : HealSpot.defaultRadius,
+                      HealSpot.radiusRange.lowerBound, HealSpot.radiusRange.upperBound)
+                * edge, 0.5)
+        let feather = Num.clamp(stroke.feather.isFinite ? stroke.feather : 0, 0, 100) / 100
+        return tube * (1 + SpotRetouch.featherReach * feather)
+    }
+
+    /// The painted tube as a fraction of the reach: 1 without feather.
+    public static func core(of stroke: BrushStroke) -> Double {
+        let feather = Num.clamp(stroke.feather.isFinite ? stroke.feather : 0, 0, 100) / 100
+        return 1 / (1 + SpotRetouch.featherReach * feather)
     }
 
     /// Evenly spaced vertices along the polyline, at most `maxVertices`, the first and
@@ -222,8 +256,9 @@ public enum StrokeHeal {
                                 cos(phi) * back.y + sin(phi) * normal.y)
                 let along = Point(-sin(phi) * back.x + cos(phi) * normal.x,
                                   -sin(phi) * back.y + cos(phi) * normal.y)
+                let hop = arc * rimArc / Double(subsamples)
                 add(Point(v.x + radius * dir.x, v.y + radius * dir.y),
-                    Point(along.x * arc / Double(subsamples), along.y * arc / Double(subsamples)))
+                    Point(along.x * hop, along.y * hop))
             }
         }
         let t0 = tangent(0)
@@ -231,7 +266,8 @@ public enum StrokeHeal {
         for i in 0..<n {
             let t = tangent(i)
             let normal = Point(-t.y, t.x)
-            let step = Point(t.x * spacing / Double(subsamples), t.y * spacing / Double(subsamples))
+            let hop = spacing * rimArc / Double(subsamples)
+            let step = Point(t.x * hop, t.y * hop)
             add(Point(vertices[i].x + radius * normal.x, vertices[i].y + radius * normal.y), step)
             add(Point(vertices[i].x - radius * normal.x, vertices[i].y - radius * normal.y), step)
         }
@@ -302,19 +338,23 @@ public enum StrokeHeal {
 
     // MARK: The membrane
 
-    /// `I_dst − I_src` at every rim sample, each the mean of `subsamples` points along
-    /// the rim.
+    /// The boundary condition at every rim sample: the Hann-weighted means of the
+    /// destination and the source along the rim, as the log ratio
+    /// `encode(D) − encode(S)` — `SpotRetouch.boundaryDifferences`' rule.
     public static func boundaryDifferences(_ image: ImageBuffer,
                                            _ g: StrokeGeometry) -> [RGB] {
         let half = (subsamples - 1) / 2
         return (0..<g.rim.count).map { k in
-            var acc = RGB.zero
-            for j in -half...half {
-                let px = g.rim[k].x + Double(j) * g.rimSteps[k].x
-                let py = g.rim[k].y + Double(j) * g.rimSteps[k].y
-                acc = acc + sample(image, px, py) - sample(image, px + g.dx, py + g.dy)
+            var d = RGB.zero, s = RGB.zero, total = 0.0
+            for j in 0..<subsamples {
+                let weight = subsampleWeight(j)
+                let px = g.rim[k].x + Double(j - half) * g.rimSteps[k].x
+                let py = g.rim[k].y + Double(j - half) * g.rimSteps[k].y
+                d = d + sample(image, px, py) * weight
+                s = s + sample(image, px + g.dx, py + g.dy) * weight
+                total += weight
             }
-            return acc / Double(subsamples)
+            return LumenLog.encode(d / total) - LumenLog.encode(s / total)
         }
     }
 
@@ -360,7 +400,10 @@ public enum StrokeHeal {
                 guard a > 0 else { continue }
                 let px = Double(x) + 0.5
                 var fill = sample(input, px + g.dx, py + g.dy)
-                if g.heal { fill = fill + membrane(px: px, py: py, g, boundary: boundary) }
+                if g.heal {
+                    let m = membrane(px: px, py: py, g, boundary: boundary)
+                    fill = LumenLog.decode(LumenLog.encode(fill) + m)
+                }
                 out[x, y] = input[x, y].mix(fill, a)
             }
         }

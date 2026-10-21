@@ -55,4 +55,37 @@ public enum StrokeHandles {
         let distance = 2.6 * radius
         return (nx * distance / w, ny * distance / h)
     }
+
+    /// Whether a press at source-normalized (`x`, `y`) lands on `stroke`'s SOURCE — the
+    /// dashed centreline the canvas draws at the stroke's points plus its offset —
+    /// within half its tube width (at least `minimumGrab` source pixels). The canvas
+    /// asks this of the SELECTED stroke only, and before any other hit: a source drawn
+    /// over another stroke or a spot is still the thing the photographer reached for.
+    public static func hitSource(x: Double, y: Double, stroke: BrushStroke,
+                                 sourceWidth: Int, sourceHeight: Int,
+                                 minimumGrab: Double = 0) -> Bool {
+        guard let retouch = stroke.retouch, !stroke.points.isEmpty,
+              retouch.dx.isFinite, retouch.dy.isFinite else { return false }
+        let w = Double(sourceWidth), h = Double(sourceHeight)
+        guard w > 0, h > 0 else { return false }
+        let radius = Num.clamp(stroke.size / 2, HealSpot.radiusRange.lowerBound,
+                               HealSpot.radiusRange.upperBound) * Swift.max(w, h)
+        let line = stroke.points.map {
+            StrokeHeal.Point(($0.x + retouch.dx) * w, ($0.y + retouch.dy) * h)
+        }
+        return StrokeHeal.distance(StrokeHeal.Point(x * w, y * h), to: line)
+            <= Swift.max(radius * 0.5, minimumGrab)
+    }
+
+    /// `stroke` with its source dragged by (`dx`, `dy`), source-normalized: the
+    /// painted points stay, only the offset moves — a spot's source drag
+    /// (`SpotHandles.dragged(_:part: .source)`) for a brush.
+    public static func draggedSource(_ stroke: BrushStroke, dx: Double,
+                                     dy: Double) -> BrushStroke {
+        guard dx.isFinite, dy.isFinite else { return stroke }
+        var out = stroke
+        out.retouch?.dx += dx
+        out.retouch?.dy += dy
+        return out
+    }
 }

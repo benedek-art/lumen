@@ -9,7 +9,8 @@
 //   /              re-picks the selected spot's source: the next-best, cycling
 //   Brush mode     a drag paints a heal STROKE, healed along its length from one
 //                  offset `StrokeSourceSearch` picks (a click is a dab); in Spot mode
-//                  a click on a stroke selects it
+//                  a click on a stroke selects it. A selected stroke's dashed source
+//                  drags (only the offset moves), and `/` re-picks it like a spot's
 //   ⌫              deletes the selected spot or stroke
 //
 // What a press MEANS is `SpotHandles`, in LumenCore where it is tested; this file draws
@@ -55,6 +56,8 @@ final class HealTool: ObservableObject {
     /// The selected painted stroke, by its index in the heal stroke set. Exclusive with
     /// `selectedSpotID` — one thing is selected, so ⌫ has one meaning.
     @Published var selectedStrokeIndex: Int?
+    /// A Remove Dust search is running.
+    @Published var findingDust: Bool = false
 }
 
 // MARK: - Verbs
@@ -148,6 +151,10 @@ extension AppState {
     /// The search reads the picture through the spots BEFORE this one, as its render does.
     func repickSelectedSpotSource() {
         let tool = HealTool.shared
+        if tool.selectedStrokeIndex != nil {
+            repickSelectedStrokeSource()
+            return
+        }
         guard let id = tool.selectedSpotID, let photo = primarySelection else { return }
         let current = recipe(for: photo)
         let spots = current.develop.heal.spots
@@ -253,6 +260,91 @@ extension AppState {
         }
     }
 
+    /// `/` with a painted stroke selected: its offset moves to the next-best distinct
+    /// candidate, cycling (`StrokeSourceSearch.nextOffset`) — a spot's re-pick, for a
+    /// brush. Searched through the strokes BEFORE this one, as its render reads.
+    func repickSelectedStrokeSource() {
+        guard let index = HealTool.shared.selectedStrokeIndex,
+              let photo = primarySelection else { return }
+        let strokes = primaryHealStrokes
+        guard strokes.indices.contains(index), strokes[index].retouch != nil else { return }
+        let stroke = strokes[index]
+        let prior = Array(strokes[..<index])
+        let size = sourceFrameSize ?? CGSize(width: 1, height: 1)
+        let width = Int(size.width.rounded()), height = Int(size.height.rounded())
+        let url = photo.id
+        let current = recipe(for: photo)
+        Task {
+            let candidates = await renderCoordinator.healStrokeOffsetCandidates(
+                url: url, recipe: current, stroke: stroke, priorStrokes: prior)
+            guard primarySelection?.id == url,
+                  let next = StrokeSourceSearch.nextOffset(for: stroke, candidates: candidates,
+                                                           sourceWidth: width,
+                                                           sourceHeight: height)
+            else { return }
+            // Only onto the stroke as the search saw it: a drag or an edit that landed
+            // meanwhile is the photographer's answer, not ours.
+            var live = BrushStrokeSet(strokes: primaryHealStrokes)
+            guard live.strokes.indices.contains(index), live.strokes[index] == stroke
+            else { return }
+            live.strokes[index].retouch?.dx = next.dx
+            live.strokes[index].retouch?.dy = next.dy
+            writeHealStrokes(live, coalescingKey: nil, label: "Re-pick Source", on: photo)
+        }
+    }
+
+    /// A drag of a painted stroke's dashed source: the stroke at `index` becomes
+    /// `stroke` (only its offset differs — `StrokeHandles.draggedSource`). One undo step
+    /// per drag; the blob is written on every event, as a spot drag writes its recipe.
+    func dragHealStrokeSource(index: Int, to stroke: BrushStroke, dragID: String) {
+        guard let photo = primarySelection else { return }
+        var set = BrushStrokeSet(strokes: primaryHealStrokes)
+        guard set.strokes.indices.contains(index) else { return }
+        set.strokes[index] = stroke
+        writeHealStrokes(set, coalescingKey: "heal.stroke.source.\(dragID)",
+                         label: "Move Stroke Source", on: photo)
+    }
+
+    /// Remove Dust: every speck `DustDetection` finds on the primary photograph gets a
+    /// heal spot (the bar's mode), sourced as a click would source it, in ONE undo step.
+    /// Specks already under a spot are skipped, so pressing it again finds only what is
+    /// left. The Visualize Spots threshold is the sensitivity — what the view shows is
+    /// what the search looks for.
+    func removeDust() {
+        let tool = HealTool.shared
+        guard let photo = primarySelection, !tool.findingDust else { return }
+        tool.findingDust = true
+        let url = photo.id
+        let current = recipe(for: photo)
+        let mode = tool.mode
+        let sensitivity = tool.visualizeThreshold
+        guard let size = sourceFrameSize else {
+            tool.findingDust = false
+            return
+        }
+        let width = Int(size.width.rounded()), height = Int(size.height.rounded())
+        Task {
+            let spots = await renderCoordinator.dustSpots(url: url, recipe: current,
+                                                          mode: mode,
+                                                          sensitivity: sensitivity,
+                                                          sourceWidth: width,
+                                                          sourceHeight: height)
+            tool.findingDust = false
+            guard primarySelection?.id == url else { return }
+            guard !spots.isEmpty else {
+                statusMessage = "No dust found on smooth areas"
+                return
+            }
+            updateRecipe(label: "Remove Dust", targets: [photo]) { _, recipe in
+                recipe.develop.heal.spots.append(contentsOf: spots)
+            }
+            tool.selectedSpotID = nil
+            tool.selectedStrokeIndex = nil
+            statusMessage = spots.count == 1 ? "Removed 1 dust spot"
+                                             : "Removed \(spots.count) dust spots"
+        }
+    }
+
     /// `⌫` while healing: the selected stroke, else the selected spot.
     func deleteSelectedSpot() {
         let tool = HealTool.shared
@@ -294,6 +386,9 @@ struct HealCanvas: View {
     let drag: (HealSpot, Bool) -> Void
 
     @Environment(\.sliderGestureChanged) private var sliderGestureChanged
+    /// Read only inside the gesture, for the stroke source drag, so a canvas drawn
+    /// without an AppState (a snapshot) never touches it.
+    @EnvironmentObject private var state: AppState
 
     private struct Grab {
         let part: SpotHandles.Part
@@ -302,6 +397,9 @@ struct HealCanvas: View {
     }
 
     @State private var grab: Grab?
+    /// A drag of the selected painted stroke's source, and the id that folds it into
+    /// one undo step.
+    @State private var strokeGrab: (index: Int, origin: BrushStroke, start: CGPoint, id: String)?
     @State private var pressed: Bool = false
     /// The stroke being painted, source-normalized, and when it started.
     @State private var painting: [BrushPoint] = []
@@ -329,8 +427,9 @@ struct HealCanvas: View {
         .gesture(press)
         .lumenPickCursor(true)
         .help("Click a blemish to heal it. Drag the solid circle to move the spot, the "
-              + "dashed one to choose where it borrows from; / re-picks it. ⌫ deletes "
-              + "the selected spot; Q or Esc puts the tool away.")
+              + "dashed one to choose where it borrows from; / re-picks it (a selected "
+              + "stroke's dashed line drags and re-picks the same way). ⌫ deletes the "
+              + "selection; Q or Esc puts the tool away.")
     }
 
     private var press: some Gesture {
@@ -339,7 +438,18 @@ struct HealCanvas: View {
                 if !pressed {
                     pressed = true
                     let n = normalized(value.startLocation)
-                    if let hit = SpotHandles.hit(x: Double(n.x), y: Double(n.y),
+                    // The selected stroke's dashed source first: drawn over other
+                    // things, it is still what the photographer reached for.
+                    if let index = selectedStroke, strokes.indices.contains(index),
+                       StrokeHandles.hitSource(x: Double(n.x), y: Double(n.y),
+                                               stroke: strokes[index],
+                                               sourceWidth: sourcePixels.w,
+                                               sourceHeight: sourcePixels.h,
+                                               minimumGrab: minimumGrabPixels) {
+                        grab = nil
+                        strokeGrab = (index, strokes[index], n, UUID().uuidString)
+                        sliderGestureChanged(true)
+                    } else if let hit = SpotHandles.hit(x: Double(n.x), y: Double(n.y),
                                                  spots: spots,
                                                  sourceWidth: sourcePixels.w,
                                                  sourceHeight: sourcePixels.h,
@@ -355,6 +465,16 @@ struct HealCanvas: View {
                             painting = [BrushPoint(x: Double(n.x), y: Double(n.y))]
                         }
                     }
+                }
+                if let sg = strokeGrab {
+                    let now = normalized(value.location)
+                    state.dragHealStrokeSource(
+                        index: sg.index,
+                        to: StrokeHandles.draggedSource(sg.origin,
+                                                        dx: Double(now.x - sg.start.x),
+                                                        dy: Double(now.y - sg.start.y)),
+                        dragID: sg.id)
+                    return
                 }
                 if brush, grab == nil, let started = paintStarted {
                     let n = normalized(value.location)
@@ -380,9 +500,21 @@ struct HealCanvas: View {
             .onEnded { value in
                 defer {
                     grab = nil
+                    strokeGrab = nil
                     pressed = false
                     painting = []
                     paintStarted = nil
+                }
+                if let sg = strokeGrab {
+                    let now = normalized(value.location)
+                    state.dragHealStrokeSource(
+                        index: sg.index,
+                        to: StrokeHandles.draggedSource(sg.origin,
+                                                        dx: Double(now.x - sg.start.x),
+                                                        dy: Double(now.y - sg.start.y)),
+                        dragID: sg.id)
+                    sliderGestureChanged(false)
+                    return
                 }
                 if let grab {
                     let now = normalized(value.location)
@@ -583,6 +715,17 @@ struct HealToolBar: View {
             }
             .help("Show an inverted edge view so sensor dust stands out. A view only: "
                   + "it is never saved or exported.")
+            HStack(spacing: 6) {
+                Button(tool.findingDust ? "Finding Dust…" : "Remove Dust") {
+                    state.removeDust()
+                }
+                .buttonStyle(.plain)
+                .font(.lumenCaption)
+                .disabled(tool.findingDust)
+                .help("Find sensor dust on smooth areas (sky, skin, walls) and heal "
+                      + "every speck in one step. The Threshold below sets how faint.")
+                Spacer(minLength: 0)
+            }
             if tool.visualize {
                 LumenSlider(title: "Threshold", value: $tool.visualizeThreshold,
                             range: 0...100,
@@ -600,7 +743,8 @@ struct HealToolBar: View {
             LumenSlider(title: "Feather", value: binding("feather", \.feather, \.feather),
                         range: 0...100, defaultValue: HealSpot.defaultFeather,
                         step: 1, decimals: 0, bipolar: false,
-                        help: "How much of the spot's radius is a soft edge.")
+                        help: "How far the soft edge reaches beyond the circle. The "
+                            + "circle itself is always fully replaced.")
             LumenSlider(title: "Opacity", value: binding("opacity", \.opacity, \.opacity),
                         range: 0...100, defaultValue: HealSpot.defaultOpacity,
                         step: 1, decimals: 0, bipolar: false,

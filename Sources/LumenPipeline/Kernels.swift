@@ -924,24 +924,49 @@ public enum KernelLibrary {
     // centres +0.5 is the same interpolation on both sides of that flip, and the image is
     // handed in `clampedToExtent()`, which is `ImageBuffer.bilinear`'s clamped edge.
 
-    /// The rim: one output pixel per rim sample, `I_dst − I_src` averaged along the
-    /// sample's own arc. Rendered over a `boundarySamples`×1 extent.
+    /// `LumenLog.encode` / `decode` as GLSL expressions over a vec3 VARIABLE, the shaper's
+    /// constants interpolated rather than retyped — the heal membrane lives in that
+    /// domain on both renderers.
+    static func logEncodeExpression(_ v: String) -> String {
+        "mix(vec3(\(LumenLog.toeSlope)) * \(v) + vec3(\(LumenLog.toeOffset)), "
+            + "(log2(max(\(v), vec3(1e-30)) / vec3(\(LumenLog.midGrey))) - vec3(\(LumenLog.minEV))) "
+            + "* vec3(\(LumenLog.invRange)), step(vec3(\(LumenLog.linearCut)), \(v)))"
+    }
+
+    static func logDecodeExpression(_ v: String) -> String {
+        let cutY = LumenLog.toeSlope * LumenLog.linearCut + LumenLog.toeOffset
+        return "mix((\(v) - vec3(\(LumenLog.toeOffset))) / vec3(\(LumenLog.toeSlope)), "
+            + "vec3(\(LumenLog.midGrey)) * exp2(\(v) * vec3(\(LumenLog.range)) + vec3(\(LumenLog.minEV))), "
+            + "step(vec3(\(cutY)), \(v)))"
+    }
+
+    /// The rim: one output pixel per rim sample — the Hann-weighted means of the
+    /// destination and the source along the sample's own arc (`boundaryArc` rim
+    /// spacings wide), as the log ratio `encode(D) − encode(S)`. Rendered over a
+    /// `boundarySamples`×1 extent.
     static let spotBoundarySource = """
     kernel vec4 lumenSpotBoundary(sampler src, vec2 c, vec2 s, float radius,
                                   float h, float ox, float oy) {
         float k = floor(destCoord().x);
         float arc = 6.283185307179586 / \(SpotRetouch.boundarySamples).0;
-        vec3 acc = vec3(0.0);
+        vec3 dacc = vec3(0.0);
+        vec3 sacc = vec3(0.0);
+        float total = 0.0;
         for (int j = 0; j < \(SpotRetouch.boundarySubsamples); j++) {
-            float theta = arc * (k + (float(j) + 0.5) / \(SpotRetouch.boundarySubsamples).0 - 0.5);
+            float f = (float(j) + 0.5) / \(SpotRetouch.boundarySubsamples).0;
+            float theta = arc * (k + \(SpotRetouch.boundaryArc) * (f - 0.5));
+            float sw = sin(3.141592653589793 * f);
+            float w = sw * sw;
             vec2 u = vec2(cos(theta), sin(theta)) * radius;
             vec2 dp = c + u;
             vec2 sp = s + u;
-            vec3 dv = sample(src, samplerTransform(src, vec2(ox + dp.x, oy + h - dp.y))).rgb;
-            vec3 sv = sample(src, samplerTransform(src, vec2(ox + sp.x, oy + h - sp.y))).rgb;
-            acc += dv - sv;
+            dacc += w * sample(src, samplerTransform(src, vec2(ox + dp.x, oy + h - dp.y))).rgb;
+            sacc += w * sample(src, samplerTransform(src, vec2(ox + sp.x, oy + h - sp.y))).rgb;
+            total += w;
         }
-        return vec4(acc / \(SpotRetouch.boundarySubsamples).0, 1.0);
+        vec3 dm = dacc / total;
+        vec3 sm = sacc / total;
+        return vec4(\(logEncodeExpression("dm")) - \(logEncodeExpression("sm")), 1.0);
     }
     """
 
@@ -986,12 +1011,14 @@ public enum KernelLibrary {
             float total = 0.0;
             for (int k = 0; k < \(SpotRetouch.boundarySamples); k++) {
                 float theta = arc * float(k);
-                vec2 d = rel - vec2(cos(theta), sin(theta));
+                vec2 d = (p - c) / (radius + \(SpotRetouch.rimMargin)) - vec2(cos(theta), sin(theta));
                 float w = 1.0 / max(dot(d, d), 1e-6);
                 acc += w * sample(rim, samplerTransform(rim, vec2(float(k) + 0.5, 0.5))).rgb;
                 total += w;
             }
-            fill += acc / total;
+            vec3 m = acc / total;
+            vec3 encoded = \(logEncodeExpression("fill")) + m;
+            fill = \(logDecodeExpression("encoded"));
         }
         return vec4(mix(base.rgb, fill, a), base.a);
     }
@@ -1078,8 +1105,9 @@ public enum KernelLibrary {
     // and a matching STEP image (the sub-sample step, (sx, sy, 0, 1)). Loops run to the
     // shared maximum and break at `count`, the form every kernel compiler accepts.
 
-    /// The rim differences: one output pixel per rim sample, `I_dst − I_src` averaged
-    /// over `StrokeHeal.subsamples` points along the rim.
+    /// The rim: one output pixel per rim sample, the Hann-weighted means of the
+    /// destination and the source over `StrokeHeal.subsamples` points along the rim, as
+    /// the log ratio `encode(D) − encode(S)` — `lumenSpotBoundary`'s rule.
     static let strokeBoundarySource = """
     kernel vec4 lumenStrokeBoundary(sampler src, sampler pos, sampler stp, vec2 offset,
                                     float h, float ox, float oy) {
@@ -1087,15 +1115,21 @@ public enum KernelLibrary {
         vec4 e = sample(pos, samplerTransform(pos, vec2(k + 0.5, 0.5)));
         vec2 hop = sample(stp, samplerTransform(stp, vec2(k + 0.5, 0.5))).xy;
         vec2 p = vec2(e.x * 16.0 + e.y, e.z * 16.0 + e.w);
-        vec3 acc = vec3(0.0);
+        vec3 dacc = vec3(0.0);
+        vec3 sacc = vec3(0.0);
+        float total = 0.0;
         for (int j = 0; j < \(StrokeHeal.subsamples); j++) {
+            float sw = sin(3.141592653589793 * (float(j) + 0.5) / \(StrokeHeal.subsamples).0);
+            float w = sw * sw;
             vec2 q = p + (float(j) - \((StrokeHeal.subsamples - 1) / 2).0) * hop;
             vec2 s = q + offset;
-            vec3 dv = sample(src, samplerTransform(src, vec2(ox + q.x, oy + h - q.y))).rgb;
-            vec3 sv = sample(src, samplerTransform(src, vec2(ox + s.x, oy + h - s.y))).rgb;
-            acc += dv - sv;
+            dacc += w * sample(src, samplerTransform(src, vec2(ox + q.x, oy + h - q.y))).rgb;
+            sacc += w * sample(src, samplerTransform(src, vec2(ox + s.x, oy + h - s.y))).rgb;
+            total += w;
         }
-        return vec4(acc / \(StrokeHeal.subsamples).0, 1.0);
+        vec3 dm = dacc / total;
+        vec3 sm = sacc / total;
+        return vec4(\(logEncodeExpression("dm")) - \(logEncodeExpression("sm")), 1.0);
     }
     """
 
@@ -1127,7 +1161,10 @@ public enum KernelLibrary {
                 acc += w * sample(rim, samplerTransform(rim, vec2(float(k) + 0.5, 0.5))).rgb;
                 total += w;
             }
-            if (total > 0.0) { fill += acc / total; }
+            if (total > 0.0) {
+                vec3 encoded = \(logEncodeExpression("fill")) + acc / total;
+                fill = \(logDecodeExpression("encoded"));
+            }
         }
         return vec4(mix(base.rgb, fill, a), base.a);
     }

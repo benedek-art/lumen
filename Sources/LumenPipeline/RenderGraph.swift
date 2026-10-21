@@ -492,7 +492,7 @@ public struct RenderGraph {
         func ciRect(_ minX: Double, _ minY: Double, _ maxX: Double, _ maxY: Double) -> CGRect {
             CGRect(x: ox + minX, y: oy + h - maxY, width: maxX - minX, height: maxY - minY)
         }
-        let reach = spot.radius + 2
+        let reach = spot.radius + SpotRetouch.rimMargin + 2
         let destination = ciRect(spot.cx - reach, spot.cy - reach,
                                  spot.cx + reach, spot.cy + reach)
         let source = ciRect(spot.sx - reach, spot.sy - reach, spot.sx + reach, spot.sy + reach)
@@ -510,7 +510,8 @@ public struct RenderGraph {
                   let built = kernel.apply(
                       extent: rimExtent,
                       roiCallback: { _, _ in destination.union(source) },
-                      arguments: [clamped, centre, borrowed, Float(spot.radius),
+                      arguments: [clamped, centre, borrowed,
+                                  Float(spot.radius + SpotRetouch.rimMargin),
                                   Float(h), Float(ox), Float(oy)])
             else { return nil }
             rim = built
@@ -607,7 +608,7 @@ public struct RenderGraph {
         let clamped = image.clampedToExtent()
         let offset = CIVector(x: g.dx, y: g.dy)
         // Everything a rim sample or a borrowed pixel can reach, in Core Image's frame.
-        let reach = g.radius + 2
+        let reach = g.radius + SpotRetouch.rimMargin + 2
         let around = ciRect(Double(g.minX) - reach, Double(g.minY) - reach,
                             Double(g.maxX) + reach, Double(g.maxY) + reach)
         let borrowed = around.offsetBy(dx: CGFloat(g.dx), dy: CGFloat(-g.dy))
