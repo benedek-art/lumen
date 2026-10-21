@@ -382,8 +382,16 @@ public struct RenderGraph {
         let amount = CIVector(x: lut.amount, y: lut.amount, z: lut.amount)
         switch lut.tap {
         case .log:
-            guard let e = KernelLibrary.apply(KernelLibrary.logEncode, extent: extent, [image]),
-                  let u = clamped(e, low: 0, high: 1),
+            // Clamped to the cube's OWN domain, per channel, as the reference does.
+            let domain = CIFilter.colorClamp()
+            domain.minComponents = CIVector(x: lut.cube.domainMin.r, y: lut.cube.domainMin.g,
+                                            z: lut.cube.domainMin.b, w: 0)
+            domain.maxComponents = CIVector(x: lut.cube.domainMax.r, y: lut.cube.domainMax.g,
+                                            z: lut.cube.domainMax.b, w: 1)
+            guard let e = KernelLibrary.apply(KernelLibrary.logEncode, extent: extent, [image])
+            else { return nil }
+            domain.inputImage = e
+            guard let u = domain.outputImage?.cropped(to: extent),
                   let looked = ColorCube.filter(cube, image: u),
                   let departure = subtract(looked, u),
                   let blended = KernelLibrary.apply(KernelLibrary.addGlow, extent: extent,

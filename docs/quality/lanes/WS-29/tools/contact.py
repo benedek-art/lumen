@@ -37,7 +37,7 @@ for k in range(0, len(PHOTOS), 2):
     strip = sheet.crop((0, 0, sheet.width, LABEL)), sheet.crop((0, LABEL + k * H, sheet.width, LABEL + (k + 2) * H))
     part = Image.new("RGB", (sheet.width, LABEL + 2 * H)); part.paste(strip[0], (0, 0)); part.paste(strip[1], (0, LABEL))
     part = part.resize((1800, round(part.height * 1800 / part.width)), Image.LANCZOS)
-    q = part.quantize(colors=256, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
+    q = part  # full colour: a palette posterises the sheet (WS-29 verifier, defect 7)
     out = dst[:-4] + f"_part{k // 2 + 1}.png"
     q.save(out, optimize=True)
     print(out, part.size, os.path.getsize(out))

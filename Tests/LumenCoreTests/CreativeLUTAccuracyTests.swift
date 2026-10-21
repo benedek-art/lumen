@@ -318,4 +318,34 @@ final class CreativeLUTAccuracyTests: XCTestCase {
             XCTAssertLessThan(change.maxAbsDifference(changeAtEdge), 1e-9, "\(x)")
         }
     }
+
+    // MARK: - L9 robustness
+
+    /// SPEC L9. A NaN or infinite channel comes out finite at either tap and any Amount,
+    /// as it did before the residual existed.
+    func testL9NonFiniteInputComesOutFinite() {
+        let cube = Self.cube(size: 17, Self.contrast709)
+        for tap in [LUTReference.Tap.display, .log] {
+            for amount in [50.0, 100, 200] {
+                let stage = CreativeLUTStage(tap: tap, amount: amount, cube: cube)
+                for x in [RGB(.nan, 0.2, 0.3), RGB(.infinity, 0.2, 0.3),
+                          RGB(0.1, -.infinity, 0.3), RGB(.nan, .nan, .nan)] {
+                    XCTAssertTrue(stage.apply(x).isFinite, "\(tap) \(amount)% \(x)")
+                }
+            }
+        }
+    }
+
+    /// SPEC L9. A cube whose DOMAIN is wider than [0,1] is read on its own lattice at the
+    /// log tap, not clamped to the unit cube first.
+    func testL9ANonUnitDomainIsReadAtTheLogTap() {
+        let text = Self.cubeText(size: 9) { $0 * 2 * 0.9 }   // over [0,2]: f(e) = 0.9·e
+            .replacingOccurrences(of: "LUT_3D_SIZE 9\n",
+                                  with: "LUT_3D_SIZE 9\nDOMAIN_MIN 0 0 0\nDOMAIN_MAX 2 2 2\n")
+        let cube = LUT3D.fromCubeFile(text)!
+        let stage = CreativeLUTStage(tap: .log, amount: 100, cube: cube)
+        let e = RGB(gray: 1.5)
+        let out = LumenLog.encode(stage.apply(LumenLog.decode(e)))
+        XCTAssertLessThan(out.maxAbsDifference(RGB(gray: 1.35)), 1e-6)
+    }
 }

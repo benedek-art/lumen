@@ -1,1 +1,1 @@
-{"look":{"render":{"preset":"Soft"},"wheels":{"global":{"hue":60,"sat":0.03},"high":{"hue":70,"sat":0.04},"colorBalance":{"saturation":{"global":-8}}}}}
+{"look":{"render":{"contrast":1.2,"skew":0.25},"wheels":{"global":{"hue":60,"sat":0.03},"high":{"hue":70,"sat":0.04},"colorBalance":{"saturation":{"global":-8}}}}}

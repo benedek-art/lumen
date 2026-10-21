@@ -25,7 +25,8 @@ The contract being specified (both renderers):
 | L5 | Interpolation is tetrahedral (not trilinear) | barycentric 4-corner mix to 1e-7; differs from trilinear by > 0.01 | `testL5…`; `lutref.py` twist_9 ΔE(tetra) = 0 |
 | L6 | Out-of-domain values keep their residual: the change to a P3 red / 2.5× white equals the change at the nearest in-domain value | < 1e-9 | `testL6…` |
 | L7 | A camera log-to-709 LUT renders as its author intended | mean ΔE < 2 vs reference | `evidence/lut-log2709-both-taps-wrong.png` |
-| L8 | GPU graph matches the reference stage | existing `CreativeLUTParityTests` bounds (macOS CI) | `gpu-parity.yml` |
+| L8 | GPU graph matches the reference stage, including 200% and out-of-domain (P3 red, 2.5× white) inputs compared unclamped | existing parity bounds; stage alone relative error < 2e-3 | `CreativeLUTParityTests` incl. `testTheStageAloneMatchesTheReferenceUnclampedAt200AndOutOfDomain` (macOS CI) |
+| L9 | NaN/±∞ input comes out finite at either tap and Amount; a non-unit DOMAIN cube is read on its own lattice at the log tap | finite; < 1e-6 | `testL9…` (two tests) |
 
 Visual claims:
 - V1 `evidence/lut-contrast709-amount-0-200.png`: equal visual steps from 0 to 200, 200 strong but not clipped or posterised.

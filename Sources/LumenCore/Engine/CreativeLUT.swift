@@ -101,15 +101,23 @@ public struct CreativeLUTStage: Sendable, Equatable {
     /// identity cube is the identity on EVERY value (it used to clip a wide-gamut red
     /// to sRGB on a P3 screen and flatten HDR highlights to white), and a creative cube
     /// changes such a pixel exactly as it changes the nearest value it can see.
+    ///
+    /// NON-FINITE IN, FINITE OUT, as before the residual existed: a NaN channel reads as
+    /// 0 and an infinite one as the domain edge it points past, and neither contributes
+    /// a residual — one poisoned pixel must not take a whole pixel, or a render, with it.
     public func apply(_ c: RGB) -> RGB {
         switch tap {
         case .log:
-            let e = LumenLog.encode(c)
-            let u = e.map(Num.saturate)
+            let e = Self.finite(LumenLog.encode(c))
+            // The cube's OWN domain, which a `.cube` file may widen past [0,1]
+            // (DOMAIN_MIN/MAX); `sample` maps it onto the lattice.
+            let u = RGB(Num.clamp(e.r, cube.domainMin.r, cube.domainMax.r),
+                        Num.clamp(e.g, cube.domainMin.g, cube.domainMax.g),
+                        Num.clamp(e.b, cube.domainMin.b, cube.domainMax.b))
             let looked = cube.sample(u)
             return LumenLog.decode(e + (looked - u) * amount)
         case .display:
-            let d = Self.workingToDisplay.apply(c)
+            let d = Self.finite(Self.workingToDisplay.apply(c))
             let u = d.map(Num.saturate)
             let e = TransferFunction.srgb.encode(u)
             let looked = cube.sample(e)
@@ -119,6 +127,12 @@ public struct CreativeLUTStage: Sendable, Equatable {
             let blended = (e + (looked - e) * amount).map { Swift.max($0, 0) }
             return Self.displayToWorking.apply(TransferFunction.srgb.decode(blended) + (d - u))
         }
+    }
+
+    /// NaN → 0, +∞ → 1, −∞ → 0: the unit domain's own values, so neither leaves a
+    /// residual to add back.
+    static func finite(_ c: RGB) -> RGB {
+        c.map { v in v.isNaN ? 0 : (v.isInfinite ? (v > 0 ? 1 : 0) : v) }
     }
 
     /// The cube in its declared space at full strength.

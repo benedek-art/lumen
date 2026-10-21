@@ -111,4 +111,22 @@ final class SavedLookReliabilityTests: XCTestCase {
                            "\(amount)")
         }
     }
+
+    /// SPEC S2, across registers. A look saved off a delivered JPEG (Linear, no contrast
+    /// override) applied to a RAW on Punchy with Contrast 1.6: the RAW keeps Punchy, so
+    /// the walk must end on Punchy's 2.1 — continuous into 100%, not 1.6 → 1.5 and a
+    /// jump (measured before the fix: distance .00888 at 99%, .02601 at 100%).
+    func testS2TheCurveWalkEndsOnThePresetTheFrameKeeps() {
+        var look = Look()
+        look.render.preset = LookSubset.linearPresetName
+        look.vignette = -0.3
+        var raw = Recipe()
+        raw.look.render.preset = "Punchy"
+        raw.look.render.contrast = 1.6
+        let at99 = render(LookSubset(look: look, amount: 99).applied(to: raw))
+        let at100 = render(LookSubset(look: look).applied(to: raw))
+        XCTAssertLessThan(meanDifference(at99, at100), 2e-3)
+        XCTAssertEqual(LookSubset(look: look, amount: 99).applied(to: raw).look.render.contrast!,
+                       2.1 - 0.01 * 0.5, accuracy: 1e-9)
+    }
 }

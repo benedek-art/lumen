@@ -558,10 +558,20 @@ public struct LookSubset: Codable, Equatable, Sendable {
     ///
     /// `whiteTarget` keeps the old rule: its nil is "follow the display's live EDR
     /// headroom", a fact about the screen at render time, not a number any preset holds.
+    ///
+    /// What still jumps is the preset itself (attenuation, rotation, purity restore): a
+    /// look that changes Soft to Punchy lands Punchy's palette at 1%, and the curve walk
+    /// can then read as a small step back over the first few percent. Categorical, like
+    /// the B&W switch, and stated in the Amount slider's help.
     private static func blendedRender(from own: RenderParams, toward carried: RenderParams,
                                       t: Double) -> RenderParams {
         let ownCurve = DisplayTransformParams.preset(named: own.preset)
-        let carriedCurve = DisplayTransformParams.preset(named: carried.preset)
+        // The preset the frame ENDS on, which is not always the look's: a look saved off
+        // a delivered JPEG (Linear) keeps a RAW on its own preset (`carriedRenderPreset`),
+        // and resolving against the look's Linear walked Contrast toward 1.5 and then
+        // jumped to the RAW's 2.1 at 100%.
+        let carriedCurve = DisplayTransformParams.preset(
+            named: LookSubset.carriedRenderPreset(carried.preset, onto: own.preset))
         func curve(_ mine: Double?, _ theirs: Double?,
                    _ field: KeyPath<DisplayTransformParams, Double>) -> Double? {
             if mine == nil, theirs == nil { return nil }

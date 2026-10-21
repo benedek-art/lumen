@@ -1,1 +1,1 @@
-{"look":{"bw":{"enabled":true,"bands":[20,12,0,-5,-10,-25,-10,5]},"render":{"preset":"Punchy","contrast":1.85},"vignette":-0.25}}
+{"look":{"bw":{"enabled":true,"bands":[20,12,0,-5,-10,-25,-10,5]},"render":{"contrast":1.85,"skew":-0.15},"vignette":-0.25}}

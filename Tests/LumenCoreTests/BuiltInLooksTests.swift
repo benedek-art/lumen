@@ -58,13 +58,16 @@ final class BuiltInLooksTests: XCTestCase {
             XCTAssertLessThan(clipped(picture), clipped(base) + 0.005, "\(look.name) clips")
             subset.amount = 50
             let half = distance(render(subset.applied(to: target)), base)
-            XCTAssertGreaterThan(half, 0.15 * d, look.name)
-            // Strictly short of the look, not "near half": a preset change or the B&W
-            // switch lands whole at any Amount (`LookSubset.blendedTreatment`), so the
-            // looks built on one sit at 87–92% of their distance at 50%.
-            // Cool Cinema sits at 100.01%: its Film Base curve is the whole move, and
-            // its faint wheels partly cancel that curve's cast. 1% is the slack.
-            XCTAssertLessThan(half, 1.01 * d, look.name)
+            // The B&W treatment is a switch and lands whole at any Amount
+            // (`LookSubset.blendedTreatment`, Lightroom's rule too), so those two only
+            // have to land short of the look. Every colour look is built from walkable
+            // controls and must be near half: a dead Amount slider fails here.
+            if subset.look.blackAndWhiteIsOn {
+                XCTAssertLessThan(half, d, look.name)
+            } else {
+                XCTAssertGreaterThan(half, 0.3 * d, look.name)
+                XCTAssertLessThan(half, 0.7 * d, look.name)
+            }
         }
     }
 }
