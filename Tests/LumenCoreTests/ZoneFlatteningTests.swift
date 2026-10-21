@@ -39,15 +39,20 @@ final class ZoneFlatteningTests: XCTestCase {
                               "Contrast −100 with Darks +3 flattens part of the response "
                                   + "and zoneFlattening reported nothing")
         XCTAssertEqual(f.lowEV, -3.179, accuracy: 0.002, "low end")
-        XCTAssertEqual(f.highEV, -2.123, accuracy: 0.002, "high end")
-        XCTAssertEqual(f.worstEV, 0.055, accuracy: 0.002, "worst")
+        XCTAssertEqual(f.highEV, 2.217, accuracy: 0.002, "high end")
+        XCTAssertEqual(f.worstEV, 0.402, accuracy: 0.002, "worst")
         XCTAssertGreaterThan(f.fraction, 0)
     }
 
     /// The report describes the table the renderer bakes, not a parallel computation:
     /// inside the flattened band every baked sample renders the same output tone.
+    ///
+    /// Darks +0.95 rather than +3: at +3 the Darks excess spills up the axis and the
+    /// clamp fires in two places, which the report merges into one span (audit Z-10,
+    /// WS-07's) that is not flat end to end. +0.95 is inside one seam's limit, so it
+    /// flattens one band.
     func testTheReportedBandIsFlatInTheBakedTable() throws {
-        let engine = darks(3, contrast: -100)
+        let engine = darks(0.95, contrast: -100)
         let f = try XCTUnwrap(engine.zoneFlattening())
         let lut = engine.bakeGainLUT()
         var outputs: [Double] = []

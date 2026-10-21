@@ -4,9 +4,11 @@
 // the tone sliders at default. Before this, two neighbouring zones more than 1.27 EV apart
 // made a brighter tone render darker (the raised cosine's steepest slope is π/2 × the step
 // over the gap), and the bake's forward clamp then rendered whole EV bands as one grey —
-// Darks +3 turned −3.75 … −0.85 EV into a single code value. The register now eases the
-// zone pulling a seam downhill (`ToneEngine.appliedZoneEV`) so the response never runs
-// slower than a quarter stop per stop, and the clamp never fires on a Zones-only recipe.
+// Darks +3 turned −3.75 … −0.85 EV into a single code value. The register now delivers
+// each request at its own pivot and spills the excess past a seam's limit into the
+// untouched neighbours, holding a request back only where two touched zones conflict
+// (`ToneEngine.appliedZoneEV`), so the response never runs slower than a quarter stop
+// per stop and the clamp never fires on a Zones-only recipe.
 // Every number here is a line of docs/quality/lanes/WS-08/SPEC.md.
 
 import XCTest
@@ -192,8 +194,9 @@ final class ZonesResponseTests: XCTestCase {
         (-15...15).map { (z, Double($0) * 0.05) }
     }
 
-    /// Z1.4. Inside the knee a single zone is applied exactly, peaks at its own pivot
-    /// and is zero at the others.
+    /// Z1.4. A single zone inside its seams' limit (±0.955 EV at the default gaps; these
+    /// cases stop at ±0.75) is applied exactly, peaks at its own pivot and is zero at the
+    /// others — nothing spills.
     func testSmallMovesAreExact() {
         for (zone, v) in Self.singleZoneCases {
             var ev = [Double](repeating: 0, count: 5)
@@ -226,8 +229,10 @@ final class ZonesResponseTests: XCTestCase {
         }
     }
 
-    /// Z1.6. The ease has no dead top: every quarter stop of the slider still moves the
-    /// zone's own pivot, never past the request and never the other way.
+    /// Z1.6 (amended, round 2). No dead range: a lone zone is delivered in full at its own
+    /// pivot across the whole slider, so every quarter stop of travel moves it by a
+    /// quarter stop, and its excess past a seam's limit spills into the untouched
+    /// neighbours instead of being thrown away.
     func testTheEaseNeverGoesDead() {
         for zone in 0..<5 {
             let T = Self.ev(ofPivot: Zones.defaultPivots[zone])
@@ -240,16 +245,39 @@ final class ZonesResponseTests: XCTestCase {
             for k in 0...23 {
                 let v = -3 + Double(k) * 0.25
                 let here = at(v), next = at(v + 0.25)
-                XCTAssertGreaterThan(next.y - here.y, 1e-4,
-                                     "zone \(zone): \(v) → \(v + 0.25) moved its pivot by "
-                                         + "\(next.y - here.y)")
-                XCTAssertEqual(here.a.sign, v.sign, "zone \(zone) at \(v) changed sign")
-                XCTAssertLessThanOrEqual(abs(here.a), abs(v), "zone \(zone) at \(v) grew")
+                let gain = (next.y - here.y) / 0.25
+                XCTAssertGreaterThanOrEqual(gain, 0.99,
+                                            "zone \(zone): \(v) → \(v + 0.25) moved its pivot "
+                                                + "\(gain) EV per EV of slider")
+                XCTAssertEqual(here.a, v, accuracy: 1e-12, "zone \(zone) at \(v) was not delivered")
             }
         }
     }
 
-    /// Z1.7. What the ease does is reported, zone by zone, and nothing else is.
+    /// Z1.6b. What the spill does, at the default pivots: Darks +3 is delivered as +3.00
+    /// and its neighbours carry the excess past each seam's 0.955 EV limit; Brights −3
+    /// is the mirror.
+    func testALoneZoneSpillsItsExcessIntoItsNeighbours() {
+        let limit = 2 * 2 * (1 - ToneEngine.zoneSlopeFloor) / Double.pi
+        let darks = Self.engine([3, 0, 0, 0, 0])
+        let expected = [3, 3 - limit, 3 - 2 * limit, 3 - 3 * limit, 0]
+        for (k, p) in Zones.defaultPivots.enumerated() {
+            XCTAssertEqual(darks.zonePanelStops(Self.ev(ofPivot: p)), expected[k],
+                           accuracy: 0.01, "Darks +3 at pivot \(k)")
+        }
+        XCTAssertEqual(darks.appliedZoneEV[1], 2.045, accuracy: 0.001)
+        XCTAssertEqual(darks.appliedZoneEV[2], 1.090, accuracy: 0.001)
+        XCTAssertEqual(darks.appliedZoneEV[3], 0.135, accuracy: 0.001)
+        let brights = Self.engine([0, 0, 0, 0, -3])
+        for (k, p) in Zones.defaultPivots.enumerated() {
+            XCTAssertEqual(brights.zonePanelStops(Self.ev(ofPivot: p)), -expected[4 - k],
+                           accuracy: 0.01, "Brights −3 at pivot \(k)")
+        }
+    }
+
+    /// Z1.7 (amended, round 2). What the register does is reported, zone by zone, in the
+    /// row that moved: a carried row names the zone it carries for, a held-back row the
+    /// zone it conflicts with, and nothing else gets a line.
     func testTheEaseIsReported() throws {
         for (zone, v) in Self.singleZoneCases {
             var ev = [Double](repeating: 0, count: 5)
@@ -258,24 +286,48 @@ final class ZonesResponseTests: XCTestCase {
                            "zone \(zone) at \(v) is reported as eased")
         }
         let darks = AppliedReadout.zoneEasing(tone: Tone(), zones: Self.zones([3, 0, 0, 0, 0]))
-        XCTAssertEqual(darks.count, 1)
-        let entry = try XCTUnwrap(darks.first)
-        XCTAssertEqual(entry.name, "Darks")
-        XCTAssertEqual(entry.requested, 3)
-        XCTAssertLessThan(entry.applied, 3)
-        XCTAssertGreaterThan(entry.applied, 0)
-        XCTAssertTrue(entry.caption.contains(AppliedReadout.ev(entry.applied) + " EV"),
-                      entry.caption)
+        XCTAssertEqual(darks.map(\.name), ["Shadows", "Midtones", "Lights"])
+        XCTAssertTrue(darks.allSatisfy { $0.carriedFrom == "Darks" && $0.conflictsWith == nil })
+        XCTAssertEqual(darks.first?.caption, "+2.05 EV carried from Darks")
+
+        let conflict = AppliedReadout.zoneEasing(tone: Tone(),
+                                                 zones: Self.zones([3, 0, -3, 0, 0]))
+        let held = try XCTUnwrap(conflict.first { $0.name == "Darks" })
+        XCTAssertEqual(held.conflictsWith, "Midtones")
+        XCTAssertLessThan(held.applied, 3)
+        XCTAssertGreaterThan(held.applied, 0)
+        XCTAssertEqual(held.caption, "Applied \(AppliedReadout.ev(held.applied)) of +3.00 EV "
+                                     + "(conflicts with Midtones)")
+        let mids = try XCTUnwrap(conflict.first { $0.name == "Midtones" })
+        XCTAssertEqual(mids.conflictsWith, "Darks")
+        XCTAssertGreaterThan(mids.applied, -3)
     }
 
-    /// Z1.8. A zone separated from the conflict by an untouched zone is never scaled.
+    /// Z1.8. A zone separated from the conflict by an untouched zone is never scaled, and
+    /// a lone zone is never scaled at all.
     func testEasingIsLocal() {
         let a = Self.engine([3, 0, 0, 0.5, 0]).appliedZoneEV
         XCTAssertEqual(a[3], 0.5, accuracy: 1e-9)
-        XCTAssertLessThan(a[0], 3)
         let b = Self.engine([0, 0, -3, 0, 1]).appliedZoneEV
         XCTAssertEqual(b[4], 1, accuracy: 1e-9)
-        XCTAssertGreaterThan(b[2], -3)
+        XCTAssertEqual(b[2], -3, accuracy: 1e-12)
+    }
+
+    /// Two touched zones that cannot both be honoured: held back, still monotone with
+    /// the floor, and the untouched zone between them sits between their applied values.
+    func testAConflictIsEasedAndKeepsTheFloor() {
+        let e = Self.engine([3, 0, -3, 0, 0])
+        let a = e.appliedZoneEV
+        XCTAssertLessThan(a[0], 3)
+        XCTAssertGreaterThan(a[2], -3)
+        XCTAssertTrue(a[1] <= a[0] && a[1] >= a[2], "\(a)")
+        var previous = Self.y(e, -12)
+        for step in 1...2000 {
+            let t = -12 + Double(step) * 0.01
+            let current = Self.y(e, t)
+            XCTAssertGreaterThanOrEqual((current - previous) / 0.01, 0.25 - 1e-9, "at \(t)")
+            previous = current
+        }
     }
 
     /// Z1.9. With the ease in place the bake's forward clamp is idle on every G5 recipe.

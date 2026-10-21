@@ -1,175 +1,164 @@
 # WS-08 build notes
 
-Builder pass on `quality/ws-02-08-pickers-zones` (base `c170432`). All numbers are Linux, CPU reference, release
-build. `core-tests` = `bash /tmp/claude-0/bin/core-tests.sh LumenCoreTests.<Class>`.
+Builder passes on base `c170432`. Round 1 is commit a859f9b; round 2 is the commit on top of it, which follows the
+lead's design change and the SPEC amendments marked "Amended by lead, round 2". All numbers are Linux, CPU
+reference, release build. `core-tests` = `bash /tmp/claude-0/bin/core-tests.sh LumenCoreTests.<Class>`.
 
 ## What changed
 
-- **`ToneEngine` (`zonePanelStops`, new `zoneAxis`, `appliedZoneEV`, `easedZoneEV`, `zoneSlopeFloor`).**
-  - The crossfade kernel is untouched (`ZoneWeights` is shared). The five numbers it blends are now the *applied*
-    zone EVs.
-  - A seam between pivots i and i+1 may fall by at most `limit = 0.75 · 2 · gap / π`, the gap measured in EV. That is
-    0.955 EV at the default gaps, where the raised cosine's steepest slope reaches −0.75, so the response runs at
-    0.25 stops per stop.
-  - A larger drop is eased with `Num.softKnee`, using the same 0.8 knee `easedScale` uses. Below the knee it is
-    exact; above it, it approaches the limit and never reaches it.
-  - Only the zone that pulls a seam downhill is scaled, toward zero. A positive zone pulls its right seam down, a
-    negative zone its left seam.
-  - Order of solving:
-    1. mixed-sign seams first, with one shared scale;
-    2. positive runs, right to left;
-    3. negative runs, left to right.
+- **`ToneEngine` (`zonePanelStops`, `zoneAxis`, `appliedZoneEV`, `zoneEase`, `zoneSlopeFloor`).** The crossfade
+  kernel (`ZoneWeights`, which is shared) is untouched. The five numbers it blends are the *applied* zone EVs.
+  - **Seam limit.** `L_i = 0.75 · 2 · gap_i / π`, with the gap measured in EV; this is 0.955 EV at the default
+    pivots. A drop of at most `L_i` keeps the raised-cosine response at a slope of at least 0.25.
+  - **Spill (round 2).** A touched zone is delivered exactly at its own pivot. Each untouched zone takes the value
+    nearest 0 inside two bounds:
+    - at least (the zone below it − L), chained back to the nearest touched zone;
+    - at most (the zone above it + L), chained forward to the nearest touched zone.
 
-    Each seam is solved against its neighbour's applied value. There are no cycles, because each zone is the
-    pulling end of at most one seam.
-  - The axis is the default anchors' −9 … +5 EV, through `ToneEngine.zoneAxis`. `normalizedAxis` keeps its
-    live-anchor meaning for its other callers.
-- **`Zones` / `ZoneAdjust` (Recipe.swift).**
-  - `minimumPivotGap = 1/14`, now public.
-  - New `movingPivot(_:to:in:)`, the panel's drag clamp, moved into LumenCore. A legacy too-close pivot can stay
-    where it is or move away from its neighbour, never toward it.
-  - `ZoneAdjust` keeps only `ev`. Old keys are still decoded, because a keyed container ignores keys it does not
-    ask for.
-- **`AppliedReadout`.**
-  - New `ZoneEased`, `zoneNames` and `zoneEasing(tone:zones:)`. Entries appear when `|requested − applied| > 0.005`.
-  - `zoneFlattening` now places the band with `zoneAxis`.
-- **`ZonesPanel.swift`.**
-  - Each eased row shows a caption: "Applied +0.95 EV — eased so no brighter tone renders darker."
-  - `movePivot` calls `Zones.movingPivot`, and `normalizedPivots` uses `Zones.minimumPivotGap`.
-  - The pivot handle's VoiceOver value is in EV, e.g. "−2.00 EV", instead of a percentage.
-  - The header comment now says why the dead fields are gone.
-- **`RecipeKeys.swift`.** The `develop.zones.*.sat|falloff|wheel.*` rows are removed.
-- **`scripts/gen-fixtures.py` `zone_adjust()` and `Fixtures/default-recipe.json`.** The three keys are dropped.
-  The fixture was regenerated, and `gen-fixtures.py --check` passes.
+    So the downhill neighbour of a zone that asks too much moves by exactly the excess, and that continues
+    outward. Darks +3 gives Shadows +2.045, Midtones +1.090 and Lights +0.135. Brights −3 is the mirror. An
+    untouched zone that no excess reaches stays at 0.
+  - **Conflicts.** Consecutive touched zones whose difference is larger than the seams between them can carry are
+    eased by the round-1 scaling, using the `zonalKnee` soft knee over the summed capacity of that span:
+    - a span pulled from both ends shares one scale;
+    - otherwise a positive run is settled right to left and a negative run left to right.
+
+    The untouched zones inside the span are then filled by the spill rule above.
+  - **Axis.** The register sits on the default anchors' −9 … +5 EV (`zoneAxis`). `normalizedAxis` still uses the
+    live anchors for its other callers.
+- **`Zones` / `ZoneAdjust`.**
+  - `minimumPivotGap` is now 1/14 and public.
+  - New `movingPivot(_:to:in:)`, the drag clamp the panel uses.
+  - `ZoneAdjust` keeps only `ev`; recipes with the old keys still decode.
+- **`AppliedReadout`.** `ZoneEased` now carries `carriedFrom` / `conflictsWith`, and its caption says what happened:
+  - "+2.05 EV carried from Darks" on a spilled-into row;
+  - "Applied +0.95 of +3.00 EV (conflicts with Midtones)" on a scaled row.
+  - `zoneFlattening` places its band with `zoneAxis`.
+- **`ZonesPanel.swift`.** Each row that moved gets a caption under it. `movePivot` uses `Zones.movingPivot`, and
+  the pivot's VoiceOver value is in EV. The header and caption comments are updated for the spill rule.
+- **Recipe surface.** The `develop.zones.*.sat|falloff|wheel.*` rows are removed from `RecipeKeys.swift`. The three
+  keys are dropped from `gen-fixtures.py` and `default-recipe.json`.
 - **Tests.**
-  - New `ZonesResponseTests`.
-  - Rewritten: `ZoneFlatteningTests`, `ToneTwinClampTests`, `AppliedReadoutTests` (zones), `ProofRegistry.zones`
-    and its 10 records.
-  - Edited: `RobustnessTests`, `RecipeCodecToleranceTests`, `ResetSemanticsTests` and `SavedLookTests`. The
-    reasons are below.
-  - Two new snapshot cases are appended at the end of `PanelSnapshotTests.renderPanels`.
-  - The line citations in `LayoutMetricSupport.swift` are updated: the Zones rows moved down 5 and 11 lines.
-- **Evidence and tools.** `tools/ramp_ev_kink.py` is new. Six evidence PNGs were added, so the folder now holds 11
-  files, each under 400 KB.
+  - `ZonesResponseTests` (round 2 adds `testALoneZoneSpillsItsExcessIntoItsNeighbours` and
+    `testAConflictIsEasedAndKeepsTheFloor`).
+  - Updated: `ZoneFlatteningTests`, `ToneTwinClampTests`, `AppliedReadoutTests`, `ProofRegistry.zones` and its 10
+    records, `RobustnessTests`, `RecipeCodecToleranceTests`, `ResetSemanticsTests`, `SavedLookTests` and
+    `RawDenoiseRecipeTests`.
+  - Two snapshot cases are appended at the end of `PanelSnapshotTests.renderPanels`.
+  - The `LayoutMetricSupport.swift` citations are updated, and `check-citations.py` reports only the base's
+    unlanded set. Base had ZonesPanel.swift:85, a comment citation; it is :90 now, the same comment.
+- **Evidence (12 files, each < 400 KB) and the tool `tools/ramp_ev_kink.py`.**
 
-## Per spec line
+## Per spec line (SPEC as amended in round 2)
 
 | line | status | what / measured |
 |---|---|---|
-| Z1.1 | PASS | `ZonesResponseTests.testMonotoneWithATextureFloor`, run over G5 (6250 combinations) and G3 (243 × 56 pivot sets, including a legacy 0.28 EV gap). Slowest slope: **0.25003** (base: −1.36), at Shadows +3 with every other zone at −3 on a random 1.2 EV-gap set. |
-| Z1.2 | PASS | `testNoSlopeBreakAnywhere`. Largest one-sided slope jump: **0.0036** (threshold 0.01), on the legacy 0.28 EV gap set. |
-| Z1.3 | PASS | `testNoOvershootAndPeaksAtThePivot`. `testMovingAPivotMovesWhereTheZoneActs` and `testTheGlobalZoneTrimIsFlat` pass unchanged. `testEachZoneMovesItsOwnPivotAndNoOther` had to change; see "Spec contradiction" below. |
-| Z1.4 | PASS | `testSmallMovesAreExact`: for \|ev\| ≤ 0.75, `appliedZoneEV == ev` bit-exactly (a knee guard makes "exact" mean exact). The own pivot is within 1e-9 and the other pivots are 0. |
-| Z1.5 | PASS | `testSmallMovesMatchTodaysResponse`: the max deviation is 0, because it is the same kernel at default anchors with an un-eased EV. |
-| Z1.6 | PASS | `testTheEaseNeverGoesDead`. The smallest step is at +2.75 → +3 EV and still gains 3.3e-4 EV at the pivot (threshold 1e-4). Applied amounts: +1 → 0.890, +1.5 → 0.942, +3 → 0.954, +5 → 0.955. |
-| Z1.7 | PASS (CI part [macOS-CI] pending) | `testTheEaseIsReported` and `AppliedReadoutTests.testAnEasedZoneIsNamedWithTheAmountTheRenderApplies`. Darks +3 gives exactly one entry: Darks, applied 0.9541. The panel caption is scanned by `testTheZonesPanelReadsTheReadoutAndDrawsIt`. |
-| Z1.8 | PASS | `testEasingIsLocal`. With Darks +3 and Lights +0.5, Lights = 0.5. With Mid −3 and Brights +1, Brights = 1. |
-| Z1.9 | PASS | `testTheClampNeverFiresOnAZonesOnlyRecipe`: `zoneFlattening()` is nil for all 6250 G5 recipes. |
-| Z1.10 | PARTIAL; see below | `ramp_check.py`. minRatio ≥ 0.10: PASS (worst 0.14, base −0.29). flatEV ≤ 0.05: PASS (0.00 everywhere, base up to 1.59). negSpanEV ≤ 0.05: 0.05 on 7 recipes, **0.06** on dark+3 and dark+3,mid−3. maxKink ≤ 0.5: **FAIL as measured**, 0.83–3.15. A plain Exposure +0.95 scores 3.13 and 0.07 on the same tool, so these two numbers measure the display toe, not the zones. The EV-domain companion `tools/ramp_ev_kink.py` measures the zone response itself: every recipe has kink ≤ 0.48 (base up to 4.86) and slope ≥ 0.14 (base −0.12). |
-| Z1.11 | PASS (code review); [macOS-CI] pending | Nothing under `Sources/LumenPipeline` or the kernel registry changed. `RR.applyTone:242` reads `plan.toneGainLUT`; `RG.applyTone:897` reads `plan.toneGainCubeBaked`, which `RenderPlan` bakes from the same `toneGainLUT` (RenderPlan.swift:517–575). No `LumenPipelineTests` test pins a zone value. |
+| Z1.1 | PASS | `testMonotoneWithATextureFloor` over G5 (6250) and G3 (243 × 56 pivot sets, including a legacy 0.28 EV gap). Spilled seams run at exactly the floor, so the slowest slope is 0.25 within the 1e-9 tolerance (base −1.36). |
+| Z1.2 | PASS | `testNoSlopeBreakAnywhere`. The largest one-sided jump is under 0.01; round 1 measured 0.0036. Spill only changes the five values the C¹ crossfade blends. |
+| Z1.3 | PASS | `testNoOvershootAndPeaksAtThePivot`. `testMovingAPivotMovesWhereTheZoneActs` and `testTheGlobalZoneTrimIsFlat` are unchanged. `testEachZoneMovesItsOwnPivotAndNoOther` keeps +1 EV and its exact own-pivot assertion, and now expects the next pivot up to carry 1 − L = 0.045 EV (amended). |
+| Z1.4 | PASS | `testSmallMovesAreExact`: for \|ev\| ≤ 0.75, `appliedZoneEV == ev` bit-exactly, the own pivot is within 1e-9 and the other pivots are 0. |
+| Z1.5 | PASS | `testSmallMovesMatchTodaysResponse`: the max deviation is 0, because it is the same kernel and nothing spills below 0.955. |
+| Z1.6 (amended: no dead range) | PASS | `testTheEaseNeverGoesDead`: for each zone alone, −3…+3 in 0.25 steps, d(y at own pivot)/d(slider) is 1.000 (≥ 0.99), and applied = requested to 1e-12. |
+| Z1.6b (new) | PASS | `testALoneZoneSpillsItsExcessIntoItsNeighbours`: Darks +3 gives pivots 3.000 / 2.045 / 1.090 / 0.135 / 0 (± 0.01; the values ± 0.001). The Brights −3 mirror also holds. |
+| Z1.7 (amended) | PASS; panel [macOS-CI] pending | `testTheEaseIsReported` and `AppliedReadoutTests.testAnEasedZoneIsNamedWithTheAmountTheRenderApplies`. Darks +3 gives entries for Shadows, Midtones and Lights: "+2.05 / +1.09 / +0.14 EV carried from Darks". Darks +3 with Mid −3 gives "Applied +0.95 of +3.00 EV (conflicts with Midtones)" and "Applied −0.95 of −3.00 EV (conflicts with Darks)". |
+| Z1.8 | PASS | `testEasingIsLocal`. With Darks +3 and Lights +0.5, Lights stays 0.5. With Mid −3 and Brights +1, Brights stays 1 and Mid −3 is delivered. **Note:** Darks +3 with Lights +0.5 is a touched-pair span (drop 2.5 over capacity 2.865) inside the soft knee's eased band, so Darks applies +2.96 there. A harder knee would make that exact up to the capacity but leave conflicts near-dead past it; the lead can choose. |
+| Z1.8b (new) | PASS | `testAConflictIsEasedAndKeepsTheFloor`: Darks +3 / Mid −3 apply +0.954 / −0.954, Shadows stays at 0 between them, and slope ≥ 0.25. |
+| Z1.9 | PASS | `testTheClampNeverFiresOnAZonesOnlyRecipe`: nil for all 6250 G5 recipes. |
+| Z1.10 (amended) | **PARTIAL** | EV domain (`ramp_ev_kink.py`): minSlope ≥ 0.10 PASS on all 9 (worst 0.15, Mid −3 and Shadows +3; base −0.12). maxKinkEV ≤ 0.5 passes on 4 of 9: Darks +3 0.26, Darks +1.25 0.33, Brights −3 0.39, Darks +3 & Mid −3 0.35. It **fails on 5**: Mid −3 1.16, Mid +3 1.12, Lights −3 0.77, Shadows +3 1.52, Shadows +3 / Mid −3 / Lights +3 0.94. flatEV ≤ 0.05 (`ramp_check.py`) passes on 8 and **fails on Mid −3 (0.24)**. See "Z1.10 after the spill" below. |
+| Z1.11 | PASS (code review); [macOS-CI] pending | Nothing under `Sources/LumenPipeline` or the kernel registry changed. `RR.applyTone:242` reads `plan.toneGainLUT`, and `RG.applyTone:897` reads `plan.toneGainCubeBaked`, which `RenderPlan` bakes from the same table. No pipeline test pins a zone value. |
 | Z1.12 | DONE | See "Tests changed". |
-| Z2.1 | PASS | `Zones.defaultPivots` is unchanged, and `AccuracyProbeTests` passes unchanged. |
-| Z2.2 | human | Pivots were not moved; the lead may overrule (SPEC table). |
-| Z3.1 | PASS | `testWhitesAndBlacksDoNotMoveTheZones`: equal within 1e-12 for Whites ±100 and Blacks ±100, and the Mid peak moves 0.000 EV (base −0.96 / +0.96 / −0.54 / +0.54). The `AppliedReadoutTests` placement test is inverted. |
-| Z4.1 | PASS | `testPivotDragKeepsAOneStopGap`. `ZonesPanel.movePivot` uses `Zones.movingPivot`. |
-| Z4.2 | PASS | `testDecodedRepairUsesTheOneStopGap`, and Z1.1–Z1.3 hold on the legacy 0.28 EV gap set (it is in G3). `RecipeCodecToleranceTests` needed one changed number; see below. |
-| Z5.1 | PASS | `cmp` of base and branch `render` for grey_ramp, colorchecker, 6929, 2545 (and R5 4694): all byte-identical. `testMovingOnlyPivotsChangesNothing` passes. |
-| Z7.1 | PASS | `ZoneAdjust` holds only `ev`. `lumen-render keys \| grep -c 'zones.*\(sat\|falloff\|wheel\)'` = **0**. |
-| Z7.2 | PASS | `testLegacyZoneFieldsDecodeAndRenderIdentically`: decodes, gives an equal `Recipe` and an equal `toneGainLUT`, and re-saves with no sat, wheel or falloff key. |
-| Z7.3 | PASS | `CanonicalJSONTests` and the fingerprint fixtures pass unchanged: `Recipe()` is sparse-encoded, so its canonical JSON is `{"pipelineVersion":N}` either way. `gen-fixtures.py --check` passes. |
-| Z7.4 | DONE | `ResetSemanticsTests:56` (the `bright.sat` line is dropped), `SavedLookTests:73` and `RecipeCodecToleranceTests:496` (only `ev:` is kept). These were data only. |
-| Z8.1 | [macOS-CI] pending | `panel-develop-zones-default` and `panel-develop-zones-darks3-pivot` are appended at the end of `renderPanels`. Both render `ZonesPanel(showsSectionHeader: false)` in `SnapshotSectionCard(.tone, …)`. The second sets Darks +3 and the Shadows pivot at −2.75 EV through `Zones.movingPivot`. |
-| V1, V2 | [macOS-CI] pending, human | Each eased row shows "Applied +0.95 EV …" under it. The pivot readout is in EV (VoiceOver value); no hover readout was added. |
-| V3 | human | `evidence/r5-darks-after-crop100.png` uses the same 340 px crops as `r5-darks-0-1.25-3-crop100.png`, located by template match (RMS 0). At Darks +3 (applied +0.95) the lemon peel and potato texture survive, with no flat patches or mask outlines. |
+| Z2.1 | PASS | Default pivots are unchanged, and `AccuracyProbeTests` passes. |
+| Z2.2 | human | Pivots were not moved. |
+| Z3.1 | PASS | `testWhitesAndBlacksDoNotMoveTheZones`: within 1e-12, and the peak moves 0.000 EV (base ±0.96 / ±0.54). The `AppliedReadoutTests` placement test is inverted. |
+| Z4.1, Z4.2 | PASS | `testPivotDragKeepsAOneStopGap` and `testDecodedRepairUsesTheOneStopGap`. G3 includes a legacy 0.28 EV gap. |
+| Z5.1 | PASS | `cmp` of base and round-2 `render` on grey_ramp, colorchecker, 6929, 2545 and R5 4694 at Darks 0: all byte-identical. `testMovingOnlyPivotsChangesNothing` passes. |
+| Z7.1 | PASS | `lumen-render keys \| grep -c 'zones.*\(sat\|falloff\|wheel\)'` = 0. |
+| Z7.2 | PASS | `testLegacyZoneFieldsDecodeAndRenderIdentically`. |
+| Z7.3 | PASS | `CanonicalJSONTests`, the fingerprint fixtures and `RawDenoiseRecipeTests`' sparse canonical JSON and fingerprints are unchanged, and `gen-fixtures.py --check` passes. Only the FULL-tree digest pin moved; see below. |
+| Z7.4 | DONE | `ResetSemanticsTests`, `SavedLookTests` and `RecipeCodecToleranceTests` drop the dead arguments. |
+| Z8.1, V1, V2 | [macOS-CI] pending | `panel-develop-zones-default` and `panel-develop-zones-darks3-pivot`. In the second, the Shadows, Midtones and Lights rows show their carried amounts, and Darks shows none because it is delivered. |
+| V3 | human | `evidence/r5-darks-after-crop100.png` uses the audit's crop located by template match (RMS 0). At Darks +3, delivered in full, the shadows lift a lot and the lemon-peel and potato texture survive, with no flat patches outlined by the mask. |
 
-## Spec contradiction: Z1.3's "unchanged" test vs Z1.1 / Z1.4
+## Z1.10 after the spill
 
-`RobustnessTests.testEachZoneMovesItsOwnPivotAndNoOther` sets each zone to **+1 EV** and asserts that its own pivot
-moves by exactly 1 ± 1e-9.
+The spill delivers the whole request, so a zone at ±3 has a seam rising by 3 EV over a 2 EV gap on its uphill side.
+Two things follow.
 
-Z1.1 forbids this. A lone zone at +1 EV over a 2 EV gap, under the raised cosine Z1.5 requires, has a minimum
-slope of 1 − π/4 = 0.215 < 0.25. Z1.4 itself places exactness at |ev| ≤ 0.75, from 0.8 × 0.955.
-
-No kernel that stays within Z1.5's 0.02 EV of the raised cosine can apply +1 exactly and keep the floor. The only
-change made is the amount: **1 → 0.75**, the top of Z1.4's exact range. The tolerance is unchanged, and the test
-keeps its meaning (a zone moves its own pivot by what it asks and nobody else's).
-
-`RecipeCodecToleranceTests.testAnOrderedArrayIsStillOrderedAfterTheDecoderFillsItIn` had the same problem:
-Mid +1.0 was expected to give `zonePanelStops(0) = 1.0`. It now uses Mid +0.5, which gives 0.5.
+- **maxKinkEV on those 5 recipes is the base's own number, not something the spill added.** The uphill seam is
+  untouched by the ease, and the base measured mid−3 2.59, mid+3 1.12, light−3 2.10 and shadow+3 1.52 on this same
+  tool. For any C¹ kernel, raising 3 EV over 2 EV means the slope has to climb to about 2.5 or more and come back
+  down, so the analytic slope change is at least about 0.3 per 0.1 EV. The raised cosine gives 0.37; the pipeline
+  measures more.
+  - Under round 1 this passed, because the request itself was cut to 0.95 EV.
+  - Either the threshold applies only to the ease (falling) side, or a lone ±3 zone must not be delivered in full.
+    The lead decides.
+- **flatEV for Mid −3 (0.24 EV).** Mid −3 spills down to Shadows −2.05 and Darks −1.09, so its two seams below
+  mid-grey run at exactly the 0.25 floor. In the display toe a quarter stop per stop is under 1 code/EV, which is
+  what `ramp_check.py` counts as flat. In the EV domain the same stretch measures slope ≥ 0.15.
+  - A spill that ran at a higher floor than the 0.25 slope floor would clear it: for example, moving the neighbour
+    by `drop − L(0.4)`. That puts more lift into the neighbours than the lead's exact-excess rule, so I have not
+    done it without a decision.
 
 ## Tests changed, and why
 
-- **`ZoneFlatteningTests.testDarksAloneFlattensTheBandTheAuditMeasured`.**
-  - Darks +2 and +4 alone now assert **nil**: that is the fix.
-  - The band measurement moves to Contrast −100 + Darks +3, measured at −3.179 … −2.123 EV, worst 0.055.
-  - `testTheReportedBandIsFlatInTheBakedTable` uses the same recipe.
-- **`ToneTwinClampTests`.**
-  - `darksPlan` becomes Contrast −100 + Darks +3 (was Darks +4 alone), and the in-band probe moves −2.0 → −2.5 EV
-    to stay inside the new band.
-  - The assertions are unchanged; they are WS-07's.
-- **`AppliedReadoutTests`.**
-  - The untouched case now also asserts that Darks +4 alone shows no flattening, and that `zoneEasing` is empty
-    inside the knee.
-  - The Darks +4 caption test becomes Contrast −100 + Darks +3, with caption "−3.18…−2.12 EV" and "0.05 EV".
-  - `testThePlacementFollowsTheAnchorsWhitesAndBlacksMove` is **inverted** (Z3): placement is `zoneAxis`, not the
-    live `normalizedAxis`.
-  - `testTheMarkGrowsWithTheRequest` grows with Contrast (−80 → −100), because the zone request itself is eased now.
-  - New `testAnEasedZoneIsNamedWithTheAmountTheRenderApplies`.
-  - The panel scan also pins the easing call and its caption.
-- **`ProofRegistry.zones` and records.** Re-measured, and floors set at 70 %:
-
-  | control | authority | floor |
-  |---|---|---|
-  | dark | 24.31 | 17 |
-  | shadow | 51.97 | 36 |
-  | mid | 93.84 | 65 |
-  | light | 65.86 | 46 |
-  | bright | 31.16 | 21 |
-  | global | 215.25 | 150 (unchanged) |
-
-  - `alternatingZones` changes from ±2 to ±0.375.
-  - Pivot travels are now inside neighbours ± 1/14: dark 0–0.23 (unchanged), shadow 0.43–0.57, mid 0.58–0.71,
-    light 0.72–0.85, bright 0.86–1.0.
-  - Pivot authorities and floors:
-
-    | pivot | authority | floor |
-    |---|---|---|
-    | dark | 2.04 | 1 |
-    | shadow | 24.24 | 16 |
-    | mid | 23.82 | 16 |
-    | light | 19.72 | 13 |
-    | bright | 12.42 | 8 |
-
-  - The Light pivot's `declaredReversal` 5.158 becomes nil: every zone record now measures monotone with
-    givenBack 0.
-  - The zone authorities drop by design: a lone zone at ±3 applies about ±0.95 EV.
+- **`RobustnessTests.testEachZoneMovesItsOwnPivotAndNoOther`.** It is back at +1 EV, the base value, with the
+  exact own-pivot assertion unchanged. It now expects the next pivot up the axis to carry 1 − L = 0.045 EV and every
+  other pivot 0. That is what the spill rule makes true; Brights has no pivot above it and carries nothing. Round 1
+  had lowered the value to 0.75; that change is reverted.
 - **`RecipeCodecToleranceTests`.**
-  - Line 357: a short `wheel` now decodes to the default `ZoneAdjust()`, because the key is removed.
-  - The touching-pivots repair expects `0.3 + minimumPivotGap` instead of 0.32 (Z4.2 says the repair uses the new
-    gap; the spec's "RecipeCodecToleranceTests unchanged" holds for the identity part only).
-  - Line 496: `zone()` drops the dead arguments.
-  - Mid +1 becomes +0.5 (see above).
-- **`RobustnessTests.testEachZoneMovesItsOwnPivotAndNoOther`.** +1 becomes +0.75 (see above).
-- **`RawDenoiseRecipeTests.defaultFullTreeDigest`.** The pinned XXH64 of the FULL default tree changes from
-  68b478a3b73cfdea to 7121a0e06775a66f, because that tree is `default-recipe.json`, which Z7.3 changes on purpose. In
-  the same test, the sparse canonical JSON, the fingerprint and the denoise-input fingerprint are unchanged.
+  - The Mid +1.0 → `zonePanelStops(0) = 1.0` case is restored to base, because spill delivers it exactly.
+  - Still changed: a short `wheel` decodes to the default `ZoneAdjust()` (the key is removed), and the
+    touching-pivot repair expects `0.3 + minimumPivotGap` instead of 0.32 (Z4.2).
+  - The `zone()` helper drops the dead arguments.
+- **`ZoneFlatteningTests`.**
+  - Darks +2 and +4 alone now assert nil, which is the fix.
+  - The measurement uses Contrast −100 + Darks +3, which now flattens −3.179 … +2.217 EV, worst 0.402. The spilled
+    curve runs at the floor over a wider span, and contrast −100 takes it below 0. That is the backstop's job; see
+    NEEDS.
+  - `testTheReportedBandIsFlatInTheBakedTable` uses Contrast −100 + Darks +0.95. At +3 the clamp fires in two
+    places and the report merges them into one span (audit Z-10, WS-07's), which is not flat end to end.
+- **`ToneTwinClampTests`.** It uses Contrast −100 + Darks +3, with the in-band probe at −2.5 EV. Its assertions are
+  unchanged and are WS-07's.
+- **`AppliedReadoutTests`.**
+  - Untouched cases: nothing at Darks +0.75, and no flattening for Darks +4 alone.
+  - The eased-zone test asserts the three carried rows and the conflict caption.
+  - The clamped-band caption becomes "−3.18…+2.22 EV" and "0.40 EV".
+  - The placement test is inverted (Z3).
+  - The mark grows with Contrast.
+  - The panel scan also pins the easing call and its caption.
+- **`RawDenoiseRecipeTests.defaultFullTreeDigest`.** It changes from 68b478a3b73cfdea to 7121a0e06775a66f. The full
+  default tree is `default-recipe.json`, which Z7.3 changes on purpose; the sparse canonical JSON and both
+  fingerprints in the same test are unchanged.
+- **`ProofRegistry.zones` and records.** Re-measured, with floors at 70 %:
+
+  | control | base authority | round 2 authority | floor |
+  |---|---|---|---|
+  | dark | 75.52 | 87.80 | 61 |
+  | shadow | 163.97 | 174.99 | 122 |
+  | mid | 194.19 | 214.17 | 149 |
+  | light | 129.34 | 192.68 | 134 |
+  | bright | 43.23 | 110.16 | 77 |
+  | global | 215.25 | 215.25 | 150 |
+
+  - Brights is no longer near-dead on the ramp, because Brights −3 now pulls Lights and Midtones down.
+  - `alternatingZones` goes from ±2 to ±0.375: five touched zones 4 EV apart would be a conflict and get eased.
+  - Pivot travels are now inside neighbours ± 1/14. Authorities and floors: 2.04 / 24.24 / 23.82 / 19.72 / 12.42,
+    floors 1 / 16 / 16 / 13 / 8.
+  - The Light pivot's `declaredReversal` becomes nil (givenBack 0).
 
 ## Test runs
 
 - Targeted: ZonesResponseTests, ZoneFlatteningTests, ToneTwinClampTests, AppliedReadoutTests,
-  EngineLimitReadoutTests, RecipeCodecToleranceTests, ResetSemanticsTests, SavedLookTests, CanonicalJSONTests,
-  CurveMathTests, DesignSystemTests, MathTests, AccuracyProbeTests, RobustnessTests: 202 tests, 0 failures.
-  RawDenoiseRecipeTests passes after the digest update.
-- Full LumenCoreTests (release): 3073 tests, 6 skipped. The only failure was the digest above, which is fixed and
-  re-run green. ControlProofTests passes, including the committed-record drift check.
-- `swift build --target LumenCore --target LumenRender`: clean, with only pre-existing warnings.
-  `check-swift-surface.py`, its fixture suite, `swiftc -parse` of the touched macOS files and
-  `gen-fixtures.py --check` all pass.
+  EngineLimitReadoutTests, RecipeCodecToleranceTests and RobustnessTests: green after round 2.
+- Full LumenCoreTests (release, round 2): 3075 tests, 6 skipped, **0 failures**; the base had 3058 tests and 0
+  failures. Z1.1 printed a slowest slope of 0.2500008 and Z1.2 a largest slope break of 0.0036.
+  `swift build --target LumenCore --target LumenRender` is clean.
+  `check-swift-surface.py`, `gen-fixtures.py --check` and `check-citations.py` report base-equivalent results.
 
 ## For the verifier
 
-- The evidence sweep sheets are 256-colour palettised to fit under 400 KB, so the banding visible in the skies is
-  from the palette, not the render. Judge texture from `r5-darks-after-crop100.png`, which is full colour.
-- What a photographer will notice: Darks/Shadows/Mid/Lights at ±3 now move their pivot by about ±0.95 EV, not ±3,
-  and say so on the row. Brights + and Darks − are never eased. Two zones pushed in opposite directions share the
-  limit (Shadows +3 / Mid −3 → +0.48 / −0.48).
+- The sweep sheets are palettised to 256 colours to stay under 400 KB, so banding in the skies is the palette.
+  Judge texture from `r5-darks-after-crop100.png`.
+- What a photographer sees now: every zone does what its slider says at its own pivot across the whole ±3, and the
+  rows it carries say "carried from …". Only two touched zones that cannot both be honoured are held back, and both
+  rows say so.

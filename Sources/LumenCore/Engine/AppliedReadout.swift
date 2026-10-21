@@ -65,37 +65,53 @@ public enum AppliedReadout {
                               caption: caption)
     }
 
-    /// One zone the register applies at less than its slider asks, in stops.
+    /// One zone the register renders at other than its slider says, in stops: either an
+    /// untouched zone carrying another's excess, or a touched one held back by a
+    /// conflict with another touched zone (`ToneEngine.appliedZoneEV`).
     public struct ZoneEased: Equatable, Sendable {
         /// The register's own row name: Darks, Shadows, Midtones, Lights, Brights.
         public let name: String
         public let requested: Double
         public let applied: Double
+        /// The touched zone whose excess this untouched one carries, by row name.
+        public let carriedFrom: String?
+        /// The touched zone this one conflicts with, by row name.
+        public let conflictsWith: String?
 
-        /// The line under that zone's slider.
+        /// The line under that zone's slider, in a photographer's words.
         public var caption: String {
-            "Applied \(AppliedReadout.ev(applied)) EV — eased so no brighter tone "
-                + "renders darker."
+            if let carriedFrom {
+                return "\(AppliedReadout.ev(applied)) EV carried from \(carriedFrom)"
+            }
+            if let conflictsWith {
+                return "Applied \(AppliedReadout.ev(applied)) of "
+                    + "\(AppliedReadout.ev(requested)) EV (conflicts with \(conflictsWith))"
+            }
+            return "Applied \(AppliedReadout.ev(applied)) EV"
         }
     }
 
     /// The register's row names, in pivot order. `ZonesPanel` titles its rows from this.
     public static let zoneNames = ["Darks", "Shadows", "Midtones", "Lights", "Brights"]
 
-    /// Every zone `ToneEngine.appliedZoneEV` holds back by more than 0.005 EV — the
-    /// half-step of the readout's two decimals, so a rounding difference never earns a
-    /// line. Empty for any single zone inside ±0.75 EV at the default pivots.
+    /// Every zone `ToneEngine.appliedZoneEV` moves away from its slider by more than
+    /// 0.005 EV — the half-step of the readout's two decimals, so a rounding difference
+    /// never earns a line. Empty for any single zone inside ±0.95 EV at the default
+    /// pivots; a lone zone past that is delivered in full and its neighbours carry the
+    /// excess, so the rows that get a line are the neighbours.
     ///
     /// `tone` is taken so the call reads like its siblings and keeps reading right if
     /// the ease ever learns about the six sliders; today it does not consult it.
     public static func zoneEasing(tone: Tone, zones: Zones) -> [ZoneEased] {
-        let applied = ToneEngine(tone: tone, zones: zones).appliedZoneEV
+        let ease = ToneEngine(tone: tone, zones: zones).zoneEaseReport
         let requested = [zones.dark.ev, zones.shadow.ev, zones.mid.ev, zones.light.ev,
                          zones.bright.ev]
         var out: [ZoneEased] = []
-        for i in requested.indices where abs(requested[i] - applied[i]) > 0.005 {
+        for i in requested.indices where abs(requested[i] - ease.applied[i]) > 0.005 {
             out.append(ZoneEased(name: zoneNames[i], requested: requested[i],
-                                 applied: applied[i]))
+                                 applied: ease.applied[i],
+                                 carriedFrom: ease.carriedFrom[i].map { zoneNames[$0] },
+                                 conflictsWith: ease.conflictsWith[i].map { zoneNames[$0] }))
         }
         return out
     }

@@ -15,8 +15,10 @@ Things the WS-08 build found or relies on, in code it does not own. Nothing here
   - the `Flattening` doc comment: "The clamp is the Zones panel's only limiter" and the Darks +2 / +4 numbers;
   - `RenderPlan.swift` around line 610, which describes the floor in terms of a Zones-only clamp.
 - **The clamp backstop for zones combined with Contrast or the six sliders.** The zone ease does not see them.
-  Contrast −100 with Darks +3 still flattens −3.18 … −2.12 EV (worst 0.05 EV). The panel reports it through the
-  existing flattened caption. A joint solve, or feeding the contrast slope into the zone limit, belongs with
+  Since round 2, a zone spills its excess into its neighbours at exactly the 0.25 floor, so negative Contrast has
+  more to undo. Contrast −100 with Darks +3 flattens −3.18 … +2.22 EV (worst 0.40 EV, possibly two merged bands —
+  Z-10); at Contrast −60, −1.33 … +1.56 (worst 0.05); at −40, nothing. The panel reports it through the existing
+  flattened caption. A joint solve, or feeding the contrast slope into the zone limit, belongs with
   `solveZonalLimits`.
 - **`zoneFlattening` under-reporting (audit Z-10).** It merges separate bands into one. This is unchanged.
 

@@ -703,8 +703,7 @@ public struct ToneEngine: Sendable {
     /// Darks +1.25 EV was monotone and measured slope 0.02 over 0.32 EV.
     static let zoneSlopeFloor: Double = 0.25
 
-    /// The zone EVs the register actually applies, Darks … Brights — the requests,
-    /// eased so the response never runs slower than `zoneSlopeFloor`.
+    /// The zone EVs the register actually applies, Darks … Brights.
     ///
     /// WHY. Adjacent zones crossfade with a raised cosine, whose steepest slope is π/2 ×
     /// the step over the gap. With 2 EV gaps the response INVERTED once two neighbours
@@ -714,36 +713,56 @@ public struct ToneEngine: Sendable {
     /// `bakeGainLUT`'s backstop, not a limiter, and it no longer fires on a Zones-only
     /// recipe.
     ///
-    /// HOW, which is `solveZonalLimits`'s idea applied per seam. Between pivots i and
-    /// i+1 the response falls only if `a_i > a_{i+1}`, and stays at or above the floor
-    /// exactly when that drop is at most `limit = (1 − floor) · 2 · gap / π`, the gap in
-    /// EV — 0.955 EV at the default 2 EV gaps. A drop over `zonalKnee × limit` is eased
-    /// with `Num.softKnee`, so it approaches the limit and never reaches it, and the top
-    /// of the slider still moves. The crossfade itself is untouched (`ZoneWeights` is
-    /// shared with four other lanes), so this only chooses the five numbers it blends.
+    /// THE LIMIT. Between pivots i and i+1 the response falls only if `a_i > a_{i+1}`,
+    /// and stays at or above `zoneSlopeFloor` exactly when that drop is at most
+    /// `limit = (1 − floor) · 2 · gap / π`, the gap in EV — 0.955 EV at the default gaps.
     ///
-    /// WHO GIVES WAY. Only a zone that pulls its seam downhill is scaled, and only
-    /// toward zero, so a zone never changes sign or grows. A zone above zero pulls the
-    /// seam on its RIGHT down, one below zero the seam on its LEFT; each zone is
-    /// therefore eased by one seam at most, Darks below zero and Brights above zero
-    /// never, and a zone at zero never moves. Where both ends of a seam pull (a positive
-    /// zone next to a negative one) both share one scale. Where only one pulls, its
-    /// neighbour is relief already spent: a positive run is settled right to left and
-    /// a negative run left to right, so each seam is solved against the neighbour's
-    /// APPLIED value. A zone separated from a conflict by an untouched zone is never
-    /// scaled, and a request inside the knee — any single zone up to ±0.76 EV at the
-    /// default gaps — is applied exactly.
+    /// A REQUEST IS HONOURED AT ITS OWN PIVOT, AND THE EXCESS SPILLS. A zone the
+    /// photographer left at zero is free, so when a seam's drop would pass its limit the
+    /// untouched downhill neighbour moves by exactly the excess, and on outward: Darks +3
+    /// at the default pivots lifts Shadows to +2.05, Midtones to +1.09 and Lights to
+    /// +0.14, and Darks itself delivers +3.00. That is the smallest change that keeps
+    /// the floor, it is continuous in the slider, and it leaves no dead range — an
+    /// earlier round scaled the request instead and a lone zone stopped near +0.95 EV
+    /// whatever the slider said. A positive zone spills rightward and a negative one
+    /// leftward; past the end pivots the response is a flat shelf, so an end has room
+    /// for any amount. An untouched zone no conflict reaches never moves.
+    ///
+    /// A CONFLICT IS EASED. Only where two TOUCHED zones disagree by more than the
+    /// seams between them can carry (Darks +3 with Midtones −3; Darks +3 with Shadows
+    /// +0.5) is a request held back, by `solveZonalLimits`'s idea: the zone pulling the
+    /// span downhill is scaled toward zero with `Num.softKnee`, exact inside the knee and
+    /// approaching the span's capacity after. Both ends of a span that pull (a positive
+    /// zone before a negative one) share one scale; otherwise a positive run is settled
+    /// right to left and a negative run left to right, each against its neighbour's
+    /// APPLIED value. The untouched zones inside the span then take the spill between
+    /// the two eased values. `AppliedReadout.zoneEasing` names both kinds of move.
     ///
     /// The gaps are each list's own, so a legacy list closer than `minimumPivotGap`
-    /// eases harder instead of inverting.
-    public var appliedZoneEV: [Double] { Self.easedZoneEV(zones, pivots: zonePivots) }
+    /// spills and eases harder instead of inverting.
+    public var appliedZoneEV: [Double] { zoneEaseReport.applied }
 
-    static func easedZoneEV(_ zones: Zones, pivots: [Double]) -> [Double] {
+    /// The same solve with who moved whom, for `AppliedReadout.zoneEasing`.
+    var zoneEaseReport: ZoneEase { Self.zoneEase(zones, pivots: zonePivots) }
+
+    /// What `zoneEase` did to each zone, for the readout.
+    struct ZoneEase: Equatable, Sendable {
+        /// Darks … Brights, as rendered.
+        var applied: [Double]
+        /// For an untouched zone that moved, the touched zone whose excess it carries.
+        var carriedFrom: [Int?]
+        /// For a touched zone held back, the touched zone it conflicts with.
+        var conflictsWith: [Int?]
+    }
+
+    static func zoneEase(_ zones: Zones, pivots: [Double]) -> ZoneEase {
         let requested = [zones.dark.ev, zones.shadow.ev, zones.mid.ev, zones.light.ev,
                          zones.bright.ev]
-        var applied = requested
         let n = requested.count
-        guard pivots.count == n, requested.contains(where: { $0 != 0 }) else { return applied }
+        var ease = ZoneEase(applied: requested,
+                            carriedFrom: [Int?](repeating: nil, count: n),
+                            conflictsWith: [Int?](repeating: nil, count: n))
+        guard pivots.count == n, requested.contains(where: { $0 != 0 }) else { return ease }
         // The largest drop seam i can carry above the floor, per EV of gap.
         let perGapEV: Double = 2 * (1 - zoneSlopeFloor) / Double.pi
         let span: Double = defaultWhiteAnchorEV - defaultBlackAnchorEV
@@ -752,48 +771,98 @@ public struct ToneEngine: Sendable {
             let gapEV: Double = Swift.max(pivots[i + 1] - pivots[i], 0) * span
             limits[i] = gapEV * perGapEV
         }
-        // The drop seam i may keep: exact inside the knee, approaching the limit after.
-        func eased(_ drop: Double, _ i: Int) -> Double {
-            let limit = limits[i]
+
+        // 1. Conflicts between consecutive touched zones, over the seams between them.
+        let touched = requested.indices.filter { requested[$0] != 0 }
+        let t = touched.map { requested[$0] }
+        var a = t
+        var capacity = [Double](repeating: 0, count: Swift.max(touched.count - 1, 0))
+        for j in capacity.indices {
+            for i in touched[j]..<touched[j + 1] { capacity[j] += limits[i] }
+        }
+        // The drop span j may keep: exact inside the knee, approaching capacity after.
+        func eased(_ drop: Double, _ j: Int) -> Double {
+            let limit = capacity[j]
             guard limit > 0 else { return 0 }
             // Inside the knee `softKnee` is the identity, and `limit × (drop / limit)`
             // is not always `drop` to the last bit: answered here so exact means exact.
             guard drop > zonalKnee * limit else { return drop }
             return limit * Num.softKnee(drop / limit, knee: zonalKnee)
         }
-        // Seams both ends pull: one shared scale, independent of everything else.
-        for i in 0..<(n - 1) where requested[i] > 0 && requested[i + 1] < 0 {
-            let drop = requested[i] - requested[i + 1]
-            let kept = eased(drop, i)
+        // Spans both ends pull: one shared scale, independent of everything else.
+        for j in capacity.indices where t[j] > 0 && t[j + 1] < 0 {
+            let drop = t[j] - t[j + 1]
+            let kept = eased(drop, j)
             guard kept < drop else { continue }
-            applied[i] = requested[i] * kept / drop
-            applied[i + 1] = requested[i + 1] * kept / drop
+            a[j] = t[j] * kept / drop
+            a[j + 1] = t[j + 1] * kept / drop
+            ease.conflictsWith[touched[j]] = touched[j + 1]
+            ease.conflictsWith[touched[j + 1]] = touched[j]
         }
-        // Positive zones over a non-negative right neighbour, right to left.
-        for i in stride(from: n - 2, through: 0, by: -1)
-            where requested[i] > 0 && requested[i + 1] >= 0 {
-            let drop = requested[i] - applied[i + 1]
+        // Positive zones before a positive one, right to left.
+        for j in stride(from: capacity.count - 1, through: 0, by: -1)
+            where t[j] > 0 && t[j + 1] > 0 {
+            let drop = t[j] - a[j + 1]
             guard drop > 0 else { continue }
-            let kept = eased(drop, i)
-            if kept < drop { applied[i] = applied[i + 1] + kept }
+            let kept = eased(drop, j)
+            guard kept < drop else { continue }
+            a[j] = a[j + 1] + kept
+            ease.conflictsWith[touched[j]] = touched[j + 1]
         }
-        // Negative zones under a non-positive left neighbour, left to right.
-        for i in 1..<n where requested[i] < 0 && requested[i - 1] <= 0 {
-            let drop = applied[i - 1] - requested[i]
+        // Negative zones after a negative one, left to right.
+        for j in capacity.indices where t[j] < 0 && t[j + 1] < 0 {
+            let drop = a[j] - t[j + 1]
             guard drop > 0 else { continue }
-            let kept = eased(drop, i - 1)
-            if kept < drop { applied[i] = applied[i - 1] - kept }
+            let kept = eased(drop, j)
+            guard kept < drop else { continue }
+            a[j + 1] = a[j] - kept
+            ease.conflictsWith[touched[j + 1]] = touched[j]
         }
-        return applied
+        for (j, i) in touched.enumerated() { ease.applied[i] = a[j] }
+
+        // 2. Spill. An untouched zone must sit no lower than the zone before it less
+        // that seam's limit, and no higher than the zone after it plus its limit; it
+        // takes the value nearest zero inside those bounds. Chained through untouched
+        // neighbours, so the bounds are the nearest touched value less (or plus) the
+        // limits in between, and step 1 has made every span's bounds meet.
+        var lower = [Double](repeating: -.infinity, count: n)
+        var lowerFrom = [Int?](repeating: nil, count: n)
+        for k in 0..<n {
+            if requested[k] != 0 {
+                lower[k] = ease.applied[k]
+                lowerFrom[k] = k
+            } else if k > 0 {
+                lower[k] = lower[k - 1] - limits[k - 1]
+                lowerFrom[k] = lowerFrom[k - 1]
+            }
+        }
+        var upper = [Double](repeating: .infinity, count: n)
+        var upperFrom = [Int?](repeating: nil, count: n)
+        for k in stride(from: n - 1, through: 0, by: -1) {
+            if requested[k] != 0 {
+                upper[k] = ease.applied[k]
+                upperFrom[k] = k
+            } else if k < n - 1 {
+                upper[k] = upper[k + 1] + limits[k]
+                upperFrom[k] = upperFrom[k + 1]
+            }
+        }
+        for k in 0..<n where requested[k] == 0 {
+            let v = Swift.min(Swift.max(0, lower[k]), upper[k])
+            ease.applied[k] = v
+            if v > 0 { ease.carriedFrom[k] = lowerFrom[k] }
+            if v < 0 { ease.carriedFrom[k] = upperFrom[k] }
+        }
+        return ease
     }
 
     /// Per-zone exposure from the Zones panel, in stops: the raised-cosine crossfade of
     /// the APPLIED zone EVs on the register's own axis, plus the global trim.
     ///
-    /// Monotone with slope ≥ `zoneSlopeFloor` by construction, C¹ everywhere (the
-    /// crossfade is flat at every pivot and the shelves beyond the end pivots are
-    /// flat), and never past its two bounding zones' values, so a zone still acts most
-    /// at its own pivot and not at all at its neighbours'. `ZonesResponseTests`.
+    /// Monotone with slope ≥ `zoneSlopeFloor` by construction on ascending pivots, C¹
+    /// everywhere (the crossfade is flat at every pivot and the shelves beyond the end
+    /// pivots are flat), and never past its two bounding zones' applied values, so a
+    /// zone still acts most at its own pivot. `ZonesResponseTests`.
     public func zonePanelStops(_ t: Double) -> Double {
         guard !zonePanelIsIdentity else { return 0 }
         return ZoneWeights.exposureStops(x: Self.zoneAxis(t), pivots: zonePivots,

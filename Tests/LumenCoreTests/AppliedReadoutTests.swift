@@ -43,22 +43,32 @@ final class AppliedReadoutTests: XCTestCase {
         XCTAssertNil(AppliedReadout.zoneFlattening(tone: Tone(), zones: darks(4)))
     }
 
-    /// Darks +3 is eased, and the readout carries the amount the render applies — the
-    /// engine's own number, not a parallel computation.
+    /// Darks +3 is delivered in full and its untouched neighbours carry the excess; the
+    /// readout names each carried row with the amount the render applies — the engine's
+    /// own numbers, not a parallel computation. A conflict between two touched zones is
+    /// named on both rows.
     ///
     /// SUBSTITUTION: make `zoneEasing(tone:zones:)` return `[]` and the unwrap fails.
     func testAnEasedZoneIsNamedWithTheAmountTheRenderApplies() throws {
         let zones = darks(3)
         let applied = ToneEngine(tone: Tone(), zones: zones).appliedZoneEV
         let eased = AppliedReadout.zoneEasing(tone: Tone(), zones: zones)
-        let darksRow = try XCTUnwrap(eased.first, "Darks +3 is eased to \(applied[0]) and "
-                                     + "the panel's readout said nothing")
-        XCTAssertEqual(eased.count, 1)
-        XCTAssertEqual(darksRow.name, "Darks")
-        XCTAssertEqual(darksRow.requested, 3)
-        XCTAssertEqual(darksRow.applied, applied[0])
-        XCTAssertEqual(darksRow.caption,
-                       "Applied +0.95 EV — eased so no brighter tone renders darker.")
+        let shadows = try XCTUnwrap(eased.first, "Darks +3 spills \(applied[1]) EV into "
+                                    + "Shadows and the panel's readout said nothing")
+        XCTAssertEqual(eased.map(\.name), ["Shadows", "Midtones", "Lights"])
+        XCTAssertEqual(applied[0], 3)
+        XCTAssertEqual(shadows.requested, 0)
+        XCTAssertEqual(shadows.applied, applied[1])
+        XCTAssertEqual(eased.map(\.caption), ["+2.05 EV carried from Darks",
+                                              "+1.09 EV carried from Darks",
+                                              "+0.14 EV carried from Darks"])
+
+        var conflict = darks(3)
+        conflict.mid.ev = -3
+        let held = AppliedReadout.zoneEasing(tone: Tone(), zones: conflict)
+        let darksRow = try XCTUnwrap(held.first { $0.name == "Darks" })
+        XCTAssertEqual(darksRow.caption, "Applied \(AppliedReadout.ev(darksRow.applied)) of "
+                           + "+3.00 EV (conflicts with Midtones)")
         XCTAssertEqual(AppliedReadout.zoneNames,
                        ["Darks", "Shadows", "Midtones", "Lights", "Brights"])
     }
@@ -74,15 +84,15 @@ final class AppliedReadoutTests: XCTestCase {
         let report = try XCTUnwrap(engine.zoneFlattening())
         let readout = try XCTUnwrap(AppliedReadout.zoneFlattening(tone: deepContrast(),
                                                                   zones: zones),
-                                    "Contrast −100 with Darks +3 flattens 1.06 EV of "
+                                    "Contrast −100 with Darks +3 flattens 5.40 EV of "
                                         + "input and the panel's readout said nothing")
         XCTAssertEqual(readout.flattening, report)
         XCTAssertEqual(readout.lowX, ToneEngine.zoneAxis(report.lowEV))
         XCTAssertEqual(readout.highX, ToneEngine.zoneAxis(report.highEV))
         XCTAssertLessThan(readout.lowX, readout.highX)
         // Measured, as the photographer reads it.
-        XCTAssertTrue(readout.caption.contains("\u{2212}3.18…\u{2212}2.12 EV"), readout.caption)
-        XCTAssertTrue(readout.caption.contains("0.05 EV"), readout.caption)
+        XCTAssertTrue(readout.caption.contains("\u{2212}3.18…+2.22 EV"), readout.caption)
+        XCTAssertTrue(readout.caption.contains("0.40 EV"), readout.caption)
     }
 
     /// INVERTED BY WS-08 (Z3). This asserted that the mark followed the LIVE anchors,

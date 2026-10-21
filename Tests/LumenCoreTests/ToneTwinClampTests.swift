@@ -12,7 +12,7 @@
 //
 // The register now eases itself (WS-08, `ToneEngine.appliedZoneEV`) and Darks alone no
 // longer reaches the clamp, so the recipe here is the one that still does: Contrast −100
-// with Darks +3, which flattens −3.18 … −2.12 EV. The assertions are unchanged.
+// with Darks +3, which flattens −3.18 … +2.22 EV. The assertions are unchanged.
 
 import XCTest
 @testable import LumenCore

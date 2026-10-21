@@ -374,10 +374,8 @@ final class RecipeCodecToleranceTests: XCTestCase {
 
         // The engine, not just the value: Mids must still move a mid-tone.
         var zones = short
-        // Half a stop: inside the register's ease (WS-08), so applied exactly. A full
-        // stop is eased to +0.89 at the default 2 EV gaps.
-        zones.mid.ev = 0.5
-        XCTAssertEqual(ToneEngine(tone: Tone(), zones: zones).zonePanelStops(0.0), 0.5,
+        zones.mid.ev = 1.0
+        XCTAssertEqual(ToneEngine(tone: Tone(), zones: zones).zonePanelStops(0.0), 1.0,
                        accuracy: 1e-9, "the Mids slider moved and mid-grey did not")
 
         // A full-length list that merely arrived out of order is REPAIRED, not thrown

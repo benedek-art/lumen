@@ -1868,16 +1868,18 @@ final class RobustnessTests: XCTestCase {
             \.dark, \.shadow, \.mid, \.light, \.bright,
         ]
         let pivots = Zones.defaultPivots
-        // Three quarters of a stop, not one (WS-08). A lone zone at +1 EV over the 2 EV
-        // default gaps runs the response at 1 − π/4 = 0.21 stops per stop, under the
-        // register's 0.25 floor, so the ease now applies it as +0.89; inside ±0.75 EV
-        // the request is applied exactly (`ZonesResponseTests.testSmallMovesAreExact`),
-        // which is the contract this test is about.
-        let lift = 0.75
+        // WS-08: a stop is a touch more than one 2 EV seam can carry and keep the
+        // response at the register's 0.25 floor — the limit is 2 × 2 × 0.75 / π =
+        // 0.955 EV — so a lone zone at +1 is still delivered in full at its own pivot
+        // and the next zone UP the axis (the one it would otherwise darken past) carries
+        // the 0.045 EV excess. Every other pivot is untouched. Brights has no zone above
+        // it and carries nothing over. Inside ±0.955 EV nothing spills at all
+        // (`ZonesResponseTests.testSmallMovesAreExact`).
+        let seamLimit = 2 * 2 * (1 - ToneEngine.zoneSlopeFloor) / Double.pi
 
         for (index, path) in paths.enumerated() {
             var zones = Zones()
-            zones[keyPath: path].ev = lift
+            zones[keyPath: path].ev = 1
             let engine = ToneEngine(tone: Tone(), zones: zones)
 
             for (other, pivot) in pivots.enumerated() {
@@ -1885,13 +1887,14 @@ final class RobustnessTests: XCTestCase {
                 let ev = engine.blackAnchorEV
                     + pivot * (engine.whiteAnchorEV - engine.blackAnchorEV)
                 let stops = engine.zonePanelStops(ev)
+                let carried = other == index + 1 ? 1 - seamLimit : 0
                 if other == index {
-                    XCTAssertEqual(stops, lift, accuracy: 1e-9,
-                                   "\(names[index]) at +\(lift) EV moved its own pivot by "
-                                       + "\(stops) rather than \(lift) EV")
+                    XCTAssertEqual(stops, 1, accuracy: 1e-9,
+                                   "\(names[index]) at +1 EV moved its own pivot by "
+                                       + "\(stops) rather than a stop")
                 } else {
-                    XCTAssertEqual(stops, 0, accuracy: 1e-9,
-                                   "\(names[index]) at +\(lift) EV moved the \(names[other]) "
+                    XCTAssertEqual(stops, carried, accuracy: 1e-9,
+                                   "\(names[index]) at +1 EV moved the \(names[other]) "
                                        + "pivot by \(stops)")
                 }
             }

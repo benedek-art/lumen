@@ -886,17 +886,18 @@ enum ProofRegistry {
         // honest about highlights, not the controls going dead, and their floors are
         // re-anchored at 70% of the new measurements like everyone else's.
         //
-        // **WS-08 re-measured them, and the five zones dropped by design.** The register
-        // now eases a seam before it can make a brighter tone render darker
-        // (`ToneEngine.appliedZoneEV`): a lone zone at ±3 applies about ±0.95 EV at the
-        // default gaps, where it used to apply 3 and posterize the band it inverted.
-        // The ramp's peak separation went dark 75.52 → 24.31, shadow 163.97 → 51.97,
-        // mid 194.19 → 93.84, light 129.34 → 65.86, bright 43.23 → 31.16; global is a
-        // flat trim, never eased, and still measures 215.25. Floors at 70% of these.
+        // **WS-08 re-measured them.** The register now keeps the response monotone by
+        // delivering a zone's request at its own pivot and spilling the excess past each
+        // seam's limit into the untouched neighbours (`ToneEngine.appliedZoneEV`), where
+        // it used to apply the request regardless and posterize the band it inverted.
+        // Measured, the ramp's peak separation went dark 75.52 → 87.80, shadow
+        // 163.97 → 174.99, mid 194.19 → 214.17, light 129.34 → 192.68, bright
+        // 43.23 → 110.16 — Brights' spill reaches down into tones the ramp shows — and
+        // global, a flat trim, still measures 215.25. Floors at 70% of these.
         let bands: [(String, String, WritableKeyPath<Zones, ZoneAdjust>, Double)] = [
-            ("dark", "Dark", \.dark, 17), ("shadow", "Shadow", \.shadow, 36),
-            ("mid", "Mid", \.mid, 65), ("light", "Light", \.light, 46),
-            ("bright", "Bright", \.bright, 21), ("global", "Global", \.global, 150),
+            ("dark", "Dark", \.dark, 61), ("shadow", "Shadow", \.shadow, 122),
+            ("mid", "Mid", \.mid, 149), ("light", "Light", \.light, 134),
+            ("bright", "Bright", \.bright, 77), ("global", "Global", \.global, 150),
         ]
         var out: [ControlSpec] = bands.map { id, name, path, floor in
             ControlSpec(
@@ -913,10 +914,10 @@ enum ProofRegistry {
         // once, so one companion serves all five and no pivot is measured through a
         // boundary its neighbours happened not to make visible.
         //
-        // ±0.375 EV, a 0.75 EV seam (WS-08). It was ±2, a four-stop seam, and the
-        // register now eases any seam past ~0.76 EV at the default gaps
-        // (`ToneEngine.appliedZoneEV`), so at ±2 every pivot would be measured through
-        // the ease rather than through itself. 0.75 EV sits inside the exact range.
+        // ±0.375 EV, a 0.75 EV seam (WS-08). It was ±2, a four-stop seam, and five
+        // touched zones that far apart are a conflict the register now eases
+        // (`ToneEngine.appliedZoneEV`), so every pivot would be measured through the
+        // ease rather than through itself. 0.75 EV sits inside the exact range.
         func alternatingZones(_ r: inout Recipe) {
             r.develop.zones.dark.ev = 0.375
             r.develop.zones.shadow.ev = -0.375

@@ -683,7 +683,7 @@ enum SliderInventory {
         // control that offers 120 and priced its precision at a fifth of the truth. The
         // call site says why it is coarse in as many words — "coarser than Exposure's
         // 0.01 EV on purpose … a twentieth of a stop is already finer than the
-        // difference two adjacent zones make" (`ZonesPanel.swift:87-91`) — so the
+        // difference two adjacent zones make" (`ZonesPanel.swift:90-94`) — so the
         // divergence was this file's, not the panel's.
         //
         // It survived because nothing checks a `site` string. `:106` had become a
@@ -691,9 +691,9 @@ enum SliderInventory {
         // citation — is the register row itself, so the two sites named a sentence and
         // each other. A row whose citation has drifted still measures a real geometry,
         // so the suite stayed green while naming the wrong line to whoever went looking.
-        SliderSpec("Midtones", "ZonesPanel.swift:163", .developDisclosure, -3...3,
+        SliderSpec("Midtones", "ZonesPanel.swift:167", .developDisclosure, -3...3,
                    hard: -5...5, step: 0.05, decimals: 2),
-        SliderSpec("Global", "ZonesPanel.swift:198", .developDisclosure, -3...3,
+        SliderSpec("Global", "ZonesPanel.swift:202", .developDisclosure, -3...3,
                    hard: -5...5, step: 0.05, decimals: 2),
     ]
 }

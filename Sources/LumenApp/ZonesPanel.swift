@@ -21,9 +21,12 @@
 // −9 … +5 EV whatever Whites and Blacks do (`ToneEngine.zoneAxis`), and pivots stay at
 // least a stop apart (`Zones.minimumPivotGap`).
 //
-// Two neighbours too far apart would make a brighter tone render darker, so the engine
-// eases the zone pulling that seam downhill (`ToneEngine.appliedZoneEV`) and the row says
-// what it applies instead (`AppliedReadout.zoneEasing`).
+// Two neighbours too far apart would make a brighter tone render darker. The engine
+// delivers a zone's request at its own pivot and lets untouched neighbours carry the
+// excess, and only holds a request back where two touched zones conflict
+// (`ToneEngine.appliedZoneEV`). Either way the row that moved says so in its own caption
+// (`AppliedReadout.zoneEasing`): "+2.05 EV carried from Darks", or "Applied +0.95 of
+// +3.00 EV (conflicts with Midtones)".
 
 #if os(macOS)
 
@@ -128,8 +131,9 @@ struct ZonesPanel: View {
         // covers, and named under it in EV. Nil whenever the clamp is idle.
         let flattened = AppliedReadout.zoneFlattening(tone: recipe.develop.tone,
                                                       zones: zones)
-        // The zones the engine applies at less than their slider asks, each captioned
-        // under its own row with the amount the render uses. Empty for ordinary edits.
+        // The zones the engine renders at other than their slider says — carried or
+        // held back — each captioned under its own row with the amount the render uses.
+        // Empty for ordinary edits.
         let easing = AppliedReadout.zoneEasing(tone: recipe.develop.tone, zones: zones)
         return VStack(alignment: .leading, spacing: Lumen.rowGap) {
             ZonePivotStrip(pivots: normalizedPivots,
