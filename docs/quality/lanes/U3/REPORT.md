@@ -69,7 +69,7 @@ SPEC.md lines: S1 PASS (48 px = 24 pt each side, measured). S2 PASS (fit 510→2
 
 ## CI (head 3685198)
 
-UI layout ✅ (LayoutMetricTests, incl. the 3-across footer and the note budget) · UI snapshots ✅ 41/41 · GPU parity ✅ · Proof sweep ✅ · CI (`ci.yml`): queued on the shared macOS runner when this was written; earlier heads' runs were superseded by later pushes, none failed.
+UI layout ✅ (LayoutMetricTests, incl. the 3-across footer and the note budget) · UI snapshots ✅ 41/41 · GPU parity ✅ · Proof sweep ✅ · CI (`ci.yml`, run 39531474283): build-macos ✅, test-fast ✅ (full macOS suite), app-bundle ✅, engine-linux ✅, fixtures-linux ❌ in `check-swift-surface.py`. That checker is red on the base commit 9068ded too (6 init and 5 label findings, none in U3 files). U3 added one finding of its own: a nested `inset(_:)` in `LoupeGeometry.fitArea` made `Rectangle().inset(by:)` in ViewerOverlays read as a label mismatch. It is renamed `matted` in the final commit, which brings the checker back to the base's count (5 labels), measured locally.
 
 ## Three best before/after images
 

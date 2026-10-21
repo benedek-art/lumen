@@ -384,10 +384,13 @@ enum LoupeGeometry {
     /// still shows a picture rather than a matte. Zoomed layouts use the whole
     /// container: a 1:1 view pans edge to edge.
     static func fitArea(_ container: CGSize) -> CGSize {
-        func inset(_ v: CGFloat) -> CGFloat {
+        // Named `matted`, not `inset`: `check-swift-surface.py` resolves labels by name
+        // across the target, and a local `inset(_:)` made `Rectangle().inset(by:)`
+        // in ViewerOverlays read as a label mismatch.
+        func matted(_ v: CGFloat) -> CGFloat {
             Swift.max(v - fitMatte * 2, Swift.min(v, 64))
         }
-        return CGSize(width: inset(container.width), height: inset(container.height))
+        return CGSize(width: matted(container.width), height: matted(container.height))
     }
 
     /// Ratio that fits `image` inside `container`, in image-pixels per device-pixel.
