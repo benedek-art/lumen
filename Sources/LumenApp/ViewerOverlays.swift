@@ -1401,6 +1401,13 @@ struct CropOverlayView: View {
     /// The usable frame's own width ÷ height in pixels. The crop is normalized to that
     /// frame, so it is what converts a pixel ratio into a normalized one.
     var frameAspect: Double = 1
+    /// The picture the canvas is drawing under this overlay (flip applied, angle and
+    /// crop left off), handed to `CropTool` for Auto straighten. Nil where there is
+    /// none to measure, as in the snapshot fixtures.
+    var plate: CGImage? = nil
+    /// Draw the fine rotation grid as if the angle were moving. For the UI snapshot of
+    /// that state, which a still frame cannot otherwise reach.
+    var forceRotationGrid: Bool = false
 
     /// The gesture-in-flight signal every slider fires (docs/23 audit queue item 5):
     /// a crop drag writes the recipe through `cropBinding` per event.
@@ -1471,6 +1478,16 @@ struct CropOverlayView: View {
     /// is the tool being put away while the pointer is still inside — hence the pop in
     /// `onDisappear` as well as on the way out.
     @State private var pushedCursor: Bool = false
+    /// True for a moment after the angle last changed, from any hand — the on-image
+    /// drag, the ruler, the slider, Auto — so the fine grid is up whenever the picture
+    /// is turning, Lightroom's grid-while-rotating, not only during this view's drag.
+    @State private var angleMoving: Bool = false
+    /// The angle last seen, so the first appearance does not count as a change.
+    @State private var seenAngle: Double?
+    /// A ⌘-drag's straighten line, in this view's points, while it is being drawn.
+    @State private var straightenLine: (start: CGPoint, end: CGPoint)?
+    /// True while a resize or move drag is under way, for the pixel-size chip.
+    @State private var showsSize: Bool = false
 
     /// What a rotate-drag has to remember. The pivot is fixed at the press: recomputing
     /// it per event would measure each sweep against a frame the last sweep had already
@@ -1499,7 +1516,11 @@ struct CropOverlayView: View {
             // Built once and stroked twice. The dark companion and the light line are the
             // same path, so computing it here rather than inside each `.stroke` keeps the
             // doubling free — and guarantees the two can never be a pixel out of register.
-            let guidePath = guides(in: rect)
+            let rotating = forceRotationGrid || rotation != nil || angleMoving
+                || straightenLine != nil
+            // While the picture turns, the fine grid stands in for the composition guide:
+            // a rotation is judged against lines, and two sets of lines are clutter.
+            let guidePath = rotating ? rotationGrid(in: rect) : guides(in: rect)
             // The loupe draws the FULL frame under this overlay while the tool is armed,
             // turned in the view layer, and sizes the overlay to the usable frame — so
             // the picture's tilted corners stick out past these bounds. The dim and the
@@ -1572,6 +1593,18 @@ struct CropOverlayView: View {
 
                 rotateCueLayer(in: rect)
 
+                // The two live readouts: the ⌘-drag's straighten line and the pixel size
+                // while the rectangle is resized or moved. One `Group`, for the builder's
+                // ten-child limit the next comment describes.
+                Group {
+                    if let line = straightenLine {
+                        straightenLineView(line, in: size)
+                    }
+                    if showsSize {
+                        sizeChip(in: rect)
+                    }
+                }
+
                 // ONE `Group`, because a `ViewBuilder` takes ten children and nine of
                 // this overlay's are the rectangle's own targets. The failure mode is
                 // not "too many children" — see `KeyGrammarTests`' note on the same
@@ -1583,8 +1616,12 @@ struct CropOverlayView: View {
                         .contentShape(Rectangle())
                         .frame(width: rect.width, height: rect.height)
                         .offset(x: rect.minX, y: rect.minY)
-                        .gesture(moveGesture(in: frame))
-                        .help("Drag to slide the crop over the picture.")
+                        .gesture(moveGesture(in: frame, size: size,
+                                             windowOrigin: windowOrigin))
+                        // Lightroom's double click inside the crop: done.
+                        .simultaneousGesture(TapGesture(count: 2).onEnded { tool.commit() })
+                        .help("Drag to move the picture under the crop. Double-click or "
+                              + "press Return when done, Esc to put the framing back.")
 
                     // Edges before corners, so a corner's hit area wins where they
                     // overlap — the corner is the finer adjustment and the harder to hit.
@@ -1626,7 +1663,28 @@ struct CropOverlayView: View {
         // The tool can be put away with `R` — or by leaving the workspace — while the
         // pointer is still inside the rectangle, and a cursor pushed by a view that has
         // gone is a cursor nothing will ever pop.
-        .onDisappear { leave() }
+        .onDisappear {
+            leave()
+            tool.imagePan = .zero
+        }
+        // Hand the plate to Auto straighten whenever the canvas draws a new one.
+        .task(id: plate.map(ObjectIdentifier.init)) {
+            tool.notePlate(plate, flipped: geometry.flipH)
+        }
+        // The grid-while-rotating clock. Restarted by every angle change, so it stays up
+        // through a slider drag and drops 0.6 s after the last event.
+        .task(id: geometry.angle) {
+            let angle = geometry.angle
+            guard let seen = seenAngle else {
+                seenAngle = angle
+                return
+            }
+            guard seen != angle else { return }
+            seenAngle = angle
+            angleMoving = true
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            if !Task.isCancelled { angleMoving = false }
+        }
     }
 
     // MARK: Geometry
@@ -1723,34 +1781,76 @@ struct CropOverlayView: View {
         Path { $0.addRect(rect) }
     }
 
-    /// The chosen overlay, drawn inside the rectangle — and the grid regardless while a
-    /// rotation is in flight, because a picture turning under a frame with nothing
-    /// straight in it is a rotation you cannot judge.
+    /// The chosen guide, drawn inside the rectangle. The geometry — including the
+    /// triangle's right angles and the spiral's ⇧O turns — is `CropGuides`, in
+    /// LumenCore, where it is tested; this only offsets it onto the rectangle.
     private func guides(in rect: CGRect) -> Path {
+        path(of: CropGuides.segments(tool.overlay, width: Double(rect.width),
+                                     height: Double(rect.height),
+                                     orientation: tool.guideOrientation), in: rect)
+    }
+
+    /// The fine grid that stands in for the guide while the angle is moving.
+    private func rotationGrid(in rect: CGRect) -> Path {
+        path(of: CropGuides.rotationGrid(width: Double(rect.width),
+                                         height: Double(rect.height)), in: rect)
+    }
+
+    private func path(of segments: [CropGuides.Segment], in rect: CGRect) -> Path {
         var path = Path()
         guard rect.width > 0, rect.height > 0 else { return path }
-        // A rotation with nothing straight on screen is a rotation you cannot judge,
-        // so the grid stands in while the picture is turning.
-        let style = (rotation != nil && tool.overlay == .off) ? CropOverlayStyle.grid
-                                                              : tool.overlay
-
-        if let divisions = style.divisions {
-            for fraction in divisions {
-                let x = rect.minX + rect.width * CGFloat(fraction)
-                path.move(to: CGPoint(x: x, y: rect.minY))
-                path.addLine(to: CGPoint(x: x, y: rect.maxY))
-                let y = rect.minY + rect.height * CGFloat(fraction)
-                path.move(to: CGPoint(x: rect.minX, y: y))
-                path.addLine(to: CGPoint(x: rect.maxX, y: y))
-            }
-        }
-        if style == .diagonals {
-            path.move(to: CGPoint(x: rect.minX, y: rect.minY))
-            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-            path.move(to: CGPoint(x: rect.maxX, y: rect.minY))
-            path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        for segment in segments {
+            path.move(to: CGPoint(x: rect.minX + CGFloat(segment.x0),
+                                  y: rect.minY + CGFloat(segment.y0)))
+            path.addLine(to: CGPoint(x: rect.minX + CGFloat(segment.x1),
+                                     y: rect.minY + CGFloat(segment.y1)))
         }
         return path
+    }
+
+    /// The ⌘-drag's line and the angle it would set — the ruler's own drawing, so the
+    /// two ways of drawing a straighten line look like one tool.
+    private func straightenLineView(_ line: (start: CGPoint, end: CGPoint),
+                                    in size: CGSize) -> some View {
+        let angle = Straighten.angle(current: geometry.angle,
+                                     dx: Double(line.end.x - line.start.x),
+                                     dy: Double(line.end.y - line.start.y),
+                                     flipped: geometry.flipH,
+                                     frameLongEdge: Double(Swift.max(size.width, size.height)))
+        return ZStack {
+            Path { path in
+                path.move(to: line.start)
+                path.addLine(to: line.end)
+            }
+            .stroke(Lumen.accent, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+            Text(angle.map { String(format: "%+.1f°", $0) } ?? "—")
+                .font(.lumenNumeric)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .foregroundStyle(.white)
+                .lumenHUD(radius: Lumen.radiusChip)
+                .position(x: (line.start.x + line.end.x) / 2,
+                          y: (line.start.y + line.end.y) / 2 - 16)
+        }
+        .allowsHitTesting(false)
+    }
+
+    /// The crop's size in output pixels, on the rectangle while it is resized or moved
+    /// — the number the panel's Size row says, where the eyes are during the drag.
+    private func sizeChip(in rect: CGRect) -> some View {
+        var framed = geometry
+        framed.crop = crop
+        let resolved = CropGeometry.resolve(sourceWidth: Double(sourceSize.width),
+                                            sourceHeight: Double(sourceSize.height),
+                                            geometry: framed)
+        return Text("\(resolved.outputWidth) × \(resolved.outputHeight) px")
+            .font(.lumenNumeric)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .foregroundStyle(.white)
+            .lumenHUD(radius: Lumen.radiusChip)
+            .position(x: rect.midX, y: rect.minY + 18)
+            .allowsHitTesting(false)
     }
 
     /// Where the picture's OWN horizontal is now pointing, through the middle of the
@@ -2027,25 +2127,72 @@ struct CropOverlayView: View {
 
     // MARK: Gestures
 
-    /// Measured in the overlay's named space, NOT the default `.local` — the interior
-    /// host moves with the crop it is dragging, and `dragSpace`'s comment is the story
-    /// of what a coordinate space that moves mid-gesture does to a translation.
-    private func moveGesture(in frame: CGRect) -> some Gesture {
-        DragGesture(minimumDistance: 1,
-                    coordinateSpace: .named(CropOverlayView.dragSpace))
+    /// A drag inside the rectangle moves the PICTURE, Lightroom's way: the photograph
+    /// follows the pointer and the rectangle holds still on screen. In the recipe that
+    /// is the crop sliding the other way (`CropGeometry.panImage`, tested), and on
+    /// screen it is `CropTool.imagePan` offsetting the plate and this overlay together
+    /// by exactly the distance the clamp allowed — so at the frame edge the picture
+    /// stops following, the honest signal that there is no more picture that way. The
+    /// release animates the offset back to zero, which re-fits the whole frame around
+    /// the moved crop.
+    ///
+    /// MEASURED IN GLOBAL POINTS now, not the overlay's named space: that space is
+    /// inside the view the offset moves, and a translation measured in a space that
+    /// moves by the translation is the edge-drag glitch `dragSpace` describes.
+    ///
+    /// With ⌘ held at the press it draws a straighten line instead, Lightroom's
+    /// shortcut for the Straighten tool.
+    private func moveGesture(in frame: CGRect, size: CGSize,
+                             windowOrigin: CGPoint) -> some Gesture {
+        DragGesture(minimumDistance: 1, coordinateSpace: .global)
             .onChanged { value in
                 guard frame.width > 0, frame.height > 0 else { return }
+                if straightenLine != nil
+                    || (dragOrigin == nil && NSEvent.modifierFlags.contains(.command)) {
+                    straightenLine = (local(value.startLocation, windowOrigin),
+                                      local(value.location, windowOrigin))
+                    return
+                }
                 sliderGestureChanged(true)
                 let origin = dragOrigin ?? crop
                 if dragOrigin == nil { dragOrigin = origin }
-                crop = CropGeometry.move(origin,
-                                         dx: Double(value.translation.width / frame.width),
-                                         dy: Double(value.translation.height / frame.height))
+                showsSize = true
+                let pan = CropGeometry.panImage(
+                    origin,
+                    dx: Double(value.translation.width / frame.width),
+                    dy: Double(value.translation.height / frame.height))
+                crop = pan.crop
+                tool.imagePan = CGSize(width: CGFloat(pan.dx) * frame.width,
+                                       height: CGFloat(pan.dy) * frame.height)
             }
             .onEnded { _ in
+                if let line = straightenLine {
+                    finishStraighten(line, in: size)
+                    return
+                }
                 dragOrigin = nil
+                showsSize = false
+                withAnimation(Lumen.motionState) { tool.imagePan = .zero }
                 sliderGestureChanged(false)
             }
+    }
+
+    private func local(_ point: CGPoint, _ windowOrigin: CGPoint) -> CGPoint {
+        CGPoint(x: point.x - windowOrigin.x, y: point.y - windowOrigin.y)
+    }
+
+    /// The ⌘-drag's release: level the line through `Straighten`, the ruler's own
+    /// arithmetic, sign and flip included. Too short a line changes nothing.
+    private func finishStraighten(_ line: (start: CGPoint, end: CGPoint), in size: CGSize) {
+        straightenLine = nil
+        if let next = Straighten.angle(current: geometry.angle,
+                                       dx: Double(line.end.x - line.start.x),
+                                       dy: Double(line.end.y - line.start.y),
+                                       flipped: geometry.flipH,
+                                       frameLongEdge: Double(Swift.max(size.width,
+                                                                       size.height))) {
+            onAngle(next)
+        }
     }
 
     /// Every resize goes through `CropGeometry.resize`, which is in LumenCore and tested.
@@ -2068,15 +2215,27 @@ struct CropOverlayView: View {
                 sliderGestureChanged(true)
                 let origin = dragOrigin ?? crop
                 if dragOrigin == nil { dragOrigin = origin }
-                crop = CropGeometry.resize(
-                    origin, handle: handle,
-                    dx: Double(value.translation.width / frame.width),
-                    dy: Double(value.translation.height / frame.height),
-                    lockedAspect: tool.effectiveLockedAspect(for: photoID, crop: origin,
-                        frameAspect: frameAspect), frameAspect: frameAspect)
+                showsSize = true
+                // Lightroom's modifiers, read per event so they can come and go: ⇧ holds
+                // the ratio the rectangle had at the press while no lock is set, and ⌥
+                // resizes about the centre.
+                let flags = NSEvent.modifierFlags
+                let start = CropGeometry.normalized(origin)
+                let held = tool.effectiveLockedAspect(for: photoID, crop: origin,
+                                                      frameAspect: frameAspect)
+                    ?? (flags.contains(.shift) ? start.w / start.h * frameAspect : nil)
+                let dx = Double(value.translation.width / frame.width)
+                let dy = Double(value.translation.height / frame.height)
+                crop = flags.contains(.option)
+                    ? CropGeometry.resizeAboutCentre(origin, handle: handle, dx: dx, dy: dy,
+                                                     lockedAspect: held,
+                                                     frameAspect: frameAspect)
+                    : CropGeometry.resize(origin, handle: handle, dx: dx, dy: dy,
+                                          lockedAspect: held, frameAspect: frameAspect)
             }
             .onEnded { _ in
                 dragOrigin = nil
+                showsSize = false
                 sliderGestureChanged(false)
             }
     }
@@ -2095,6 +2254,13 @@ struct CropOverlayView: View {
             .onChanged { value in
                 let frame = frameRect(in: size)
                 guard frame.width > 0, frame.height > 0 else { return }
+                // ⌘ at the press: a straighten line, out here as well as inside.
+                if straightenLine != nil
+                    || (rotation == nil && NSEvent.modifierFlags.contains(.command)) {
+                    straightenLine = (local(value.startLocation, windowOrigin),
+                                      local(value.location, windowOrigin))
+                    return
+                }
                 let drag: RotationDrag
                 if let started = rotation {
                     drag = started
@@ -2133,6 +2299,10 @@ struct CropOverlayView: View {
                 onAngle(next)
             }
             .onEnded { _ in
+                if let line = straightenLine {
+                    finishStraighten(line, in: size)
+                    return
+                }
                 rotation = nil
                 sliderGestureChanged(false)
             }
@@ -2157,6 +2327,21 @@ struct CropOverlayView: View {
                                              sourceWidth: Double(sourceSize.width),
                                              sourceHeight: Double(sourceSize.height),
                                              degrees: geometry.angle)
+    }
+}
+
+/// The crop canvas's picture-drag offset, observed here rather than in `LoupeView` so
+/// a drag inside the rectangle re-bodies this wrapper per event and not the loupe.
+struct CropImagePanOffset<Content: View>: View {
+    @ObservedObject private var tool: CropTool = CropTool.shared
+    private let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        content.offset(x: tool.imagePan.width, y: tool.imagePan.height)
     }
 }
 

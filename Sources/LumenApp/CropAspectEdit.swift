@@ -17,6 +17,22 @@ enum CropAspectEdit {
     private static let duplicateSelection = Refusal(message:
         "The selection contains duplicate photo entries. Reopen the source and try again. No selected photo was changed.")
 
+    /// The ratio lock really holding the primary's rectangle now, if any — what a swap
+    /// carries across as its reciprocal. Here rather than on `CropTool` because it reads
+    /// the recipe, and the tool is session state, not a view of it.
+    @MainActor
+    static func heldLock(in state: AppState, tool: CropTool) -> Double? {
+        guard let photo = state.primarySelection,
+              let size = state.sourceFrameSize, size.width > 0, size.height > 0 else { return nil }
+        let geometry = state.recipe(for: photo).develop.geometry
+        let usable = CropGeometry.usableSize(width: Double(size.width),
+                                             height: Double(size.height),
+                                             degrees: geometry.angle)
+        guard usable.height > 0 else { return nil }
+        return tool.effectiveLockedAspect(for: photo.id, crop: geometry.crop,
+                                          frameAspect: usable.width / usable.height)
+    }
+
     static func rangeDescription(size: CGSize?, degrees: Double) -> String {
         guard let size,
               let range = CropGeometry.representableAspectRange(sourceWidth: size.width,

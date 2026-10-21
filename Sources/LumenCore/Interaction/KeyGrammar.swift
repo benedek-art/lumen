@@ -177,8 +177,8 @@ public enum KeyGrammar {
             KeyRow(keys: "⌥O", action: "Cycle the six overlay modes"),
             KeyRow(keys: "'", action: "Invert the selected mask component"),
             // The crop saves as you go (owner, pass 4), so R closing the tool IS the
-            // "commit" — the Return-commits binding is retired with the Done button it
-            // sat on, and Escape stays the way back (`CropTool.revert`).
+            // "commit"; Return does the same from the crop tool's own keys below, and
+            // Escape stays the way back (`CropTool.revert`).
             KeyRow(keys: "R",
                    action: "Crop tool on the image; again to put it away — the crop "
                        + "saves as you go"),
@@ -186,6 +186,21 @@ public enum KeyGrammar {
             // presses of a key the dispatcher already claims, told apart by the
             // interval between them (`CropTool.noteArming`).
             KeyRow(keys: "R R", action: "Reset the crop and stay in the tool"),
+            // The crop tool's own keys, live only while its rectangle is on the
+            // photograph (`CropKeys`): elsewhere X rejects and O is the mask overlay.
+            KeyRow(keys: "X (cropping)", action: "Swap the crop between portrait and landscape"),
+            KeyRow(keys: "O (cropping)",
+                   action: "Cycle the guides: thirds, golden ratio, grid, diagonals, "
+                       + "triangle, spiral, none"),
+            KeyRow(keys: "⇧O (cropping)", action: "Turn the triangle or the spiral"),
+            KeyRow(keys: "← → ↑ ↓ (cropping)",
+                   action: "Nudge the crop; with ⇧, ten times as far"),
+            KeyRow(keys: "Return (cropping)",
+                   action: "Done: put the crop tool away keeping the crop (Esc puts the "
+                       + "framing back)"),
+            KeyRow(keys: "⌥ / ⇧ / ⌘ drag (cropping)",
+                   action: "⌥ resizes about the centre, ⇧ holds the ratio, ⌘ draws a "
+                       + "straighten line"),
             // docs/12 §12.3's `Q`, unclaimed until the retouch stage existed. Bare, so it
             // is a dispatcher key and `dispatchedKeys` carries it.
             KeyRow(keys: "Q",
