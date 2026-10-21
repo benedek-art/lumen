@@ -8,7 +8,8 @@ new builds side by side). Cross-lane asks: `NEEDS.md`.
 
 1. Primaries Saturation was dead for much of its travel. Red + did nothing at all (the old
    PROOF-03). It now runs −100…+100 on every primary, and greys stay exactly grey.
-2. Point Colour now fades across soft edges instead of cutting them. Variance evens skin
+2. Point Colour now fades across blends with a neutral instead of cutting them (a modest
+   gain on real frames). Variance evens skin
    without flattening pores, Lightroom's Hue/Sat/Lum range refinements exist, and a strip
    under Range shows what is selected.
 3. Not fixed: speckle on high-ISO frames with NR off. It needs a smoothed reference image
@@ -30,9 +31,9 @@ Linux, Swift 6.1.2. Base = 9068ded, new = this branch. `M` = `tools/measure.py`.
 | S1 identity | bit-identical, tests | PASS |
 | S2 pick → shift exact | existing hue-order tests, ±1e-6° | PASS |
 | S3 tight | grey, 90° away, skin and foliage < 0.05 at Range 0/50/100, Hue refinement 100 too | PASS |
-| S4 smooth across blends | monotonic at 1000 steps and over 5 swatches × 3 neutrals × 3 Ranges; a 50% blend weighs 0.14 (base 0.00); max abs(w − α) 0.385 | PASS |
-| S4b near-neutral pixels | equal to the absolute-only weight to 1e-9 | PASS |
-| S5 2062 petal rim, Saturation −100 | rim chroma left 0.583 vs base 0.742 (0.79×) | PASS |
+| S4 smooth across blends | monotonic at 1000 steps and over 5 swatches × 3 neutrals × 3 Ranges × 5 Sat/Lum refinement pairs; a 50% blend weighs 0.14 (base 0.00); max abs(w − α) 0.385 (thresholds loosened in round 2, disclosed in SPEC) | PASS |
+| S4b near-neutral pixels; pale colours of another hue | near-neutrals equal the absolute-only weight to 1e-9; colours 40° off < 0.03 | PASS |
+| S5 2062 petal rim, Saturation −100 | rim chroma left 0.650 vs base 0.742 (0.88×; threshold 0.80×). Round 1 reached 0.79×, but it read the cream pollen and other pale colours of a different hue as tints of the red, which speckled. The hue test that fixes that also clips part of this rim, because the plate it blends into is warm, not neutral | **FAIL** (improved, short of the line) |
 | S6 2348 stripe, Luminance −80 | 3.0% under-selected, same as base | PASS (no regression; no improvement either) |
 | S7 speckle on noisy frames | per-pixel selection noise in the transition band about the same as base; slightly lower on 2062 (numpy model of the selection 0.30 vs 0.32 raw; verifier's estimate 0.078 vs 0.084) | **BLOCKED**: needs WS-34 (NEEDS.md) |
 | S8 Variance on skin | hue spread 0.11×, chroma spread 0.09×, pores 0.99× (base 0.50×), blue/grey ΔE 0; never tints a selected grey | PASS |
@@ -57,12 +58,16 @@ Visual lines: V1 and V2 (WS-32) and V1 (WS-33) judged from the evidence images. 
 WS-33 V2 (UI) judged from the `ui-snapshots` set (see below).
 
 Verifier: round 1 FAIL (S4 dip, near-neutral pixels selected, pollen speckle, Variance
-tinting greys, P2/P3 bookkeeping). All of it was fixed in 05561c2. ROUND2_PLACEHOLDER
+tinting greys, P2/P3 bookkeeping), fixed in 05561c2. Round 2 FAIL (pollen still
+speckled, blends rose with a tight Sat range, undisclosed S4 loosening), fixed in the round-3
+build. ROUND3_PLACEHOLDER
 
 ## What changed and why
 
 **Selection (`ColorEngine.selectionWeights`, twin `point`, kernel `lumenColourPoint`).**
-A pixel is read two ways and gets the more generous weight:
+For Saturation, Luminance and Variance, a pixel is read two ways and gets the more generous
+weight. The Hue rotation keeps the absolute reading only, because its fold bound does not
+cover the mixture reading's hue test:
 
 - the old absolute OKLab distance;
 - a mixture reading: the linear-light share of the swatch's colour in the pixel, which is
@@ -71,10 +76,12 @@ A pixel is read two ways and gets the more generous weight:
 The old selection held 1.0 down to an 85% blend and was zero by 40%, so soft edges were
 cut. The mixture reading:
 
-- fades out on OKLab chroma approaching the sample's, where the absolute reading is
-  already full, so there is no dip;
-- folds shares above 1 back as `1/share`, so brighter, paler colours are not read as tints;
-- is gated by the pixel's chroma, so near-neutrals gain nothing.
+- has no fade: every fade dipped somewhere. Instead it charges chroma above the sample's,
+  counts lightness at a constant half, and folds shares above 1 back as `1/share`, so
+  every factor is monotone along a blend;
+- tests hue on the angle between linear chroma vectors, at half the hue tolerance, so a
+  pale colour of another hue is not a tint;
+- is gated by both chromas, so near-neutrals gain nothing.
 
 **Variance.** Only hue and chroma converge now, and chroma is chroma-gated. Lightness used
 to converge at half weight, which on the per-pixel path halved texture.
@@ -112,9 +119,10 @@ Nothing was skipped or loosened elsewhere.
 ## Could not fix / a human must judge
 
 - **Speckle with NR off (S7).** Needs WS-34, see NEEDS.md.
-- **The edges are softer than before.** A 50% blend now gets 14% of the effect instead of
-  0%, and the backdrop next to a swatch's colour (2062's warm plate) gets a few per cent.
-  That's what removes the rim. Judge it on `ws32-2062-petal-edges.png`.
+- **Soft edges improved only modestly on real frames.** A 50% blend with a neutral now
+  gets 14% of the effect instead of 0%. A blend into a coloured backdrop is only partly
+  followed (2062 rim 0.88× base). The Luminance −80 edge is softer but still dotted at the
+  boundary. Judge it on `ws32-2062-petal-edges.png`.
 - **Blue Saturation is the weakest primary.** A longer lever started moving the blue's
   lightness.
 - **Primaries reach colours containing the primary,** as Lightroom's Calibration does.

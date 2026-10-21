@@ -315,6 +315,20 @@ public struct ColorEngine: Sendable {
     /// (`r = 0`) is at mixture distance ≥ 1 and never selected by this reading.
     public static let pointRatioTolerance: Double = 0.9
 
+    /// The mixture reading's hue tolerance, as a fraction of the hue sigma, on the angle
+    /// between linear chroma vectors. A true blend with a neutral has angle 0; a blend
+    /// with a WARM backdrop (2062's plate) drifts up to about 30°, and a pale colour of
+    /// another hue (2062's cream pollen) sits 40° off. The two cannot both be had:
+    /// 0.75 recovers some rim (2062 rim chroma left 0.82× base instead of 0.88×) but
+    /// lets a pale colour 40° off in at 0.10; 0.5 keeps it under 0.03. A false tint
+    /// shows as speckle inside an object, a rim as a softer edge, so 0.5.
+    public static let pointMixtureHueFraction: Double = 0.5
+    /// How much lightness counts in the mixture reading. A constant, so the reading is
+    /// monotone along any blend (see `selectionWeights`); low, because a blend toward
+    /// white or black moves lightness the most and that is exactly the move this reading
+    /// exists to forgive. The Luminance refinement still scales it.
+    public static let pointMixtureLightness: Double = 0.5
+
     // MARK: - Skin (docs/06 brief §5.3)
 
     /// The NTSC vectorscope I-bar — the axis all human skin hues cluster on regardless
@@ -1443,7 +1457,7 @@ public struct ColorEngine: Sendable {
         //              tolerances, flat to half the radius, C¹ rolloff to the edge;
         //   mixture  — the share `r` of the swatch's colour in it (linear light),
         //              ramped smoothly from `1 − σR` (nothing) to 1 (all), times the
-        //              same rolloff on hue and on lightness counted at HALF — a tint or a
+        //              same rolloff on hue and on lightness counted at `pointMixtureLightness` — a tint or a
         //              shade of the swatch is judged mostly on how much of the colour it
         //              kept, not on how far a white or a black carried its lightness.
         //              A constant, not `r` or `r²`: each factor of this reading is then
@@ -1485,7 +1499,7 @@ public struct ColorEngine: Sendable {
         // brighter, paler colour reads that way. Folded back down as `1/share`, so it
         // leaves the reading as fast as a blend enters it, continuously at 1.
         let r = share > 1 ? 1 / share : Swift.max(share, 0)
-        let mL = 0.5 * tL
+        let mL = Self.pointMixtureLightness * tL
         // A BLEND WITH A NEUTRAL POINTS EXACTLY ALONG THE SWATCH'S CHROMA. The angle
         // between the two linear chroma vectors is the mixture reading's hue test, at
         // half the hue tolerance and ungated: 2062's cream pollen sits inside the red
@@ -1494,7 +1508,7 @@ public struct ColorEngine: Sendable {
         let cross = chi.b * s.chiA - chi.a * s.chiB
         let dot = chi.a * s.chiA + chi.b * s.chiB
         let angle = atan2(abs(cross), dot) * 180 / .pi
-        let mH = angle / 180 / (0.5 * s.sigmaH)
+        let mH = angle / 180 / (Self.pointMixtureHueFraction * s.sigmaH)
         let ramp = g > 0 ? g * Num.smoothstep(1 - s.sigmaR, 1, r) : 0
         func absolute(_ tH: Double) -> Double {
             1 - Num.smoothstep(0.5, 1.0, (tL * tL + tC * tC + tH * tH).squareRoot())
