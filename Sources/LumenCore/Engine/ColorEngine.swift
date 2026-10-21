@@ -348,30 +348,23 @@ public struct ColorEngine: Sendable {
 
     // MARK: - Vibrance / Saturation (docs/06 brief §5.5)
 
-    /// Vibrance's low-chroma priority: full below `lowChromaLo`, none above `lowChromaHi`.
-    public static let lowChromaLo: Double = 0.02
-    public static let lowChromaHi: Double = 0.20
+    /// Vibrance's low-chroma priority, `(1 − C/lowChromaHi)²`: ×0.77 of the push at C 0.03,
+    /// ×0.20 at C 0.12, nothing from C 0.22. Quadratic rather than a smoothstep because
+    /// the falloff is a negative slope in the output-vs-input chroma curve, and Vibrance
+    /// and Saturation stack: C·(1 − C/c)² never falls faster than 1/3 of its own gain,
+    /// which keeps Vibrance + Saturation +100 above SAT-5's 0.3 slope.
+    public static let lowChromaHi: Double = 0.22
     /// Vibrance's chroma-noise floor: no boost at chroma 0, full from this chroma up. A
     /// shadow's chroma noise is low-chroma, so without it Vibrance amplified noise more
     /// than Saturation did (×1.89 on an ISO 3200 frame).
     public static let vibranceFloorChroma: Double = 0.02
-    /// Vibrance +100's largest gain is 1 + this, reached only by a colour with chroma
-    /// between 0.02 and `lowChromaLo` and next to no gamut fill. Everything else gets
-    /// less (`lowChroma`, `vibranceFillCeiling`), which is what makes Vibrance gentler
-    /// than Saturation on a real photograph (median ×1.35 against ×1.9 at +100 on 8559).
+    /// Vibrance +100's largest gain is 1 + this, on colours just above the noise floor.
+    ///
+    /// Vibrance weighs ABSOLUTE chroma only, never gamut fill. A fill weight made every
+    /// dark colour count as "near the edge" (C/L is high in shadows), and Vibrance +100
+    /// was ×1.1 on a dark frame — weaker than Vibrance −100. Gamut room is the push
+    /// compression's job, which Vibrance shares with Saturation.
     public static let vibrancePushStrength: Double = 1.0
-    /// Vibrance's push fades out as gamut fill rises, as (1 − fill/ceiling)², and is gone
-    /// by this fill. A colour that is already this close to the gamut edge is what
-    /// Vibrance exists to leave alone, and fading it out before Saturation's own
-    /// compression bends keeps Vibrance and Saturation together monotone with a slope of
-    /// at least 0.3 (SPEC SAT-5) instead of compounding two compressions.
-    public static let vibranceFillCeiling: Double = 0.65
-    /// …down to this share of the push, not to nothing. In a dark frame almost every
-    /// colour sits at high fill (C/L is high in shadows), so a weight that reached zero
-    /// left Vibrance +100 at a median ×1.045 on 4694 and 2062. Near the edge this share
-    /// is a gain of at most ×1.15, which Saturation's compression can stack on while the
-    /// pair stays above SAT-5's 0.3 slope.
-    public static let vibranceFillFloor: Double = 0.15
     /// Vibrance −100 is a uniform-in-hue pull to (1 − this) of the chroma — muted, never
     /// monochrome: `vibrancePullStrength` on near-neutrals, easing across the chroma
     /// gate (0.02…0.06) to `…Saturated` for everything with a real colour.
@@ -393,18 +386,6 @@ public struct ColorEngine: Sendable {
     /// Rec.2020's boundary sits at C/L 0.24–0.89 in this working space.
     public static let gamutReachCeiling: Double = 1.2
     public static let gamutReachSteps: Int = 16
-    /// Vibrance weighs a colour by its fill against the LEAST of the boundaries at its
-    /// own hue and this many degrees either side. The boundary has a cusp at the blue
-    /// corner (its log rises 0.3 per degree at h 245°), and a weight that followed it
-    /// exactly put a 0.055-per-degree step in Vibrance's gain across that hue. The
-    /// minimum of three is never past the true boundary, so it only ever weighs a colour
-    /// as fuller than it is: Vibrance stays gentle there, it does not get bolder.
-    public static let vibranceReachSpreadDegrees: Double = 3.0
-    /// …and never against a boundary further out than this C/L. Only the blue corner's
-    /// cusp (h ≈ 241°–250°, up to 0.89) and the violets reach past it; capping it there
-    /// removes the cusp from Vibrance's weight altogether (the ±3° minimum alone left
-    /// 0.041 per degree once the weight was scaled to `vibranceFillCeiling`).
-    public static let vibranceReachCap: Double = 0.6
     /// Lum-vs-Sat rolloff: the tonal window inside which a *push* has full effect.
     ///
     /// The low end is a true floor — below `satRolloffLo0` there is no colour to push,
@@ -1501,7 +1482,8 @@ public struct ColorEngine: Sendable {
 
     /// Low-chroma prioritization: Vibrance spends itself on the colours that have least.
     public static func lowChroma(_ chroma: Double) -> Double {
-        1 - Num.smoothstep(lowChromaLo, lowChromaHi, chroma)
+        let r = Swift.max(0, 1 - chroma / lowChromaHi)
+        return r * r
     }
 
     /// The working-gamut boundary along hue `h`, as OKLab C/L: the largest chroma per
@@ -1586,12 +1568,13 @@ public struct ColorEngine: Sendable {
         let reach = Self.gamutReach(hue: input.h, context: context)
 
         // VIBRANCE PUSH: gentler than Saturation by construction, not by coincidence.
-        // Its gain falls with chroma (`lowChroma`) AND with gamut fill (gone by
-        // `vibranceFillCeiling`), so a colour near the gamut edge stays put while
-        // Saturation still pushes it; it starts from zero at chroma 0
-        // (`vibranceFloorChroma`), so shadow chroma noise is not amplified; and Protect
-        // Skin spares skin. Before, it was ×2 on everything under C 0.05 — skin included —
-        // and measured stronger than Saturation +100 on every real photograph.
+        // Its gain falls with chroma (`lowChroma`), so a saturated colour barely moves
+        // while a muted one — in a shadow as much as in a highlight — gets nearly the
+        // full push; near the gamut edge the shared compression takes over, so it
+        // never clips. It starts from zero at chroma 0 (`vibranceFloorChroma`), so
+        // shadow chroma noise is not amplified, and Protect Skin spares skin. Before, it
+        // was ×2 on everything under C 0.05 — skin included — and measured stronger than
+        // Saturation +100 on every real photograph.
         //
         // VIBRANCE PULL: a uniform-in-hue mute, never monochrome, and NOT skin-protected.
         // It was the push's weighting run backwards — everything under C 0.05 went to
@@ -1609,16 +1592,8 @@ public struct ColorEngine: Sendable {
         if vibrance == 0 {
             vibAmount = 0
         } else if vibrance > 0 {
-            let spread = Self.vibranceReachSpreadDegrees
-            let vibReach = Swift.min(Self.vibranceReachCap, Swift.min(reach, Swift.min(
-                Self.gamutReach(hue: Num.wrapHue(input.h - spread), context: context),
-                Self.gamutReach(hue: Num.wrapHue(input.h + spread), context: context))))
-            let fill = input.L > 0 && vibReach > 0
-                ? Swift.max(0, input.C) / (input.L * vibReach) : 1
-            let room = Swift.max(0, 1 - fill / Self.vibranceFillCeiling)
             vibAmount = vibrance * rolloff * Self.vibrancePushStrength
                 * Self.lowChroma(input.C)
-                * (Self.vibranceFillFloor + (1 - Self.vibranceFillFloor) * room * room)
                 * Num.smoothstep(0, Self.vibranceFloorChroma, input.C)
         } else {
             vibAmount = vibrance * (Self.vibrancePullStrengthSaturated
@@ -1628,7 +1603,14 @@ public struct ColorEngine: Sendable {
         // The rolloff and the protection taper Saturation's PUSH only. Negative
         // Saturation reaches true B&W at −100 everywhere in the frame — the wire format
         // says so (Recipe.swift) — and gain 0 zeroes chroma whatever Vibrance did first.
-        let satAmount = saturation >= 0 ? saturation * rolloff : saturation
+        //
+        // When both push, their increments ADD rather than compound: Saturation's gain on
+        // the Vibrance result is 1 + s/(1 + v), so the pair is ×(1 + v + s), not
+        // ×(1 + v)(1 + s). Compounded, +100 and +100 asked for ×3.7 on a muted colour,
+        // and no compression can approach the gamut edge from that far without
+        // flattening (SAT-5).
+        var satAmount = saturation >= 0 ? saturation * rolloff : saturation
+        if satAmount > 0, vibAmount > 0 { satAmount /= 1 + vibAmount }
 
         var mid: RGB = c
         if vibAmount != 0 {

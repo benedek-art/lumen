@@ -414,6 +414,13 @@ final class HuePreservationTests: XCTestCase {
 
         // Part one: at a fixed hue and lightness, the relative chroma gain must fall as
         // the starting chroma rises. That IS "vibrance, not saturation".
+        //
+        // Measured with Protect Skin at 0 (WS-16). Protect Skin is a separate guard, and
+        // since WS-16 it fades out as colourfulness rises (C/L 0.12 → 0.20) so that
+        // orange is not treated as skin: in the skin hues a muted colour is spared and a
+        // vivid one is not, so at the default Protect the gain there legitimately rises
+        // with chroma (h 30°, L 0.35: ×1.34 at C 0.023, ×1.42 at C 0.062).
+        let unguarded = colorEngine(ColorAdjust(vibrance: 100, protectSkin: 0))
         var worstOrdering = 0.0
         var orderingDetail = "—"
         for hi in 0..<36 {
@@ -425,7 +432,7 @@ final class HuePreservationTests: XCTestCase {
                 guard ladder.count >= 2 else { continue }
                 var previousGain = Double.infinity
                 for s in ladder {
-                    let gain = lch(engine.apply(s.rgb)).C / Swift.max(s.chroma, 1e-9)
+                    let gain = lch(unguarded.apply(s.rgb)).C / Swift.max(s.chroma, 1e-9)
                     let rise = gain - previousGain
                     if previousGain.isFinite, rise > worstOrdering {
                         worstOrdering = rise

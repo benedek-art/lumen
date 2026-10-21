@@ -20,7 +20,7 @@ final class WS16SaturationFamilyTests: XCTestCase {
 
     // MARK: - Helpers
 
-    private struct Probe {
+    private struct WS16Probe {
         let engine: ColorEngine
         let stage: ExactColorStage
     }
@@ -28,7 +28,7 @@ final class WS16SaturationFamilyTests: XCTestCase {
     private func probe(vib: Double = 0, sat: Double = 0,
                        density: Double = WS16SaturationFamilyTests.defaultDensity,
                        protect: Double = WS16SaturationFamilyTests.defaultProtect,
-                       bw: [Double]? = nil) -> Probe {
+                       bw: [Double]? = nil) -> WS16Probe {
         var color = ColorAdjust()
         color.vibrance = vib
         color.saturation = sat
@@ -37,7 +37,7 @@ final class WS16SaturationFamilyTests: XCTestCase {
         let engine = ColorEngine(mixer: Mixer(), pointColors: [], color: color,
                                  primaries: Primaries(),
                                  bw: bw.map { BlackAndWhite(bands: $0, enabled: true) })
-        return Probe(engine: engine, stage: engine.exactStage)
+        return WS16Probe(engine: engine, stage: engine.exactStage)
     }
 
     private static func rgb(_ L: Double, _ C: Double, _ h: Double) -> RGB {
@@ -55,16 +55,21 @@ final class WS16SaturationFamilyTests: XCTestCase {
         return d
     }
 
-    private struct Sample { let L: Double; let C: Double; let h: Double; let rgb: RGB }
+    private struct WS16Sample {
+        let L: Double
+        let C: Double
+        let h: Double
+        let rgb: RGB
+    }
 
     /// The spec's standard grid, in-gamut samples only.
-    private static let grid: [Sample] = {
-        var out: [Sample] = []
+    private static let grid: [WS16Sample] = {
+        var out: [WS16Sample] = []
         for L in [0.3, 0.45, 0.6, 0.75, 0.9] {
             for C in [0.01, 0.02, 0.03, 0.04, 0.06, 0.08, 0.1, 0.13, 0.16, 0.2, 0.25, 0.3] {
                 for h in stride(from: 0.0, to: 360.0, by: 5.0) {
                     let c = rgb(L, C, h)
-                    if inGamut(c) { out.append(Sample(L: L, C: C, h: h, rgb: c)) }
+                    if inGamut(c) { out.append(WS16Sample(L: L, C: C, h: h, rgb: c)) }
                 }
             }
         }
@@ -99,7 +104,7 @@ final class WS16SaturationFamilyTests: XCTestCase {
         ("moderate red", 0.593, 0.149, 15.0), ("foliage", 0.504, 0.068, 127.0),
     ]
 
-    private func chromaGain(_ p: Probe, _ c: RGB) -> Double {
+    private func chromaGain(_ p: WS16Probe, _ c: RGB) -> Double {
         Self.lch(p.stage.apply(c)).C / Self.lch(c).C
     }
 
@@ -194,14 +199,14 @@ final class WS16SaturationFamilyTests: XCTestCase {
             (0, 100, 0, 0), (0, 100, Self.defaultProtect, 0), (0, 100, 0, 100),
             (100, 0, 0, 0), (100, 0, Self.defaultProtect, 0), (100, 100, 0, 0),
         ]
-        let Cs = (0..<200).map { 0.002 + Double($0) * (0.398 / 199) }
+        let chromas = (0..<200).map { 0.002 + Double($0) * (0.398 / 199) }
         var worst = Double.infinity, at = ""
         for st in settings {
             let p = probe(vib: st.v, sat: st.s, density: st.d, protect: st.p)
             for L in [0.3, 0.45, 0.6, 0.75, 0.9] {
                 for h in stride(from: 0.0, to: 360.0, by: 5.0) {
                     var prev: (C: Double, out: Double)?
-                    for C in Cs {
+                    for C in chromas {
                         let c = Self.rgb(L, C, h)
                         guard Self.inGamut(c) else { prev = nil; continue }
                         let out = Self.lch(p.stage.apply(c)).C
@@ -245,14 +250,14 @@ final class WS16SaturationFamilyTests: XCTestCase {
     // MARK: - Vibrance
 
     func testWS16_VIB1_VibranceGivesLowChromaPriority() {
-        let Cs = stride(from: 0.02, through: 0.3001, by: 0.005).map { $0 }
+        let chromas = stride(from: 0.02, through: 0.3001, by: 0.005).map { $0 }
         for v in [50.0, 100] {
             let p = probe(vib: v, protect: 0)
             for L in [0.45, 0.6, 0.75] {
                 for h in [0.0, 150, 200, 250, 300] {
                     var prev: Double?
                     var g3: Double?, g20: Double?
-                    for C in Cs {
+                    for C in chromas {
                         let c = Self.rgb(L, C, h)
                         guard Self.inGamut(c) else { continue }
                         let g = chromaGain(p, c)
@@ -269,6 +274,22 @@ final class WS16SaturationFamilyTests: XCTestCase {
                     }
                 }
             }
+        }
+    }
+
+    /// Vibrance is as strong on a muted colour in shadow as in a mid-tone (verifier
+    /// round 2). It weighs absolute chroma, not gamut fill; a fill weight counted every
+    /// dark colour as "near the edge" and left Vibrance +100 at ×1.13 at L 0.2 against
+    /// ×1.59 at L 0.6. Hues whose gamut leaves room for the push at L 0.2 (C/L reach
+    /// ≥ 0.4); the narrow yellows are bounded by the gamut itself, as they should be.
+    func testWS16_VibranceKeepsItsStrengthOnDarkMutedColours() {
+        let p = probe(vib: 100, protect: 0)
+        for h in [0.0, 30, 150, 200, 250, 300] {
+            let dark = chromaGain(p, Self.rgb(0.2, 0.03, h))
+            let mid = chromaGain(p, Self.rgb(0.6, 0.03, h))
+            XCTAssertGreaterThanOrEqual(mid, 1.5, "Vibrance +100 at C 0.03, L 0.6, h \(h): ×\(mid)")
+            XCTAssertGreaterThanOrEqual(dark, 0.85 * mid,
+                                        "h \(h): ×\(dark) at L 0.2 against ×\(mid) at L 0.6")
         }
     }
 
@@ -369,14 +390,14 @@ final class WS16SaturationFamilyTests: XCTestCase {
     }
 
     func testWS16_SKIN5_ProtectionHasNoChromaSeamAndKeepsChromaOrder() {
-        let Cs = stride(from: 0.01, through: 0.2001, by: 0.0025).map { $0 }
+        let chromas = stride(from: 0.01, through: 0.2001, by: 0.0025).map { $0 }
         for pr in [Self.defaultProtect, 100] {
             for (v, s) in [(0.0, 100.0), (100.0, 0.0)] {
                 let p = probe(vib: v, sat: s, protect: pr)
                 for L in [0.6, 0.75] {
                     for h in [40.0, 55, 70, 85] {
                         var prev: (C: Double, g: Double, out: Double)?
-                        for C in Cs {
+                        for C in chromas {
                             let c = Self.rgb(L, C, h)
                             guard Self.inGamut(c) else { prev = nil; continue }
                             let out = Self.lch(p.stage.apply(c)).C
@@ -399,7 +420,7 @@ final class WS16SaturationFamilyTests: XCTestCase {
 
     // MARK: - Density
 
-    private func medianEV(_ p: Probe) -> Double {
+    private func medianEV(_ p: WS16Probe) -> Double {
         let y = ColorEngine.workingSpace.luminanceWeights
         func Y(_ c: RGB) -> Double { y.r * c.r + y.g * c.g + y.b * c.b }
         var evs: [Double] = []
@@ -483,11 +504,11 @@ final class WS16SaturationFamilyTests: XCTestCase {
     }
 
     func testWS16_BW4_TheChromaGateIsSoft() {
-        let Cs = stride(from: 0.0, through: 0.2001, by: 0.005).map { $0 }
+        let chromas = stride(from: 0.0, through: 0.2001, by: 0.005).map { $0 }
         for (i, h) in ColorEngine.bandHueCentres.enumerated() {
             var prev: Double?
             var e4 = 0.0, e12: Double?
-            for C in Cs {
+            for C in chromas {
                 let c = Self.rgb(0.6, C, h)
                 guard Self.inGamut(c) else { prev = nil; continue }
                 let e = ev([c], band(i, -100))[0]
@@ -570,7 +591,7 @@ final class WS16SaturationFamilyTests: XCTestCase {
             }
         }
         let z = [Double](repeating: 0, count: 8)
-        let settings: [Probe] = [-100.0, -50, -25, 25, 50, 100].map { probe(sat: $0) }
+        let settings: [WS16Probe] = [-100.0, -50, -25, 25, 50, 100].map { probe(sat: $0) }
             + [-100.0, -50, 50, 100].map { probe(vib: $0) }
             + [probe(sat: 100, density: 0), probe(sat: 100, density: 100),
                probe(vib: 60, sat: 60, protect: 0), probe(vib: 100, protect: 100),

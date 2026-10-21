@@ -449,10 +449,10 @@ enum SliderInventory {
         SliderSpec("Texture", "BasicPanel.swift:578", .developTop, -100...100, step: 1),
         SliderSpec("Clarity", "BasicPanel.swift:594", .developTop, -100...100, step: 1),
         SliderSpec("Dehaze", "BasicPanel.swift:601", .developTop, -100...100, step: 1),
-        SliderSpec("Vibrance", "BasicPanel.swift:674", .developTop, -100...100, step: 1),
-        SliderSpec("Saturation", "BasicPanel.swift:681", .developTop, -100...100, step: 1),
-        SliderSpec("Density", "BasicPanel.swift:694", .developTop, 0...100, step: 1),
-        SliderSpec("Protect Skin", "BasicPanel.swift:705", .developTop, 0...100, step: 1),
+        SliderSpec("Vibrance", "BasicPanel.swift:659", .developTop, -100...100, step: 1),
+        SliderSpec("Saturation", "BasicPanel.swift:667", .developTop, -100...100, step: 1),
+        SliderSpec("Density", "BasicPanel.swift:675", .developTop, 0...100, step: 1),
+        SliderSpec("Protect Skin", "BasicPanel.swift:682", .developTop, 0...100, step: 1),
 
         // Colour — mixer, point colour, black and white.
         SliderSpec("Hue", "ColorPanel.swift:162", .developTop, -100...100, step: 1),

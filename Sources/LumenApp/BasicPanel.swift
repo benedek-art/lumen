@@ -660,10 +660,10 @@ struct BasicPanel: View {
                         value: binder.value(\.develop.color.vibrance, "color.vibrance"),
                         range: -100...100, hardRange: nil, defaultValue: 0,
                         step: 1, decimals: 0,
-                        help: "A gentler Saturation, weighted toward the muted colours: "
-                            + "what is already rich or near the gamut edge barely moves, "
-                            + "near-greys and skin are spared. −100 mutes, it does not "
-                            + "go black and white.")
+                        help: "A gentler Saturation, weighted toward the muted colours, "
+                            + "in shadow as much as in light: what is already rich barely "
+                            + "moves, near-greys and skin are spared. −100 mutes, it does "
+                            + "not go black and white.")
             LumenSlider(title: "Saturation",
                         value: binder.value(\.develop.color.saturation, "color.saturation"),
                         range: -100...100, hardRange: nil, defaultValue: 0,

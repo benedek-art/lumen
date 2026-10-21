@@ -3347,7 +3347,7 @@ def gen_tone_checks():
 # multiplier on both amounts and is tested by its own fixtures.
 # ---------------------------------------------------------------------------
 
-LOW_CHROMA_LO, LOW_CHROMA_HI = 0.02, 0.20
+LOW_CHROMA_HI = 0.22
 VIBRANCE_FLOOR_CHROMA = 0.02
 VIBRANCE_PUSH_STRENGTH = 1.0
 VIBRANCE_PULL_STRENGTH, VIBRANCE_PULL_STRENGTH_SATURATED = 0.6, 0.45
@@ -3355,14 +3355,11 @@ GATE_LO_CHROMA, GATE_HI_CHROMA = 0.02, 0.06
 SAT_ROOM_KNEE = 0.5
 DENSITY_DARKENING = 0.65
 GAMUT_REACH_CEILING, GAMUT_REACH_STEPS = 1.2, 16
-VIBRANCE_REACH_SPREAD = 3.0
-VIBRANCE_FILL_CEILING = 0.65
-VIBRANCE_FILL_FLOOR = 0.15
-VIBRANCE_REACH_CAP = 0.6
 
 
 def low_chroma(chroma):
-    return 1 - smoothstep(LOW_CHROMA_LO, LOW_CHROMA_HI, chroma)
+    r = max(0.0, 1 - chroma / LOW_CHROMA_HI)
+    return r * r
 
 
 def gamut_reach(h):
@@ -3421,18 +3418,15 @@ def vibrance_saturation(c, vibrance=0.0, saturation=0.0, density=0.0):
     rolloff = lum_sat_rolloff(J)
     reach = gamut_reach(h)
     if vib > 0:
-        vib_reach = min(VIBRANCE_REACH_CAP, reach, gamut_reach((h - VIBRANCE_REACH_SPREAD) % 360),
-                        gamut_reach((h + VIBRANCE_REACH_SPREAD) % 360))
-        fill = max(0.0, C) / (L * vib_reach) if L > 0 and vib_reach > 0 else 1.0
-        room = max(0.0, 1 - fill / VIBRANCE_FILL_CEILING)
         vib_amount = (vib * rolloff * VIBRANCE_PUSH_STRENGTH * low_chroma(C)
-                      * (VIBRANCE_FILL_FLOOR + (1 - VIBRANCE_FILL_FLOOR) * room * room)
                       * smoothstep(0.0, VIBRANCE_FLOOR_CHROMA, C))
     else:
         vib_amount = vib * (VIBRANCE_PULL_STRENGTH_SATURATED
                             + (VIBRANCE_PULL_STRENGTH - VIBRANCE_PULL_STRENGTH_SATURATED)
                             * (1 - smoothstep(GATE_LO_CHROMA, GATE_HI_CHROMA, C)))
     sat_amount = sat * rolloff if sat >= 0 else sat
+    if sat_amount > 0 and vib_amount > 0:
+        sat_amount /= 1 + vib_amount
 
     mid = shaped_chroma_scale(c, 1 + vib_amount, reach) if vib_amount != 0 else c
     if sat_amount == 0:

@@ -526,19 +526,18 @@ enum ExactColorTwin {
         let u2 = max(0, J - 0.86) / 0.35
         let rolloff = smoothstep(0.02, 0.20, J) * (0.35 + 0.65 / (1 + u2 * u2))
         let reachH = reach(l.z, u)
-        let low = 1 - smoothstep(0.02, 0.20, l.y)
+        // `ColorEngine.lowChroma`: (1 − C/0.22)².
+        let r = max(0, 1 - l.y / 0.22)
+        let low = r * r
         var vib: Float = 0
         if p.x > 0 {
-            // `vibranceReachSpreadDegrees` / `vibranceReachCap`: the least boundary within
-            // ±3°, and never past C/L 0.6.
-            let vibReach = min(0.6, min(reachH, min(reach(wrapHue(l.z - 3), u), reach(wrapHue(l.z + 3), u))))
-            let fill: Float = l.x > 0 && vibReach > 0 ? max(0, l.y) / (l.x * vibReach) : 1
-            let room = max(0, 1 - fill / 0.65)
-            vib = p.x * rolloff * low * (0.15 + (1 - 0.15) * room * room) * smoothstep(0, 0.02, l.y)
+            vib = p.x * rolloff * low * smoothstep(0, 0.02, l.y)
         } else if p.x < 0 {
             vib = p.x * (0.45 + (0.6 - 0.45) * (1 - gate(l.y)))
         }
-        let sat = p.y >= 0 ? p.y * rolloff : p.y
+        var sat = p.y >= 0 ? p.y * rolloff : p.y
+        // The two pushes add: Saturation's gain on the Vibrance result is 1 + s/(1 + v).
+        if sat > 0 && vib > 0 { sat = sat / (1 + vib) }
         var mid = c
         if vib != 0 { mid = chromaScale(c, 1 + vib, reachH, protection, 0, u, kBr) }
         guard sat != 0 else { return mid }
@@ -931,18 +930,16 @@ public enum ExactColorKernelSource {
                     float u2 = max(0.0, J0 - 0.86) / 0.35;
                     float rolloff = lumenSmooth(0.02, 0.20, J0) * (0.35 + 0.65 / (1.0 + u2 * u2));
                     float reach = lumenReach(l.z, m4, m5, m6, m7, m8);
-                    float low = 1.0 - lumenSmooth(0.02, 0.20, l.y);
+                    float lr = max(0.0, 1.0 - l.y / 0.22);
+                    float low = lr * lr;
                     float vib = 0.0;
                     if (p.x > 0.0) {
-                        float vibReach = min(0.6, min(reach, min(lumenReach(lumenWrap(l.z - 3.0), m4, m5, m6, m7, m8),
-                                                                 lumenReach(lumenWrap(l.z + 3.0), m4, m5, m6, m7, m8))));
-                        float fill = l.x > 0.0 && vibReach > 0.0 ? max(0.0, l.y) / (l.x * vibReach) : 1.0;
-                        float room = max(0.0, 1.0 - fill / 0.65);
-                        vib = p.x * rolloff * low * (0.15 + (1.0 - 0.15) * room * room) * lumenSmooth(0.0, 0.02, l.y);
+                        vib = p.x * rolloff * low * lumenSmooth(0.0, 0.02, l.y);
                     } else if (p.x < 0.0) {
                         vib = p.x * (0.45 + (0.6 - 0.45) * (1.0 - lumenGate(l.y)));
                     }
                     float sat = p.y >= 0.0 ? p.y * rolloff : p.y;
+                    if (sat > 0.0 && vib > 0.0) { sat = sat / (1.0 + vib); }
                     vec3 mid = c;
                     if (vib != 0.0) {
                         \(chromaScale("c", "1.0 + vib", "0.0", into: "vibrant"))

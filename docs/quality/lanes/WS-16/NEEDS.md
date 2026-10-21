@@ -127,3 +127,16 @@ The registry is append-only for other lanes, so WS-16 changed only what its test
 - The proof records for `color.saturation`, `color.vibrance`, `color.density`, `color.protectSkin` and
   `bw.*` were re-recorded by WS-16 (`LUMEN_RECORD_PROOFS=1`). The moves are fixes. The main ones are
   hueRotation dropping on Saturation and Vibrance, and B&W authority following the new EV response.
+
+## N7. Control inventory citations (owner: whoever maintains `docs/quality/controls.json` / `controls.md`)
+
+WS-16 rewrote `BasicPanel.saturationRows`, so the slider call sites moved. The new lines are:
+- Vibrance: 659
+- Saturation: 667
+- Density: 675
+- Protect Skin: 682
+
+`Tests/LumenAppTests/LayoutMetricSupport.swift` is updated (its self-test fails otherwise).
+`docs/quality/controls.json` and `controls.md` still cite 674/681/694/705, along with the old engine line numbers and
+the "additive vs subtractive (per-channel gamma)" Density description. Those docs are outside the lane
+folder, so WS-16 does not edit them.
