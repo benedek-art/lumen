@@ -42,9 +42,9 @@ Numbers from `measure_capture.py`, `measure.py`, full-frame renders and unit tes
 | C5 Amount/Radius live, monotone | PASS | `testAmountAndRadiusAreLiveAndMonotone` |
 | C6 identity | PASS | off / Amount 0 / no ISO byte-identical; default recipe without `--iso` byte-identical to base build |
 | C7 no hue shift | PASS | R/G, B/G to 1e-5 |
-| C8 GPU = CPU | PASS (round 1 kernels) | `CaptureSharpenParityTests` green on macOS run 39536220513; re-run on the final push for the round-2 uniforms |
+| C8 GPU = CPU | PASS | `CaptureSharpenParityTests` green on macOS (run 39541024187, round-2 kernels) |
 | C9 real photos | PASS | acutance ×1.28 ivy, ×1.21 canopy; 2348 wall std ×1.000 |
-| C10 Radius row live | PASS (Linux scans) | `CaptureSharpenScopeTests`, `SliderEvidenceTests`; layout lane on CI |
+| C10 Radius row live | PASS | `CaptureSharpenScopeTests`, `SliderEvidenceTests`; UI layout lane green on macOS |
 | C11 high-ISO fabric | PASS | jacket specks ×1.11 (6345 → 7035), +0.010 EV |
 | S1 identity | PASS | Amount 0 byte-identical on all five frames |
 | S2 sharpens, monotone | PASS | edge MTF50 ×1.129 / 1.227 / 1.334 / 1.495 at 40/70/100/150; zone ×1.202 at 70 |
@@ -56,7 +56,7 @@ Numbers from `measure_capture.py`, `measure.py`, full-frame renders and unit tes
 | S8 ⌥-drag mask | PASS (unit) / owner to try | `testTheMaskPreviewShowsEdgesWhiteAndFlatBlack` |
 | S9 no brightening | PASS | 6929 native full frame, Amount 100: +0.013 EV (base +0.094) |
 | S10 no hue shift | PASS | `testItCannotShiftHue` |
-| S11 GPU = CPU | PASS | `SharpenParityTests` green on macOS run 39536220513 |
+| S11 GPU = CPU | PASS | `SharpenParityTests` green on macOS (run 39541024187) |
 
 Verifier: round 1 FAIL (B1: capture sharpening grew ISO 3200 fabric specks ~7×); round 2 PASS on every Linux-runnable line (C11 specks ×1.12, +0.0099 EV), with two one-line doc fixes (capture Radius tooltip, a stale kernel comment) applied after it. Release ControlProofTests pass locally on the round-2 code.
 
@@ -73,4 +73,6 @@ Verifier: round 1 FAIL (B1: capture sharpening grew ISO 3200 fabric specks ~7×)
 
 ## Tests
 
-Linux, every LumenCore/LumenRender class except ControlProofTests, branch and base: all pass (branch adds CaptureStageTests, SharpenStageTests). ControlProofTests: see final CI run. macOS CI on the final push: see the summary reply.
+Linux, every LumenCore/LumenRender class except ControlProofTests, branch and base: all pass (branch adds CaptureStageTests, SharpenStageTests). ControlProofTests: pass (release, local and CI).
+
+CI on 88dcf1d: GPU parity green (CaptureSharpenParityTests incl. the round-2 delta uniforms, SharpenParityTests), Proof sweep green, UI layout green, UI snapshots green, CI test-fast / build-macos / engine-linux / app-bundle green. CI `fixtures-linux` → `check-swift-surface.py` red: pre-existing on the base (same `CommandLine`, `Metrics`/`RecipeKeys` init, `set(_:forKey:)` label and `Font` findings with the lane removed). The lane's only addition to it, `M_LN2`, is replaced by the literal in the final commit, after which the checker's findings equal the base's.

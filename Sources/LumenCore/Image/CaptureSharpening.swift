@@ -304,7 +304,7 @@ public struct CaptureStage: Sendable, Equatable {
     /// The profile's noise σ at a linear level, in log2 units.
     func noiseLog2Sigma(level y: Double) -> Double {
         let v = Swift.max(y, Self.logFloor)
-        return profile.sigma(at: v) / (v * M_LN2)
+        return profile.sigma(at: v) / (v * 0.6931471805599453)   // ln 2, as the GPU kernel spells it
     }
 
     /// The range a pixel may move to without drawing a halo: the 3×3 [min, max],
