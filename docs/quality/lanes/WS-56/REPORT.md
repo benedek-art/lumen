@@ -1,5 +1,14 @@
 # WS-56/57 report: heal and clone spots, heal strokes, dust
 
+**STATUS: PAUSED, round 2 UNVERIFIED.** Round 1 (2d67087) failed verification. Round 2
+(098a57c + 154463b) fixes its CI failure, the dust false-positive flood, the pasted wall
+pit, the per-event blob write and the blocking dust search. The round-2 verifier was
+cut off by the usage limit before it reported, and round-2 CI was not checked. Still
+failing by the spec's own measure: C3 (2 of 5 texture cases over natural variation) and
+C5 (8 of 9 sky specks against a 90 % bar). Spots that straddle object edges (C3b) are
+a known limit. Linux: 117 spot/stroke/heal/dust tests pass; the full LumenCoreTests run
+did not finish on Linux.
+
 Branch `quality/ws-56-57-heal` from `claude/inspiring-dirac-ulgpch` (c1c8e23). One lane
 folder for both workstreams; WS-57's lines are S8, S9 and C4. Round 1 (2d67087) failed
 verification; this is round 2.
