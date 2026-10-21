@@ -421,9 +421,11 @@ public enum MaskHandles {
     }
 
     /// The shortest gradient, in view points, whose centre line is offered as a turn
-    /// target: four grab radii, so the centre band (±11 pt), the two outer bands and a
-    /// strip of move between each pair do not overlap.
-    public static let centreLineMinimumLength: Double = 4 * grabRadius
+    /// target: six grab radii. The three ±11 pt bands then leave a strip of move at
+    /// least one grab radius wide between each pair (66 pt: bands at 0, 33, 66, move in
+    /// 11…22 and 44…55). At four radii the bands touched and the off-axis move target
+    /// vanished at exactly the length where the centre line appeared.
+    public static let centreLineMinimumLength: Double = 6 * grabRadius
 
     // MARK: - Feathering a gradient from its outer lines
 

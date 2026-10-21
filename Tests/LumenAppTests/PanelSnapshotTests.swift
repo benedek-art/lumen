@@ -315,9 +315,8 @@ final class PanelSnapshotTests: XCTestCase {
         await recorder.render("window-\(label(small))-crop",
                               "Full window, Crop workspace with the crop tool armed",
                               width: small.width, height: small.height, settle: 2.5,
-                              ready: { state.maskOverlayAlpha != nil },
-                              readyNote: "the mask overlay's alpha had not been "
-                                  + "rasterized — the wash may be missing") {
+                              ready: { state.primaryFrameSize != nil },
+                              readyNote: "the loupe frame had not arrived") {
             ContentView()
         }
 

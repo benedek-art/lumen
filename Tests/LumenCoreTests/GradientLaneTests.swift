@@ -147,8 +147,6 @@ final class GradientLaneTests: XCTestCase {
         let w = 600, h = 400
         let c = radial(centre: [0.5, 0.5], radii: [0.3, 0.25], rotation: 20, feather: 0)
         let plane = MaskRaster.radialPlane(c, w, h)
-        let core = MaskRaster.radialCore(radii: (0.3, 0.25), feather: 0, width: w, height: h)
-        XCTAssertEqual(core, 1 - 1.5 / 100.0, accuracy: 1e-12, "1.5 px of the 100 px minor radius")
         // A hard step has no partial pixels at all (the shipped rin, 1 − 1e-6, left
         // none on this frame). An anti-aliased rim has about one per pixel of perimeter;
         // demand half of that, which no stair-stepped edge can reach.
@@ -160,6 +158,18 @@ final class GradientLaneTests: XCTestCase {
         let perimeter = 2 * Double.pi * ((rx * rx + ry * ry) / 2).squareRoot()
         XCTAssertGreaterThanOrEqual(Double(partial), 0.5 * perimeter,
                                     "\(partial) partial pixels on a \(Int(perimeter)) px rim")
+        // AND HARD IN EVERY DIRECTION: on a 1000 × 20 px ellipse the ramp at the ends
+        // of the long axis is the same ~1.5 px as at the sides, not 1.5 × the aspect
+        // (a single short-axis floor gave 75 px there).
+        let long = radial(centre: [0.5, 0.5], radii: [1000.0 / 2400, 20.0 / 800],
+                          rotation: 0, feather: 0)
+        let thin = MaskRaster.radialPlane(long, 2400, 800)
+        let row = (0..<2400).map { Double(thin[$0, 400]) }
+        let rampAlongMajor = row.filter { $0 > 0.02 && $0 < 0.98 }.count
+        XCTAssertGreaterThanOrEqual(rampAlongMajor, 2, "the long-axis ends are aliased")
+        XCTAssertLessThanOrEqual(rampAlongMajor, 6, "\(rampAlongMajor) px of ramp at the long-axis ends")
+        let column = (0..<800).map { Double(thin[1200, $0]) }
+        XCTAssertLessThanOrEqual(column.filter { $0 > 0.02 && $0 < 0.98 }.count, 6)
         // Feather 100 keeps its one-pixel core.
         XCTAssertEqual(MaskRaster.radialCore(radii: (0.3, 0.25), feather: 100,
                                              width: w, height: h), 0.01, accuracy: 1e-12)

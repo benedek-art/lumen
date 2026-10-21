@@ -549,14 +549,22 @@ public enum KernelLibrary {
         vec2 q = p - vec2(cx * w / edge, cy * h / edge);
         float qx = q.x * ct - q.y * st;
         float qy = q.x * st + q.y * ct;
-        float nx = qx / max(rx * w / edge, 1e-12);
-        float ny = qy / max(ry * h / edge, 1e-12);
+        float ax = max(rx * w / edge, 1e-12);
+        float ay = max(ry * h / edge, 1e-12);
+        float nx = qx / ax;
+        float ny = qy / ay;
         float r = sqrt(nx * nx + ny * ny);
+        // `MaskRaster.radialRampStart`: the ramp is at least 1.5 px wide in THIS
+        // direction, from |grad r| per pixel.
+        float gx = nx / ax;
+        float gy = ny / ay;
+        float g = sqrt(gx * gx + gy * gy) / max(r, 1e-12) / edge;
+        float start = max(0.0, min(rin, 1.0 - 1.5 * g));
         float v;
-        if (r <= rin) { v = 1.0; }
-        else if (r >= 1.0) { v = 0.0; }
+        if (r >= 1.0) { v = 0.0; }
+        else if (r <= start) { v = 1.0; }
         else {
-            float t = clamp((r - rin) / max(1.0 - rin, 1e-12), 0.0, 1.0);
+            float t = clamp((r - start) / max(1.0 - start, 1e-12), 0.0, 1.0);
             v = 1.0 - t * t * (3.0 - 2.0 * t);
         }
         return vec4(v, v, v, 1.0);
