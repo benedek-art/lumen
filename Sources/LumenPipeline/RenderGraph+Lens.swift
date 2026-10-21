@@ -157,6 +157,12 @@ public final class LensInputsCache: @unchecked Sendable {
         let result = LensInputs(lateralCA: ca, vignette: vignette)
 
         lock.lock()
+        // A preview's measurement that finishes after an export's must not replace it:
+        // the finer measurement wins whichever lands last.
+        if let current = held[url], current.measuredLongEdge > long {
+            lock.unlock()
+            return current.inputs
+        }
         held[url] = Entry(inputs: result, measuredLongEdge: long)
         order.removeAll { $0 == url }
         order.append(url)

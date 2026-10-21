@@ -267,14 +267,18 @@ public enum LateralCAEstimator {
             Double(p[Swift.min(Swift.max(y, 0), h - 1) * w + Swift.min(Swift.max(x, 0), w - 1)])
         }
 
-        /// Bilinear, pixel centres at +0.5 — `ImageBuffer.bilinear`'s convention.
+        /// Catmull–Rom, pixel centres at +0.5 — the warp's own resampler, so the shift
+        /// the estimator finds is the shift the warp undoes.
         @inline(__always) func sample(_ p: [Float], _ x: Double, _ y: Double) -> Double {
             let fx = x - 0.5, fy = y - 0.5
             let x0 = Int(fx.rounded(.down)), y0 = Int(fy.rounded(.down))
-            let tx = fx - Double(x0), ty = fy - Double(y0)
-            let a = at(p, x0, y0) * (1 - tx) + at(p, x0 + 1, y0) * tx
-            let c = at(p, x0, y0 + 1) * (1 - tx) + at(p, x0 + 1, y0 + 1) * tx
-            return a * (1 - ty) + c * ty
+            let wx = LensStage.catmullRomWeights(fx - Double(x0))
+            let wy = LensStage.catmullRomWeights(fy - Double(y0))
+            func row(_ yy: Int) -> Double {
+                wx.0 * at(p, x0 - 1, yy) + wx.1 * at(p, x0, yy) + wx.2 * at(p, x0 + 1, yy)
+                    + wx.3 * at(p, x0 + 2, yy)
+            }
+            return wy.0 * row(y0 - 1) + wy.1 * row(y0) + wy.2 * row(y0 + 1) + wy.3 * row(y0 + 2)
         }
 
         func radialGradient(_ p: [Float], _ x: Int, _ y: Int, _ ux: Double, _ uy: Double) -> Double {
@@ -649,11 +653,26 @@ public struct DefringeParams: Equatable, Sendable {
         let pLo = Swift.min(d.purpleHueLo, d.purpleHueHi), pHi = Swift.max(d.purpleHueLo, d.purpleHueHi)
         let gLo = Swift.min(d.greenHueLo, d.greenHueHi), gHi = Swift.max(d.greenHueLo, d.greenHueHi)
         let ps = Self.purpleHueSpan, gs = Self.greenHueSpan
-        purpleLo = ps.lo + (ps.hi - ps.lo) * Swift.max(0, Swift.min(100, pLo)) / 100
-        purpleHi = ps.lo + (ps.hi - ps.lo) * Swift.max(0, Swift.min(100, pHi)) / 100
-        greenLo = gs.lo + (gs.hi - gs.lo) * Swift.max(0, Swift.min(100, gLo)) / 100
-        greenHi = gs.lo + (gs.hi - gs.lo) * Swift.max(0, Swift.min(100, gHi)) / 100
+        let (p0, p1) = Self.spanned(pLo, pHi), (g0, g1) = Self.spanned(gLo, gHi)
+        purpleLo = ps.lo + (ps.hi - ps.lo) * p0 / 100
+        purpleHi = ps.lo + (ps.hi - ps.lo) * p1 / 100
+        greenLo = gs.lo + (gs.hi - gs.lo) * g0 / 100
+        greenHi = gs.lo + (gs.hi - gs.lo) * g1 / 100
         radius = Self.radius(longEdge: longEdge)
+    }
+
+    /// Lightroom's minimum span: the two ends of a hue range stay at least 10 units
+    /// apart, widened about their centre and kept inside 0…100.
+    public static let minimumHueSpan = 10.0
+    static func spanned(_ lo: Double, _ hi: Double) -> (Double, Double) {
+        var a = Swift.max(0, Swift.min(100, lo.isFinite ? lo : 0))
+        var b = Swift.max(0, Swift.min(100, hi.isFinite ? hi : 100))
+        if b - a < minimumHueSpan {
+            let centre = Swift.max(minimumHueSpan / 2, Swift.min(100 - minimumHueSpan / 2, (a + b) / 2))
+            a = centre - minimumHueSpan / 2
+            b = centre + minimumHueSpan / 2
+        }
+        return (a, b)
     }
 
     /// Amount → fraction of the fringe's chroma removed. 1 − e^(−a/4): 2 → 39 %, 5 →
