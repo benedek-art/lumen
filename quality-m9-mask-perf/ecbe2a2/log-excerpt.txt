@@ -1,0 +1,10 @@
+test process exit status: 1
+
+=== compile errors ===
+    |                       `- error: value of type 'LocalAdjust' has no member 'saturation'
+error: fatalError
+Tests/LumenPipelineTests/MaskSpeedTests.swift:130:23: error: value of type 'LocalAdjust' has no member 'saturation'
+
+=== summary ===
+
+=== test failures ===

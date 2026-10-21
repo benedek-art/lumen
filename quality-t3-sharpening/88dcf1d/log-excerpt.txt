@@ -1,0 +1,11 @@
+test process exit status: 0
+
+=== compile errors ===
+
+=== summary ===
+	 Executed 1 test, with 0 failures (0 unexpected) in 122.760 (122.760) seconds
+	 Executed 1 test, with 0 failures (0 unexpected) in 122.760 (122.760) seconds
+	 Executed 1 test, with 0 failures (0 unexpected) in 122.760 (122.762) seconds
+UI snapshots: 36 entries, 36 files, in /Users/runner/work/lumen/lumen/build/snapshots
+
+=== test failures ===

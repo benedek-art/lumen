@@ -1,0 +1,15 @@
+test process exit status: 1
+
+=== compile errors ===
+     |             `- error: cannot find 'state' in scope
+     |         `- error: cannot find 'state' in scope
+error: fatalError
+Tests/LumenAppTests/PanelSnapshotTests.swift:390:9: error: cannot find 'state' in scope
+Tests/LumenAppTests/PanelSnapshotTests.swift:400:13: error: cannot find 'state' in scope
+Tests/LumenAppTests/PanelSnapshotTests.swift:407:9: error: cannot find 'state' in scope
+Tests/LumenAppTests/PanelSnapshotTests.swift:411:9: error: cannot find 'state' in scope
+Tests/LumenAppTests/PanelSnapshotTests.swift:420:9: error: cannot find 'state' in scope
+
+=== summary ===
+
+=== test failures ===
