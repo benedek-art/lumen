@@ -280,7 +280,9 @@ struct MaskCanvas: View {
                 break
             }
         }
-        .overlay(alignment: .topLeading) { liveStrokeLayer }
+        // Under the canvas, not over it: the cursor rings and the Auto Mask cross are
+        // drawn by the canvas and must stay readable over the paint.
+        .background(alignment: .topLeading) { liveStrokeLayer }
         .contentShape(Rectangle())
         .gesture(dragGesture)
         .onContinuousHover(coordinateSpace: .local) { phase in
@@ -1465,7 +1467,9 @@ struct MaskCanvas: View {
         // later — narrower, softer, cut — was the flicker this replaces.
         liveStroke?.finish()
         liveVersion &+= 1
-        withAnimation(.easeOut(duration: 0.35).delay(0.35)) { liveOpacity = 0 }
+        // The app's settling motion, held just long enough for the draft frame to land
+        // under it — longer and the stroke is tinted twice over the rendered mask.
+        withAnimation(Lumen.motionReadout.delay(0.15)) { liveOpacity = 0 }
         strokeStarted = nil
         stabilizer = nil
         guard !points.isEmpty else {

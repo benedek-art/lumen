@@ -150,7 +150,7 @@ def measure(out):
         reach = r * (1 - 1 / r)
         def p_at(x): return 0.1 + 0.9 * min(max((x - 150) / 720, 0), 1)
         res["pressure"] = {"centre_at_x": {str(x): round(float(a[340, x]), 3) for x in xs},
-                           "expected": {str(x): round(p_at(x + 0.5 + reach), 3) for x in xs},
+                           "expected": {str(x): round(p_at(x + 0.5), 3) for x in xs},
                            "halfwidth_px": {str(x): int((a[:, x] >= 0.25).sum()) for x in xs}}
     json.dump(res, open(os.path.join(out, "measure.json"), "w"), indent=1)
     print(json.dumps(res, indent=1))

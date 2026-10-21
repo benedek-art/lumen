@@ -1,7 +1,7 @@
 # WS-44 Brush masks: acceptance spec
 
 Measured with `python3 docs/quality/lanes/WS-44/brushlab.py run OUT` (synthetic, 1024x683,
-size 0.08 = 41 px radius) and `bash docs/quality/lanes/WS-44/automask.sh OUT` (corpus
+size 0.08 = 41 px radius) and `python3 docs/quality/lanes/WS-44/tools/automask.py OUT` (corpus
 photos), both driving `lumen-render strokes` (Sources/LumenRender/Strokes.swift), which calls
 the shipping `MaskRaster.accumulatedBrushPlane`. "Before" numbers are base commit 84bcd7c.
 
@@ -22,8 +22,8 @@ CPU/GPU parity line here.
 | S7 | Erase: Flow 100 removes fully, Flow 50 removes half | erasedCentre <= 0.005, eraseFlow50 0.50 +- 0.01 | 0.0, 0.0 | erase |
 | S8 | Pressure scales the deposit: centre at pressure p is p (Flow 100) | each of x=160..860 within 0.03 of p | 0.84, 1.0, 1.0, 1.0, 1.0 | pressure.centre_at_x |
 | S9 | Fast strokes (6 events across the frame) are gap-free and bead-free | peakMin >= 0.99; flick at Flow 30: centreline ripple <= 0.005 | peakMin 1.0; ripple: measured | fast_small, fast_large, flick30 |
-| S10 | Auto Mask traced along an object outline (centre ~0.5 r inside) stays on the object | leak <= 3 % of mask mass outside the object; coverage inside >= 0.85 | auditor's numbers | automask.sh (4694 lemon, 4694 apple, 8559 can) |
-| S11 | Auto Mask stroke that starts on an object and continues across its edge stays on the object it started on | mass beyond the edge <= 3 % | auditor's numbers | automask.sh crossing |
+| S10 | Auto Mask traced along an object outline (centre ~0.5 r inside) stays on the object | leak <= 3 % of mask mass outside the object; coverage inside >= 0.85 | auditor's numbers | tools/automask.py (4694 lemon, 4694 apple, 8559 can) |
+| S11 | Auto Mask stroke that starts on an object and continues across its edge stays on the object it started on | mass beyond the edge <= 3 % | auditor's numbers | tools/automask.py crossing |
 | S12 | Per-stroke paint cost at 2560 long edge, size 0.08 | >= 5x faster without Auto Mask, >= 10x faster with it | `msPerRadius` before | `lumen-render strokes --metrics`, `--repeat 5` |
 | S13 | Painting point by point (the live path) equals painting the stroke whole | max abs difference <= 1e-6 | n/a (no live path) | `BrushRasterTests` |
 | S14 | Identity: empty set, Flow 0, Density 0 (paint) leave the plane exactly 0 | exact | exact | `BrushRasterTests` |
