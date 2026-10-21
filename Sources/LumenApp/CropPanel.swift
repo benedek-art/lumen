@@ -403,9 +403,9 @@ struct CropSection: View {
                 // framing this session opened with, Reset clears everything. Return no
                 // longer means anything here; the grammar change landed in `KeyGrammar`
                 // and the help sheet with this.
-                // No perspective rows: `Upright` is a wire format with no stage behind
-                // it, and a control that reaches nothing is the defect this panel's
-                // Lens section was cut down for.
+                // Perspective (WS-25): Upright's modes and the manual Transform
+                // sliders. They reach a stage now — `GeometryMap` on both paths.
+                CropTransformSection()
         }
     }
 

@@ -1552,8 +1552,49 @@ public struct Crop: Codable, Equatable, Sendable {
     }
 }
 
-/// Manual/guided perspective (docs/09). Slider bounds are Lumen's own (docs/09 note).
+/// Perspective correction (docs/09), Lightroom's Upright and Transform.
+///
+/// `mode` picks an automatic correction and `segments` are the lines it was solved
+/// from: detected once, when the mode is chosen (`UprightDetector`), and stored, so a
+/// render is a pure function of the recipe and the CPU and GPU paths solve the same
+/// homography from the same numbers (`UprightSolver`). `guides` are the photographer's
+/// own lines for `.guided`. The manual sliders compose on top of whichever mode is set.
+/// Slider bounds are Lumen's own (docs/09 note).
 public struct Upright: Codable, Equatable, Sendable {
+
+    public enum Mode: String, Codable, CaseIterable, Sendable {
+        case off, auto, level, vertical, full, guided
+    }
+
+    /// A straight line in SOURCE-normalized coordinates (0…1, top-left origin).
+    public struct Segment: Codable, Equatable, Sendable {
+        public var x0: Double
+        public var y0: Double
+        public var x1: Double
+        public var y1: Double
+
+        public init(x0: Double, y0: Double, x1: Double, y1: Double) {
+            self.x0 = x0
+            self.y0 = y0
+            self.x1 = x1
+            self.y1 = y1
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case x0, y0, x1, y1
+        }
+
+        /// Tolerant like every recipe type: a missing coordinate decodes as 0, and a
+        /// segment left with no length is one the solver discards.
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            self.x0 = try c.decodeIfPresent(Double.self, forKey: .x0) ?? 0
+            self.y0 = try c.decodeIfPresent(Double.self, forKey: .y0) ?? 0
+            self.x1 = try c.decodeIfPresent(Double.self, forKey: .x1) ?? 0
+            self.y1 = try c.decodeIfPresent(Double.self, forKey: .y1) ?? 0
+        }
+    }
+
     public var vertical: Double     // −100…+100
     public var horizontal: Double   // −100…+100
     public var rotate: Double       // −10…+10
@@ -1562,10 +1603,14 @@ public struct Upright: Codable, Equatable, Sendable {
     public var offsetX: Double
     public var offsetY: Double
     public var strength: Double     // 0…100 back-off of a guided solution (docs/09)
+    public var mode: Mode
+    public var segments: [Segment]
+    public var guides: [Segment]
 
     public init(vertical: Double = 0, horizontal: Double = 0, rotate: Double = 0,
                 aspect: Double = 0, scale: Double = 100,
-                offsetX: Double = 0, offsetY: Double = 0, strength: Double = 100) {
+                offsetX: Double = 0, offsetY: Double = 0, strength: Double = 100,
+                mode: Mode = .off, segments: [Segment] = [], guides: [Segment] = []) {
         self.vertical = vertical
         self.horizontal = horizontal
         self.rotate = rotate
@@ -1574,14 +1619,20 @@ public struct Upright: Codable, Equatable, Sendable {
         self.offsetX = offsetX
         self.offsetY = offsetY
         self.strength = strength
+        self.mode = mode
+        self.segments = segments
+        self.guides = guides
     }
 
     private enum CodingKeys: String, CodingKey {
         case vertical, horizontal, rotate, aspect, scale, offsetX, offsetY, strength
+        case mode, segments, guides
     }
 
     /// Tolerant of a recipe written before any of these keys existed: each falls
     /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    /// An unknown `mode` spelling (a newer build's) decodes as `.off` rather than
+    /// failing the whole recipe.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.vertical = try c.decodeIfPresent(Double.self, forKey: .vertical) ?? 0
@@ -1592,6 +1643,16 @@ public struct Upright: Codable, Equatable, Sendable {
         self.offsetX = try c.decodeIfPresent(Double.self, forKey: .offsetX) ?? 0
         self.offsetY = try c.decodeIfPresent(Double.self, forKey: .offsetY) ?? 0
         self.strength = try c.decodeIfPresent(Double.self, forKey: .strength) ?? 100
+        let raw = try c.decodeIfPresent(String.self, forKey: .mode) ?? Mode.off.rawValue
+        self.mode = Mode(rawValue: raw) ?? .off
+        self.segments = try c.decodeIfPresent([Segment].self, forKey: .segments) ?? []
+        self.guides = try c.decodeIfPresent([Segment].self, forKey: .guides) ?? []
+    }
+
+    /// True when this changes no pixel: mode off and every slider at its default.
+    public var isIdentity: Bool {
+        mode == .off && vertical == 0 && horizontal == 0 && rotate == 0 && aspect == 0
+            && scale == 100 && offsetX == 0 && offsetY == 0
     }
 }
 

@@ -10,6 +10,8 @@ struct RenderSettings {
     var space = OutputSpace.srgb
     var dither = true
     var lutSize = LUT3D.interactiveSize
+    /// S16's filter. Lanczos-3 is the stage; the other two exist for comparison sheets.
+    var resampler = GeometryResample.Filter.lanczos3
 }
 
 /// The input, downsampled once, with what every render of it shares.
@@ -52,7 +54,20 @@ enum Renderer {
                 .apply(staged)
         }
         let rendered = ReferenceRenderer.render(staged, plan: plan)
-        let encoded = OutputEncode.encode(rendered, space: settings.space,
+        // S16, as `PipelineRenderer.renderReference` runs it: after the render, before
+        // the encode, in display-linear light. An automatic Upright with no stored lines
+        // is solved from lines detected on this input, which is what the app does once
+        // when the mode is picked (`UprightDetector`), so the CLI renders what the app
+        // would have stored.
+        var geometry = recipe.develop.geometry
+        if var upright = geometry.upright, upright.segments.isEmpty,
+           [.auto, .level, .vertical, .full].contains(upright.mode) {
+            upright.segments = UprightDetector.detect(input.image)
+            geometry.upright = upright
+        }
+        let framed = GeometryStage.apply(rendered, geometry: geometry,
+                                         filter: settings.resampler)
+        let encoded = OutputEncode.encode(framed, space: settings.space,
                                           dither: settings.dither)
         return (encoded, Date().timeIntervalSince(start))
     }
@@ -125,6 +140,14 @@ struct Args {
             guard (2...129).contains(n) else { throw InputError.message("--lut-size 2…129") }
             s.lutSize = n
         }
+        if let r = string("resampler") {
+            switch r.lowercased() {
+            case "lanczos3": s.resampler = .lanczos3
+            case "bicubic": s.resampler = .bicubic
+            case "bilinear": s.resampler = .bilinear
+            default: throw InputError.message("--resampler must be lanczos3, bicubic or bilinear")
+            }
+        }
         return s
     }
 }
@@ -143,8 +166,10 @@ enum LumenRenderCLI {
                           [--metrics sweep.json] [--tiles-dir dir]
       lumen-render keys   [--base r.json] [--json]
       lumen-render synth  --out test.lfi [--width 960] [--height 540]
+      lumen-render upright --input in.lfi [--long-edge 1024] [--modes level,vertical]
+                          [--out-dir dir]   (Upright lines, solve and residual tilt)
     shared: --as-shot-kelvin 5500 --as-shot-tint 0 --iso N --space srgb|p3
-            --no-dither --lut-size 33
+            --no-dither --lut-size 33 --resampler lanczos3|bicubic|bilinear
     (full manual: the header of Sources/LumenRender/main.swift)
     """
 
@@ -156,6 +181,7 @@ enum LumenRenderCLI {
             case "sweep": try sweep(args)
             case "keys": try keys(args)
             case "synth": try synth(args)
+            case "upright": try upright(args)
             case "help", "--help", "-h": print(usage)
             default: throw InputError.message("unknown command '\(args.command)'\n\(usage)")
             }
@@ -260,7 +286,9 @@ enum LumenRenderCLI {
         let effectiveValue: JSONValueBox
         let isReference: Bool
         let metrics: ImageMetrics
-        let deltaE2000VsReference: Metrics.DeltaE
+        /// Nil when the tile is a different size from the reference (a geometry sweep):
+        /// a per-pixel comparison between two framings measures nothing.
+        let deltaE2000VsReference: Metrics.DeltaE?
         let meanEncodedLuminanceDelta: Double
         let meanLinearLuminanceDeltaEV: Double
     }
@@ -373,6 +401,7 @@ enum LumenRenderCLI {
             counts[z] += 1
         }
         func zoneMeans(_ p: [Float]) -> [Double] {
+            guard p.count == n else { return [Double](repeating: .nan, count: 10) }
             var s = [Double](repeating: 0, count: 10)
             for i in 0..<n { s[zoneOf[i]] += Double(p[i]) }
             return (0..<10).map { counts[$0] > 0 ? s[$0] / Double(counts[$0]) : .nan }
@@ -391,7 +420,7 @@ enum LumenRenderCLI {
 
         var tiles: [SweepTile] = []
         for (i, t) in tilesOut.enumerated() {
-            let de = Metrics.deltaE(ref, t.2)
+            let de = t.2.lab.count == ref.lab.count ? Metrics.deltaE(ref, t.2) : nil
             let meanRef = tilesOut[refIndex].1.luminance
             tiles.append(SweepTile(
                 value: values[i], effectiveValue: JSONValueBox(value: effective[i]),
@@ -427,7 +456,8 @@ enum LumenRenderCLI {
         for t in tiles {
             print(pad(label(t.value), 10) + String(format: " %8.4f %8.3f %8.3f %8.3f %8.2f",
                          t.metrics.luminance.meanEncoded, t.meanLinearLuminanceDeltaEV,
-                         t.deltaE2000VsReference.mean, t.deltaE2000VsReference.p95,
+                         t.deltaE2000VsReference?.mean ?? .nan,
+                         t.deltaE2000VsReference?.p95 ?? .nan,
                          t.metrics.clipping.highlightsPct.any))
         }
         print("zone table: mean Δ encoded luminance ×255 (codes), zones of the reference tile")

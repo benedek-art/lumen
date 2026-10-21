@@ -787,6 +787,12 @@ actor RenderCoordinator {
                                           sourceX: sourceX, sourceY: sourceY)
     }
 
+    /// Upright's detected lines for one file (WS-25), off the decode this actor caches.
+    func uprightSegments(url: URL, recipe: Recipe) -> [Upright.Segment]? {
+        guard let source = try? self.source(for: url) else { return nil }
+        return renderer.uprightSegments(source: source, recipe: recipe)
+    }
+
     /// The cull-time clipping measurement for one file.
     ///
     /// On this actor for the same reason every other tap is: the decoded source lives

@@ -1195,6 +1195,8 @@ struct LoupeView: View {
     @StateObject private var model: PhotoRenderModel = PhotoRenderModel()
     @StateObject private var beforeModel: PhotoRenderModel = PhotoRenderModel()
     @ObservedObject private var viewport: LoupeViewport = LoupeViewport.shared
+    /// Guided Upright's drawing tool (WS-25), armed from the Crop panel's Transform rows.
+    @ObservedObject private var uprightGuides: UprightGuideTool = UprightGuideTool.shared
     /// THE ARRANGEMENT, because two on-image tools are gated on where the photographer
     /// is standing in the panel — the crop rectangle and the mask canvas. Both used to
     /// read `AppState.activeSection`; that field is gone with the tab strip, and a gate
@@ -2218,6 +2220,15 @@ struct LoupeView: View {
         ZStack {
             plate(cg, ratio: plateRatio, drawn: plateDrawn, zoomRatio: LoupeZoom.fit)
                 .rotationEffect(.degrees(tilt))
+
+            // Guided Upright's lines (WS-25), framed and turned exactly as the plate is
+            // so the overlay's coordinates are the plate's.
+            if uprightGuides.isDrawing {
+                UprightGuideOverlayView(geometry: geometry, sourceSize: source,
+                                        onAdd: { state.addUprightGuide($0) })
+                    .frame(width: plateDrawn.width, height: plateDrawn.height)
+                    .rotationEffect(.degrees(tilt))
+            }
 
             CropOverlayView(crop: cropBinding,
                             geometry: geometry,

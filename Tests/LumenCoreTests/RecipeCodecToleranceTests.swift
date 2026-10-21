@@ -541,7 +541,12 @@ final class RecipeCodecToleranceTests: XCTestCase {
                 crop: Crop(x: 0.1, y: 0.2, w: 0.7, h: 0.6),
                 angle: 2.5, flipH: true,
                 upright: Upright(vertical: 1, horizontal: 2, rotate: 3, aspect: 4,
-                                 scale: 110, offsetX: 5, offsetY: 6, strength: 80),
+                                 scale: 110, offsetX: 5, offsetY: 6, strength: 80,
+                                 mode: .guided,
+                                 segments: [Upright.Segment(x0: 0.1, y0: 0.2,
+                                                            x1: 0.15, y1: 0.8)],
+                                 guides: [Upright.Segment(x0: 0.7, y0: 0.1,
+                                                          x1: 0.68, y1: 0.9)]),
                 lens: LensCorrections(
                     profile: false, removeCA: false,
                     defringe: Defringe(purpleAmount: 3, purpleHueLo: 31, purpleHueHi: 71,
