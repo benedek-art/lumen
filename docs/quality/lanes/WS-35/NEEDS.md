@@ -25,3 +25,7 @@
    half-width of 0.04 up (0.114 at 0.01, where the tables differ by 56 codes). Lane K1 floored Blending 0 at a half-width of 0.12 to keep the two agreeing; a
    finer (or log-reshaped) preview table would let Blending 0 be harder. Owner: whoever
    owns `RenderPlan`'s table sizes / `PlanTableCache`.
+5. **`LumenSlider` on a circular control.** The grade wheel's Hue row (0–360°, a hue-ring
+   track) draws the slider's grey "deviation from default" fill under the track from 0
+   to the value. On a hue that fill means nothing; a `trackStops` row probably wants no
+   fill at all. Owner: U2 (`LumenSlider`).

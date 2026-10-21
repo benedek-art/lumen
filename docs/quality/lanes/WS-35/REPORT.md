@@ -10,7 +10,7 @@ Branch `quality/k1-grading-wheels`, from `claude/inspiring-dirac-ulgpch` @ 9068d
 4. Try by hand: drag the puck with and without ⇧, double-click it, and drag the strip's handles at Balance ±100. The PNGs can't show feel.
 5. Saved looks that used the wheels will render differently. That is the fix, but re-check any preset you care about.
 
-Best evidence: `evidence/zones-ramp.png`, `evidence/teal-orange-more.png`, `evidence/teal-orange-skin.png`.
+Best evidence: `evidence/zones-ramp.png`, `evidence/teal-orange-more.png`, `evidence/ui-grading-panel.png`.
 
 ## Verdict per spec line
 
@@ -187,7 +187,19 @@ base commit too (a pre-existing `LumenType` import finding).
 
 ## UI
 
-See CI section for the snapshot comparison.
+`evidence/ui-grading-panel.png` shows the baseline snapshot (a93efb2) beside this
+branch's (be8d328, the first push; the wheel UI has not changed since except the strip
+handle's drag origin, which a PNG cannot show).
+- The wheel's values are now on screen (Hue 210, Saturation 25). The puck is the teal it
+  applies, on a spoke from a centre mark, inside a half-strength ring.
+- Hue, Saturation and Luminance align with Blending and Balance instead of a boxed bar
+  floating under the wheel.
+- The zone strip carries its tonal foot ramp, and the handles sit at a third and two
+  thirds.
+
+Two things in the snapshot belong to `LumenSlider` (lane U2, NEEDS.md 3 and 5): the
+first row wears its focus fill, and the Hue row draws a grey deviation fill under its
+hue track.
 
 ## CI
 
