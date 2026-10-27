@@ -1,11 +1,9 @@
 // LoupeView.swift
 // The loupe: Lumen's main image viewer. It draws the CGImage the render coordinator
 // returns, at an explicit zoom ratio — fit, the 1:1/2:1 rungs, or any continuous
-// ratio from the pinch and scrubby-drag gestures — with drag-to-pan when the drawn
-// image is larger than the viewport. Click-to-zoom is deliberately GONE (session C,
-// owner: "this strange zoom … I'd like to honestly remove it"); a click does nothing,
-// Space and Z still toggle from the keymap, and the continuous gestures are the
-// pointer's way in.
+// ratio from the pinch, the scroll and the press-hold-slide scrub — with drag-to-pan
+// when the drawn image is larger than the viewport. A still click toggles Fit ↔ 100% at
+// the clicked spot, and Space and Z do the same from the keymap.
 //
 // Three behaviours this file exists to keep honest:
 //   · Two-tier progressive refine (docs/12 §B2): a draft pass lands within a frame,
