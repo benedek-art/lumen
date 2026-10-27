@@ -46,7 +46,7 @@ final class ViewerGestureGateTests: XCTestCase {
     func testTheDoubleClickClosureIsGated() throws {
         let code = try ShellSource.code(Self.loupe)
         let closure = try XCTUnwrap(
-            ShellSource.body(after: "SpatialTapGesture(count: 2)", in: code),
+            ShellSource.body(after: "SpatialTapGesture(count: 1)", in: code),
             "the loupe's double-click gesture is gone or renamed; re-point this pin")
         let flat = ShellSource.squashed(closure)
         guard let guardAt = flat.range(of: "guard gestureGate.doubleClickZoom else { return }"),

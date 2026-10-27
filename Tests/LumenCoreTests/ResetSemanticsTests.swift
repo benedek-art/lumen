@@ -175,7 +175,11 @@ final class ResetSemanticsTests: XCTestCase {
 
     /// A raw that recorded no ISO keeps the flat defaults rather than a guess.
     func testARawWithNoISORecordedKeepsTheFlatDefaults() {
-        XCTAssertEqual(Recipe.asImported(from: unknownISORaw), Recipe(),
+        // No ISO, no invented denoise profile. The one difference from a bare Recipe()
+        // is the starting look: a RAW opens on Camera, not the flat Neutral.
+        var expected = Recipe()
+        expected.look.render.preset = "Camera"
+        XCTAssertEqual(Recipe.asImported(from: unknownISORaw), expected,
                        "a file with no ISO was handed an invented profile")
     }
 

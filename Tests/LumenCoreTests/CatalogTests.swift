@@ -512,8 +512,10 @@ final class CatalogTests: XCTestCase {
         let store = try makeStore()
         let (folderID, ids) = try seed(store, count: 3)
 
-        // A default recipe is not an edit, however many times it is saved.
-        try store.saveRecipe(Recipe(), photoID: ids[0], isCurrent: true)
+        // A photo's starting recipe is not an edit, however many times it is saved.
+        // (For a RAW that is the Camera look, not a bare Recipe(), which is Flat.)
+        try store.saveRecipe(Recipe.asImported(from: Recipe.SourceFile(isRendered: false, iso: nil)),
+                             photoID: ids[0], isCurrent: true)
         var worked = Recipe()
         worked.develop.tone.exposure = 1.1
         try store.saveRecipe(worked, photoID: ids[1], isCurrent: true)

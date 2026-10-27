@@ -203,7 +203,8 @@ public struct RenderPlan: Sendable {
                                 whiteAnchorEV: toneEngine.whiteAnchorEV,
                                 blackAnchorEV: toneEngine.blackAnchorEV)
         self.linear = LinearStage(whiteBalance: wb,
-                                  exposureGain: toneEngine.exposureGain,
+                                  exposureGain: toneEngine.exposureGain
+                                      * pow(2, DisplayTransformParams.preset(named: look.render.preset).baselineEV),
                                   printerLightGains: grade.printerLightGains)
 
         // ---- S7 -------------------------------------------------------------
