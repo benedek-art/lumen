@@ -15,20 +15,20 @@
 // input; the pinch being sluggish on a 33 MP plate (docs/32 fifth round, `ZoomRegion`)
 // was the other half, and the two together are what the report describes.
 //
-// The grammar below is the one every photo editor on this platform already uses, and
-// the discriminator is the instrument rather than a preference:
+// THE GRAMMAR, SECOND VERSION. The first split the instruments: a wheel zoomed, a
+// trackpad scroll panned, ⌥ zoomed on either. The owner, after living with it: "the
+// zoom is still an issue … two finger scrolling or two finger zooming". A Magic Mouse
+// reports PRECISE deltas exactly like a trackpad, so on the owner's mouse a
+// two-finger scroll at fit did nothing at all, and zoomed in it panned when he meant
+// to zoom. The instrument was never a reliable discriminator.
 //
-//   · A WHEEL — `hasPreciseScrollingDeltas` false — zooms. It reports discrete lines,
-//     it has no pinch, and zoom-on-wheel is what Lightroom, Capture One and Photoshop's
-//     own default all do with it.
-//   · A TRACKPAD scroll pans, which is what two fingers mean on this platform in every
-//     document there is, and it pinches to zoom through `MagnifyGesture`. Panning is
-//     the verb the picture was missing while zoomed.
-//   · ⌥ held zooms on EITHER instrument, so a trackpad user has a scroll-zoom when
-//     they want one and a wheel user is never surprised out of zooming. ⌥ rather than
-//     ⌃ because ⌃-scroll is macOS's own screen zoom, and matching the modifier the
-//     slider rows already use for "this scroll means the value" (`LumenScrollNudge`)
-//     keeps one house rule rather than two.
+//   · A SCROLL ZOOMS, on every instrument, about the pointer — the Lightroom and
+//     Capture One reflex, and one rule instead of a rule per device.
+//   · ⌥ held PANS, for the trackpad hand that wants two fingers to move a zoomed
+//     picture. ⌥ because it was already this surface's "the other verb" key, and
+//     ⌃-scroll is macOS's own screen zoom.
+//   · Panning without a modifier is the drag's job (`LoupeView.dragGesture`), and the
+//     pinch still zooms through `MagnifyGesture`.
 //
 // Direction is taken off the RAW delta, exactly as the slider nudge takes it: scrolling
 // the way you scroll a document toward its top zooms in and moves the picture with your
@@ -50,8 +50,8 @@ public enum ViewerScroll {
         /// Move the picture by these points — the same sign convention as
         /// `LoupeViewport.pan`, so the picture follows the fingers.
         case pan(dx: Double, dy: Double)
-        /// Nothing this surface should answer: a fit-view trackpad scroll (there is
-        /// nothing to pan), or a delta that is not a number.
+        /// Nothing this surface should answer: a pan at fit (there is nothing to
+        /// pan), a sideways-only scroll, or a delta that is not a number.
         case ignore
     }
 
@@ -74,31 +74,30 @@ public enum ViewerScroll {
     /// The verb for one scroll event.
     ///
     /// `deltaX`/`deltaY` are AppKit's raw scrolling deltas, `precise` is
-    /// `hasPreciseScrollingDeltas`, `zoomModifier` is ⌥, and `zoomed` says whether the
-    /// picture is above fit — the only state a scroll needs, because there is nothing
-    /// to pan at fit.
+    /// `hasPreciseScrollingDeltas`, `panModifier` is ⌥, and `zoomed` says whether the
+    /// picture is above fit — the only state a pan needs, because there is nothing to
+    /// pan at fit.
     public static func verb(deltaX: Double, deltaY: Double,
-                            precise: Bool, zoomModifier: Bool,
+                            precise: Bool, panModifier: Bool,
                             zoomed: Bool) -> Verb {
         guard deltaX.isFinite, deltaY.isFinite else { return .ignore }
-        if zoomModifier || !precise {
-            // Y only, and X ignored, for `LumenScrollNudge`'s reason: a wheel has no X
-            // at all, so honouring it would make the same flick mean different things
-            // on different instruments and leave a diagonal one needing a tie-break
-            // nobody could predict.
-            let points = precise ? deltaY : deltaY * pointsPerLine
-            guard points != 0 else { return .ignore }
-            let factor = pow(2, points / pointsPerDoubling)
-            guard factor.isFinite, factor > 0 else { return .ignore }
-            return .zoom(factor: factor)
+        if panModifier {
+            guard zoomed else { return .ignore }
+            guard deltaX != 0 || deltaY != 0 else { return .ignore }
+            // A wheel's lines are worth `pointsPerLine` here too, or a ⌥-wheel pan
+            // would crawl one point per detent.
+            let scale = precise ? 1 : pointsPerLine / 4
+            return .pan(dx: deltaX * scale, dy: deltaY * scale)
         }
-        // A trackpad scroll with nothing held: pan, and only where there is something
-        // to pan. At fit the whole frame is on screen and the honest answer is that
-        // this surface does not take the event — the enclosing scroll view, if a future
-        // layout puts one there, should get it.
-        guard zoomed else { return .ignore }
-        guard deltaX != 0 || deltaY != 0 else { return .ignore }
-        return .pan(dx: deltaX, dy: deltaY)
+        // Y only, and X ignored, for `LumenScrollNudge`'s reason: a wheel has no X at
+        // all, so honouring it would make the same flick mean different things on
+        // different instruments and leave a diagonal one needing a tie-break nobody
+        // could predict.
+        let points = precise ? deltaY : deltaY * pointsPerLine
+        guard points != 0 else { return .ignore }
+        let factor = pow(2, points / pointsPerDoubling)
+        guard factor.isFinite, factor > 0 else { return .ignore }
+        return .zoom(factor: factor)
     }
 
     /// Whether a momentum (inertia) event should still be honoured.

@@ -187,4 +187,22 @@ final class ContinuousZoomTests: XCTestCase {
         XCTAssertEqual(ContinuousZoom.scrolled(currentZoom: 2, fitRatio: 0.2,
                                                factor: 0), 2)
     }
+
+    // MARK: - Which verb a drag is
+
+    func testADragAtFitAlwaysScrubs() {
+        XCTAssertTrue(ContinuousZoom.dragScrubs(heldSeconds: 0, canPan: false),
+                      "at fit there is nothing to pan, so press-and-drag zooms at once")
+    }
+
+    func testAQuickDragWhenZoomedPans() {
+        XCTAssertFalse(ContinuousZoom.dragScrubs(heldSeconds: 0.05, canPan: true))
+    }
+
+    func testPressHoldSlideScrubsWhenZoomed() {
+        XCTAssertTrue(ContinuousZoom.dragScrubs(
+            heldSeconds: ContinuousZoom.scrubHoldSeconds, canPan: true),
+            "the owner: press and hold and slide to zoom")
+        XCTAssertFalse(ContinuousZoom.dragScrubs(heldSeconds: .nan, canPan: true))
+    }
 }

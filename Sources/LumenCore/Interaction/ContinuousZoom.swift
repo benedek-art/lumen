@@ -1,6 +1,6 @@
 // ContinuousZoom.swift
 // The continuous zoom gestures' arithmetic: trackpad pinch, and the Lightroom-style
-// scrubby drag (press at fit, drag right to zoom in, left to come back).
+// scrubby drag (press and hold, then drag right to zoom in, left to come back).
 //
 // Session C, owner: "I don't know what this strange zoom is, but I'd like to honestly
 // remove it … either a two-finger spread on the touchpad or how Lightroom has it where
@@ -62,25 +62,37 @@ public enum ContinuousZoom {
     /// The scrubby drag: horizontal travel in points, exponential so equal travel
     /// means equal zoom steps anywhere on the range.
     ///
-    /// **NO CALLER IN THE APP AS OF THIS WRITING**, and that is said out loud because
-    /// this repository has already been bitten by engines written with no caller — a
-    /// focus-peaking pass, a colour-range isolation, a LUT import row, all complete and
-    /// all unreachable. This one is the reverse case: it HAD a caller and lost it. A
-    /// press-drag from fit used to scrub the zoom, which meant the same drag did two
-    /// unrelated things depending on whether the picture was at fit, with no cursor to
-    /// say which — so the owner chose "wheel zooms, drag pans" and the drag became one
-    /// verb.
-    ///
-    /// Kept rather than deleted because the arithmetic is right, tested, and exactly
-    /// what a modifier-gated scrub would want if one is ever wanted. If that has not
-    /// happened by the time somebody reads this, delete it and its tests: an idea kept
-    /// warm indefinitely is just a thing nobody dares remove.
+    /// BACK IN THE APP. It lost its caller when "wheel zooms, drag pans" made the drag
+    /// one verb, and the owner asked for it again: "I can't press and hold and slide to
+    /// zoom anymore with my cursor on my actual mouse". `dragScrubs` is how a drag
+    /// becomes one now, without bringing back the old ambiguity.
     public static func scrubbed(startZoom: Double, fitRatio: Double,
                                 horizontalTravel: Double) -> Double {
         guard horizontalTravel.isFinite else { return ZoomLadder.clamp(startZoom) }
         let factor = pow(2, horizontalTravel / scrubPointsPerDoubling)
         return resolve(effectiveStart(startZoom, fitRatio: fitRatio) * factor,
                        fitRatio: fitRatio)
+    }
+
+    /// How long the pointer has to stay down and still before a drag scrubs instead
+    /// of panning. Long enough that a quick grab-and-move is a pan, short enough that
+    /// "press and hold, then slide" does not feel like waiting.
+    public static let scrubHoldSeconds: Double = 0.25
+
+    /// Points of travel before a drag commits to a verb. Under this the press is
+    /// still a click (and the loupe's click zoom gets it).
+    public static let dragCommitPoints: Double = 3
+
+    /// Whether a drag that has just travelled `dragCommitPoints` is a scrub.
+    ///
+    /// The old drag decided from zoom state alone (at fit it zoomed, zoomed it panned),
+    /// and nothing on screen said which you would get. The hold is the thing the hand
+    /// knows it did: press, wait, slide is a scrub at any zoom; a press that moves at
+    /// once pans. At fit there is nothing to pan, so any drag scrubs — the original
+    /// "press at fit and drag right" still works with no hold.
+    public static func dragScrubs(heldSeconds: Double, canPan: Bool) -> Bool {
+        guard canPan else { return true }
+        return heldSeconds.isFinite && heldSeconds >= scrubHoldSeconds
     }
 
     /// What the gesture multiplies: the current ratio, except that fit — stored as 0,

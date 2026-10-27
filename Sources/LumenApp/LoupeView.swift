@@ -1211,6 +1211,12 @@ struct LoupeView: View {
     @State private var containerSize: CGSize = .zero
     @State private var cursor: CGPoint?
     @State private var panStart: CGSize?
+    /// When the current press went down, so the drag can tell "press, hold, slide"
+    /// (a scrub) from "press and move" (a pan). Nil between gestures.
+    @State private var dragPressedAt: Date?
+    /// The zoom a scrubbing drag began at; non-nil means this drag is a scrub. Nil
+    /// between gestures and for a drag that pans.
+    @State private var scrubStartZoom: Double?
     /// The zoom value whose anchor `zoomAnchored` has already applied, so the `.onChange`
     /// fallback does not apply it a second time. `panKeeping` is not idempotent — it
     /// moves the pan by the difference between two drawn sizes — so running it twice for
@@ -2665,45 +2671,49 @@ struct LoupeView: View {
             zoomedFullLongEdge: zoomedFullBasis)
     }
 
-    /// One drag gesture, two jobs decided by where it BEGAN: begun at fit it is the
-    /// scrubby zoom (press and drag right to zoom in, left to come back — the
-    /// Lightroom grammar the owner asked for), begun zoomed it pans. A click — no
-    /// travel — does nothing at all: click-to-zoom is deliberately gone, and Space/Z
-    /// still toggle from the keymap.
+    /// One drag gesture, two verbs, decided by the hand rather than by zoom state:
+    /// press, HOLD, then slide scrubs the zoom (right in, left out, anchored where you
+    /// pressed); press and move at once pans. At fit there is nothing to pan, so every
+    /// drag there scrubs. `ContinuousZoom.dragScrubs` (LumenCore, tested) holds the
+    /// rule; the owner asked for the scrub back on his mouse ("I can't press and hold
+    /// and slide to zoom anymore"), and the hold is what keeps it from stealing the pan.
     private func dragGesture(container: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
                 viewport.lastCursor = value.location
                 if viewport.showReadout { cursor = value.location }
+                if dragPressedAt == nil { dragPressedAt = value.time }
                 // The crop canvas ignores zoom and pan, so a drag that fell past the
                 // overlay must not scrub `zoomLevel` invisibly — the number would sit
                 // there, unseen, until the tool was put away and the picture jumped.
                 guard gestureGate.continuous else { return }
                 guard let cg = model.image else { return }
-                // A DRAG PANS. Always, at every zoom, with no mode to be in.
-                //
-                // It used to decide once, on the first event, from whether the picture
-                // was at fit: a drag begun at fit was a scrubby ZOOM and could never
-                // become a pan, and a drag begun zoomed was a pan and could never zoom.
-                // Nothing on screen said which you would get — this viewer sets no
-                // cursor at all (`LumenHover.swift`: "zero NSCursor changes anywhere in
-                // the application") — so the same press did two unrelated things
-                // depending on state the photographer had to remember.
-                //
-                // The owner chose "wheel zooms, drag pans" against the alternatives, and
-                // that is also the Lightroom and Capture One reflex. The scrub is not
-                // replaced by anything: the wheel and the pinch both zoom continuously
-                // and both are discoverable, so it was a third way to do a thing that
-                // already had two, and the only one with no affordance.
-                //
-                // At fit the guard below stops the drag, because a picture with nothing
-                // hidden has nowhere to go — `clampPan` pins an axis that fits.
                 let drawn = drawnFull(forZoom: viewport.zoom, image: cg,
                                       container: container)
-                guard drawn.width > container.width || drawn.height > container.height else {
+                // Committed already: keep doing what this drag is.
+                if let start = scrubStartZoom {
+                    let target = ContinuousZoom.scrubbed(
+                        startZoom: start,
+                        fitRatio: trueFitZoom(image: cg, container: container),
+                        horizontalTravel: Double(value.translation.width))
+                    zoomAnchored(to: target, at: value.startLocation, container: container)
                     return
                 }
-                if panStart == nil { panStart = viewport.pan }
+                if panStart == nil {
+                    // Not committed: wait for real travel, so a still press stays a
+                    // click and the click zoom gets it.
+                    let travel = Double(hypot(value.translation.width,
+                                              value.translation.height))
+                    guard travel >= ContinuousZoom.dragCommitPoints else { return }
+                    let held = value.time.timeIntervalSince(dragPressedAt ?? value.time)
+                    let canPan = drawn.width > container.width
+                        || drawn.height > container.height
+                    if ContinuousZoom.dragScrubs(heldSeconds: held, canPan: canPan) {
+                        scrubStartZoom = viewport.zoom
+                        return
+                    }
+                    panStart = viewport.pan
+                }
                 let base: CGSize = panStart ?? .zero
                 // Through `panTo`, like the wheel and the arrows: pressed against the
                 // bound, a direct write re-published the same pan on every event, and
@@ -2713,7 +2723,14 @@ struct LoupeView: View {
                                container: container, drawn: drawn)
             }
             .onEnded { _ in
+                if scrubStartZoom != nil {
+                    // A scrub has a real end, like a pinch: the sharp render goes out
+                    // as the button comes up.
+                    endZoomHold()
+                }
                 panStart = nil
+                scrubStartZoom = nil
+                dragPressedAt = nil
             }
     }
 
@@ -2724,7 +2741,7 @@ struct LoupeView: View {
     private func magnifyGesture(container: CGSize) -> some Gesture {
         MagnifyGesture()
             .onChanged { value in
-                // Same guard as the scrub above: the armed canvas is fit-only.
+                // Same guard as the drag above: the armed canvas is fit-only.
                 guard gestureGate.continuous else { return }
                 guard let cg = model.image else { return }
                 let start = pinchStartZoom ?? viewport.zoom

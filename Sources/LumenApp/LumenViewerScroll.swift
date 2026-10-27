@@ -78,11 +78,11 @@ private final class LumenViewerScrollView: NSView {
         let verb = ViewerScroll.verb(deltaX: Double(event.scrollingDeltaX),
                                      deltaY: Double(event.scrollingDeltaY),
                                      precise: event.hasPreciseScrollingDeltas,
-                                     zoomModifier: event.modifierFlags.contains(.option),
+                                     panModifier: event.modifierFlags.contains(.option),
                                      zoomed: zoomed?() ?? false)
         // The event is not ours: hand it back to the responder chain rather than
         // swallowing it. Today nothing above the viewer scrolls, so this is a
-        // no-op — and the day something does, a fit-view flick reaching it is the
+        // no-op — and the day something does, a sideways flick reaching it is the
         // behaviour that file will expect.
         guard verb != .ignore else {
             super.scrollWheel(with: event)

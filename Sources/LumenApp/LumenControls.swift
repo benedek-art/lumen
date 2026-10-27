@@ -749,7 +749,16 @@ struct LumenSlider: View {
         // Focus keeps the surface, because focus has nothing else to show it — and it is
         // there instead of the accent ring the owner reported on sight: the ring fired on
         // mouse-DOWN, so every drag of every slider began with a blue border.
+        //
+        // THE FILL BLEEDS, THE ROW DOES NOT MOVE. The fill was drawn to the row's own
+        // edges, so a focused "Contrast" sat with its first letter on the fill's left
+        // lip and the readout pill on its right one — the owner's "not enough padding,
+        // the text is right at the side". Out by six for the fill, back by six for the
+        // layout: the same move `LumenSectionHeader` makes, so labels and tracks keep
+        // their x.
+        .padding(.horizontal, 6)
         .lumenFocusSurface(focused: rowFocused)
+        .padding(.horizontal, -6)
         // KEYBOARD NUDGE (docs/28 Phase 7), and the three things it needed.
         //
         // One: the row is focusable, with the system's own ring turned off. macOS draws
