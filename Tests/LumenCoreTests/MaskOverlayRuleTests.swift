@@ -230,10 +230,19 @@ final class MaskOverlayRuleTests: XCTestCase {
 
     func testOFromOutsideMaskingShowsOnceTheEditorOpens() {
         var r = Rule(masking: false)
+        r.reduce(.selected("a"))
         r.reduce(.toggle)
         r.reduce(.masking(true))
         r.reduce(.selected("a"))
         XCTAssertEqual(r.resolution, .init(id: "a", reason: .chosen))
+    }
+
+    func testOWithNoMaskChoosesNothing() {
+        var r = rule(.toggle)
+        XCTAssertEqual(r.choice, .automatic)
+        r.reduce(.created("a"))
+        r.reduce(.adjusted("a", held: false))
+        XCTAssertNil(r.shownID, "a Show chosen with no mask would surface here, unasked")
     }
 
     // MARK: - Undo, redo, delete

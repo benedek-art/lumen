@@ -52,7 +52,7 @@ public struct MaskOverlayRule: Equatable, Sendable, Codable {
         case panelHover(String?)
         /// The pointer is on a mask's pin on the canvas, or on none (nil).
         case canvasHover(String?)
-        /// `O`: hide what is shown, or show what is not.
+        /// `O`: hide what is shown, or show the selected mask if nothing is.
         case toggle
         case choose(Choice)
         /// The photograph's masks after an edit, undo or redo.
@@ -126,7 +126,9 @@ public struct MaskOverlayRule: Equatable, Sendable, Codable {
         case .canvasHover(let id):
             canvasHoverID = id
         case .toggle:
-            choice = shownID == nil ? .show : .hide
+            // With no mask there is nothing to show; a Show chosen then would surface
+            // unasked on the next mask made.
+            if shownID != nil { choice = .hide } else if selectedID != nil { choice = .show }
         case .choose(let next):
             choice = next
         case .masksChanged(let ids):
