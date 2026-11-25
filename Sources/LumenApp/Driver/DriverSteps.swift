@@ -20,8 +20,11 @@ enum DriverPacer {
     static func run(_ ticks: [DriverTick]) async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             let thread = Thread {
+                // Ticks due at zero go first and the clock starts after them: the first
+                // post on a thread can take a while and must not bunch what follows.
+                for tick in ticks where tick.at <= 0 { tick.fire() }
                 let start = DispatchTime.now().uptimeNanoseconds
-                for tick in ticks {
+                for tick in ticks where tick.at > 0 {
                     let due = start &+ UInt64(Swift.max(tick.at, 0) * 1e9)
                     let now = DispatchTime.now().uptimeNanoseconds
                     if due > now {
@@ -84,9 +87,10 @@ extension DriverSession {
         if let wanted = spec["text"] as? String {
             // What a person would do: find the words on screen.
             let lowered = wanted.lowercased()
-            var hits = screenTexts().filter { ($0["text"] as? String)?.lowercased() == lowered }
+            let seen = screenTexts()
+            var hits = seen.filter { ($0["text"] as? String)?.lowercased() == lowered }
             if hits.isEmpty {
-                hits = screenTexts().filter {
+                hits = seen.filter {
                     ($0["text"] as? String)?.lowercased().contains(lowered) ?? false
                 }
             }
@@ -176,7 +180,7 @@ extension DriverSession {
         case "menu": return try await menu(step)
         case "scrollTo": return try await scrollTo(step)
         case "move", "click", "drag", "scroll", "swipe", "pinch", "smartMagnify", "key",
-             "modifiers":
+             "type", "modifiers":
             return try await gesture(step)
         default:
             throw DriverError("unknown verb \"\(step.verb)\"")
@@ -508,6 +512,18 @@ extension DriverSession {
                 })
                 ticks.append(DriverTick(at: Double(k) * interval + 0.03) {
                     input.key(name, down: false)
+                })
+            }
+            endEvent = "keyUp"
+
+        case "type":
+            guard let text = step.string("text"), !text.isEmpty else {
+                throw DriverError("type needs text")
+            }
+            let interval = step.double("interval") ?? 0.04
+            for (k, character) in text.enumerated() {
+                ticks.append(DriverTick(at: Double(k) * interval) {
+                    input.typeCharacter(character)
                 })
             }
             endEvent = "keyUp"

@@ -511,6 +511,32 @@ final class DriverInput {
         return table
     }()
 
+    /// Types one character as a key press carrying that character, whatever key a
+    /// real keyboard would need for it.
+    func typeCharacter(_ character: Character) {
+        let text = String(character)
+        let known = DriverInput.keys[text.lowercased()]
+        let code = known?.code ?? 0
+        DriverTimeline.shared.add("in", ["ev": "type", "text": text, "via": via.rawValue])
+        for down in [true, false] {
+            switch via {
+            case .hid:
+                let event = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: down)
+                let units = Array(text.utf16)
+                event?.keyboardSetUnicodeString(stringLength: units.count, unicodeString: units)
+                event?.post(tap: .cghidEventTap)
+            case .app:
+                postNS(NSEvent.keyEvent(
+                    with: down ? .keyDown : .keyUp, location: base(cursor),
+                    modifierFlags: [],
+                    timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: geometry.number, context: nil,
+                    characters: text, charactersIgnoringModifiers: text.lowercased(),
+                    isARepeat: false, keyCode: code))
+            }
+        }
+    }
+
     static func knowsKey(_ name: String) -> Bool {
         keys[name.lowercased()] != nil
     }
