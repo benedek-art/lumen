@@ -409,8 +409,7 @@ final class KeyDispatcher {
         // Through `LoupeViewport`'s verbs, which are headed "the keymap's entry points"
         // and had no callers at all — this ran its own arithmetic on `zoomLevel`
         // instead. Two consequences the user could feel: the keyboard never anchored
-        // the zoom at the cursor, which is the entire purpose of
-        // `anchorNextZoomAtCursor`, so Z and + zoomed about the centre while a click
+        // the zoom at the cursor, so Z and + zoomed about the centre while a click
         // zoomed where you pointed; and `−` walked 1 → 0.5 → 0.25 → 0.125 without ever
         // snapping back to Fit, because `zoomOut`'s "below 0.35 means fit" rule lived
         // in the verb nobody called. Click-to-zoom already went through these, so the

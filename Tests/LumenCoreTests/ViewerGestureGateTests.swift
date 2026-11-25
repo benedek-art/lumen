@@ -60,9 +60,9 @@ final class ViewerGestureGateTests: XCTestCase {
     /// The drag, the pinch and the wheel use the same gate.
     func testTheContinuousGesturesAreGated() throws {
         let code = try ShellSource.code(Self.loupe)
-        for marker in ["private func dragGesture(container: CGSize)",
-                       "private func magnifyGesture(container: CGSize)",
-                       "private func applyScroll(_ verb: ViewerScroll.Verb, container: CGSize)"] {
+        for marker in ["private func dragGesture()",
+                       "private func applyMagnify(_ step: ViewerMagnify.Step, at point: CGPoint,",
+                       "private func applyScroll(_ verb: ViewerScroll.Verb, at point: CGPoint)"] {
             let body = try XCTUnwrap(ShellSource.body(after: marker, in: code),
                                      "\(marker) is gone; re-point this pin")
             XCTAssertTrue(ShellSource.squashed(body)
