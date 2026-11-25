@@ -263,23 +263,28 @@ public struct ViewerViewport: Equatable, Sendable {
         return usable(size) ? size : nil
     }
 
-    /// Which frame the zoom is denominated in. The prediction when the picture on
-    /// screen has its shape; otherwise the picture's own shape at the predicted long
-    /// edge, kept across deliveries that differ by rounding alone.
+    /// Which frame the zoom is denominated in, at the predicted long edge. In order:
+    /// a full-resolution delivery's own pixels, so 1:1 is exactly them; the frame
+    /// already held, across deliveries that differ from it by rounding alone; the
+    /// prediction, when the picture on screen has its shape; else the picture's shape.
     static func resolveFrame(current: CGSize, world: World) -> CGSize {
         let native: CGSize? = world.native.flatMap { usable($0) ? $0 : nil }
-        guard usable(world.delivered) else { return native ?? .zero }
-        if let native, hasShape(world.delivered, of: native) { return native }
+        let delivered = world.delivered
+        guard usable(delivered) else { return native ?? .zero }
         var wanted = world.fallbackLongEdge
         if let native { wanted = long(native) }
-        guard wanted.isFinite, wanted > 0 else { return world.delivered }
-        if usable(current), abs(long(current) - wanted) < 0.5,
-           hasShape(world.delivered, of: current) {
-            return current
+        guard wanted.isFinite, wanted > 0 else { return delivered }
+        let held = usable(current) && abs(long(current) - wanted) < 0.5
+        if abs(long(delivered) - wanted) < 0.5 {
+            let same = held && abs(Double(current.width - delivered.width)) < 0.5
+                && abs(Double(current.height - delivered.height)) < 0.5
+            return same ? current : delivered
         }
-        let k = wanted / long(world.delivered)
-        return CGSize(width: Double(world.delivered.width) * k,
-                      height: Double(world.delivered.height) * k)
+        if held, hasShape(delivered, of: current) { return current }
+        if let native, hasShape(delivered, of: native) { return native }
+        let k = wanted / long(delivered)
+        return CGSize(width: Double(delivered.width) * k,
+                      height: Double(delivered.height) * k)
     }
 
     static func hasShape(_ delivered: CGSize, of shape: CGSize) -> Bool {

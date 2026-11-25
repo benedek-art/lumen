@@ -524,6 +524,31 @@ final class ViewerViewportTests: XCTestCase {
         XCTAssertEqual(Double(frame.width), 7008, accuracy: 1e-9)
     }
 
+    /// 1:1 must be the delivered pixels exactly. A source whose metadata size is not
+    /// the decoder's predicts a frame a row or two off; the first full-resolution
+    /// frame replaces the prediction with its own extent, and drafts landing after
+    /// it do not put the prediction back.
+    func testAFullResolutionDeliveryIsTheFrameAndStaysIt() {
+        let predicted = CGSize(width: 7008, height: 4674.7)
+        var v = ViewerViewport()
+        v.setWorld(world(delivered: fitSettle, native: .some(predicted)))
+        XCTAssertEqual(v.frame, predicted)
+        v.setZoom(ZoomLadder.oneToOne, anchor: nil)
+
+        v.setWorld(world(delivered: CGSize(width: 7008, height: 4672),
+                         native: .some(predicted)))
+        XCTAssertEqual(v.frame, CGSize(width: 7008, height: 4672))
+        XCTAssertEqual(v.zoom, 1)
+        XCTAssertEqual(Double(v.drawn.height), 2336, accuracy: 1e-9)
+
+        let settled = v
+        for delivered in [CGSize(width: 2048, height: 1365), CGSize(width: 1024, height: 683),
+                          CGSize(width: 7008.2, height: 4672.3)] {
+            v.setWorld(world(delivered: delivered, native: .some(predicted)))
+            XCTAssertEqual(v, settled)
+        }
+    }
+
     func testNothingOnScreenUsesThePredictionOrNothing() {
         XCTAssertEqual(ViewerViewport.resolveFrame(current: .zero,
                                                    world: world(delivered: .zero)), native)
