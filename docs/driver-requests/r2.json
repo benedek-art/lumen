@@ -1,0 +1,8 @@
+{
+ "suite": "probe.json smoke.json repro-*.json",
+ "scenarios": [],
+ "ref": "",
+ "config": "release",
+ "strict": false,
+ "note": "round 2"
+}
