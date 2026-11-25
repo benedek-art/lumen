@@ -55,25 +55,14 @@ final class LatencyHUD: ObservableObject {
     /// say.
     @Published private(set) var draftShortfall: Int?
 
-    /// THE GAP BEFORE THE NEXT FRAME WAS ASKED FOR — which is not what this was called
-    /// for three rounds, and the difference decided a diagnosis.
-    ///
-    /// It read "the CGImage handed to SwiftUI, the body pass, the texture upload,
-    /// compositing", and every argument about whether this app needs a Metal-layer
-    /// viewport has cited it. The arithmetic never supported that. The viewer stamps
-    /// the render's start BEFORE awaiting the coordinator, so:
+    /// THE TIME THE RENDER LANE SAT IDLE BEFORE THE FRAME'S RENDER BEGAN:
     ///
     ///     interval - render = draftStarted(N) - landedAt(N-1)
     ///
-    /// Queueing, render and readback are all inside `render`. What is left is the time
-    /// between one frame arriving and the next being REQUESTED — no part of the display
-    /// path is in it. It is usually zero or negative (the next frame's task starts
-    /// before the last one lands), so the 0.00 that dominates a healthy loop is a clamp
-    /// rather than a free display path.
-    ///
-    /// It goes large when the request stream stops. Mid-gesture that means the hand
-    /// paused, which is worth seeing and is not a cost. `DraftLadder.costSample` is
-    /// what decides whether the ladder is allowed to believe it.
+    /// The actor hop, the render and the readback are all inside `render`; no part of
+    /// the display path is in this. Near zero while requests are waiting. Large when
+    /// none was: the hand paused, or the main thread was late making the next request.
+    /// `DraftLadder.costSample` decides whether the ladder is allowed to believe it.
     ///
     /// Nil unless the loop was saturated at both ends of the interval.
     @Published private(set) var afterRenderMs: Double?
@@ -131,8 +120,35 @@ final class LatencyHUD: ObservableObject {
         Double(DispatchTime.now().uptimeNanoseconds) / 1e9
     }
 
+    // MARK: Timeline (for the automation driver)
+
+    /// Every input, draft request, render start and frame handed to the viewer, with
+    /// monotonic stamps (`DispatchTime.uptimeNanoseconds`) and the edit revision each
+    /// concerns. Separate from `enabled` and never published: recording must not add
+    /// a body pass to the loop it measures. On from launch under `LUMEN_DRIVER`.
+    var timelineEnabled = ProcessInfo.processInfo.environment["LUMEN_DRIVER"] != nil
+    private(set) var timeline = InteractionTimeline()
+
+    func resetTimeline() { timeline.removeAll() }
+
+    /// The timeline as JSON: `{"summary": …, "entries": […]}`.
+    func timelineJSON() -> Data? {
+        try? JSONEncoder().encode(timeline.transcript())
+    }
+
+    func noteTimeline(_ kind: InteractionTimeline.Stage, revision: Int?,
+                      draft: Bool? = nil, longEdge: Int? = nil,
+                      renderMilliseconds: Double? = nil) {
+        guard timelineEnabled, let revision else { return }
+        timeline.record(InteractionTimeline.Stamp(
+            kind: kind, nanoseconds: DispatchTime.now().uptimeNanoseconds,
+            revision: revision, draft: draft, longEdge: longEdge,
+            renderMilliseconds: renderMilliseconds))
+    }
+
     /// A pixel-touching edit happened. The next draft that lands closes the loop.
-    func noteInput() {
+    func noteInput(revision: Int? = nil) {
+        noteTimeline(.input, revision: revision)
         guard enabled else { return }
         let now = DispatchTime.now().uptimeNanoseconds
         lastInputAt = now

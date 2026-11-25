@@ -29,11 +29,16 @@
 //     30 ms-old exposure under a moving hand is what "keeping up" looks like; the
 //     newer frame is already rendering and will land next.
 //
-// With both rules in place the steady state under a drag storm is: exactly one
-// render in flight at all times, every completion delivered, screen cadence equal to
-// the machine's own render cadence. The simulation in FrameDeliveryTests holds that
-// as arithmetic: the old rule delivers 0 frames for the storm's whole duration, the
-// new one delivers duration ÷ render-cost.
+// The simulation in FrameDeliveryTests holds the second rule as arithmetic: discarding
+// finished frames delivers 0 for a storm's whole duration.
+//
+// The first rule is not sufficient for a drag, and that simulation cannot show why: it
+// lets a request reach the pipeline the instant its event happens. In the app a request
+// arrives some main-thread time after its event, and "its task is already cancelled"
+// becomes true as soon as the NEXT event is seen — so a request can be dead before its
+// turn every time. A viewer's drafts therefore do not use cancellation as the supersede
+// signal at all: `FramePump` decides which one renders next. `shouldStart` still
+// describes what the render coordinator does with everything else.
 
 import Foundation
 

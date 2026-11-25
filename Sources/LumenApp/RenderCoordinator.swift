@@ -3,10 +3,10 @@
 // it a recipe version and gets a frame back; it decodes, renders, coalesces and
 // cancels. Nothing here touches SwiftUI, and nothing in SwiftUI touches Core Image.
 //
-// Coalescing is the whole trick behind a slider that keeps up with a hand: while a
-// drag is producing recipe versions faster than frames can be made, only the newest
-// one is rendered and every superseded request is dropped on arrival rather than
-// rendered and thrown away.
+// Renders are serial and have no cancellation points. Which request is worth
+// rendering next is decided before it gets here: a viewer's drafts are fed one at a
+// time by its `LatestWinsPump`, and anything else that arrives already cancelled is
+// dropped on arrival rather than rendered and thrown away.
 
 #if os(macOS)
 
@@ -331,12 +331,13 @@ actor RenderCoordinator {
         // "the image isn't really updating very well": not a slow render, an unbounded
         // one per event.
         //
-        // Cancellation is the signal that was already there and unread. The viewer
-        // drives these from `.task(id:)`, which cancels the previous task the moment
-        // the id moves, so a request nobody is waiting for arrives here already
-        // cancelled. Checking it costs a load and collapses the backlog to at most one
-        // frame behind. Work that must not be dropped — the export path — does not come
-        // through here.
+        // So a request whose task is already cancelled is dropped here. That is the
+        // right rule for a settle, whose view task is cancelled the moment the picture
+        // it was for is no longer wanted. It is the wrong one for a drag's drafts —
+        // every event cancels the task that asked, so each request can be dead before
+        // its turn — which is why drafts arrive from the viewer's pump on a task
+        // nothing cancels. Work that must not be dropped — the export path — does not
+        // come through here.
         func stale() -> Bool {
             if Task.isCancelled { return true }
             return coalesced && generation < latestGeneration

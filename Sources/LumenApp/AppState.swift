@@ -511,22 +511,20 @@ final class AppState: ObservableObject {
     @Published var maskOverlayTint: MaskOverlay.Tint = .red
 
     private var maskOverlayGeneration: Int = 0
+    /// The generation of the raster on screen, so a slower older one never replaces it.
+    private var maskOverlayShownGeneration: Int = 0
+    /// The live gesture's rasters: one in flight, the newest waiting.
+    private let maskOverlayDrafts = LatestWinsPump<Int>()
     private var maskOverlayTask: Task<Void, Never>?
     /// What the overlay was last asked to rasterize FROM, beyond the recipe — see
     /// `maskOverlaySourceKey`. Nil while no overlay is up.
     private var maskOverlaySource: String?
 
-    /// Rebuild it for the mask the panel is showing. Superseded by generation, like
-    /// every other background render here, so a fast sequence of edits does not land
-    /// out of order.
+    /// Rebuild it for the mask the panel is showing. Ordered by generation, so a fast
+    /// sequence of edits does not land out of order.
     ///
-    /// Supersession is checked BEFORE the actor call, not only after. The old shape —
-    /// an unstored `Task {}` whose generation check sat past the `await` — meant every
-    /// mouse event of a drag queued a full mask rasterization on the render actor and
-    /// only threw the result away afterwards: the exact claimed-too-late defect the
-    /// render coalescer was fixed for (391563a), rebuilt in the one path that fix did
-    /// not touch, and blocking viewer frames during precisely the edits the overlay
-    /// exists to visualise.
+    /// A live gesture's half-size rasters go through `maskOverlayDrafts`: one on the
+    /// render actor at a time, the newest waiting, every finished one shown.
     func refreshMaskOverlay() {
         maskOverlayGeneration &+= 1
         let generation = maskOverlayGeneration
@@ -553,11 +551,9 @@ final class AppState: ObservableObject {
         // way. Refreshes closer together than `maskOverlayBurstGapMS` are a drag.
         //
         // This is the answer to "the mask isn't updating quick enough, so if I drag it
-        // around, it's still delayed". The supersession below already stopped a drag
-        // QUEUEING sixty rasterizations; what it could not do is make the one that
-        // survives cheap. Every surviving frame still paid for a full 1024-px fold of
-        // the whole stack plus a 2048-px composite over it, which is why the overlay
-        // trailed the gradient by a beat no matter how well the queue behaved.
+        // around, it's still delayed": a full 1024-px fold of the whole stack plus a
+        // 2048-px composite over it cannot follow a hand, so a live gesture gets a
+        // half-size draft first.
         let now = Date()
         let live = now.timeIntervalSince(maskOverlayLastRefresh) < Self.maskOverlayBurstGapMS
         maskOverlayLastRefresh = now
@@ -573,12 +569,26 @@ final class AppState: ObservableObject {
                 // and `MaskOverlayView.build` follows it down so the composite over it
                 // costs a quarter too. What is lost is a slightly softer boundary on a
                 // selection that is still moving, which nobody is judging yet.
-                let draft = await self.renderCoordinator.maskAlpha(
-                    url: photo.id, recipe: recipe, maskID: maskID, strokeSets: strokes,
-                    longEdge: Self.maskOverlayDraftLongEdge)
+                //
+                // Through the pump, not awaited from this task: the next event cancels
+                // this task, and a raster awaited here was queued on the render actor
+                // per event, computed in full, and thrown away for being superseded.
+                _ = await self.maskOverlayDrafts.submit(generation) { [weak self] _ in
+                    guard let self else { return false }
+                    let draft = await self.renderCoordinator.maskAlpha(
+                        url: photo.id, recipe: recipe, maskID: maskID, strokeSets: strokes,
+                        longEdge: Self.maskOverlayDraftLongEdge)
+                    // A finished raster is shown unless the overlay has moved to another
+                    // mask or photograph, or something newer is already up.
+                    guard let draft, self.soloMaskOverlay == maskID,
+                          self.primarySelection?.id == photo.id,
+                          generation > self.maskOverlayShownGeneration else { return false }
+                    self.maskOverlayShownGeneration = generation
+                    self.maskOverlayAlpha = draft
+                    return true
+                }
                 guard !Task.isCancelled,
                       self.maskOverlayGeneration == generation else { return }
-                if let draft { self.maskOverlayAlpha = draft }
                 // THEN WAIT FOR THE HAND TO STOP before paying for the real one. The
                 // next mouse event supersedes this task during the sleep, so a
                 // sustained drag pays for drafts only and the full-size raster happens
@@ -590,6 +600,7 @@ final class AppState: ObservableObject {
             let raster = await self.renderCoordinator.maskAlpha(
                 url: photo.id, recipe: recipe, maskID: maskID, strokeSets: strokes)
             guard !Task.isCancelled, self.maskOverlayGeneration == generation else { return }
+            self.maskOverlayShownGeneration = generation
             self.maskOverlayAlpha = raster
         }
     }
@@ -4218,7 +4229,7 @@ final class AppState: ObservableObject {
             // rename, a crop the masks reproject through — costs nothing.
             refreshMaskThumbnails()
             // The HUD's input side: the next draft that lands closes the loop.
-            LatencyHUD.shared.noteInput()
+            LatencyHUD.shared.noteInput(revision: edits.value)
         }
     }
 
