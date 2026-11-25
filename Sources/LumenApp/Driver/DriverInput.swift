@@ -403,12 +403,12 @@ final class DriverInput {
 
     /// One pinch event. `phase`: 1 began, 2 changed, 4 ended. `magnification` is the
     /// per-event delta, as `NSEvent.magnification` reports it.
-    func magnify(_ magnification: Double, phase: Int, at wf: CGPoint) {
+    func pinchEvent(_ magnification: Double, phase: Int, at wf: CGPoint) {
         log("magnify", wf, ["mag": magnification, "phase": phase])
         gesture(hidType: 8, phase: phase, magnification: magnification, at: wf)
     }
 
-    func smartMagnify(at wf: CGPoint) {
+    func smartMagnifyEvent(at wf: CGPoint) {
         log("smartMagnify", wf)
         gesture(hidType: 22, phase: 0, magnification: nil, at: wf)
     }

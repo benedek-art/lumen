@@ -475,14 +475,14 @@ extension DriverSession {
                 deltas = [Double](repeating: (scale - 1) / Double(count), count: count)
             }
             ticks.append(DriverTick(at: 0) { input.move(to: p) })
-            ticks.append(DriverTick(at: 0.05) { input.magnify(0, phase: 1, at: p) })
+            ticks.append(DriverTick(at: 0.05) { input.pinchEvent(0, phase: 1, at: p) })
             for (k, delta) in deltas.enumerated() {
                 ticks.append(DriverTick(at: 0.05 + Double(k + 1) / hz) {
-                    input.magnify(delta, phase: 2, at: p)
+                    input.pinchEvent(delta, phase: 2, at: p)
                 })
             }
             ticks.append(DriverTick(at: 0.05 + Double(deltas.count + 1) / hz) {
-                input.magnify(0, phase: 4, at: p)
+                input.pinchEvent(0, phase: 4, at: p)
             })
             endEvent = "magnify"
             out["at"] = DriverJSON.point(p)
@@ -492,7 +492,7 @@ extension DriverSession {
             let p = try resolvePoint(step)
             touched = [p]
             ticks.append(DriverTick(at: 0) { input.move(to: p) })
-            ticks.append(DriverTick(at: 0.05) { input.smartMagnify(at: p) })
+            ticks.append(DriverTick(at: 0.05) { input.smartMagnifyEvent(at: p) })
             endEvent = "smartMagnify"
             out["at"] = DriverJSON.point(p)
 

@@ -206,7 +206,9 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "CGPreflightScreenCaptureAccess", "AXIsProcessTrusted", "ApplicationServices",
     "NSAccessibilityProtocol", "CFRunLoopActivity", "CFRunLoopObserverCreateWithHandler",
     "CFRunLoopAddObserver", "CFRunLoopGetMain", "CFGetTypeID", "CFBooleanGetTypeID",
-    "Unmanaged", "UnicodeScalar",
+    "Unmanaged", "UnicodeScalar", "CGDisplayMode", "CGMainDisplayID",
+    "CGDisplayCopyAllDisplayModes", "CGDisplayCopyDisplayMode", "CGDisplaySetDisplayMode",
+    "VNRecognizeTextRequest",
     # Native APIs used by the audited persistence/export safety regressions.
     "SQLITE_OPEN_READONLY", "RENAME_EXCL", "NSBitmapImageRep",
     # POSIX errno values and open(2) flags: the export's no-overwrite fallback
