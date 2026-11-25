@@ -27,8 +27,8 @@
 //     attached to it. An absent entry teaches nothing false; a present one that
 //     apologises teaches that the app is unfinished.
 //
-// Every slider is a `LumenSlider`, every edit goes through
-// `updateRecipe(coalescingKey:)` so one drag is one undo step, and every index into
+// Every slider is a `LumenSlider`, every edit goes through `updateMasks(coalescingKey:)`
+// (the active photograph only; one drag is one undo step), and every index into
 // `components` is bounds-checked at read and at write.
 //
 // AND EVERY STACK OF ROWS IS `Lumen.rowGap`, which it was not. This file held the last
@@ -697,7 +697,7 @@ struct MaskPanel: View {
                 .flatMap { state.recipe(for: $0).maskGroups.first { $0.id == id } }?.name
                 ?? ""
         }, set: { v in
-            state.updateRecipe(coalescingKey: "maskgroup.name." + id) { recipe in
+            state.updateMasks(coalescingKey: "maskgroup.name." + id) { recipe in
                 guard let i = recipe.maskGroups.firstIndex(where: { $0.id == id })
                 else { return }
                 recipe.maskGroups[i].name = v
@@ -712,7 +712,7 @@ struct MaskPanel: View {
     /// away from an hour of someone's work, and the masks can still be deleted one at a
     /// time by whoever actually meant to.
     private func dissolveGroup(_ id: String) {
-        state.updateRecipe(coalescingKey: nil) { recipe in
+        state.updateMasks(coalescingKey: nil) { recipe in
             recipe.maskGroups.removeAll { $0.id == id }
             for i in recipe.masks.indices where recipe.masks[i].group == id {
                 recipe.masks[i].group = nil
@@ -722,7 +722,7 @@ struct MaskPanel: View {
 
     /// Put a mask in a folder, making one if it is not there yet.
     private func moveMask(_ maskID: String, toGroup id: String?) {
-        state.updateRecipe(coalescingKey: nil) { recipe in
+        state.updateMasks(coalescingKey: nil) { recipe in
             guard let i = recipe.masks.firstIndex(where: { $0.id == maskID })
             else { return }
             recipe.masks[i].group = id
@@ -731,7 +731,7 @@ struct MaskPanel: View {
 
     private func groupMask(_ maskID: String) {
         let group = MaskGroup(id: UUID().uuidString, name: "")
-        state.updateRecipe(coalescingKey: nil) { recipe in
+        state.updateMasks(coalescingKey: nil) { recipe in
             guard let i = recipe.masks.firstIndex(where: { $0.id == maskID })
             else { return }
             recipe.maskGroups.append(group)
@@ -740,7 +740,7 @@ struct MaskPanel: View {
     }
 
     private func editGroup(_ id: String, _ body: @escaping (inout MaskGroup) -> Void) {
-        state.updateRecipe(coalescingKey: nil) { recipe in
+        state.updateMasks(coalescingKey: nil) { recipe in
             guard let i = recipe.maskGroups.firstIndex(where: { $0.id == id })
             else { return }
             body(&recipe.maskGroups[i])
@@ -1073,7 +1073,7 @@ struct MaskPanel: View {
         guard dragged != target, mask(dragged) != nil, mask(target) != nil else {
             return false
         }
-        state.updateRecipe(coalescingKey: nil) { recipe in
+        state.updateMasks(coalescingKey: nil) { recipe in
             recipe.masks = MaskPanel.reordered(recipe.masks, moving: dragged, onto: target)
         }
         return true
@@ -2491,7 +2491,7 @@ struct MaskPanel: View {
         // needs the edge-aware snap to hold at 100% zoom, and a drawn shape does not.
         if MaskPanel.aiKinds.contains(kind) { mask.refine.feather = 10 }
         let id = mask.id
-        state.updateRecipe(coalescingKey: nil) { $0.masks.append(mask) }
+        state.updateMasks(coalescingKey: nil) { $0.masks.append(mask) }
         selectedMaskID = id
         selectedComponent = 0
         // AND IT STAYS UP UNTIL THE FIRST ADJUSTMENT, rather than flashing for 1400 ms.
@@ -2575,7 +2575,7 @@ struct MaskPanel: View {
     /// swapped in the array. Order across the whole list still means what it always
     /// meant; what changed is which pair the arrow picks.
     private func moveMask(_ id: String, by delta: Int) {
-        state.updateRecipe(coalescingKey: nil) { recipe in
+        state.updateMasks(coalescingKey: nil) { recipe in
             guard let i = recipe.masks.firstIndex(where: { $0.id == id }) else { return }
             let group = recipe.masks[i].group
             let siblings = recipe.masks.indices.filter { recipe.masks[$0].group == group }
@@ -2639,7 +2639,7 @@ struct MaskPanel: View {
             ? (inverting ? "Inverted" : "Copy")
             : source.name + (inverting ? " inverted" : " copy")
         let newID = copy.id
-        state.updateRecipe(coalescingKey: nil) { recipe in
+        state.updateMasks(coalescingKey: nil) { recipe in
             guard let i = recipe.masks.firstIndex(where: { $0.id == id }) else {
                 recipe.masks.append(copy)
                 return
@@ -2650,7 +2650,7 @@ struct MaskPanel: View {
     }
 
     private func deleteMask(_ id: String) {
-        state.updateRecipe(coalescingKey: nil) { recipe in
+        state.updateMasks(coalescingKey: nil) { recipe in
             recipe.masks.removeAll { $0.id == id }
         }
         selectedMaskID = masks.first?.id
@@ -2682,7 +2682,7 @@ struct MaskPanel: View {
     }
 
     private func editMask(_ id: String, key: String?, _ body: (inout Mask) -> Void) {
-        state.updateRecipe(coalescingKey: key) { recipe in
+        state.updateMasks(coalescingKey: key) { recipe in
             guard let i = recipe.masks.firstIndex(where: { $0.id == id }) else { return }
             body(&recipe.masks[i])
         }
@@ -2690,7 +2690,7 @@ struct MaskPanel: View {
 
     private func editComponent(_ id: String, _ index: Int, key: String?,
                                _ body: (inout MaskComponent) -> Void) {
-        state.updateRecipe(coalescingKey: key) { recipe in
+        state.updateMasks(coalescingKey: key) { recipe in
             guard let m = recipe.masks.firstIndex(where: { $0.id == id }),
                   recipe.masks[m].components.indices.contains(index) else { return }
             body(&recipe.masks[m].components[index])

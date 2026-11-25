@@ -1159,6 +1159,18 @@ final class AppState: ObservableObject {
         if activeComponentIndex > last { activeComponentIndex = last }
     }
 
+    /// The photographs a mask edit lands on: the one being edited, never the rest of
+    /// the selection (Lightroom Classic without Auto Sync). Paste, Paste Masks and
+    /// presets are the explicit multi-photo routes and keep `editTargets`.
+    var maskEditTargets: [PhotoItem] { primarySelection.map { [$0] } ?? [] }
+
+    /// `updateRecipe` for every mask edit: the active photograph only.
+    func updateMasks(coalescingKey: String? = nil, label: String? = nil,
+                     _ mutate: (inout Recipe) -> Void) {
+        updateRecipe(coalescingKey: coalescingKey, label: label,
+                     targets: maskEditTargets) { _, recipe in mutate(&recipe) }
+    }
+
     /// The mask editor opened or closed, by whatever route.
     func noteMaskingChanged(_ masking: Bool) {
         resetMaskOverlayHover()
@@ -1195,7 +1207,7 @@ final class AppState: ObservableObject {
     func invertActiveMaskComponent() {
         guard let id = activeMaskID ?? currentRecipe.masks.first?.id else { return }
         let index = activeComponentIndex
-        updateRecipe(coalescingKey: nil) { recipe in
+        updateMasks(coalescingKey: nil) { recipe in
             guard let m = recipe.masks.firstIndex(where: { $0.id == id }),
                   recipe.masks[m].components.indices.contains(index) else { return }
             recipe.masks[m].components[index].invert.toggle()
@@ -3574,7 +3586,7 @@ final class AppState: ObservableObject {
     /// PHOTOGRAPH rejected instead.
     func deleteActiveMask() {
         guard let id = activeMaskID ?? currentRecipe.masks.first?.id else { return }
-        updateRecipe(coalescingKey: nil, label: "Delete Mask") { recipe in
+        updateMasks(coalescingKey: nil, label: "Delete Mask") { recipe in
             recipe.masks.removeAll { $0.id == id }
         }
         activeMaskID = currentRecipe.masks.first?.id
@@ -3995,7 +4007,7 @@ final class AppState: ObservableObject {
                         recipe.develop.pointColors[index].sample = rgb
                     }
                 case .maskSample(let maskID, let component):
-                    updateRecipe { recipe in
+                    updateMasks { recipe in
                         guard let m = recipe.masks.firstIndex(where: { $0.id == maskID }),
                               recipe.masks[m].components.indices.contains(component)
                         else { return }
@@ -4037,7 +4049,7 @@ final class AppState: ObservableObject {
                         }
                     }
                 case .maskPointColor(let maskID):
-                    updateRecipe { recipe in
+                    updateMasks { recipe in
                         guard let m = recipe.masks.firstIndex(where: { $0.id == maskID }),
                               recipe.masks[m].adjust.pointColors.count < 8
                         else { return }
