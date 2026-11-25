@@ -316,7 +316,12 @@ struct MaskFloatingPanel: View {
                     .buttonStyle(.plain)
                     .lumenClickCursor()
                     .help(mask.name.isEmpty ? "This mask" : mask.name)
-                    .onHover { inside in state.hoverMaskOverlay(inside ? mask.id : nil) }
+                    .onHover { inside in
+                        state.hoverMaskOverlay(mask.id, inside: inside, region: "thumb:" + mask.id)
+                    }
+                    .onDisappear {
+                        state.hoverMaskOverlay(mask.id, inside: false, region: "thumb:" + mask.id)
+                    }
                 }
             }
             .padding(.vertical, 8)

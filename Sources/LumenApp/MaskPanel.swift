@@ -478,13 +478,13 @@ struct MaskPanel: View {
             refineSection(mask)
                 .environment(\.sliderGestureChanged) { active in
                     state.sliderGestureSink(active)
-                    state.setMaskEdgeGesture(active, mask: mask.id)
+                    state.setMaskSelectionGesture(active, mask: mask.id)
                 }
                 // ⌥-scroll here forces the overlay on too; the state's wheel closer
                 // releases it when the burst ends.
                 .environment(\.sliderWheelTick) { owner in
                     state.sliderWheelSink(owner)
-                    state.setMaskEdgeGesture(true, mask: mask.id)
+                    state.setMaskSelectionGesture(true, mask: mask.id)
                 }
         }
         .padding(.leading, MaskPanel.detailIndent)
@@ -879,7 +879,8 @@ struct MaskPanel: View {
         // Hovering a row shows what it selects. `hoverMaskOverlay` holds the 120 ms
         // intent that keeps a pointer crossing the list on its way somewhere else from
         // strobing ten overlays across the photograph (docs/36 §1.4).
-        .onHover { inside in state.hoverMaskOverlay(inside ? mask.id : nil) }
+        .onHover { inside in state.hoverMaskOverlay(mask.id, inside: inside) }
+        .onDisappear { state.hoverMaskOverlay(mask.id, inside: false) }
     }
 
     /// The row's ground: selected, or about to receive a drop, or neither.
@@ -1245,7 +1246,7 @@ struct MaskPanel: View {
     /// It is drawn under the mask list now, which is where Lightroom puts the same three
     /// controls, and the `⋯` menu's twelve overlay items are gone: one home each.
     private func overlayControls(_ mask: Mask) -> some View {
-        let showing = state.soloMaskOverlay == mask.id
+        let choice = state.maskOverlay.choice
         // ONE BUTTON AND ONE MENU, because three controls did not fit and did not
         // admit it.
         //
@@ -1272,28 +1273,28 @@ struct MaskPanel: View {
         // row was rebuilt in the first place. The card's content is 244 points wide and
         // the toggle beside it needs about 65, so the 20 points cost nothing.
         return HStack(spacing: 6) {
+            // Cycles Auto → Shown → Hidden, so Auto is always one click away.
             Button {
-                // Through the pin in both directions. The raw `soloMaskOverlay`
-                // write this used to carry is the same one that made "Keep it
-                // hidden" a trap: a solo cleared without its pin leaves every
-                // ambient path guarded off.
-                if showing { state.unpinMaskOverlay() } else { state.pinMaskOverlay(mask.id) }
+                state.cycleMaskOverlayChoice()
             } label: {
                 HStack(spacing: 4) {
-                    Image(systemName: showing ? "eye.fill" : "eye")
+                    Image(systemName: MaskPanel.overlayChoiceSymbol(choice))
                         .font(.lumenGlyphCaption)
-                    Text("Overlay").font(.lumenCaption)
+                    Text(MaskPanel.overlayChoiceLabel(choice)).font(.lumenCaption)
                 }
                 .padding(.horizontal, 7).padding(.vertical, 3)
                 .frame(maxWidth: .infinity)
-                .background(showing ? Lumen.fillColor.opacity(0.35) : Lumen.controlSurface)
+                .background(choice == .automatic ? Lumen.controlSurface
+                                                 : Lumen.fillColor.opacity(0.35))
                 .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip))
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .foregroundStyle(showing ? Lumen.primaryText : Lumen.secondaryText)
+            .foregroundStyle(choice == .automatic ? Lumen.secondaryText : Lumen.primaryText)
             .lumenClickCursor()
-            .help("Keep this mask's overlay up. O does the same from the keyboard.")
+            .help("Overlay. Auto: shown while you make or refine a mask and while the "
+                  + "pointer is on its row, gone once you adjust it. Shown and Hidden "
+                  + "hold until you click back to Auto. O switches Shown and Hidden.")
 
             // NO GLYPHS ON THE TINTS, and they are why the rule exists. The four
             // colours are the one list in this panel whose meaning IS a colour, and
@@ -1305,6 +1306,13 @@ struct MaskPanel: View {
             LumenMenu(title: state.maskOverlayMode.label,
                       help: "How the overlay draws, and in what colour. "
                           + "⌥O cycles the six modes, ⇧O the four colours.") {
+                LumenMenuHeader(title: "When it shows")
+                ForEach(MaskOverlayRule.Choice.allCases, id: \.self) { c in
+                    LumenMenuItem(title: MaskPanel.overlayChoiceLabel(c),
+                                  isSelected: choice == c) {
+                        state.setMaskOverlayChoice(c)
+                    }
+                }
                 LumenMenuHeader(title: "How it draws")
                 ForEach(MaskOverlay.Mode.allCases, id: \.self) { m in
                     LumenMenuItem(title: m.label,
@@ -1324,6 +1332,22 @@ struct MaskPanel: View {
         }
         .frame(height: Lumen.rowHeight)
         .padding(.horizontal, 4)
+    }
+
+    static func overlayChoiceLabel(_ choice: MaskOverlayRule.Choice) -> String {
+        switch choice {
+        case .automatic: return "Auto"
+        case .show: return "Shown"
+        case .hide: return "Hidden"
+        }
+    }
+
+    static func overlayChoiceSymbol(_ choice: MaskOverlayRule.Choice) -> String {
+        switch choice {
+        case .automatic: return "eye.circle"
+        case .show: return "eye.fill"
+        case .hide: return "eye.slash"
+        }
     }
 
     // MARK: - Component stack
@@ -1457,6 +1481,12 @@ struct MaskPanel: View {
         .onTapGesture {
             selectedMaskID = mask.id
             selectedComponent = index
+        }
+        .onHover { inside in
+            state.hoverMaskOverlay(mask.id, inside: inside, region: "\(mask.id)#\(index)")
+        }
+        .onDisappear {
+            state.hoverMaskOverlay(mask.id, inside: false, region: "\(mask.id)#\(index)")
         }
     }
 
@@ -2476,7 +2506,7 @@ struct MaskPanel: View {
         //
         // Persistent, it costs nothing while the mask is empty and appears with the
         // first stroke, which is the moment it means something. `O` still overrides.
-        state.beginPersistentMaskOverlay(id)
+        state.noteMaskCreated(id)
         armIfItNeedsAColour(kind: kind, maskID: id, component: 0)
     }
 
@@ -2494,6 +2524,7 @@ struct MaskPanel: View {
         }
         let index = Swift.max((mask(id)?.components.count ?? 1) - 1, 0)
         selectedComponent = index
+        state.noteMaskComponentAdded(id)
         armIfItNeedsAColour(kind: kind, maskID: id, component: index)
     }
 
@@ -2616,9 +2647,6 @@ struct MaskPanel: View {
         state.updateRecipe(coalescingKey: nil) { recipe in
             recipe.masks.removeAll { $0.id == id }
         }
-        // Through the pin, so deleting the mask whose overlay was pinned does not leave
-        // the pin standing over nothing — which would silently disable flash and hover.
-        if state.soloMaskOverlay == id { state.unpinMaskOverlay() }
         selectedMaskID = masks.first?.id
         selectedComponent = 0
     }

@@ -2047,8 +2047,11 @@ struct LoupeView: View {
                            selectMask: { id in
                                state.activeMaskID = id
                                state.activeComponentIndex = 0
-                               state.flashMaskOverlay(id)
-                           }) { edit in
+                           },
+                           selectionGesture: { active in
+                               state.setMaskSelectionGesture(active, mask: target.maskID)
+                           },
+                           hoverPin: { id in state.hoverMaskPin(id) }) { edit in
                     MaskCanvas.apply(edit, in: state)
                 }
                 .frame(width: drawn.width, height: drawn.height)
@@ -2429,7 +2432,8 @@ struct LoupeView: View {
                 LumenBadge(text: "BEFORE")
             }
             if let maskName = soloMaskName {
-                LumenBadge(text: "MASK · \(maskName)")
+                LumenBadge(text: state.maskOverlay.choice == .show
+                           ? "MASK · \(maskName) · SHOWN" : "MASK · \(maskName)")
             }
             if let mode = state.clippingOverlay {
                 LumenBadge(text: "CLIPPING · \(mode.rawValue.uppercased())")
