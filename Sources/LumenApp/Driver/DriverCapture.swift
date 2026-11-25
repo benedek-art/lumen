@@ -23,12 +23,26 @@ enum DriverCapture {
     private typealias WindowListCreateImage =
         @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
 
-    static func windowList(windowNumber: Int) -> CGImage? {
+    static func windowList(windowNumber: Int, detach: Bool = true) -> CGImage? {
         guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2),
                                  "CGWindowListCreateImage") else { return nil }
         let function = unsafeBitCast(symbol, to: WindowListCreateImage.self)
         // 8 = include just this window; 1 | 8 = ignore the shadow, native resolution.
-        return function(CGRect.null, 8, UInt32(windowNumber), 1 | 8)?.takeRetainedValue()
+        guard let image = function(CGRect.null, 8, UInt32(windowNumber), 1 | 8)?
+            .takeRetainedValue() else { return nil }
+        return detach ? detached(image) : image
+    }
+
+    /// A copy that owns its pixels. The window server's image shares a surface that is
+    /// reused once the window redraws; read later, it is noise.
+    static func detached(_ image: CGImage) -> CGImage? {
+        let space = image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)
+        guard let space, let context = CGContext(
+            data: nil, width: image.width, height: image.height, bitsPerComponent: 8,
+            bytesPerRow: 0, space: space,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        return context.makeImage()
     }
 
     @MainActor
@@ -158,9 +172,9 @@ final class DriverFilm {
 
     /// The region as a small RGBA thumbnail: enough to tell one picture from the next.
     private func capture() -> [UInt8]? {
-        guard let image = DriverCapture.windowList(windowNumber: windowNumber) else {
-            return nil
-        }
+        // Read at once into the thumbnail below, so no copy of the full window.
+        guard let image = DriverCapture.windowList(windowNumber: windowNumber,
+                                                   detach: false) else { return nil }
         let scale = CGFloat(image.width)
         let crop = CGRect(x: region.minX * scale, y: region.minY * scale,
                           width: region.width * scale, height: region.height * scale)

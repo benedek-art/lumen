@@ -8,6 +8,7 @@
     {"do": "shot", "name": "base"},
     {"do": "key", "key": "m"},
     {"do": "waitFor", "that": "masking", "eq": true, "timeout": 5},
+    {"do": "wait", "seconds": 0.6},
     {"do": "state", "name": "masking"},
     {"do": "click", "target": "mask-kind/Linear Gradient"},
     {"do": "wait", "seconds": 0.4},

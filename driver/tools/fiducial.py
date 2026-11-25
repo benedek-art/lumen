@@ -45,8 +45,9 @@ def _lines(bits, lit, axis):
     either = lit[:, 1:] | lit[:, :-1]
     rows = np.maximum(either.sum(axis=0), 1)
     score = flips.sum(axis=0) / rows
-    # A column only counts if the image covers a fair share of it.
-    score[either.sum(axis=0) < 0.25 * lit.shape[0]] = 0
+    # A column only counts if the picture covers it about as much as it covers any.
+    cover = either.sum(axis=0)
+    score[cover < max(8, 0.5 * cover.max())] = 0
     # A blurred edge spreads its flips over neighbouring columns.
     wide = np.convolve(score, np.ones(3), mode="same")
     found = []

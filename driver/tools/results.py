@@ -79,7 +79,9 @@ def fetch_run(source, out, timeout):
 GESTURE_KEYS = ("via", "events", "gestureMs", "framesDuring", "maxFrameGapMs", "firstFrameMs",
                 "distinctValues", "distinctValuesShown", "staleFramesDuring",
                 "releaseToFinalValueMs", "releaseToSharpMs", "releaseToSettledMs",
-                "hitches", "hitchMaxMs", "watchStart", "watchEnd")
+                "hitches", "hitchMaxMs", "hitchAfterMaxMs", "screenChangesDuring",
+                "screenMaxGapMs", "screenFirstChangeMs", "screenLastChangeMs", "watchStart",
+                "watchEnd")
 
 
 def unpack(source, out, timeout):

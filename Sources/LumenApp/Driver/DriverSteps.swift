@@ -24,13 +24,21 @@ enum DriverPacer {
                 // post on a thread can take a while and must not bunch what follows.
                 for tick in ticks where tick.at <= 0 { tick.fire() }
                 let start = DispatchTime.now().uptimeNanoseconds
+                var previousDue = 0.0
+                var lastFired = start
                 for tick in ticks where tick.at > 0 {
-                    let due = start &+ UInt64(Swift.max(tick.at, 0) * 1e9)
+                    // Late (the thread was descheduled): keep events apart all the
+                    // same, by up to 30 ms of their intended spacing, so a click's
+                    // press and release never collapse into one instant.
+                    let spacing = UInt64(Swift.min(tick.at - previousDue, 0.03) * 1e9)
+                    let due = Swift.max(start &+ UInt64(tick.at * 1e9), lastFired &+ spacing)
                     let now = DispatchTime.now().uptimeNanoseconds
                     if due > now {
                         usleep(useconds_t(Swift.min((due - now) / 1000, 10_000_000)))
                     }
                     tick.fire()
+                    previousDue = tick.at
+                    lastFired = DispatchTime.now().uptimeNanoseconds
                 }
                 continuation.resume()
             }
@@ -133,8 +141,8 @@ extension DriverSession {
 
     /// `at` is a fraction of the target frame (default its centre); `offset` is points.
     func resolvePoint(_ step: DriverStep, target: String = "target", at: String = "at",
-                      offset: String = "offset") throws -> CGPoint {
-        let frame = try resolveFrame(step.raw[target])
+                      offset: String = "offset") async throws -> CGPoint {
+        let frame = try await settledFrame(step.raw[target])
         let fraction = step.doubles(at) ?? [0.5, 0.5]
         let shift = step.doubles(offset) ?? [0, 0]
         guard fraction.count == 2, shift.count == 2 else {
@@ -249,14 +257,14 @@ extension DriverSession {
         return ["via": "direct"]
     }
 
-    /// Scrolls a container (default the develop column) with two-finger scroll events
-    /// until the target sits in its upper half.
+    /// Scrolls a container (default the develop column) with wheel events until the
+    /// target sits in its upper half.
     private func scrollTo(_ step: DriverStep) async throws -> [String: Any] {
         guard let input else { throw DriverError("no window") }
         let containerID = step.string("in") ?? "develop.column"
         var previous: CGRect?
         var stuck = 0
-        for attempt in 0..<40 {
+        for attempt in 0..<60 {
             input.refreshGeometry()
             let container = try resolveFrame(containerID)
             let target = try? resolveFrame(step.raw["target"])
@@ -268,21 +276,44 @@ extension DriverSession {
                     && target.midY < container.minY + container.height * 0.7
                 if inView || (stuck >= 2 && container.contains(CGPoint(x: target.midX,
                                                                         y: target.midY))) {
+                    await sleep(0.2)
                     return ["scrolls": attempt, "frame": DriverJSON.rect(target)]
                 }
                 stuck = target == previous ? stuck + 1 : 0
-                if stuck >= 3 { break }
+                if stuck >= 4 { break }
                 previous = target
             }
             let centre = CGPoint(x: container.midX, y: container.midY)
             input.via = backend(for: step, points: [centre])
-            let delta = Swift.max(-400, Swift.min(400, -distance))
+            // A wheel line moves a scroll view a few points; ask for the distance in
+            // lines and look again.
+            let lines = Swift.max(-12, Swift.min(12, (-distance / 12).rounded()))
             input.move(to: centre)
-            input.scroll(dx: 0, dy: delta, precise: true, phase: 1, momentum: 0, at: centre)
-            input.scroll(dx: 0, dy: 0, precise: true, phase: 4, momentum: 0, at: centre)
-            await sleep(0.2)
+            input.scroll(dx: 0, dy: lines == 0 ? (distance > 0 ? -1 : 1) : lines,
+                         precise: false, phase: 0, momentum: 0, at: centre)
+            await sleep(0.25)
         }
         throw DriverError("could not scroll the target into view in \(containerID)")
+    }
+
+    /// A target's frame once it has stopped moving: panels animate in, and a frame read
+    /// mid-animation is somewhere the control no longer is.
+    func settledFrame(_ target: Any?) async throws -> CGRect {
+        var frame = try resolveFrame(target)
+        // Only named views move; a point is a point, and OCR is too slow to repeat.
+        let spec = target as? [String: Any]
+        let named = target is String || spec?["anchor"] != nil
+        guard named, (target as? String) != "cursor" else { return frame }
+        for _ in 0..<25 {
+            await sleep(0.06)
+            let again = try resolveFrame(target)
+            if abs(again.minX - frame.minX) < 0.5, abs(again.minY - frame.minY) < 0.5,
+               abs(again.width - frame.width) < 0.5, abs(again.height - frame.height) < 0.5 {
+                return again
+            }
+            frame = again
+        }
+        return frame
     }
 
     // MARK: Input verbs
@@ -317,7 +348,7 @@ extension DriverSession {
 
         case "move":
             let from = input.cursor
-            let to = try resolvePoint(step)
+            let to = try await resolvePoint(step)
             touched = [to]
             let count = Swift.max(Int((duration * hz).rounded()), 1)
             for k in 1...count {
@@ -329,7 +360,7 @@ extension DriverSession {
             out["to"] = DriverJSON.point(to)
 
         case "click":
-            let p = try resolvePoint(step)
+            let p = try await resolvePoint(step)
             touched = [p]
             let count = Swift.max(step.int("count") ?? 1, 1)
             let right = step.string("button") == "right"
@@ -348,7 +379,7 @@ extension DriverSession {
             out["at"] = DriverJSON.point(p)
 
         case "drag":
-            let frame = try resolveFrame(step.raw["target"])
+            let frame = try await settledFrame(step.raw["target"])
             let fromFraction = step.doubles("from") ?? [0.5, 0.5]
             let toFraction = step.doubles("to") ?? [0.5, 0.5]
             guard fromFraction.count == 2, toFraction.count == 2 else {
@@ -367,8 +398,8 @@ extension DriverSession {
                 }
             }
             if step.has("toTarget") {
-                waypoints.append(try resolvePoint(step, target: "toTarget", at: "toAt",
-                                                  offset: "toOffset"))
+                waypoints.append(try await resolvePoint(step, target: "toTarget", at: "toAt",
+                                                        offset: "toOffset"))
             } else {
                 waypoints.append(point(toFraction))
             }
@@ -397,7 +428,7 @@ extension DriverSession {
             out["to"] = DriverJSON.point(last)
 
         case "scroll":
-            let p = try resolvePoint(step)
+            let p = try await resolvePoint(step)
             touched = [p]
             let lines = step.doubles("lines") ?? [0, step.double("dy") ?? 1]
             guard lines.count == 2 else { throw DriverError("lines takes [dx, dy]") }
@@ -415,7 +446,7 @@ extension DriverSession {
 
         case "swipe":
             // A two-finger trackpad scroll: began, changed…, ended, then momentum.
-            let p = try resolvePoint(step)
+            let p = try await resolvePoint(step)
             touched = [p]
             let total = step.doubles("by") ?? [step.double("dx") ?? 0, step.double("dy") ?? 0]
             guard total.count == 2 else { throw DriverError("by takes [dx, dy]") }
@@ -470,7 +501,7 @@ extension DriverSession {
         case "pinch":
             // `scale` is the whole gesture's factor; each event carries an equal share
             // of (scale - 1) as its magnification delta, which is what a trackpad sends.
-            let p = try resolvePoint(step)
+            let p = try await resolvePoint(step)
             touched = [p]
             var deltas = step.doubles("deltas") ?? []
             if deltas.isEmpty {
@@ -493,7 +524,7 @@ extension DriverSession {
             out["deltaSum"] = deltas.reduce(0, +)
 
         case "smartMagnify":
-            let p = try resolvePoint(step)
+            let p = try await resolvePoint(step)
             touched = [p]
             ticks.append(DriverTick(at: 0) { input.move(to: p) })
             ticks.append(DriverTick(at: 0.05) { input.smartMagnifyEvent(at: p) })

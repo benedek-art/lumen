@@ -25,32 +25,32 @@ cat > /tmp/zoom.json <<'EOF'
 }
 EOF
 
-# 2. Ask for a run. This pushes one small commit; the run starts on the push.
-python3 driver/tools/request.py --scenario /tmp/zoom.json --branch <a branch you may push>
-#    prints the request commit's SHA
-
-# 3. Find the run and its artifact (GitHub MCP tools; there is no `gh` here):
-#    actions_list  method=list_workflow_runs  resource_id=driver.yml      -> the run whose head_sha is that SHA
-#    actions_list  method=list_workflow_run_artifacts  resource_id=<run id>   (once status is "completed")
-#    actions_get   method=download_workflow_run_artifact  resource_id=<artifact id>   -> a signed URL
-
-# 4. Unpack and read.
-python3 driver/tools/results.py '<signed URL>' --out /tmp/run
+# 2. Ask for a run and wait for it. This pushes one small commit to a throwaway
+#    branch; the lane starts on the push. Then it polls, downloads and prints.
+python3 driver/tools/request.py --scenario /tmp/zoom.json \
+    --branch claude/loving-cray-d58nrb-driver --force --wait --out /tmp/run
 ```
 
-`results.py` prints the verdict table, every failed check with its note, the numbers each
+That prints the verdict table, every failed check with its note, the numbers each
 gesture measured, and the folder of screenshots. Look at a screenshot with the Read tool.
 
-A run takes about 5 minutes when the app has to be built and about 1.5 minutes when the
-same sources were built before (the binary is cached by a hash of `Sources/`), plus the
-scenarios' own time. Do not poll faster than once a minute.
+Without `--wait`, `request.py` prints the request commit's SHA and returns; later,
+`python3 driver/tools/results.py <that SHA> --out /tmp/run` waits for the run and
+prints the same thing. `results.py` also takes a run id, an artifact URL, a zip or an
+unpacked folder. Both use `curl` against the GitHub REST API, which this environment's
+proxy authenticates for reads. (If that ever stops working: GitHub MCP `actions_list`
+`list_workflow_runs` for `driver.yml`, find the run whose `head_sha` is your SHA, then
+`list_workflow_run_artifacts`, then `actions_get` `download_workflow_run_artifact`, and
+give `results.py` the signed URL.)
+
+@@TIMES@@
 
 ### Why a push and not a dispatch
 
 `driver.yml` has `workflow_dispatch` inputs (`suite`, `scenario`, `ref`, `runs_on`,
-`config`, `strict`) and a person can use them from the Actions page. The GitHub
-integration agents have in this environment may not dispatch workflows (HTTP 403), so the
-lane also starts on any push that adds or changes `docs/driver-requests/*.json`. That
+`config`, `strict`) and a person can use them from the Actions page. Agents here cannot:
+dispatching returns HTTP 403 both through the GitHub MCP tools and through the REST API.
+So the lane also starts on any push that adds or changes `docs/driver-requests/*.json`. That
 path is under `docs/` on purpose: a docs-only push starts no other workflow in this
 repository, so a request costs one macOS job, not six.
 
@@ -62,7 +62,9 @@ A request file is `{"suite": "...", "scenarios": [...], "ref": "...", "config": 
 | `--suite "smoke.json repro-*.json"` | committed scenarios, as files or globs under `driver/scenarios/` |
 | `--scenario file.json` (repeatable) | scenarios sent inline; they need not be committed. A file may hold one scenario or an array |
 | `--ref <branch or sha>` | the app code to test, when it is not the commit you are pushing from. The driver, tools and scenarios still come from your commit, and the hooks are re-installed onto that ref, so a branch that predates the driver can be tested |
-| `--branch`, `--force` | where the request commit is pushed. Default: your current branch. A throwaway branch with `--force` keeps request commits out of real history |
+| `--base <commit>` | the commit the request is added on top of (default `HEAD`). The driver, tools and committed scenarios are that commit's |
+| `--branch`, `--force` | where the request commit is pushed. Default: your current branch, which then carries the request file. Prefer a throwaway branch with `--force`: `claude/loving-cray-d58nrb-driver` is used that way. The run belongs to the commit, not the branch, so two agents force-pushing the same branch both get their runs |
+| `--wait`, `--out DIR` | wait for the run and print its results |
 | `--strict` | fail the job when an expectation fails. Without it the job is red only for a driver error, hang, timeout or crash |
 | `--config debug` | faster build, meaningless timings |
 
@@ -89,9 +91,10 @@ build.log
 ```
 
 Verdicts: `PASS` every check held · `FAIL` a check failed · `ERROR` the driver could
-not do a step (unknown target, event never arrived) · `HANG` the main thread stalled
-longer than `hangSeconds` (default 30; a stack sample is saved) · `TIMEOUT` the scenario
-outlived `timeoutSeconds` (default 300) · `CRASH` · `KILLED` the outer limit.
+not do a step (unknown target, event never arrived) · `HANG` the main thread did not
+answer for `hangSeconds` (default 30; `watchdog-sample.txt` has every thread's stack) ·
+`TIMEOUT` the scenario outlived `timeoutSeconds` (default 300) or one step outlived
+`stepTimeoutSeconds` (default 120) · `CRASH` · `KILLED` the outer limit.
 
 **A failed check is a finding, not a broken lane.** The three `repro-*` scenarios state
 what the owner wants and fail today on purpose.
@@ -127,7 +130,29 @@ step says `"fatal": true`. Give a step an `id` to refer to its measurements late
 (`steps.<id>.framesDuring`).
 
 A scenario is plain JSON, so generating hundreds from a script is a loop that writes
-dictionaries; `request.py --scenario` takes a file holding an array.
+dictionaries; `request.py --scenario` takes a file holding an array:
+
+```python
+import json
+scenarios = []
+for title, key in [("Exposure", "develop.tone.exposure"), ("Contrast", "develop.tone.contrast")]:
+    for to in (0.2, 0.8):
+        scenarios.append({
+            "name": f"drag-{title}-{to}", "fixture": "fiducial",
+            "steps": [
+                {"do": "open", "photo": "fiducial.png"},
+                {"do": "scrollTo", "target": f"slider/{title}#track"},
+                {"do": "drag", "id": "d", "target": f"slider/{title}#track",
+                 "from": [0.5, 0.5], "to": [to, 0.5], "duration": 0.6, "settle": 15},
+                {"do": "expect", "that": f"recipe.{key}", "exists": True,
+                 "note": f"dragging {title} changes it"},
+            ]})
+json.dump(scenarios, open("/tmp/sweep.json", "w"))
+# then: request.py --scenario /tmp/sweep.json ...
+```
+
+One process is started per scenario (about 3 s of launch each), so many small scenarios
+in one request are cheap; many requests are not.
 
 ### Targets
 
@@ -171,6 +196,7 @@ gesture recognizers. None calls the app's own functions.
 | `pinch` | a trackpad pinch with began/changed/ended phases: `target`, `at`, `scale` (the whole gesture's factor; each event carries an equal share of `scale - 1`), `duration`, `hz`, or explicit `deltas` |
 | `smartMagnify` | the two-finger double-tap: `target`, `at` |
 | `key` | `key` (a letter, digit, symbol, or `return tab space delete escape left right up down`), `modifiers` (`cmd shift option ctrl`), `count`, `interval` |
+| `type` | `text`: typed one character at a time into whatever has keyboard focus |
 | `modifiers` | `hold`: modifiers to keep down across the following steps; `[]` releases |
 | `scrollTo` | brings `target` into view by scrolling `in` (default `develop.column`) |
 
@@ -183,6 +209,10 @@ Every pointer verb also takes:
   and the pixel witness treats them as one series (`groups.<id>`).
 - `"settle": seconds`: after the gesture, wait up to that long for the sharp frame and
   record `releaseToSettledMs`.
+- `"film": hz`: watch the screen from a separate thread while the gesture runs, by
+  grabbing the window `hz` times a second and noting each time the pixels of
+  `filmRegion` (default `viewer`) changed. This is the outside view of "did the picture
+  update": it does not depend on anything the app reports.
 - `"watch": "develop.tone.exposure"`: a recipe key to trace; the step's `frameTrace`
   lists `[ms, value, draft|sharp, long edge]` for every frame.
 
@@ -267,14 +297,15 @@ In its row of `report.json`, and readable as `steps.<id>.<name>`:
 | name | meaning |
 |---|---|
 | `via`, `events`, `delivered` | backend used, events sent, whether the app received the last one |
-| `postingMs`, `gestureMs` | how long sending took; how long until the app had handled the last event. A healthy app has them nearly equal; a gap is the main thread falling behind |
+| `postingMs`, `gestureMs` | how long sending took; when the app received the gesture's last event. A healthy app has them nearly equal; a gap is the main thread falling behind. "During" below means up to that moment |
 | `framesDuring`, `framesDuringDraft`, `framesAfter` | frames the loupe put on screen while the gesture ran, and after |
 | `maxFrameGapMs`, `firstFrameMs`, `fpsDuring` | the longest wait without a new frame inside the gesture; the first frame's delay |
 | `distinctValues`, `distinctValuesShown` | how many different settings the gesture produced, and how many of those ever reached the screen |
 | `latencyMs.min/p50/p90/max/n` | for each frame during the gesture: time from the moment its settings first existed to the frame showing them |
 | `staleFramesDuring` | frames that showed settings already superseded when they landed |
 | `releaseToFinalValueMs`, `releaseToSharpMs`, `releaseToSettledMs` | from the end of the gesture to the first frame of the final settings, to the first sharp one, and (with `settle`) to the settled one. Negative: it was already there |
-| `hitches`, `hitchMaxMs`, `hitchTotalMs` | main-thread run-loop turns longer than 25 ms during the gesture |
+| `hitches`, `hitchMaxMs`, `hitchTotalMs`, `hitchAfterMaxMs` | main-thread run-loop turns longer than 25 ms during the gesture; the longest one after it |
+| `screenChangesDuring`, `screenChangesAfter`, `screenFirstChangeMs`, `screenMaxGapMs`, `screenLastChangeMs`, `screenTrace` | with `film`: how many times the watched region visibly changed during and after the gesture, when it first changed, the longest stretch without a change inside the gesture, when it last changed relative to the gesture's end, and `[ms, amount]` per change |
 | `watchStart`, `watchEnd`, `frameTrace` | with `watch` |
 
 "Frame" means the loupe's render model replaced the image it shows. Zoom and pan move

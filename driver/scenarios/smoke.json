@@ -37,7 +37,8 @@
     {"do": "compare", "name": "exposure", "a": "01-develop-fit", "b": "02-after-exposure"},
     {"do": "expect", "that": "compare.exposure.meanAbs", "gt": 2, "note": "the picture got brighter on screen"},
 
-    {"do": "click", "target": {"text": "Develop", "within": "rail"}},
+    {"do": "click", "target": "rail", "at": [0.5, 0.115], "note": "the Develop button, second in the rail"},
+    {"do": "expect", "that": "workspace", "eq": "develop"},
     {"do": "key", "key": "m"},
     {"do": "wait", "seconds": 0.5},
     {"do": "expect", "that": "masking", "eq": true, "note": "M enters masking"},
