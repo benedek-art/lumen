@@ -28,6 +28,29 @@ final class RenderLabTests: XCTestCase {
         XCTAssertEqual(recipe.look.bw?.enabled, true)
     }
 
+    /// Every committed manifest parses and every patch in it names real recipe fields.
+    func testCommittedManifestsAreValid() throws {
+        let dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("../../../renderlab/manifests").standardizedFileURL
+        let files = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+            .filter { $0.hasSuffix(".json") }
+        XCTAssertFalse(files.isEmpty)
+        for file in files {
+            let manifest = try RenderLabManifest(data: Data(contentsOf: dir.appendingPathComponent(file)))
+            for job in manifest.jobs {
+                for v in job.variants + [] {
+                    XCTAssertNoThrow(try RecipePatch.apply(v.patch, to: Recipe()), "\(file) \(job.id) \(v.label)")
+                }
+                if let r = job.reference {
+                    XCTAssertNoThrow(try RecipePatch.apply(r, to: Recipe()), "\(file) \(job.id) reference")
+                }
+            }
+            for (_, path) in manifest.luts {
+                XCTAssertTrue(FileManager.default.fileExists(atPath: dir.appendingPathComponent(path).path), path)
+            }
+        }
+    }
+
     func testAnUnknownFieldIsRefusedRatherThanDropped() throws {
         let patch = try RenderLabJSON.parse(Data(#"{"develop.tone.exposre": 1}"#.utf8))
         XCTAssertThrowsError(try RecipePatch.apply(patch, to: Recipe()))

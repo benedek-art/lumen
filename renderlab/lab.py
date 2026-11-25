@@ -239,6 +239,73 @@ def cmd_local(args):
     return run.returncode
 
 
+def cmd_plan(args):
+    """CI only: resolve dispatch inputs, or docs/renderlab-request.json on a push."""
+    env = os.environ
+    req = {
+        "manifest": env.get("IN_MANIFEST", ""), "manifests": env.get("IN_MANIFESTS", ""),
+        "lane": env.get("IN_LANE", ""), "shards": env.get("IN_SHARDS", ""),
+        "drift": env.get("IN_DRIFT", ""), "plates": env.get("IN_PLATES", ""),
+        "runs-on": env.get("IN_RUNS_ON", ""),
+    }
+    request_file = ROOT / "docs/renderlab-request.json"
+    if env.get("EVENT") == "push" and request_file.exists():
+        req.update(json.loads(request_file.read_text()))
+        print(f"push request: {json.dumps(req)[:2000]}")
+    resolved = ROOT / "resolved"
+    resolved.mkdir(exist_ok=True)
+    names = []
+    inline = req.get("manifest") or ""
+    if inline:
+        data = inline if isinstance(inline, (dict, list)) else json.loads(inline)
+        (resolved / "inline.json").write_text(json.dumps(data))
+        names.append("inline")
+    wanted = req.get("manifests") or ""
+    if isinstance(wanted, list):
+        wanted = ",".join(wanted)
+    if not wanted and not inline:
+        wanted = "smoke"
+    for n in [x.strip() for x in wanted.split(",") if x.strip()]:
+        if not all(c.isalnum() or c in "._-" for c in n):
+            raise SystemExit(f"bad manifest name {n}")
+        src = ROOT / "renderlab/manifests" / f"{n}.json"
+        if not src.exists():
+            raise SystemExit(f"no {src}")
+        json.loads(src.read_text())
+        shutil.copy(src, resolved / src.name)
+        names.append(n)
+    lane = (req.get("lane") or "macos").strip()
+    if lane not in ("macos", "linux", "both"):
+        raise SystemExit("lane must be macos, linux or both")
+    try:
+        shards = max(1, min(20, int(req.get("shards") or 4)))
+    except ValueError:
+        shards = 4
+    drift = str(req.get("drift") or "").strip()
+    if drift and not all(c.isalnum() or c in "._-" for c in drift):
+        raise SystemExit("bad drift name")
+    runs_on = str(req.get("runs-on") or "macos-15").strip()
+    if not all(c.isalnum() or c in "._-" for c in runs_on):
+        raise SystemExit("bad runs-on")
+    photo_ids = ",".join(l.split(";")[0] for l in (ROOT / "renderlab/photos.tsv").read_text().splitlines() if l)
+    out = {
+        "manifests": ",".join(names),
+        "macos": str(lane in ("macos", "both")).lower(),
+        "linux": str(lane in ("linux", "both")).lower(),
+        "shards": json.dumps(list(range(shards))),
+        "drift": drift,
+        "plates_force": str(str(req.get("plates")).lower() == "true").lower(),
+        "runs_on": runs_on,
+        "plates_key": f"renderlab-plates-v1-{env.get('PLATES_HASH', '')}-{env.get('PLATE_EDGE', '2048')}",
+        "photo_ids": photo_ids,
+    }
+    with open(env.get("GITHUB_OUTPUT", "/dev/stdout"), "a") as f:
+        for k, v in out.items():
+            f.write(f"{k}={v}\n")
+    print(json.dumps(out, indent=1))
+    return 0
+
+
 def main():
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
         print(__doc__)

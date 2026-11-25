@@ -3,12 +3,16 @@
 # contact sheets. How to use it: renderlab/README.md.
 name: Render lab
 
-run-name: "Render lab ${{ inputs.lane || 'macos' }} ${{ inputs.manifests || 'smoke' }} ${{ inputs.label }}"
+run-name: "Render lab ${{ github.event_name == 'push' && 'request' || inputs.lane }} ${{ inputs.manifests }} ${{ inputs.label }} ${{ github.event_name == 'push' && github.event.head_commit.message || '' }}"
 
+# Two ways in. workflow_dispatch with the inputs below; or a push that changes
+# docs/renderlab-request.json (same keys as the inputs) on any branch. The request file
+# lives under docs/ so the push fires no other macOS lane.
 on:
   push:
-    branches: ["claude/loving-cray-d58nrb-renderlab"]
+    branches: ["**"]
     paths:
+      - "docs/renderlab-request.json"
       - ".github/workflows/render-lab.yml"
   workflow_dispatch:
     inputs:
@@ -60,50 +64,28 @@ jobs:
       macos: ${{ steps.m.outputs.macos }}
       linux: ${{ steps.m.outputs.linux }}
       shards: ${{ steps.m.outputs.shards }}
+      drift: ${{ steps.m.outputs.drift }}
+      plates-force: ${{ steps.m.outputs.plates_force }}
+      runs-on: ${{ steps.m.outputs.runs_on }}
       plates-key: ${{ steps.m.outputs.plates_key }}
       plates-hit: ${{ steps.lookup.outputs.cache-hit }}
       photo-ids: ${{ steps.m.outputs.photo_ids }}
     steps:
       - uses: actions/checkout@v4
-      - name: Resolve manifests
+      - name: Resolve the request
         id: m
         shell: bash
         env:
-          INLINE: ${{ inputs.manifest }}
-          NAMES: ${{ inputs.manifests }}
-          LANE: ${{ inputs.lane || 'macos' }}
-          SHARDS: ${{ inputs.shards || '4' }}
-        run: |
-          mkdir -p resolved
-          list=""
-          if [ -n "$INLINE" ]; then
-            printf '%s' "$INLINE" > resolved/inline.json
-            python3 -c 'import json,sys; json.load(open("resolved/inline.json"))' \
-              || { echo "::error::inline manifest is not valid JSON"; exit 1; }
-            list="inline"
-          fi
-          [ -z "$NAMES" ] && [ -z "$INLINE" ] && NAMES="smoke"
-          IFS=',' read -ra parts <<< "$NAMES"
-          for n in "${parts[@]}"; do
-            n=$(echo "$n" | tr -d '[:space:]'); [ -z "$n" ] && continue
-            case "$n" in *[!A-Za-z0-9._-]*) echo "::error::bad manifest name $n"; exit 1;; esac
-            [ -f "renderlab/manifests/$n.json" ] || { echo "::error::no renderlab/manifests/$n.json"; exit 1; }
-            cp "renderlab/manifests/$n.json" resolved/
-            list="${list:+$list,}$n"
-          done
-          echo "manifests=$list" >> "$GITHUB_OUTPUT"
-          case "$LANE" in
-            macos) echo "macos=true" >> "$GITHUB_OUTPUT"; echo "linux=false" >> "$GITHUB_OUTPUT";;
-            linux) echo "macos=false" >> "$GITHUB_OUTPUT"; echo "linux=true" >> "$GITHUB_OUTPUT";;
-            both) echo "macos=true" >> "$GITHUB_OUTPUT"; echo "linux=true" >> "$GITHUB_OUTPUT";;
-            *) echo "::error::lane must be macos, linux or both"; exit 1;;
-          esac
-          case "$SHARDS" in ''|*[!0-9]*) SHARDS=4;; esac
-          [ "$SHARDS" -lt 1 ] && SHARDS=1; [ "$SHARDS" -gt 20 ] && SHARDS=20
-          echo "shards=$(python3 -c "import json; print(json.dumps(list(range($SHARDS))))")" >> "$GITHUB_OUTPUT"
-          echo "plates_key=renderlab-plates-v1-${{ hashFiles('renderlab/photos.tsv', 'Sources/LumenPipeline/AppleRawSource.swift', 'Sources/LumenCore/RenderLab/RenderLabPlate.swift', 'Tests/LumenPipelineTests/RenderLabShippingHarness.swift') }}-$PLATE_EDGE" >> "$GITHUB_OUTPUT"
-          echo "photo_ids=$(cut -d';' -f1 renderlab/photos.tsv | paste -sd, -)" >> "$GITHUB_OUTPUT"
-          echo "Manifests: $list  lane: $LANE  shards: $SHARDS"
+          EVENT: ${{ github.event_name }}
+          IN_MANIFEST: ${{ inputs.manifest }}
+          IN_MANIFESTS: ${{ inputs.manifests }}
+          IN_LANE: ${{ inputs.lane }}
+          IN_SHARDS: ${{ inputs.shards }}
+          IN_DRIFT: ${{ inputs.drift }}
+          IN_PLATES: ${{ inputs.plates }}
+          IN_RUNS_ON: ${{ inputs.runs-on }}
+          PLATES_HASH: ${{ hashFiles('renderlab/photos.tsv', 'Sources/LumenPipeline/AppleRawSource.swift', 'Sources/LumenCore/RenderLab/RenderLabPlate.swift', 'Tests/LumenPipelineTests/RenderLabShippingHarness.swift') }}
+        run: python3 renderlab/lab.py plan
       - name: Are plates cached
         id: lookup
         uses: actions/cache/restore@v4
@@ -121,8 +103,8 @@ jobs:
   # Decodes each photo once through AppleRawSource into scene-linear plates for Linux.
   plates:
     needs: plan
-    if: needs.plan.outputs.linux == 'true' && (needs.plan.outputs.plates-hit != 'true' || inputs.plates)
-    runs-on: ${{ inputs.runs-on || 'macos-15' }}
+    if: needs.plan.outputs.linux == 'true' && (needs.plan.outputs.plates-hit != 'true' || needs.plan.outputs.plates-force == 'true')
+    runs-on: ${{ needs.plan.outputs.runs-on }}
     timeout-minutes: 60
     env:
       PHOTOS: ${{ github.workspace }}/.renderlab-photos
@@ -178,8 +160,8 @@ jobs:
 
   shipping:
     needs: plan
-    if: needs.plan.outputs.macos == 'true' || inputs.drift != ''
-    runs-on: ${{ inputs.runs-on || 'macos-15' }}
+    if: needs.plan.outputs.macos == 'true' || needs.plan.outputs.drift != ''
+    runs-on: ${{ needs.plan.outputs.runs-on }}
     timeout-minutes: 120
     env:
       PHOTOS: ${{ github.workspace }}/.renderlab-photos
@@ -234,13 +216,13 @@ jobs:
           python3 renderlab/lab.py table renderlab-out/shipping | tee -a "$GITHUB_STEP_SUMMARY"
           exit $status
       - name: Reference against shipping drift
-        if: inputs.drift != ''
+        if: needs.plan.outputs.drift != ''
         shell: bash
         env:
           LUMEN_RENDERLAB_PHOTOS: ${{ env.PHOTOS }}
           LUMEN_RENDERLAB_OUT: ${{ github.workspace }}/renderlab-out
           LUMEN_RENDERLAB_PLATE_EDGE: ${{ env.PLATE_EDGE }}
-          DRIFT: ${{ inputs.drift }}
+          DRIFT: ${{ needs.plan.outputs.drift }}
         run: |
           case "$DRIFT" in *[!A-Za-z0-9._-]*) echo "bad name"; exit 1;; esac
           f="resolved/$DRIFT.json"; [ -f "$f" ] || f="renderlab/manifests/$DRIFT.json"
