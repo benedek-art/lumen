@@ -8,8 +8,9 @@ screenshot of the fiducial fixture it finds where the image really is on screen
 (fiducial.py), then derives:
 
   shots.<name>     scale, rect (window points), insets of the image inside the viewer,
-                   the image pixel under the cursor, and how far the app's own claim
-                   of the image rectangle is from the pixels (claimErrorPt)
+                   how much of the viewer it covers (coverX, coverY, cover), the image
+                   pixel under the cursor, and how far the app's own claim of the image
+                   rectangle is from the pixels (claimErrorPt)
   groups.<id>      for a gesture captured step by step (`"capture": "each"`): how far
                    the image point that started under the cursor has moved away from
                    the cursor (driftMaxPt, driftEndPt), the largest jump between two
@@ -115,6 +116,12 @@ def main():
                 "insetRight": viewer["x"] + viewer["w"] - (rect[0] + rect[2]),
                 "insetBottom": viewer["y"] + viewer["h"] - (rect[1] + rect[3]),
             })
+            # How much of the viewer the picture still covers, per axis and by area.
+            cover_x = max(0.0, min(rect[0] + rect[2], viewer["x"] + viewer["w"]) - max(rect[0], viewer["x"]))
+            cover_y = max(0.0, min(rect[1] + rect[3], viewer["y"] + viewer["h"]) - max(rect[1], viewer["y"]))
+            entry.update({"coverX": cover_x / viewer["w"], "coverY": cover_y / viewer["h"],
+                          "cover": cover_x * cover_y / (viewer["w"] * viewer["h"]),
+                          "widthPt": rect[2]})
             cursor = row.get("cursor")
             if cursor:
                 u, v = fiducial.image_point(place, cursor["x"] * scale, cursor["y"] * scale)

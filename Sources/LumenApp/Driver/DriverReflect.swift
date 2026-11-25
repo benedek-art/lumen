@@ -9,6 +9,12 @@ import LumenCore
 import SwiftUI
 import Vision
 
+/// An app object may hand the driver values reflection cannot see (computed ones).
+/// They appear in state dumps and to `expect` as `extra.<TypeName>.<key>`.
+protocol DriverStateProviding {
+    var driverState: [String: Any] { get }
+}
+
 enum DriverReflect {
 
     /// Any value as JSON-ready data. Structs and classes become objects of their stored
@@ -196,11 +202,19 @@ extension DriverSession {
         out["brush"] = DriverReflect.value(MaskBrushStore.shared, depth: 2)
         out["info"] = DriverReflect.value(CaptureInfoDisplay.shared, depth: 2)
         out["history"] = DriverReflect.value(state.history, depth: 2, limit: 60)
+        var extra: [String: Any] = [:]
+        let objects: [Any] = [state, LoupeViewport.shared, PanelLayout.shared]
+        for object in objects {
+            if let provider = object as? DriverStateProviding {
+                extra[String(describing: type(of: object))] = provider.driverState
+            }
+        }
+        out["extra"] = extra
         return out
     }
 
     static let reflectedPrefixes = ["app.", "panel.", "loupe.", "heal.", "crop.", "brush.",
-                                    "info.", "history."]
+                                    "info.", "history.", "extra."]
 
     /// The XMP sidecar beside the selected photo, if one has been written.
     func sidecar() -> [String: Any] {
