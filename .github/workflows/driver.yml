@@ -118,6 +118,21 @@ jobs:
           path: ${{ env.RAW_DIR }}
           key: driver-raw-v1-${{ hashFiles('driver/fixtures/raw.tsv') }}
 
+      # The app binary for exactly these sources: a dispatch against an already-built
+      # tree starts its scenarios without rebuilding.
+      - name: Key the build by its sources
+        id: sources
+        shell: bash
+        run: |
+          digest=$( (find Sources Package.swift -type f -print0 | sort -z | xargs -0 shasum -a 256; swift --version 2>&1) | shasum -a 256 | cut -d' ' -f1)
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the built app
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.driver-app
+          key: driver-app-${{ steps.plan.outputs.config }}-${{ steps.sources.outputs.digest }}
+
       - name: Python imaging for the pixel witness
         shell: bash
         run: python3 -c "import numpy, PIL" 2>/dev/null || python3 -m pip install --quiet --break-system-packages numpy pillow || true
@@ -128,6 +143,7 @@ jobs:
           CONFIG: ${{ steps.plan.outputs.config }}
           STRICT: ${{ inputs.strict && '1' || '' }}
           OUT: ${{ github.workspace }}/driver-out
+          APP_CACHE: ${{ github.workspace }}/.driver-app
           LIST: ${{ steps.plan.outputs.list }}
         run: |
           set -f

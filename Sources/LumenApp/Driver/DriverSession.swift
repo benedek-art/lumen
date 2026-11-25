@@ -113,6 +113,7 @@ final class DriverSession {
     var hidWorks: Bool?
     var startedAt = DriverClock.now()
     lazy var machine: [String: Any] = DriverMachine.facts()
+    var displayNote = ""
 
     init(state: AppState, scenarioPath: String) {
         self.state = state
@@ -231,16 +232,22 @@ final class DriverSession {
         let size = scenario["window"] as? [String: Any]
         let width = (size?["width"] as? NSNumber)?.doubleValue ?? 1440
         let height = (size?["height"] as? NSNumber)?.doubleValue ?? 900
-        let screen = window.screen ?? NSScreen.main ?? NSScreen.screens.first
+        // Room for the menu bar above the window.
+        displayNote = DriverDisplay.ensure(width: Int(width), height: Int(height) + 40)
+        await sleep(displayNote.hasPrefix("switched") ? 1.5 : 0)
+        let screen = NSScreen.screens.first
         let visible = screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1920, height: 1080)
-        let frame = CGRect(x: visible.minX, y: visible.maxY - CGFloat(height),
-                           width: CGFloat(width), height: CGFloat(height))
+        // Bottom-left on the display's origin: window and screen coordinates then
+        // coincide, which is what an in-process event with no window attached needs.
+        let fitted = Swift.min(CGFloat(height), visible.maxY)
+        let frame = CGRect(x: 0, y: 0, width: CGFloat(width), height: fitted)
         window.setFrame(frame, display: true)
         window.acceptsMouseMovedEvents = true
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         let input = DriverInput(window: window)
         input.refreshGeometry()
+        input.calibrateWindowFields()
         input.startMonitor()
         input.onReceive = { [weak self] event in
             self?.received(event)
@@ -251,7 +258,7 @@ final class DriverSession {
         hidWorks = await probeHID(input)
         DriverTimeline.shared.add("setup", [
             "window": DriverJSON.rect(window.frame), "active": NSApp.isActive,
-            "key": window.isKeyWindow, "hid": hidWorks ?? false,
+            "key": window.isKeyWindow, "hid": hidWorks ?? false, "display": displayNote,
         ])
     }
 
@@ -426,7 +433,10 @@ final class DriverSession {
             "values": values,
             "shots": shotRows,
             "frames": frames.count,
-            "input": ["default": defaultVia, "hidWorks": hidWorks ?? false] as [String: Any],
+            "input": ["default": defaultVia, "hidWorks": hidWorks ?? false,
+                      "windowFields": input?.windowFields ?? []] as [String: Any],
+            "window": DriverJSON.rect(window?.frame ?? .zero),
+            "display": displayNote,
             "capture": captureMethod.rawValue,
             "machine": machine,
             "build": Bundle.main.object(forInfoDictionaryKey: "LumenBuildCommit")

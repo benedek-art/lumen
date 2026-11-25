@@ -115,15 +115,46 @@ extension DriverSession {
     }
 
     /// The snapshot plus everything earlier steps stored, flattened to dotted paths.
-    func lookupTable() -> [String: Any] {
+    /// The reflected sections are only built when `path` asks for one.
+    func lookupTable(for path: String = "") -> [String: Any] {
         var flat: [String: Any] = [:]
         DriverJSON.flatten(snapshot(), into: &flat)
         DriverJSON.flatten(values, into: &flat)
+        if DriverSession.reflectedPrefixes.contains(where: { path.hasPrefix($0) }) {
+            DriverJSON.flatten(reflectedState(), into: &flat)
+        }
+        if path.hasPrefix("menu.") {
+            for row in DriverReflect.menus() {
+                guard let name = row["path"] as? String else { continue }
+                flat["menu." + name + ".enabled"] = row["enabled"]
+                flat["menu." + name + ".checked"] = row["checked"]
+            }
+        }
         return flat
+    }
+
+    /// Recognized text on a fresh screenshot, in window-frame points.
+    func screenTexts() -> [[String: Any]] {
+        guard let window, let input,
+              let image = DriverCapture.image(window: window, method: captureMethod)
+        else { return [] }
+        input.refreshGeometry()
+        let scale = Double(image.width) / Double(Swift.max(window.frame.width, 1))
+        return DriverReflect.texts(in: image).map { hit in
+            var row = DriverJSON.rect(CGRect(x: hit.rect.minX / scale, y: hit.rect.minY / scale,
+                                             width: hit.rect.width / scale,
+                                             height: hit.rect.height / scale))
+            row["text"] = hit.text
+            return row
+        }
     }
 
     func dumpState(_ step: DriverStep) -> [String: Any] {
         var dump = snapshot()
+        for (key, value) in reflectedState() { dump[key] = value }
+        dump["menus"] = DriverReflect.menus()
+        dump["sidecar"] = sidecar()
+        if step.bool("texts") == true { dump["texts"] = screenTexts() }
         var anchors: [[String: Any]] = []
         if let input {
             for anchor in DriverAnchors.shared.all() {
@@ -209,7 +240,7 @@ extension DriverSession {
     }
 
     func expect(_ step: DriverStep) -> [String: Any] {
-        let result = evaluate(step, in: lookupTable())
+        let result = evaluate(step, in: lookupTable(for: step.string("that") ?? ""))
         if result.holds { expectPasses += 1 } else { expectFailures += 1 }
         return ["status": result.holds ? "pass" : "fail", "actual": result.actual,
                 "check": result.summary]
@@ -219,10 +250,11 @@ extension DriverSession {
     func waitFor(_ step: DriverStep) async -> [String: Any] {
         let timeout = step.double("timeout") ?? 10
         let began = DriverClock.now()
-        var result = evaluate(step, in: lookupTable())
+        let path = step.string("that") ?? ""
+        var result = evaluate(step, in: lookupTable(for: path))
         while !result.holds, DriverClock.now() - began < timeout {
             await sleep(0.05)
-            result = evaluate(step, in: lookupTable())
+            result = evaluate(step, in: lookupTable(for: path))
         }
         if result.holds { expectPasses += 1 } else { expectFailures += 1 }
         return ["status": result.holds ? "pass" : "fail", "actual": result.actual,

@@ -37,6 +37,12 @@ final class DriverInput {
     private let source = CGEventSource(stateID: .hidSystemState)
     private let lock = NSLock()
     private var received: [String: Int] = [:]
+    /// CGEvent integer fields that make `NSEvent(cgEvent:)` name this window; found by
+    /// trial at start. Empty: in-process scroll and gesture events are handed to the
+    /// view under them directly (`intercept`).
+    private(set) var windowFields: [Int] = []
+    private var pendingPoints: [Int64: CGPoint] = [:]
+    private var pendingTag: Int64 = 0x4C55_0000
 
     init(window: NSWindow) {
         self.window = window
@@ -46,6 +52,30 @@ final class DriverInput {
     func refreshGeometry() {
         geometry = WindowGeometry(frame: window.frame, number: window.windowNumber,
                             primaryHeight: NSScreen.screens.first?.frame.height ?? 0)
+    }
+
+    /// Whether a window-frame point is on the display, where HID events can reach it.
+    func isOnScreen(_ wf: CGPoint) -> Bool {
+        let p = quartz(wf)
+        guard let screen = NSScreen.screens.first?.frame else { return false }
+        return p.x >= 1 && p.y >= 1 && p.x < screen.width - 1 && p.y < screen.height - 1
+    }
+
+    /// Main thread only. Tries each CGEvent field as the carrier of the window number.
+    func calibrateWindowFields() {
+        var found: [Int] = []
+        for raw in 0..<256 {
+            guard let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel,
+                                      wheelCount: 1, wheel1: 1, wheel2: 0, wheel3: 0)
+            else { continue }
+            event.setIntegerValueField(unsafeBitCast(UInt32(raw), to: CGEventField.self),
+                                       value: Int64(geometry.number))
+            if let converted = NSEvent(cgEvent: event), converted.type == .scrollWheel,
+               converted.windowNumber == geometry.number {
+                found.append(raw)
+            }
+        }
+        windowFields = found
     }
 
     func receivedCount(_ type: String) -> Int {
@@ -109,10 +139,35 @@ final class DriverInput {
     func startMonitor() {
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .any) { [weak self] event in
-            self?.record(received: event)
-            self?.onReceive?(event)
+            guard let self else { return event }
+            self.record(received: event)
+            self.onReceive?(event)
+            return self.intercept(event)
+        }
+    }
+
+    /// An in-process scroll or gesture event that AppKit could not tie to a window is
+    /// given to the view under its intended point, as `NSWindow.sendEvent` would.
+    private func intercept(_ event: NSEvent) -> NSEvent? {
+        guard event.type == .scrollWheel || event.type == .magnify
+                || event.type == .smartMagnify,
+              event.windowNumber != geometry.number, let cg = event.cgEvent else {
             return event
         }
+        let tag = cg.getIntegerValueField(.eventSourceUserData)
+        lock.lock()
+        let point = pendingPoints.removeValue(forKey: tag)
+        lock.unlock()
+        guard let point, let content = window.contentView else { return event }
+        let inWindow = base(point)
+        let inParent = content.superview?.convert(inWindow, from: nil) ?? inWindow
+        guard let target = content.hitTest(inParent) else { return nil }
+        switch event.type {
+        case .scrollWheel: target.scrollWheel(with: event)
+        case .magnify: target.magnify(with: event)
+        default: target.smartMagnify(with: event)
+        }
+        return nil
     }
 
     private func record(received event: NSEvent) {
@@ -236,9 +291,18 @@ final class DriverInput {
             event.post(tap: .cghidEventTap)
         case .app:
             let number = Int64(geometry.number)
-            event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: number)
-            event.setIntegerValueField(
-                .mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: number)
+            for raw in windowFields {
+                event.setIntegerValueField(unsafeBitCast(UInt32(raw), to: CGEventField.self),
+                                           value: number)
+            }
+            event.timestamp = DispatchTime.now().uptimeNanoseconds
+            lock.lock()
+            pendingTag += 1
+            let tag = pendingTag
+            pendingPoints[tag] = wf
+            if pendingPoints.count > 4096 { pendingPoints.removeAll() }
+            lock.unlock()
+            event.setIntegerValueField(.eventSourceUserData, value: tag)
             postNS(NSEvent(cgEvent: event))
         }
     }

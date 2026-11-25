@@ -82,15 +82,23 @@ def _lattice(lines, pitch_hint=None):
         return None
     if pitch < 3:
         return None
-    for _ in range(3):
-        idx = np.round((np.array(lines) - lines[0]) / pitch)
-        ok = np.abs(np.array(lines) - lines[0] - idx * pitch) < max(0.2 * pitch, 2.0)
-        if ok.sum() >= 2:
-            p, o = np.polyfit(idx[ok], np.array(lines)[ok], 1)
-            pitch, origin = float(p), float(o)
-        else:
-            origin = lines[0]
+    xs = np.array(lines)
+    origin = lines[0]
+    if len(lines) >= 3:
+        # The pitch near the first guess that the whole set of lines agrees on: the
+        # peak of their periodogram. Robust to a missing or a spurious line.
+        trial = np.linspace(0.85 * pitch, 1.15 * pitch, 2401)
+        power = np.abs(np.exp(2j * np.pi * xs[None, :] / trial[:, None]).sum(axis=1))
+        pitch = float(trial[power.argmax()])
+        phase = np.angle(np.exp(2j * np.pi * xs / pitch).sum())
+        origin = float(phase / (2 * np.pi) * pitch)
+    for _ in range(4):
+        idx = np.round((xs - origin) / pitch)
+        ok = np.abs(xs - origin - idx * pitch) < max(0.15 * pitch, 1.5)
+        if ok.sum() < 2 or len(set(idx[ok])) < 2:
             break
+        p, o = np.polyfit(idx[ok], xs[ok], 1)
+        pitch, origin = float(p), float(o)
     idx = np.round((np.array(lines) - origin) / pitch)
     resid = np.array(lines) - origin - idx * pitch
     ok = np.abs(resid) < max(0.2 * pitch, 2.0)
@@ -159,11 +167,14 @@ def locate(rgb, meta, roi=None):
             hit = total = inside = 0
             for (i, j), value in seen.items():
                 gi, gj = i + di, j + dj
-                total += 1
                 if 0 <= gi < cols and 0 <= gj < rows:
+                    if value == 0:
+                        continue  # covered by a HUD or a panel: no evidence either way
+                    total += 1
                     inside += 1
                     hit += CODE.get(value) == grid[gj][gi]
                 else:
+                    total += 1
                     hit += value == 0
             if inside < 4:
                 continue

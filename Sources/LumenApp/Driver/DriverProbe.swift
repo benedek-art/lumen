@@ -52,6 +52,48 @@ enum DriverMachine {
     }
 }
 
+/// The main display's modes. A window wider than the display cannot be reached by HID
+/// events, so the driver asks for a mode that holds it.
+enum DriverDisplay {
+
+    static func modes() -> [CGDisplayMode] {
+        let options = [kCGDisplayShowDuplicateLowResolutionModes as String: true] as CFDictionary
+        return (CGDisplayCopyAllDisplayModes(CGMainDisplayID(), options) as? [CGDisplayMode]) ?? []
+    }
+
+    static func describe() -> [[String: Any]] {
+        modes().map { mode in
+            let row: [String: Any] = ["w": mode.width, "h": mode.height,
+                                      "pw": mode.pixelWidth, "ph": mode.pixelHeight,
+                                      "hz": mode.refreshRate]
+            return row
+        }
+    }
+
+    /// Switches to the smallest 1x mode of at least `width` x `height` points, when the
+    /// current one is smaller. Returns what it did.
+    static func ensure(width: Int, height: Int) -> String {
+        let display = CGMainDisplayID()
+        if let current = CGDisplayCopyDisplayMode(display),
+           current.width >= width, current.height >= height {
+            return "kept \(current.width)x\(current.height)"
+        }
+        let fitting = modes().filter { $0.width >= width && $0.height >= height }
+        let ranked = fitting.sorted { a, b in
+            let aPlain = a.pixelWidth == a.width, bPlain = b.pixelWidth == b.width
+            if aPlain != bPlain { return aPlain }
+            return a.width * a.height < b.width * b.height
+        }
+        guard let chosen = ranked.first else {
+            return "no mode holds \(width)x\(height)"
+        }
+        let result = CGDisplaySetDisplayMode(display, chosen, nil)
+        return result == .success
+            ? "switched to \(chosen.width)x\(chosen.height)"
+            : "switch failed (\(result.rawValue))"
+    }
+}
+
 enum DriverAccessibility {
 
     struct Element {
@@ -136,6 +178,8 @@ extension DriverSession {
             screens.append(row)
         }
         out["screens"] = screens
+        out["displayModes"] = DriverDisplay.describe()
+        out["windowFields"] = input.windowFields
         let windowFacts: [String: Any] = [
             "frame": DriverJSON.rect(window.frame), "number": window.windowNumber,
             "key": window.isKeyWindow, "main": window.isMainWindow,

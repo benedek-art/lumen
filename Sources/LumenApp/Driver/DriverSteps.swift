@@ -81,7 +81,32 @@ extension DriverSession {
             }
             return input.windowFrameRect(fromScreen: matches[index].frame)
         }
-        throw DriverError("target needs one of: anchor, ax, point")
+        if let wanted = spec["text"] as? String {
+            // What a person would do: find the words on screen.
+            let lowered = wanted.lowercased()
+            var hits = screenTexts().filter { ($0["text"] as? String)?.lowercased() == lowered }
+            if hits.isEmpty {
+                hits = screenTexts().filter {
+                    ($0["text"] as? String)?.lowercased().contains(lowered) ?? false
+                }
+            }
+            var frames: [CGRect] = hits.compactMap { row in
+                guard let x = row["x"] as? Double, let y = row["y"] as? Double,
+                      let w = row["w"] as? Double, let h = row["h"] as? Double else { return nil }
+                return CGRect(x: x, y: y, width: w, height: h)
+            }
+            if let within = spec["within"] as? String {
+                let container = try anchorFrame(id: within, index: 0, within: nil)
+                frames = frames.filter { container.insetBy(dx: -2, dy: -2).contains($0) }
+            }
+            let index = (spec["index"] as? NSNumber)?.intValue ?? 0
+            guard index < frames.count else {
+                throw DriverError("the text \"\(wanted)\" is not on screen "
+                                      + "(found \(frames.count))")
+            }
+            return frames[index]
+        }
+        throw DriverError("target needs one of: anchor, text, ax, point")
     }
 
     private func anchorFrame(id: String, index: Int, within: String?) throws -> CGRect {
@@ -115,13 +140,16 @@ extension DriverSession {
                        y: frame.minY + frame.height * CGFloat(fraction[1]) + CGFloat(shift[1]))
     }
 
-    /// Picks the backend for a step: its own `via`, else the scenario's, else `auto`
-    /// (HID when this process can post and receive HID events, in-process otherwise).
-    func backend(for step: DriverStep) -> DriverInput.Via {
+    /// Picks the backend for a step: its own `via`, else the scenario's, else `auto`:
+    /// HID when this process can post and receive HID events and every point the step
+    /// touches is on the display, in-process otherwise.
+    func backend(for step: DriverStep, points: [CGPoint]) -> DriverInput.Via {
         switch step.string("via") ?? defaultVia {
         case "hid": return .hid
         case "app": return .app
-        default: return hidWorks == true ? .hid : .app
+        default:
+            guard hidWorks == true, let input else { return .app }
+            return points.allSatisfy { input.isOnScreen($0) } ? .hid : .app
         }
     }
 
@@ -145,6 +173,8 @@ extension DriverSession {
             DriverTimeline.shared.add("mark", ["name": step.string("name") ?? step.id])
             return [:]
         case "probe": return await probe(step)
+        case "menu": return try await menu(step)
+        case "scrollTo": return try await scrollTo(step)
         case "move", "click", "drag", "scroll", "swipe", "pinch", "smartMagnify", "key",
              "modifiers":
             return try await gesture(step)
@@ -215,6 +245,42 @@ extension DriverSession {
         return ["via": "direct"]
     }
 
+    /// Scrolls a container (default the develop column) with two-finger scroll events
+    /// until the target sits in its upper half.
+    private func scrollTo(_ step: DriverStep) async throws -> [String: Any] {
+        guard let input else { throw DriverError("no window") }
+        let containerID = step.string("in") ?? "develop.column"
+        var previous: CGRect?
+        var stuck = 0
+        for attempt in 0..<40 {
+            input.refreshGeometry()
+            let container = try resolveFrame(containerID)
+            let target = try? resolveFrame(step.raw["target"])
+            let aim = container.minY + container.height * 0.4
+            var distance = 300.0
+            if let target {
+                distance = Double(target.midY - aim)
+                let inView = target.midY > container.minY + 30
+                    && target.midY < container.minY + container.height * 0.7
+                if inView || (stuck >= 2 && container.contains(CGPoint(x: target.midX,
+                                                                        y: target.midY))) {
+                    return ["scrolls": attempt, "frame": DriverJSON.rect(target)]
+                }
+                stuck = target == previous ? stuck + 1 : 0
+                if stuck >= 3 { break }
+                previous = target
+            }
+            let centre = CGPoint(x: container.midX, y: container.midY)
+            input.via = backend(for: step, points: [centre])
+            let delta = Swift.max(-400, Swift.min(400, -distance))
+            input.move(to: centre)
+            input.scroll(dx: 0, dy: delta, precise: true, phase: 1, momentum: 0, at: centre)
+            input.scroll(dx: 0, dy: 0, precise: true, phase: 4, momentum: 0, at: centre)
+            await sleep(0.2)
+        }
+        throw DriverError("could not scroll the target into view in \(containerID)")
+    }
+
     // MARK: Input verbs
 
     private func ease(_ x: Double, _ name: String) -> Double {
@@ -227,27 +293,28 @@ extension DriverSession {
 
     private func gesture(_ step: DriverStep) async throws -> [String: Any] {
         guard let input else { throw DriverError("no window") }
-        let via = backend(for: step)
-        input.via = via
+        var touched: [CGPoint] = []
         let hz = Swift.max(step.double("hz") ?? 60, 1)
         let duration = Swift.max(step.double("duration") ?? 0, 0)
         let easing = step.string("ease") ?? "linear"
         var ticks: [DriverTick] = []
         var endEvent = ""
-        var out: [String: Any] = ["via": via.rawValue]
+        var out: [String: Any] = [:]
 
         let held = DriverInput.flags(step.strings("modifiers"))
         let holdsModifiers = step.has("modifiers") && step.verb != "modifiers"
 
         switch step.verb {
         case "modifiers":
+            input.via = backend(for: step, points: [])
             input.setModifiers(DriverInput.flags(step.strings("hold")))
             await sleep(0.05)
-            return out
+            return ["via": input.via.rawValue]
 
         case "move":
             let from = input.cursor
             let to = try resolvePoint(step)
+            touched = [to]
             let count = Swift.max(Int((duration * hz).rounded()), 1)
             for k in 1...count {
                 let x = ease(Double(k) / Double(count), easing)
@@ -259,6 +326,7 @@ extension DriverSession {
 
         case "click":
             let p = try resolvePoint(step)
+            touched = [p]
             let count = Swift.max(step.int("count") ?? 1, 1)
             let right = step.string("button") == "right"
             let hold = step.double("hold") ?? 0.04
@@ -306,6 +374,7 @@ extension DriverSession {
             let count = Swift.max(Int((duration * hz).rounded()), 1)
             let start = waypoints[0]
             let last = waypoints[waypoints.count - 1]
+            touched = waypoints
             ticks.append(DriverTick(at: 0) { input.move(to: start) })
             ticks.append(DriverTick(at: 0.05) { input.down(at: start, right: right) })
             let segments = waypoints.count - 1
@@ -325,6 +394,7 @@ extension DriverSession {
 
         case "scroll":
             let p = try resolvePoint(step)
+            touched = [p]
             let lines = step.doubles("lines") ?? [0, step.double("dy") ?? 1]
             guard lines.count == 2 else { throw DriverError("lines takes [dx, dy]") }
             let count = Swift.max(step.int("count") ?? 1, 1)
@@ -342,6 +412,7 @@ extension DriverSession {
         case "swipe":
             // A two-finger trackpad scroll: began, changed…, ended, then momentum.
             let p = try resolvePoint(step)
+            touched = [p]
             let total = step.doubles("by") ?? [step.double("dx") ?? 0, step.double("dy") ?? 0]
             guard total.count == 2 else { throw DriverError("by takes [dx, dy]") }
             let count = Swift.max(Int((Swift.max(duration, 1 / hz) * hz).rounded()), 2)
@@ -396,6 +467,7 @@ extension DriverSession {
             // `scale` is the whole gesture's factor; each event carries an equal share
             // of (scale - 1) as its magnification delta, which is what a trackpad sends.
             let p = try resolvePoint(step)
+            touched = [p]
             var deltas = step.doubles("deltas") ?? []
             if deltas.isEmpty {
                 let scale = step.double("scale") ?? 2
@@ -418,6 +490,7 @@ extension DriverSession {
 
         case "smartMagnify":
             let p = try resolvePoint(step)
+            touched = [p]
             ticks.append(DriverTick(at: 0) { input.move(to: p) })
             ticks.append(DriverTick(at: 0.05) { input.smartMagnify(at: p) })
             endEvent = "smartMagnify"
@@ -443,6 +516,9 @@ extension DriverSession {
             throw DriverError("unknown gesture \(step.verb)")
         }
 
+        let via = backend(for: step, points: touched)
+        input.via = via
+        out["via"] = via.rawValue
         let previousModifiers = input.modifiers
         if holdsModifiers {
             input.setModifiers(held)

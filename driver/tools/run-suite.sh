@@ -34,8 +34,15 @@ if [ ${#scenarios[@]} -eq 0 ]; then
 fi
 
 # --- build ---------------------------------------------------------------------------
-if [ -z "${SKIP_BUILD:-}" ]; then
+# APP_CACHE: a directory holding a previously built binary for exactly these sources
+# (the workflow keys it by a hash of them). A hit skips the build.
+BIN=.build/$CONFIG/LumenApp
+if [ -n "${APP_CACHE:-}" ] && [ -x "$APP_CACHE/LumenApp-$CONFIG" ]; then
+  BIN=$APP_CACHE/LumenApp-$CONFIG
+  echo "using the cached build $BIN"
+elif [ -z "${SKIP_BUILD:-}" ]; then
   echo "::group::swift build -c $CONFIG"
+  build_started=$(date +%s)
   if ! swift build -c "$CONFIG" --product LumenApp > "$OUT/build.log" 2>&1; then
     grep -E "error:" "$OUT/build.log" | sed "s#$ROOT/##" | sort -u | head -80
     echo "::endgroup::"
@@ -43,14 +50,19 @@ if [ -z "${SKIP_BUILD:-}" ]; then
     exit 2
   fi
   grep -E "warning:.*Driver/" "$OUT/build.log" | sed "s#$ROOT/##" | sort -u | head -40
+  echo "built in $(( $(date +%s) - build_started ))s"
   echo "::endgroup::"
+  if [ -n "${APP_CACHE:-}" ]; then
+    mkdir -p "$APP_CACHE"
+    cp "$BIN" "$APP_CACHE/LumenApp-$CONFIG"
+  fi
 fi
 
 # A bundle of its own, with its own identifier: preferences written during a run go to
 # dev.lumenapp.lumen.driver, never to the real app's domain.
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
-cp ".build/$CONFIG/LumenApp" "$APP/Contents/MacOS/Lumen"
+cp "$BIN" "$APP/Contents/MacOS/Lumen"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -68,6 +80,11 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 codesign --force --sign - "$APP" || { echo "codesign failed" >&2; exit 2; }
 defaults delete dev.lumenapp.lumen.driver > /dev/null 2>&1
+# On a CI runner, keep the Dock from covering the bottom of the window.
+if [ -n "${CI:-}" ]; then
+  defaults write com.apple.dock autohide -bool true && killall Dock > /dev/null 2>&1
+  sleep 2
+fi
 
 # --- fixtures ------------------------------------------------------------------------
 FIXTURES=$WORK/fixtures

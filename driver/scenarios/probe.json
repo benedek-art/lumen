@@ -1,0 +1,25 @@
+{
+  "name": "probe",
+  "description": "Reports what works on this machine: permissions, display modes, each capture method, and which event types reach the app by each input backend. Read probe.json.",
+  "fixture": "fiducial",
+  "timeoutSeconds": 180,
+  "steps": [
+    {"do": "open", "photo": "fiducial.png", "workspace": "develop"},
+    {"do": "probe"},
+    {"do": "pinch", "id": "pinch-app", "via": "app", "target": "viewer", "at": [0.4, 0.4], "scale": 1.5, "duration": 0.3},
+    {"do": "expect", "that": "viewport.zoom", "gt": 0, "note": "an in-process pinch reaches MagnifyGesture"},
+    {"do": "direct", "call": "fit"},
+    {"do": "scroll", "id": "wheel-app", "via": "app", "target": "viewer", "at": [0.4, 0.4], "lines": [0, 1], "count": 2},
+    {"do": "expect", "that": "viewport.zoom", "gt": 0, "note": "an in-process wheel event reaches the viewer"},
+    {"do": "direct", "call": "fit"},
+    {"do": "move", "via": "app", "target": "viewer", "at": [0, 0], "offset": [111, 77]},
+    {"do": "wait", "seconds": 0.3},
+    {"do": "expect", "that": "viewport.lastCursorX", "near": 111, "tol": 1.5, "note": "an in-process mouse move reaches onContinuousHover at the right place"},
+    {"do": "expect", "that": "viewport.lastCursorY", "near": 77, "tol": 1.5},
+    {"do": "move", "via": "hid", "target": "viewer", "at": [0, 0], "offset": [222, 99]},
+    {"do": "wait", "seconds": 0.3},
+    {"do": "expect", "that": "viewport.lastCursorX", "near": 222, "tol": 1.5, "note": "a HID mouse move reaches onContinuousHover at the right place"},
+    {"do": "expect", "that": "viewport.lastCursorY", "near": 99, "tol": 1.5},
+    {"do": "state", "name": "probe", "texts": true}
+  ]
+}
