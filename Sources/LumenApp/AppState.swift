@@ -1182,9 +1182,10 @@ final class AppState: ObservableObject {
     ///
     /// The gate on the digit keys. Digits are RATINGS everywhere else in this
     /// application, and a rating lost to a brush's Flow would be unrecoverable — so the
-    /// brush has to be the thing actually selected, not merely possible.
+    /// brush has to be the thing actually selected, not merely possible. "Selected" is
+    /// the same fallback the panel highlights and the canvas paints with.
     var activeComponentIsBrush: Bool {
-        guard let id = activeMaskID,
+        guard let id = activeMaskID ?? currentRecipe.masks.first?.id,
               let mask = currentRecipe.masks.first(where: { $0.id == id }),
               mask.components.indices.contains(activeComponentIndex) else { return false }
         return mask.components[activeComponentIndex].kind == .brush
