@@ -4,6 +4,7 @@
 #   driver/tools/run-suite.sh [scenario.json | glob-under-driver/scenarios]...
 #
 # Environment: CONFIG=release|debug (release) · OUT=dir (driver-out) ·
+# PHASE=build|run|all · APP_CACHE=dir holding or receiving the built binary ·
 # STRICT=1 fails the run on a failed expectation, not only on a driver error ·
 # RAW_DIR=dir of real RAW files for scenarios with "fixture": "raw".
 # macOS only. See driver/README.md.
@@ -17,6 +18,8 @@ WORK=${RUNNER_TEMP:-/tmp}/lumen-driver-work
 APP=$WORK/LumenDriver.app
 mkdir -p "$OUT" "$WORK"
 
+PHASE=${PHASE:-all}   # build: only build · run: only run · all
+
 # --- scenarios -----------------------------------------------------------------------
 scenarios=()
 for arg in "$@"; do
@@ -28,7 +31,7 @@ for arg in "$@"; do
     done
   fi
 done
-if [ ${#scenarios[@]} -eq 0 ]; then
+if [ ${#scenarios[@]} -eq 0 ] && [ "$PHASE" != "build" ]; then
   echo "no scenarios matched: $*" >&2
   exit 2
 fi
@@ -56,6 +59,10 @@ elif [ -z "${SKIP_BUILD:-}" ]; then
     mkdir -p "$APP_CACHE"
     cp "$BIN" "$APP_CACHE/LumenApp-$CONFIG"
   fi
+fi
+
+if [ "$PHASE" = "build" ]; then
+  exit 0
 fi
 
 # A bundle of its own, with its own identifier: preferences written during a run go to

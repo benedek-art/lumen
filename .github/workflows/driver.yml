@@ -101,17 +101,18 @@ jobs:
           git log -1 --format='testing %H %s'
           python3 driver/tools/install-hooks.py
 
-      # Restored whether or not this run needs them; run-suite.sh fetches on a miss
-      # only when a selected scenario asks for "fixture": "raw".
-      - name: Cache the RAW fixtures
+      # Both caches are restored and saved by hand: a job that ends red (a scenario hit
+      # a driver error) must still leave its build behind for the next run.
+      - name: Restore the RAW fixtures
         if: steps.plan.outputs.skip != '1'
-        uses: actions/cache@v4
+        id: rawcache
+        uses: actions/cache/restore@v4
         with:
           path: ${{ env.RAW_DIR }}
           key: driver-raw-v1-${{ hashFiles('driver/fixtures/raw.tsv') }}
 
-      # The app binary for exactly these sources: a dispatch against an already-built
-      # tree starts its scenarios without rebuilding.
+      # The app binary for exactly these sources: a run against an already-built tree
+      # starts its scenarios without rebuilding.
       - name: Key the build by its sources
         if: steps.plan.outputs.skip != '1'
         id: sources
@@ -120,9 +121,27 @@ jobs:
           digest=$( (find Sources Package.swift -type f -print0 | sort -z | xargs -0 shasum -a 256; swift --version 2>&1) | shasum -a 256 | cut -d' ' -f1)
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
-      - name: Cache the built app
+      - name: Restore the built app
         if: steps.plan.outputs.skip != '1'
-        uses: actions/cache@v4
+        id: appcache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ github.workspace }}/.driver-app
+          key: driver-app-${{ steps.plan.outputs.config }}-${{ steps.sources.outputs.digest }}
+
+      - name: Build
+        if: steps.plan.outputs.skip != '1'
+        shell: bash
+        env:
+          CONFIG: ${{ steps.plan.outputs.config }}
+          OUT: ${{ github.workspace }}/driver-out
+          APP_CACHE: ${{ github.workspace }}/.driver-app
+          PHASE: build
+        run: driver/tools/run-suite.sh
+
+      - name: Save the built app
+        if: steps.plan.outputs.skip != '1' && steps.appcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
         with:
           path: ${{ github.workspace }}/.driver-app
           key: driver-app-${{ steps.plan.outputs.config }}-${{ steps.sources.outputs.digest }}
@@ -132,7 +151,7 @@ jobs:
         shell: bash
         run: python3 -c "import numpy, PIL" 2>/dev/null || python3 -m pip install --quiet --break-system-packages numpy pillow || true
 
-      - name: Build and run
+      - name: Run
         if: steps.plan.outputs.skip != '1'
         shell: bash
         env:
@@ -140,10 +159,18 @@ jobs:
           STRICT: ${{ steps.plan.outputs.strict }}
           OUT: ${{ github.workspace }}/driver-out
           APP_CACHE: ${{ github.workspace }}/.driver-app
+          PHASE: run
           LIST: ${{ steps.plan.outputs.list }}
         run: |
           set -f
           driver/tools/run-suite.sh $LIST
+
+      - name: Save the RAW fixtures
+        if: always() && steps.plan.outputs.skip != '1' && steps.rawcache.outputs.cache-hit != 'true' && hashFiles('.driver-raw/*.ARW') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.RAW_DIR }}
+          key: driver-raw-v1-${{ hashFiles('driver/fixtures/raw.tsv') }}
 
       - name: Upload results
         if: always() && steps.plan.outputs.skip != '1'

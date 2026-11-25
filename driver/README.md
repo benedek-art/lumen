@@ -237,7 +237,35 @@ counts what the app's own event monitor receives.
 `auto` uses `hid` when it works and every point of the step is on the display, else `app`.
 The step's result says which was used (`via`).
 
-@@STATUS@@
+`probe.json` asserts each row for each backend; the last run of it (hosted `macos-15`,
+see its report) passed all 26 checks:
+
+| what the scenario did | effect it checked | `hid` | `app` |
+|---|---|---|---|
+| mouse move over the viewer | the viewer's `onContinuousHover` reports that exact point | yes | yes |
+| wheel over the viewer | zoom leaves fit | yes | yes |
+| pinch (began, 18 changes, ended) | `MagnifyGesture` fires, zoom leaves fit | yes | yes |
+| double-click | fit goes to 1:1 | yes | yes |
+| drag on the zoomed picture | pan changes | yes | yes |
+| two-finger scroll on the zoomed picture | pan changes | yes | yes |
+| bare key `G`, `E` | grid, loupe | yes | yes |
+| chord `cmd-4`, `cmd-2` | Grade, Develop (through the menu bar) | yes | yes |
+| drag on a slider track | the recipe value changes | yes | yes |
+| double-click on a slider label | the value resets | yes | yes |
+| smart magnify, right-click | received by the app; the app has no handler for smart magnify | received | received |
+
+How `app` delivers scroll and gesture events, since they cannot be built as `NSEvent`s
+directly: a `CGEvent` is converted with `NSEvent(cgEvent:)` and queued. AppKit attaches
+no window to such an event, so the driver takes it back at dispatch and calls the view
+under the point (`scrollWheel`, `magnify`), which is what `NSWindow.sendEvent` does.
+The event's own location is then a screen point; the driver parks the window on the
+display's origin so screen and window points coincide. Gesture events are the
+undocumented layout WebKit's tests use (type 29, field 110 = 8, 113 = magnification,
+132 = phase).
+
+Not the real path, and marked so in each step's `via`: `open` and `direct` (`direct`),
+`menu` (`menu`).
+
 
 ### Verbs that are not input
 
@@ -375,4 +403,32 @@ You can run it yourself on a downloaded run:
 
 ## Known limits
 
-@@LIMITS@@
+- **Timings are a virtual machine's.** Three cores, a paravirtual GPU, 60 Hz, 1x. A
+  9-second stall here may be 300 ms on a real Mac. Compare runs on the same runner
+  class only, and read `machine` in the report.
+- **"Frame" is the app's render model, not the glass.** `film` is the outside check
+  (it samples at the rate you give it, so it cannot count above that).
+- **Hover of `onHover` views in `app` mode is unverified.** `onContinuousHover` is
+  verified for both backends; plain `onHover` (the mask rows) has only been exercised
+  through `hid`.
+- **`NSEvent.modifierFlags` does not follow `app`-mode modifiers** (slider fine-drag
+  with shift, option-drag in the mask canvas read it). Use `hid` for those.
+- **OCR is weak on this runner.** The accurate recognizer returns nothing on the VM and
+  the fast one misreads small 1x type ("Pivot" comes back as "Diwot"). `{"text": ...}`
+  targets work for large, clear words only; prefer named targets.
+- **The app's accessibility tree is not visible from inside the process** (SwiftUI builds
+  it only for an outside client), so there is no `ax` addressing that works yet.
+- **Named targets exist for**: the window's regions, every `LumenSlider`, the mask kind
+  tiles, the mask + button and mask rows. Buttons, toggles, section headers, menus in
+  panels, filmstrip cells and sidebar rows have no names yet: reach them with `at`
+  fractions of a region, or add `.driverAnchor`.
+- **The pixel witness needs the fiducial fixture** and at least two grid lines each
+  way. It does not understand rotation, flips or crops.
+- **One window, one process per scenario.** Sheets and popovers are other windows: the
+  driver neither targets nor screenshots them yet.
+- **The catalog database is not copied into the artifact.** The XMP sidecar is in every
+  `state` dump (`sidecar`).
+- **HID events need the point on the display.** The driver switches the runner's display
+  to a mode that holds the window (1600x1200 for the default 1440x900); a larger
+  `window` than any mode falls back to `app` for the part that is off-screen.
+

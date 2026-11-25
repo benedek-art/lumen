@@ -118,7 +118,7 @@ extension DriverSession {
             }
             return frames[index]
         }
-        throw DriverError("target needs one of: anchor, text, ax, point")
+        throw DriverError("target needs one of: anchor, text, point")
     }
 
     private func anchorFrame(id: String, index: Int, within: String?) throws -> CGRect {
