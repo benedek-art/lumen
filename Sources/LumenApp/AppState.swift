@@ -1126,6 +1126,7 @@ final class AppState: ObservableObject {
         guard let photo = primarySelection else { return }
         let after = recipe(for: photo).masks
         guard let before, before != after else { return }
+        reconcileMaskSelection(with: after)
         let ids = after.map(\.id)
         if ids != before.map(\.id) {
             maskOverlayHoverRegions = maskOverlayHoverRegions.filter { ids.contains($0.value) }
@@ -1142,6 +1143,20 @@ final class AppState: ObservableObject {
                 break
             }
         }
+    }
+
+    /// Undo and redo restore masks without touching the selection, so a selection of a
+    /// mask or component that no longer exists left the panel on the first mask and the
+    /// canvas with no handles. Both readers fall back the same way once this has run.
+    private func reconcileMaskSelection(with masks: [Mask]) {
+        if let id = activeMaskID, !masks.contains(where: { $0.id == id }) {
+            activeMaskID = masks.first?.id
+            activeComponentIndex = 0
+        }
+        guard let id = activeMaskID ?? masks.first?.id,
+              let mask = masks.first(where: { $0.id == id }) else { return }
+        let last = Swift.max(mask.components.count - 1, 0)
+        if activeComponentIndex > last { activeComponentIndex = last }
     }
 
     /// The mask editor opened or closed, by whatever route.
