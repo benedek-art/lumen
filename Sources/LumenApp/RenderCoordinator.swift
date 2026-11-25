@@ -3,10 +3,10 @@
 // it a recipe version and gets a frame back; it decodes, renders, coalesces and
 // cancels. Nothing here touches SwiftUI, and nothing in SwiftUI touches Core Image.
 //
-// Coalescing is the whole trick behind a slider that keeps up with a hand: while a
-// drag is producing recipe versions faster than frames can be made, only the newest
-// one is rendered and every superseded request is dropped on arrival rather than
-// rendered and thrown away.
+// Renders are serial and have no cancellation points. Which request is worth
+// rendering next is decided before it gets here: a viewer's drafts are fed one at a
+// time by its `LatestWinsPump`, and anything else that arrives already cancelled is
+// dropped on arrival rather than rendered and thrown away.
 
 #if os(macOS)
 
@@ -55,6 +55,9 @@ struct RenderResult: @unchecked Sendable {
     /// gain map is built on — exactly as they do with the preview off.
     var edrImage: CGImage? = nil
     var edrWhiteTarget: Double? = nil
+    /// Wall time inside the coordinator for this render — decode, graph, readback —
+    /// without the hops to and from the caller. Zero where nothing stamped it.
+    var laneMilliseconds: Double = 0
 }
 
 struct DevelopedPreviewIdentity: Equatable, Sendable {
@@ -264,7 +267,8 @@ actor RenderCoordinator {
         latestGeneration = max(latestGeneration, generation)
         // Drop work that is already stale before paying for a decode.
         guard generation >= latestGeneration else { return nil }
-        return await produce(url: url, recipe: recipe, maxLongEdge: maxLongEdge,
+        let entered = DispatchTime.now().uptimeNanoseconds
+        var result = await produce(url: url, recipe: recipe, maxLongEdge: maxLongEdge,
                              draft: draft,
                              // A FRAME SOMEBODY IS LOOKING AT DECODES AT FULL DETAIL.
                              // Apple's draft decode is a lower-quality demosaic — a
@@ -280,6 +284,9 @@ actor RenderCoordinator {
                              softProof: softProof,
                              region: region,
                              edrWhiteTarget: edrWhiteTarget)
+        result?.laneMilliseconds =
+            Double(DispatchTime.now().uptimeNanoseconds - entered) / 1e6
+        return result
     }
 
     /// A render nobody else is waiting on — the scope proxy, the Auto-tone probe. It
@@ -331,12 +338,13 @@ actor RenderCoordinator {
         // "the image isn't really updating very well": not a slow render, an unbounded
         // one per event.
         //
-        // Cancellation is the signal that was already there and unread. The viewer
-        // drives these from `.task(id:)`, which cancels the previous task the moment
-        // the id moves, so a request nobody is waiting for arrives here already
-        // cancelled. Checking it costs a load and collapses the backlog to at most one
-        // frame behind. Work that must not be dropped — the export path — does not come
-        // through here.
+        // So a request whose task is already cancelled is dropped here. That is the
+        // right rule for a settle, whose view task is cancelled the moment the picture
+        // it was for is no longer wanted. It is the wrong one for a drag's drafts —
+        // every event cancels the task that asked, so each request can be dead before
+        // its turn — which is why drafts arrive from the viewer's pump on a task
+        // nothing cancels. Work that must not be dropped — the export path — does not
+        // come through here.
         func stale() -> Bool {
             if Task.isCancelled { return true }
             return coalesced && generation < latestGeneration

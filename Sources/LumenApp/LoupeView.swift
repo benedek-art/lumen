@@ -464,14 +464,12 @@ enum LoupeGeometry {
 /// honest facts about it. Shared by the loupe and by every compare pane, because a
 /// second preview system is how the two drift apart.
 ///
-/// Generation numbers order everything: every request takes the next number, and the
-/// two rules of `FrameDelivery` (LumenCore) are applied against them — a request that
-/// is already superseded is dropped BEFORE it renders, but a frame that has finished
-/// rendering is delivered whatever happened to its task, guarded only by identity
-/// (still the photograph on screen) and order (newer than what is showing). The
-/// second rule is why a drag reads as a slope: its events cancel the running task
-/// faster than any render finishes, and the discipline that discarded those finished
-/// frames froze the picture until the hand paused.
+/// Drafts go through a `LatestWinsPump`: one renders, the newest request waits, and
+/// neither depends on the view task that asked — a drag cancels that task on every
+/// event. A finished frame is delivered guarded only by identity (still the photograph
+/// on screen) and order (a newer generation than what is showing); `FrameDelivery`
+/// (LumenCore) holds those two guards. Settles still run on the view's task and are
+/// dropped when it is cancelled.
 final class PhotoRenderModel: ObservableObject {
 
     @Published private(set) var image: CGImage?
@@ -563,6 +561,24 @@ final class PhotoRenderModel: ObservableObject {
 
     private var latestGeneration: UInt64 = 0
 
+    /// Everything that decides a draft's pixels — the pump's notion of "the same
+    /// frame", so a release re-asking for the value in flight shares its render.
+    private struct DraftRequest: Equatable {
+        let url: URL
+        let recipe: Recipe
+        let longEdge: Int
+        let strokeRefs: Set<String>
+        let showingUncropped: Bool
+        let softProof: SoftProof?
+        let region: CGRect?
+        let edrWhiteTarget: Double?
+        /// The surface's key less its tick: what arrives beside the recipe.
+        let inputs: ViewerRenderKey?
+    }
+
+    /// Draft renders: one in flight, the newest waiting (`FramePump`, LumenCore).
+    private let drafts = LatestWinsPump<DraftRequest>()
+
     /// The url of the most recent `load` call — the user's current intent, whatever
     /// state its task is in. `FrameDelivery.shouldShow`'s identity input: a completed
     /// frame for any other photograph must never be applied, however fresh.
@@ -597,22 +613,10 @@ final class PhotoRenderModel: ObservableObject {
     /// `DraftLadder.costSample`. Cleared on a photo change: a new photograph's first
     /// frame continues nothing.
     private var lastDraftAt: UInt64?
-    /// WHETHER THE PREVIOUS DRAFT HAD WORK QUEUED BEHIND IT, which is the other half of
-    /// the saturation test and was missing.
-    ///
-    /// The interval the ladder is costed by runs from the PREVIOUS frame's landing to
-    /// this one's, and `Task.isCancelled` is read at the END of it. That answers "was
-    /// the loop busy when this frame landed" and says nothing about whether it was busy
-    /// when the interval opened. A hand that pauses mid-gesture with the button still
-    /// down and then resumes hard produces exactly the false positive: the interval is
-    /// mostly the pause, the first frame after the resume is cancelled by the event
-    /// behind it, and the whole pause is charged to the machine as render cost. The
-    /// owner's 285/378/399 ms samples all sit under `continuityCeilingMilliseconds`
-    /// (500) — the band a human hesitation occupies, not the band a stall does.
-    ///
-    /// Saturation has to hold at BOTH ends: if the previous frame was itself cancelled,
-    /// a newer request already existed when it landed, so this frame's render should
-    /// have started immediately and any gap before it is genuinely the machine's.
+    /// Whether the previous draft had a newer request waiting behind it when it
+    /// landed. The ladder is costed by the interval between two landings only when
+    /// that held at BOTH ends: a hand that pauses and resumes leaves the lane idle at
+    /// the start of the interval, and the pause is not the machine's cost.
     private var lastDraftWasSaturated = false
     /// The size the previous draft was RENDERED at, so the ladder can tell a
     /// steady-state frame from the one that paid for a fresh decode at a new size —
@@ -649,6 +653,9 @@ final class PhotoRenderModel: ObservableObject {
               /// The surface's render key, when it has one. Nil (the default) never
               /// skips a settle.
               requestKey: ViewerRenderKey? = nil,
+              /// `EditRevision.value` as the request was made, for the timeline. Nil
+              /// keeps a surface out of it.
+              editRevision: Int? = nil,
               gestureInFlight: () -> Bool = { false }) async {
 
         currentRequestURL = url
@@ -781,21 +788,8 @@ final class PhotoRenderModel: ObservableObject {
         let draftGeneration: UInt64 = PhotoRenderModel.nextGeneration()
         latestGeneration = draftGeneration
         if needsDraft {
-            // Half the settled request, floored at the old fixed size: enough that the
-            // draft reads as the same photograph at fit, cheap enough to stay ahead of
-            // the cursor. The colour is now identical to the settle by construction, so
-            // what remains between draft and settle is sharpness alone — which reads as
-            // the picture resolving rather than as the picture changing.
-            // ASK FOR THE SETTLE'S OWN RESOLUTION, and let the ladder take back what
-            // this machine cannot afford.
-            //
-            // This used to be `max(draftLongEdge, fullLongEdge / 2)` — a draft capped
-            // at half the settle on every machine, forever. That is a guess from before
-            // anything measured a frame, and it is what put a soft picture under the
-            // hand and a sharp one on release however fast the Mac was. `DraftLadder`
-            // measures every frame and steps down within one hot frame now, so the
-            // honest request is the whole thing; a machine with headroom keeps it and
-            // the drag is simply sharp.
+            // The settle's own resolution; the ladder takes back what this machine has
+            // measured it cannot afford.
             let draftRequested = draftLongEdge
             // A REGION draft does not consult the ladder: the rungs price a WHOLE
             // frame against the drag budget, and a region render's cost is the
@@ -808,151 +802,28 @@ final class PhotoRenderModel: ObservableObject {
                 ? draftRequested
                 : draftLadder.longEdge(
                     requested: draftRequested,
-                    // …and the ladder may not descend past a 2× magnification of what
-                    // is on screen. `DraftLadder.maxUpscale` argues it; the short
-                    // version is that the low rungs' justification — a moving image
-                    // cannot show detail — is the assumption the owner keeps refuting.
+                    // Never below what the panel draws, in the ask's own buckets, so
+                    // at fit a stepped-down draft still shares the settle's decode.
                     notBelow: DraftLadder.sharpnessFloor(
                         drawnDeviceLongEdge: drawnDeviceLongEdge))
-            let draftStarted = DispatchTime.now().uptimeNanoseconds
-            let draft = await coordinator.render(url: url, recipe: recipe,
-                                                 maxLongEdge: Swift.max(draftTarget, 64),
-                                                 draft: true, generation: draftGeneration,
-                                                 strokeSets: strokeSets,
-                                                 showingUncropped: showingUncropped,
-                                                 softProof: softProof,
-                                                 region: region,
-                                                 edrWhiteTarget: edrWhiteTarget)
-            // Delivery BEFORE the cancellation check, deliberately — FrameDelivery in
-            // LumenCore is the law and holds the arithmetic. During a drag every event
-            // cancels this task and starts the next one, so "apply only if still
-            // current" meant every completed draft of the gesture was rendered and then
-            // discarded, and the picture moved only at pauses in the hand — the owner's
-            // "goes by notches ... changes in one frame instead of a slope". A finished
-            // frame is the freshest completed picture of the user's intent that exists;
-            // the only questions are identity and order, and `shouldShow` asks those.
-            if let draft {
-                // Wall time around the await, actor queueing included — queueing is
-                // what a hand feels. The ladder learns from the same number the HUD
-                // shows, and it learns from every completed draft, delivered or not:
-                // the cost was real either way.
-                let landedAt = DispatchTime.now().uptimeNanoseconds
-                let draftMs = Double(landedAt - draftStarted) / 1e6
-                // WHAT THE INTERVAL BETWEEN TWO FRAMES ACTUALLY CONTAINS, stated
-                // correctly here for the first time — the previous version of this
-                // comment claimed it was "the SwiftUI handoff, the body pass and the
-                // texture upload", and three rounds of investigation reasoned from
-                // that. The arithmetic says otherwise and is worth writing out, since
-                // it is not obvious from any single line:
-                //
-                //     period   = landedAt(N)    - landedAt(N-1)
-                //     draftMs  = landedAt(N)    - draftStarted(N)
-                //     period - draftMs = draftStarted(N) - landedAt(N-1)
-                //
-                // `draftStarted` is stamped BEFORE the await, so everything the
-                // coordinator does — queueing included — is inside `draftMs` and none
-                // of it is in the remainder. The remainder is the gap between one frame
-                // landing and the next render being REQUESTED. It is an input and
-                // scheduling measure, not a display-path one, and it is usually zero
-                // or negative because `.task(id:)` starts frame N+1 without waiting for
-                // frame N.
-                //
-                // That makes it a measure of the request stream STOPPING, which during
-                // a gesture with the button still down means the hand paused. Costing
-                // the ladder for that is costing it for the photographer's hesitation.
-                // `handWasWaiting` is the guard, and it has to hold at both ends of the
-                // interval — see `lastDraftWasSaturated`.
-                let period = lastDraftAt.map { Double(landedAt - $0) / 1e6 }
-                let saturated = Task.isCancelled
-                let handWasWaiting = DraftLadder.loopWasSaturated(
-                    thisFrameCancelled: saturated,
-                    previousFrameCancelled: lastDraftWasSaturated)
-                let cost = DraftLadder.costSample(renderMilliseconds: draftMs,
-                                                  sincePreviousFrameMilliseconds: period,
-                                                  handWasWaiting: handWasWaiting)
-                lastDraftAt = landedAt
-                lastDraftWasSaturated = saturated
-                // ONLY A FRAME THAT MEASURES THE STEADY STATE TEACHES THE LADDER.
-                //
-                // The decode is keyed by the scale factor this size implies, so the
-                // first frame at any new size pays a fresh RAW decode no later frame at
-                // that size pays. Believing it makes every step down look like it did
-                // not help, and the ladder walks itself to the floor — a drag that gets
-                // blurrier the longer it is held. `DraftLadder.isRepresentative` holds
-                // the rule and the argument; `DraftLadderTests` shows the cascade it
-                // prevents, eight rungs of it.
-                //
-                // THE SIZE DELIVERED, not the size asked for — the same correction the
-                // HUD line below already carried, now applied where it is load-bearing
-                // (docs/31 §23). This used to pass `draftTarget`, the ask, so the
-                // ladder's own-answer guard compared the ask with itself — a check that
-                // could never fire — and every sample was filed under a size the
-                // picture did not have. On a cropped photograph the delivered edge is
-                // the crop's, and feeding the ask instead is what made the ladder's
-                // climb and the settle recovery misfire exactly there: the owner's
-                // "I get the blurry effect until I let go", on the photographs he had
-                // cropped.
-                let renderedLongEdge =
-                    Swift.max(Swift.max(draft.image.width, draft.image.height), 64)
-                // A region draft's delivered edge is the REGION's pixels — a size in
-                // a different denomination from the whole-frame rungs. The ladder
-                // learns nothing from it (same reason `learnsFromSettle` refuses the
-                // native settle: evidence in the wrong denominator reads as heat).
-                if region == nil, DraftLadder.isRepresentative(
-                    renderedLongEdge: renderedLongEdge,
-                    previousRenderedLongEdge: lastDraftLongEdge) {
-                    draftLadder.record(draftMilliseconds: cost,
-                                       // BOTH numbers, because the two directions ask
-                                       // different questions. `cost` is what the hand
-                                       // felt and decides the descent; `draftMs` is what
-                                       // the render actually cost and decides the climb,
-                                       // since it is the only part of `cost` that fewer
-                                       // pixels can change. Passing only `cost` pinned
-                                       // the ladder at its floor: a stall in delivery
-                                       // dropped rungs the render never earned back.
-                                       renderMilliseconds: draftMs,
-                                       renderedLongEdge: renderedLongEdge,
-                                       requested: draftRequested,
-                                       // Monotone downward while the hand is down: a
-                                       // rung earned back mid-drag is a visible change
-                                       // of sharpness, and at a rung boundary it
-                                       // oscillates.
-                                       allowStepUp: !gestureInFlight())
-                }
-                lastDraftLongEdge = renderedLongEdge
-                // THE SIZE DELIVERED, not the size asked for.
-                //
-                // This line used to report `draftTarget` — the request — so the HUD
-                // could only ever confirm the viewer's own intention. Three rounds of
-                // "the picture is blurry while I drag" were investigated against a
-                // number that was incapable of disagreeing with the code that set it.
-                // The render path has several places where a frame can come back
-                // shorter than asked (`applyGeometry` clamps to `min(1, wanted)` and
-                // never upscales, so a crop or a decoder that declines a scale factor
-                // both land here), and none of them were visible from inside.
-                //
-                // So: measure the pixels, print the ask beside them. A shortfall on a
-                // cropped photograph is honest rather than a fault — the crop really
-                // is smaller than the frame — but on an uncropped one it is a lead.
-                LatencyHUD.shared.noteDecode(milliseconds: draft.decodeMilliseconds)
-                LatencyHUD.shared.noteDraft(
-                    milliseconds: draftMs,
-                    longEdge: Swift.max(draft.image.width, draft.image.height),
-                    requestedLongEdge: Swift.max(draftTarget, 64),
-                    // The same interval `costSample` folds into the ladder, reported
-                    // separately: the ladder needs one number to act on, a person needs
-                    // to know which half of the frame is large, because the two halves
-                    // have opposite fixes.
-                    afterRenderMilliseconds: DraftLadder.afterRenderMilliseconds(
-                        renderMilliseconds: draftMs,
-                        sincePreviousFrameMilliseconds: period,
-                        handWasWaiting: handWasWaiting))
-                if FrameDelivery.shouldShow(frameFor: url,
-                                            currentRequest: currentRequestURL,
-                                            generation: draft.generation,
-                                            newestShown: appliedGeneration) {
-                    apply(draft, url: url, recipe: recipe)
-                }
+            let request = DraftRequest(url: url, recipe: recipe,
+                                       longEdge: Swift.max(draftTarget, 64),
+                                       strokeRefs: Set(strokeSets.keys),
+                                       showingUncropped: showingUncropped,
+                                       softProof: softProof, region: region,
+                                       edrWhiteTarget: edrWhiteTarget,
+                                       inputs: requestInputs)
+            let midGesture = lastRequestWasMidGesture
+            LatencyHUD.shared.noteTimeline(.request, revision: editRevision)
+            // Through the pump, never awaited on the coordinator from this task: a drag
+            // cancels this task on every event, and the coordinator drops a cancelled
+            // task's request before rendering it. The pump renders and lands the frame
+            // on its own task; this only waits to learn that its request is done with.
+            _ = await drafts.submit(request) { [self] successorWaiting in
+                await self.renderDraft(request, draftRequested: draftRequested,
+                                       coordinator: coordinator, strokeSets: strokeSets,
+                                       midGesture: midGesture, editRevision: editRevision,
+                                       successorWaiting: successorWaiting)
             }
             guard !Task.isCancelled else { return }
 
@@ -1012,10 +883,11 @@ final class PhotoRenderModel: ObservableObject {
                                                   edrWhiteTarget: edrWhiteTarget)
             guard !Task.isCancelled else { return }
             if let result, result.generation == generation, latestGeneration == generation {
-                apply(result, url: url, recipe: recipe)
-                settledRequest = result.isDraft ? nil : requestInputs
                 let settleMs =
                     Double(DispatchTime.now().uptimeNanoseconds - settleStarted) / 1e6
+                apply(result, url: url, recipe: recipe,
+                      editRevision: editRevision, renderMilliseconds: settleMs)
+                settledRequest = result.isDraft ? nil : requestInputs
                 // THE MEASUREMENT THE LADDER WAS THROWING AWAY. A settle is a render at
                 // the full requested size, timed by this same clock, and it pays EXACT
                 // table bakes where a draft serves them stale — so a settle inside the
@@ -1100,6 +972,86 @@ final class PhotoRenderModel: ObservableObject {
         }
     }
 
+    /// One draft, from the render lane to the screen. Runs on the pump's task, which
+    /// nothing cancels: a frame that has been rendered lands, subject only to
+    /// `FrameDelivery.shouldShow` (still this photograph, newer than what is up).
+    @MainActor
+    private func renderDraft(_ request: DraftRequest, draftRequested: Int,
+                             coordinator: RenderCoordinator,
+                             strokeSets: [String: BrushStrokeSet],
+                             midGesture: Bool, editRevision: Int?,
+                             successorWaiting: @MainActor () -> Bool) async -> Bool {
+        // A photograph the viewer has left would be refused by `shouldShow` anyway.
+        guard request.url == currentRequestURL else { return false }
+        // Stamped when the render is handed to the coordinator, not when the request
+        // was made: time spent waiting behind the frame in flight is not this frame's
+        // cost, and the ladder must not be charged for it.
+        let draftStarted = DispatchTime.now().uptimeNanoseconds
+        LatencyHUD.shared.noteTimeline(.start, revision: editRevision)
+        // The ticket is taken here, at the start, so tickets reach the coordinator in
+        // order whatever was submitted while the previous frame rendered.
+        let draft = await coordinator.render(url: request.url, recipe: request.recipe,
+                                             maxLongEdge: request.longEdge,
+                                             draft: true,
+                                             generation: PhotoRenderModel.nextGeneration(),
+                                             strokeSets: strokeSets,
+                                             showingUncropped: request.showingUncropped,
+                                             softProof: request.softProof,
+                                             region: request.region,
+                                             edrWhiteTarget: request.edrWhiteTarget)
+        guard let draft else { return false }
+        let landedAt = DispatchTime.now().uptimeNanoseconds
+        let draftMs = Double(landedAt - draftStarted) / 1e6
+        let period = lastDraftAt.map { Double(landedAt - $0) / 1e6 }
+        // The loop is saturated when a newer request was already waiting as this frame
+        // landed — and, for the interval to be the machine's, as the previous one did.
+        let saturated = successorWaiting()
+        let handWasWaiting = DraftLadder.loopWasSaturated(
+            thisFrameCancelled: saturated,
+            previousFrameCancelled: lastDraftWasSaturated)
+        let cost = DraftLadder.costSample(renderMilliseconds: draftMs,
+                                          sincePreviousFrameMilliseconds: period,
+                                          handWasWaiting: handWasWaiting)
+        lastDraftAt = landedAt
+        lastDraftWasSaturated = saturated
+        // The size DELIVERED, never the ask (docs/31 §23): a crop or a declined decode
+        // scale comes back shorter, and the ladder and the HUD must see that.
+        let renderedLongEdge =
+            Swift.max(Swift.max(draft.image.width, draft.image.height), 64)
+        // Only a steady-state whole-frame draft teaches the ladder: the first frame at
+        // a new size pays a RAW decode no later one does (`isRepresentative`), and a
+        // region's pixels are not denominated in rungs.
+        if request.region == nil, DraftLadder.isRepresentative(
+            renderedLongEdge: renderedLongEdge,
+            previousRenderedLongEdge: lastDraftLongEdge) {
+            // `cost` is what the hand felt and decides the descent; `draftMs` is what
+            // the render cost and decides the climb.
+            draftLadder.record(draftMilliseconds: cost,
+                               renderMilliseconds: draftMs,
+                               renderedLongEdge: renderedLongEdge,
+                               requested: draftRequested,
+                               // Monotone downward while a hand is down.
+                               allowStepUp: !midGesture)
+        }
+        lastDraftLongEdge = renderedLongEdge
+        LatencyHUD.shared.noteDecode(milliseconds: draft.decodeMilliseconds)
+        LatencyHUD.shared.noteDraft(
+            milliseconds: draftMs,
+            longEdge: Swift.max(draft.image.width, draft.image.height),
+            requestedLongEdge: request.longEdge,
+            afterRenderMilliseconds: DraftLadder.afterRenderMilliseconds(
+                renderMilliseconds: draftMs,
+                sincePreviousFrameMilliseconds: period,
+                handWasWaiting: handWasWaiting))
+        guard FrameDelivery.shouldShow(frameFor: request.url,
+                                       currentRequest: currentRequestURL,
+                                       generation: draft.generation,
+                                       newestShown: appliedGeneration) else { return false }
+        apply(draft, url: request.url, recipe: request.recipe,
+              editRevision: editRevision, renderMilliseconds: draftMs)
+        return true
+    }
+
     /// The EDR frame to draw in place of `cg`, when `cg` is the frame this model is
     /// showing and the request that produced it carried one. Identity, not equality:
     /// any other image — a before plate, a stale capture — gets nil and draws SDR.
@@ -1109,8 +1061,14 @@ final class PhotoRenderModel: ObservableObject {
     }
 
     @MainActor
-    private func apply(_ result: RenderResult, url: URL, recipe: Recipe) {
+    private func apply(_ result: RenderResult, url: URL, recipe: Recipe,
+                       editRevision: Int? = nil, renderMilliseconds: Double? = nil) {
         appliedGeneration = Swift.max(appliedGeneration, result.generation)
+        LatencyHUD.shared.noteTimeline(
+            .frame, revision: editRevision, draft: result.isDraft,
+            longEdge: Swift.max(result.image.width, result.image.height),
+            renderMilliseconds: renderMilliseconds,
+            laneMilliseconds: result.laneMilliseconds)
         // Only the settle loop knows which request it answered; it sets this after.
         settledRequest = nil
         // A result that could not stat its file keeps the identity this photo already
@@ -1749,6 +1707,9 @@ struct LoupeView: View {
                              url: photo.id, recipe: wanted, longEdge: longEdge,
                              state: state, showingUncropped: cropArmed,
                              regionUnit: region, edrWhiteTarget: edrWhiteTarget),
+                         // Read beside `renderRecipe` above, so the timeline's frames
+                         // name the revision their recipe was.
+                         editRevision: edits.value,
                          // Asked at the moment the settle would start rather than at
                          // load time, so a release landing mid-draft settles at once
                          // instead of waiting for the tick's fresh task.
