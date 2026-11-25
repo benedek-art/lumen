@@ -22,8 +22,8 @@
 //     it has no pinch, and zoom-on-wheel is what Lightroom, Capture One and Photoshop's
 //     own default all do with it.
 //   · A TRACKPAD scroll pans, which is what two fingers mean on this platform in every
-//     document there is, and it pinches to zoom through `MagnifyGesture`. Panning is
-//     the verb the picture was missing while zoomed.
+//     document there is, and it pinches to zoom (`ViewerMagnify`). Panning is the
+//     verb the picture was missing while zoomed.
 //   · ⌥ held zooms on EITHER instrument, so a trackpad user has a scroll-zoom when
 //     they want one and a wheel user is never surprised out of zooming. ⌥ rather than
 //     ⌃ because ⌃-scroll is macOS's own screen zoom, and matching the modifier the
@@ -37,7 +37,7 @@
 // the two settings.
 //
 // Pure arithmetic, tested on Linux; the AppKit half — which events exist, what phase
-// they are in — is `LumenViewerScroll.swift`, which is as thin as that split allows.
+// they are in — is `LumenViewerInput.swift`, which is as thin as that split allows.
 
 import Foundation
 

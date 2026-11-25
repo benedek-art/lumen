@@ -49,6 +49,14 @@ public enum ZoomLadder {
 
     public static func isFit(_ ratio: Double) -> Bool { clamp(ratio) <= 0 }
 
+    /// 1:1 and its doublings and halvings — the ratios the keys land on, where a
+    /// frame pixel must stay a whole number of device pixels.
+    public static func isNamedRatio(_ ratio: Double) -> Bool {
+        guard ratio.isFinite, ratio > 0 else { return false }
+        let doublings = log2(ratio)
+        return abs(doublings - doublings.rounded()) < tolerance
+    }
+
     /// Whether a move to `target` should keep the point under the cursor pinned. Fit
     /// centres the frame, so there is nothing to hold in place.
     public static func anchorsAtCursor(target: Double) -> Bool { !isFit(target) }
