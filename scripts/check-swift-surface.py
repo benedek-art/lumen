@@ -208,7 +208,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "CFRunLoopAddObserver", "CFRunLoopGetMain", "CFGetTypeID", "CFBooleanGetTypeID",
     "Unmanaged", "UnicodeScalar", "CGDisplayMode", "CGMainDisplayID",
     "CGDisplayCopyAllDisplayModes", "CGDisplayCopyDisplayMode", "CGDisplaySetDisplayMode",
-    "VNRecognizeTextRequest",
+    "VNRecognizeTextRequest", "VNRecognizedTextObservation", "VNRequestTextRecognitionLevel",
     # Native APIs used by the audited persistence/export safety regressions.
     "SQLITE_OPEN_READONLY", "RENAME_EXCL", "NSBitmapImageRep",
     # POSIX errno values and open(2) flags: the export's no-overwrite fallback

@@ -29,9 +29,11 @@
     {"do": "direct", "call": "fit"},
     {"do": "waitSettled", "timeout": 30},
     {"do": "move", "target": "viewer", "at": [0.6, 0.55]},
-    {"do": "pinch", "id": "pinch-live", "target": "viewer", "at": [0.6, 0.55], "scale": 2.0, "duration": 0.6, "hz": 60, "settle": 30, "note": "the same pinch at real speed, for timing"},
+    {"do": "pinch", "id": "pinch-live", "target": "viewer", "at": [0.6, 0.55], "scale": 2.0, "duration": 0.6, "hz": 60, "settle": 30, "film": 30, "note": "the same pinch at real speed, for timing"},
     {"do": "expect", "that": "steps.pinch-live.hitchMaxMs", "lt": 100, "note": "the main thread never stalls longer than 100 ms during a pinch"},
     {"do": "expect", "that": "steps.pinch-live.gestureMs", "lt": 1200, "note": "a 0.6 s pinch is over within 1.2 s"},
+    {"do": "expect", "that": "steps.pinch-live.hitchAfterMaxMs", "lt": 250, "note": "after the pinch the app answers again within a quarter second"},
+    {"do": "expect", "that": "steps.pinch-live.screenChangesDuring", "ge": 15, "note": "the picture visibly follows the pinch (30 Hz watch of the screen)"},
     {"do": "shot", "name": "pinch-live-settled"}
   ],
   "witness": [

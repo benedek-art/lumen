@@ -31,7 +31,7 @@
 
     {"do": "scrollTo", "target": "slider/Exposure#track"},
     {"do": "drag", "id": "exposure", "target": "slider/Exposure#track", "from": [0.5, 0.5], "to": [0.7, 0.5],
-     "duration": 0.8, "hz": 60, "settle": 15, "watch": "develop.tone.exposure"},
+     "duration": 0.8, "hz": 60, "settle": 15, "film": 30, "watch": "develop.tone.exposure"},
     {"do": "expect", "that": "recipe.develop.tone.exposure", "gt": 0.1, "note": "dragging Exposure changes it"},
     {"do": "shot", "name": "02-after-exposure"},
     {"do": "compare", "name": "exposure", "a": "01-develop-fit", "b": "02-after-exposure"},

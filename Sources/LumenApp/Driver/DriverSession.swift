@@ -59,6 +59,7 @@ final class DriverHeartbeat {
     private var beat = DriverClock.now()
     private var stepIndex = -1
     private var stepVerb = ""
+    private var stepSince = DriverClock.now()
 
     func touch() {
         lock.lock()
@@ -70,13 +71,14 @@ final class DriverHeartbeat {
         lock.lock()
         stepIndex = step
         stepVerb = verb
+        stepSince = DriverClock.now()
         lock.unlock()
     }
 
-    func read() -> (beat: Double, step: Int, verb: String) {
+    func read() -> (beat: Double, step: Int, verb: String, since: Double) {
         lock.lock()
         defer { lock.unlock() }
-        return (beat, stepIndex, stepVerb)
+        return (beat, stepIndex, stepVerb, stepSince)
     }
 }
 
@@ -247,7 +249,6 @@ final class DriverSession {
         window.makeKeyAndOrderFront(nil)
         let input = DriverInput(window: window)
         input.refreshGeometry()
-        input.calibrateWindowFields()
         input.startMonitor()
         input.onReceive = { [weak self] event in
             self?.received(event)
@@ -371,17 +372,21 @@ final class DriverSession {
 
     // MARK: Watchdog
 
-    /// A scenario may not outlive `timeoutSeconds`, and the main thread may not stall
-    /// longer than `hangSeconds`. Either writes what is known and exits.
+    /// A scenario may not outlive `timeoutSeconds`, one step may not outlive
+    /// `stepTimeoutSeconds`, and the main thread may not go `hangSeconds` without
+    /// answering a ping. Any of them writes what is known and exits.
     private func startWatchdog() {
         let timeout = (scenario["timeoutSeconds"] as? NSNumber)?.doubleValue ?? 300
         let hang = (scenario["hangSeconds"] as? NSNumber)?.doubleValue ?? 30
+        let stepLimit = (scenario["stepTimeoutSeconds"] as? NSNumber)?.doubleValue ?? 120
         let deadline = DriverClock.now() + timeout
         let heartbeat = self.heartbeat
         let out = outDir
         let thread = Thread {
             while true {
                 Thread.sleep(forTimeInterval: 0.5)
+                // An idle run loop is not a hung one: ask it, and time the answer.
+                DispatchQueue.main.async { heartbeat.touch() }
                 let now = DriverClock.now()
                 let state = heartbeat.read()
                 let stalled = now - state.beat
@@ -393,6 +398,9 @@ final class DriverSession {
                 } else if now > deadline {
                     reason = "timeout"
                     code = 4
+                } else if now - state.since > stepLimit {
+                    reason = "stuck"
+                    code = 4
                 } else {
                     continue
                 }
@@ -402,7 +410,8 @@ final class DriverSession {
                 DriverTimeline.shared.flush()
                 let verdict: [String: Any] = [
                     "reason": reason, "stalledSeconds": stalled, "step": state.step,
-                    "do": state.verb, "limitSeconds": reason == "hang" ? hang : timeout,
+                    "do": state.verb, "stepSeconds": now - state.since,
+                    "limits": "hang \(hang) s, step \(stepLimit) s, scenario \(timeout) s",
                 ]
                 DriverJSON.write(verdict, to: out.appendingPathComponent("watchdog.json"))
                 let sample = Process()
@@ -433,8 +442,7 @@ final class DriverSession {
             "values": values,
             "shots": shotRows,
             "frames": frames.count,
-            "input": ["default": defaultVia, "hidWorks": hidWorks ?? false,
-                      "windowFields": input?.windowFields ?? []] as [String: Any],
+            "input": ["default": defaultVia, "hidWorks": hidWorks ?? false] as [String: Any],
             "window": DriverJSON.rect(window?.frame ?? .zero),
             "display": displayNote,
             "capture": captureMethod.rawValue,

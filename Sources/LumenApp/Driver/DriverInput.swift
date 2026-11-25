@@ -38,10 +38,6 @@ final class DriverInput {
     private let lock = NSLock()
     private var received: [String: Int] = [:]
     private var receivedAt: [String: Double] = [:]
-    /// CGEvent integer fields that make `NSEvent(cgEvent:)` name this window; found by
-    /// trial at start. Empty: in-process scroll and gesture events are handed to the
-    /// view under them directly (`intercept`).
-    private(set) var windowFields: [Int] = []
     private var pendingPoints: [Int64: CGPoint] = [:]
     private var pendingTag: Int64 = 0x4C55_0000
 
@@ -60,36 +56,6 @@ final class DriverInput {
         let p = quartz(wf)
         guard let screen = NSScreen.screens.first?.frame else { return false }
         return p.x >= 1 && p.y >= 1 && p.x < screen.width - 1 && p.y < screen.height - 1
-    }
-
-    /// Main thread only. Tries each CGEvent field as the carrier of the window number.
-    func calibrateWindowFields() {
-        var found: [Int] = []
-        for raw in 0..<256 {
-            guard let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel,
-                                      wheelCount: 1, wheel1: 1, wheel2: 0, wheel3: 0)
-            else { continue }
-            event.setIntegerValueField(unsafeBitCast(UInt32(raw), to: CGEventField.self),
-                                       value: Int64(geometry.number))
-            if let converted = NSEvent(cgEvent: event), converted.type == .scrollWheel,
-               converted.windowNumber == geometry.number {
-                found.append(raw)
-            }
-        }
-        windowFields = found
-    }
-
-    func receivedCount(_ type: String) -> Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return received[type] ?? 0
-    }
-
-    /// When the app last received an event of this type, in driver time.
-    func lastReceived(_ type: String) -> Double? {
-        lock.lock()
-        defer { lock.unlock() }
-        return receivedAt[type]
     }
 
     // MARK: Geometry
@@ -299,11 +265,11 @@ final class DriverInput {
         case .hid:
             event.post(tap: .cghidEventTap)
         case .app:
-            let number = Int64(geometry.number)
-            for raw in windowFields {
-                event.setIntegerValueField(unsafeBitCast(UInt32(raw), to: CGEventField.self),
-                                           value: number)
-            }
+            // `NSEvent(cgEvent:)` attaches no window to these (and the one field that
+            // does, 51, loses the location), so `intercept` hands them to the view under
+            // the point. The location AppKit derives is the screen point, which equals
+            // the window point because the driver parks the window on the display's
+            // origin.
             event.timestamp = DispatchTime.now().uptimeNanoseconds
             lock.lock()
             pendingTag += 1

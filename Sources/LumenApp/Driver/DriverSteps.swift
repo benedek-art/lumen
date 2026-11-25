@@ -545,6 +545,16 @@ extension DriverSession {
         let samplesBefore = samples.count
         let hitchesBefore = hitches.count
         let receivedBefore = endEvent.isEmpty ? 0 : input.receivedCount(endEvent)
+        var film: DriverFilm?
+        if let hz = step.double("film"), let window {
+            let region = anchorRect(step.string("filmRegion") ?? "viewer")
+                ?? CGRect(origin: .zero, size: window.frame.size)
+            let started = DriverFilm(windowNumber: window.windowNumber, region: region,
+                                     windowWidth: window.frame.width, hz: hz)
+            started.start()
+            film = started
+            await sleep(0.15)
+        }
         let began = DriverClock.now()
         DriverTimeline.shared.add("gesture", ["id": step.id, "do": step.verb,
                                               "ticks": ticks.count], at: began)
@@ -590,6 +600,14 @@ extension DriverSession {
             settledAt = await settled(timeout: limit, quiet: step.double("quiet") ?? 0.4)
         }
 
+        if let film {
+            if settledAt == nil { await sleep(step.double("filmTail") ?? 1.0) }
+            let seen = film.stop()
+            for (key, value) in filmMetrics(seen.changes, samples: seen.samples,
+                                            began: began, ended: ended) {
+                out[key] = value
+            }
+        }
         out["delivered"] = delivered
         out["events"] = ticks.count
         if captured > 0 { out["captured"] = captured }

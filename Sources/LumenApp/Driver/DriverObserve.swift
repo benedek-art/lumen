@@ -396,6 +396,32 @@ extension DriverSession {
 
     // MARK: Gesture metrics
 
+    /// What `film` saw: how often the pixels of the region changed, from outside the app.
+    func filmMetrics(_ changes: [(t: Double, delta: Double)], samples: Int, began: Double,
+                     ended: Double) -> [String: Any] {
+        var out: [String: Any] = ["screenSamples": samples]
+        let during = changes.filter { $0.t >= began && $0.t <= ended }
+        out["screenChangesDuring"] = during.count
+        out["screenChangesAfter"] = changes.filter { $0.t > ended }.count
+        if let first = changes.first(where: { $0.t >= began }) {
+            out["screenFirstChangeMs"] = (first.t - began) * 1000
+        }
+        var edges: [Double] = [began] + during.map { $0.t } + [ended]
+        edges.sort()
+        var gap = 0.0
+        for k in 1..<edges.count { gap = Swift.max(gap, edges[k] - edges[k - 1]) }
+        out["screenMaxGapMs"] = gap * 1000
+        if let last = changes.last {
+            out["screenLastChangeMs"] = (last.t - ended) * 1000
+        }
+        var trace: [[Any]] = []
+        for change in changes.prefix(300) {
+            trace.append([(change.t - began) * 1000, change.delta])
+        }
+        out["screenTrace"] = trace
+        return out
+    }
+
     private func percentile(_ sorted: [Double], _ p: Double) -> Double {
         guard !sorted.isEmpty else { return 0 }
         let index = Swift.min(Int((Double(sorted.count - 1) * p).rounded()), sorted.count - 1)

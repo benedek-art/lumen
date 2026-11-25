@@ -148,12 +148,22 @@ enum DriverReflect {
                                            height: image.height * factor))
             if let scaled = context.makeImage() { source = scaled }
         }
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = false
-        let handler = VNImageRequestHandler(cgImage: source, options: [:])
-        guard (try? handler.perform([request])) != nil,
-              let observations = request.results else { return [] }
+        var observations: [VNRecognizedTextObservation] = []
+        // The accurate recognizer wants hardware a virtual machine may not have; the
+        // fast one is the fallback.
+        for level in [VNRequestTextRecognitionLevel.accurate, .fast] {
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = level
+            request.usesLanguageCorrection = false
+            let handler = VNImageRequestHandler(cgImage: source, options: [:])
+            do {
+                try handler.perform([request])
+                observations = request.results ?? []
+            } catch {
+                DriverTimeline.shared.add("error", ["what": "text recognition: \(error)"])
+            }
+            if !observations.isEmpty { break }
+        }
         var out: [TextHit] = []
         let width = CGFloat(image.width)
         let height = CGFloat(image.height)

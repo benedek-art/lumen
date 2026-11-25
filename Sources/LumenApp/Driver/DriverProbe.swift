@@ -179,7 +179,6 @@ extension DriverSession {
         }
         out["screens"] = screens
         out["displayModes"] = DriverDisplay.describe()
-        out["windowFields"] = input.windowFields
         let windowFacts: [String: Any] = [
             "frame": DriverJSON.rect(window.frame), "number": window.windowNumber,
             "key": window.isKeyWindow, "main": window.isMainWindow,

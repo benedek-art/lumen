@@ -92,6 +92,113 @@ enum DriverCapture {
     }
 }
 
+/// Watches a region of the window from its own thread while a gesture runs, and notes
+/// every moment the pixels changed. What reached the glass, independent of the app.
+final class DriverFilm {
+
+    private let windowNumber: Int
+    private let region: CGRect
+    private let interval: Double
+    private let lock = NSLock()
+    private var running = true
+    private var finished = false
+    private var changes: [(t: Double, delta: Double)] = []
+    private var count = 0
+    private static let side = 48
+
+    /// `region` is in window-frame points; it is scaled to the capture's pixels.
+    init(windowNumber: Int, region: CGRect, windowWidth: CGFloat, hz: Double) {
+        self.windowNumber = windowNumber
+        self.region = CGRect(x: region.minX / Swift.max(windowWidth, 1),
+                             y: region.minY / Swift.max(windowWidth, 1),
+                             width: region.width / Swift.max(windowWidth, 1),
+                             height: region.height / Swift.max(windowWidth, 1))
+        self.interval = 1 / Swift.max(hz, 1)
+    }
+
+    func start() {
+        let thread = Thread { [self] in
+            var previous: [UInt8]?
+            while isRunning() {
+                let began = DriverClock.now()
+                if let signature = capture() {
+                    if let previous {
+                        var total = 0
+                        for index in 0..<signature.count {
+                            total += abs(Int(signature[index]) - Int(previous[index]))
+                        }
+                        let delta = Double(total) / Double(signature.count)
+                        if delta > 0.2 {
+                            lock.lock()
+                            changes.append((t: began, delta: delta))
+                            lock.unlock()
+                        }
+                    }
+                    previous = signature
+                    lock.lock()
+                    count += 1
+                    lock.unlock()
+                }
+                let spent = DriverClock.now() - began
+                if spent < interval { usleep(useconds_t((interval - spent) * 1_000_000)) }
+            }
+            lock.lock()
+            finished = true
+            lock.unlock()
+        }
+        thread.name = "lumen.driver.film"
+        thread.start()
+    }
+
+    private func isRunning() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return running
+    }
+
+    /// The region as a small RGBA thumbnail: enough to tell one picture from the next.
+    private func capture() -> [UInt8]? {
+        guard let image = DriverCapture.windowList(windowNumber: windowNumber) else {
+            return nil
+        }
+        let scale = CGFloat(image.width)
+        let crop = CGRect(x: region.minX * scale, y: region.minY * scale,
+                          width: region.width * scale, height: region.height * scale)
+            .intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        guard crop.width >= 2, crop.height >= 2, let cropped = image.cropping(to: crop),
+              let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        let side = DriverFilm.side
+        var buffer = [UInt8](repeating: 0, count: side * side * 4)
+        let drawn: Bool = buffer.withUnsafeMutableBytes { raw in
+            guard let context = CGContext(
+                data: raw.baseAddress, width: side, height: side, bitsPerComponent: 8,
+                bytesPerRow: side * 4, space: space,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            context.interpolationQuality = .low
+            context.draw(cropped, in: CGRect(x: 0, y: 0, width: side, height: side))
+            return true
+        }
+        return drawn ? buffer : nil
+    }
+
+    /// Stops the thread and returns (samples taken, the moments the region changed).
+    func stop() -> (samples: Int, changes: [(t: Double, delta: Double)]) {
+        lock.lock()
+        running = false
+        lock.unlock()
+        for _ in 0..<200 {
+            lock.lock()
+            let done = finished
+            lock.unlock()
+            if done { break }
+            usleep(5_000)
+        }
+        lock.lock()
+        defer { lock.unlock() }
+        return (count, changes)
+    }
+}
+
 /// An image as plain 8-bit sRGB RGBA, for arithmetic.
 struct DriverPixels {
 
