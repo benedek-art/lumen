@@ -82,6 +82,7 @@ jobs:
       # Testing another ref: keep this commit's driver and lay it over that ref, so a
       # branch that predates the driver, or carries an older one, is driven by this one.
       - name: Check out the app under test and install the driver
+        if: steps.plan.outputs.skip != '1'
         shell: bash
         env:
           REF: ${{ steps.plan.outputs.ref }}
@@ -103,6 +104,7 @@ jobs:
       # Restored whether or not this run needs them; run-suite.sh fetches on a miss
       # only when a selected scenario asks for "fixture": "raw".
       - name: Cache the RAW fixtures
+        if: steps.plan.outputs.skip != '1'
         uses: actions/cache@v4
         with:
           path: ${{ env.RAW_DIR }}
@@ -111,6 +113,7 @@ jobs:
       # The app binary for exactly these sources: a dispatch against an already-built
       # tree starts its scenarios without rebuilding.
       - name: Key the build by its sources
+        if: steps.plan.outputs.skip != '1'
         id: sources
         shell: bash
         run: |
@@ -118,16 +121,19 @@ jobs:
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
       - name: Cache the built app
+        if: steps.plan.outputs.skip != '1'
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/.driver-app
           key: driver-app-${{ steps.plan.outputs.config }}-${{ steps.sources.outputs.digest }}
 
       - name: Python imaging for the pixel witness
+        if: steps.plan.outputs.skip != '1'
         shell: bash
         run: python3 -c "import numpy, PIL" 2>/dev/null || python3 -m pip install --quiet --break-system-packages numpy pillow || true
 
       - name: Build and run
+        if: steps.plan.outputs.skip != '1'
         shell: bash
         env:
           CONFIG: ${{ steps.plan.outputs.config }}
@@ -140,7 +146,7 @@ jobs:
           driver/tools/run-suite.sh $LIST
 
       - name: Upload results
-        if: always()
+        if: always() && steps.plan.outputs.skip != '1'
         uses: actions/upload-artifact@v4
         with:
           name: driver-${{ github.run_id }}

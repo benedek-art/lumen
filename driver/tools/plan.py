@@ -30,6 +30,16 @@ def changed_requests():
     return [line for line in out.stdout.splitlines() if line.endswith(".json")]
 
 
+def only_requests_touched():
+    try:
+        out = subprocess.run(["git", "show", "--name-only", "--pretty=format:", "HEAD"],
+                             capture_output=True, text=True, check=True)
+    except subprocess.CalledProcessError:
+        return False
+    names = [line for line in out.stdout.splitlines() if line.strip()]
+    return bool(names) and all(name.startswith(REQUESTS + "/") for name in names)
+
+
 def main():
     env = os.environ
     inline_dir = Path("driver-inline")
@@ -55,6 +65,14 @@ def main():
             config = request.get("config", config)
             strict = strict or bool(request.get("strict", False))
             print(f"request {path}: {request.get('note', '')}", file=sys.stderr)
+        if not requests and only_requests_touched():
+            # A push that only removed request files asks for nothing.
+            print("list=")
+            print("config=release")
+            print("strict=")
+            print("ref=")
+            print("skip=1")
+            return
         if not requests:
             suite = ["smoke.json"]
 
@@ -75,6 +93,7 @@ def main():
     print("config=" + config)
     print("strict=" + ("1" if strict else ""))
     print("ref=" + ref)
+    print("skip=")
 
 
 if __name__ == "__main__":
