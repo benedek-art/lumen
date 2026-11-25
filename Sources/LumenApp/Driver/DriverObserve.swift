@@ -362,7 +362,20 @@ extension DriverSession {
            let scale = row["scale"] as? Double {
             let size = CGSize(width: image.width, height: image.height)
             let region = step.string("region") ?? "viewer.image"
-            let stats = pixels.stats(in: pixelRect(region, scale: scale, size: size))
+            var stats = pixels.stats(in: pixelRect(region, scale: scale, size: size))
+            // `also`: the same moment by another capture method, to tell what the app
+            // drew from what the window server composited.
+            if let name2 = step.string("also"), let method = DriverCapture.Method(rawValue: name2),
+               let window, let second = DriverCapture.image(window: window, method: method) {
+                DriverCapture.write(second, to: outDir.appendingPathComponent(
+                    "shots/\(name).\(name2).png"))
+                if let other = DriverPixels(second) {
+                    let otherSize = CGSize(width: second.width, height: second.height)
+                    let otherScale = Double(second.width) / Double(Swift.max(window.frame.width, 1))
+                    stats[name2] = other.stats(in: pixelRect(region, scale: otherScale,
+                                                             size: otherSize))
+                }
+            }
             out["stats"] = stats
             values["shots." + name] = stats
         }
