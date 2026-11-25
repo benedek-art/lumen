@@ -73,18 +73,18 @@ HOOKS = [
      "    /// One VoiceOver increment or decrement",
      "            @unknown default: break\n            }\n        }.driverAnchor(driverID)\n    }\n\n"
      "    /// One VoiceOver increment or decrement", False),
-    ("MaskPanel.swift", '.driverAnchor("mask.row")',
+    ("MaskPanel.swift", '.driverAnchor("mask-row")',
      "        .onHover { inside in state.hoverMaskOverlay(inside ? mask.id : nil) }\n    }\n",
      "        .onHover { inside in state.hoverMaskOverlay(inside ? mask.id : nil) }"
-     '.driverAnchor("mask.row")\n    }\n', False),
-    ("MaskPanel.swift", '.driverAnchor("mask.kind/"',
+     '.driverAnchor("mask-row")\n    }\n', False),
+    ("MaskPanel.swift", '.driverAnchor("mask-kind/"',
      "        .help(MaskPanel.kindPurpose(kind))\n",
-     '        .help(MaskPanel.kindPurpose(kind)).driverAnchor("mask.kind/" + MaskPanel.kindName(kind))\n',
+     '        .help(MaskPanel.kindPurpose(kind)).driverAnchor("mask-kind/" + MaskPanel.kindName(kind))\n',
      False),
-    ("MaskFloatingPanel.swift", '.driverAnchor("mask.create")',
+    ("MaskFloatingPanel.swift", '.driverAnchor("mask-create")',
      '        .help("Create a new mask — every kind, on one board")\n',
      '        .help("Create a new mask — every kind, on one board")\n'
-     '        .driverAnchor("mask.create")\n', False),
+     '        .driverAnchor("mask-create")\n', False),
 ]
 
 

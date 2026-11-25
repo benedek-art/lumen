@@ -259,7 +259,7 @@ struct MaskFloatingPanel: View {
         .buttonStyle(.plain)
         .lumenClickCursor()
         .help("Create a new mask — every kind, on one board")
-        .driverAnchor("mask.create")
+        .driverAnchor("mask-create")
     }
 
     private func barButton(_ symbol: String, help: String,

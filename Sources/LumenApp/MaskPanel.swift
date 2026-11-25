@@ -879,7 +879,7 @@ struct MaskPanel: View {
         // Hovering a row shows what it selects. `hoverMaskOverlay` holds the 120 ms
         // intent that keeps a pointer crossing the list on its way somewhere else from
         // strobing ten overlays across the photograph (docs/36 §1.4).
-        .onHover { inside in state.hoverMaskOverlay(inside ? mask.id : nil) }.driverAnchor("mask.row")
+        .onHover { inside in state.hoverMaskOverlay(inside ? mask.id : nil) }.driverAnchor("mask-row")
     }
 
     /// The row's ground: selected, or about to receive a drop, or neither.
@@ -3210,7 +3210,7 @@ struct MaskPanel: View {
                       fill: Lumen.controlSurface)
         .lumenHoverable(radius: Lumen.radiusChip)
         .lumenClickCursor()
-        .help(MaskPanel.kindPurpose(kind)).driverAnchor("mask.kind/" + MaskPanel.kindName(kind))
+        .help(MaskPanel.kindPurpose(kind)).driverAnchor("mask-kind/" + MaskPanel.kindName(kind))
     }
 
     /// The tint target, as a swatch that opens the system colour panel.

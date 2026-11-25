@@ -140,7 +140,7 @@ target's rectangle, default its centre `[0.5, 0.5]`) and `"offset": [dx, dy]` in
 | `"viewer.image"` | the picture itself, wherever zoom and pan have put it |
 | `"slider/<Label>#track"` | a slider's track, by the label the app shows: `slider/Exposure#track`. `slider/<Label>` is the whole row (label, track, number) |
 | `"develop.column"`, `"sidebar"`, `"filterbar"`, `"filmstrip"`, `"rail"`, `"statusbar"`, `"grid"`, `"compare"` | the window's regions |
-| `"mask.kind/<Name>"`, `"mask.create"`, `"mask.row"` | the mask kind tiles (`mask.kind/Linear Gradient`), the + button, a row of the mask list |
+| `"mask-kind/<Name>"`, `"mask-create"`, `"mask-row"` | the mask kind tiles (`mask-kind/Linear Gradient`), the + button, a row of the mask list |
 | `{"anchor": "slider/Saturation#track", "index": 1, "within": "develop.column"}` | the same names, choosing among several with one label (reading order) or only those inside another target |
 | `{"text": "Presence", "within": "develop.column", "index": 0}` | the words on screen, found by OCR on a screenshot. Works for anything with a visible label; costs about a second |
 | `{"point": [x, y]}` | window points from the window's top-left corner |
