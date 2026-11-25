@@ -53,6 +53,30 @@ final class InteractionTimelineTests: XCTestCase {
         XCTAssertTrue(summary.lastInputWasRendered)
     }
 
+    /// Where a frame's time went: inside the renderer, or getting there and back; and
+    /// how long the main thread took to ask at all.
+    func testTheSummarySeparatesTheRendererFromTheThreadThatAsked() {
+        var timeline = InteractionTimeline()
+        for step in 0..<5 {
+            let at = Double(step) * 40
+            timeline.record(input(at, step + 1))
+            timeline.record(.init(kind: .request, nanoseconds: ms(at + Double(step + 1)),
+                                  revision: step + 1))
+            timeline.record(.init(kind: .start, nanoseconds: ms(at + 6), revision: step + 1))
+            timeline.record(.init(kind: .frame, nanoseconds: ms(at + 36), revision: step + 1,
+                                  draft: true, longEdge: 2560,
+                                  renderMilliseconds: 30, laneMilliseconds: 20 + Double(step)))
+        }
+        timeline.record(.init(kind: .frame, nanoseconds: ms(400), revision: 5, draft: false,
+                              longEdge: 2560, renderMilliseconds: 90, laneMilliseconds: 88))
+        let summary = timeline.summary()
+        XCTAssertEqual(summary.medianInputToRequestMilliseconds ?? -1, 3, accuracy: 1e-6)
+        XCTAssertEqual(summary.maxInputToRequestMilliseconds ?? -1, 5, accuracy: 1e-6)
+        XCTAssertEqual(summary.medianDraftRenderMilliseconds ?? -1, 30, accuracy: 1e-6)
+        XCTAssertEqual(summary.medianDraftLaneMilliseconds ?? -1, 22, accuracy: 1e-6,
+                       "the settle's 88 ms is not a draft")
+    }
+
     func testAFinalValueThatNeverRenderedIsReported() {
         var timeline = InteractionTimeline()
         timeline.record(input(0, 1))

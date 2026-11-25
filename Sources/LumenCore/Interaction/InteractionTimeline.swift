@@ -25,19 +25,25 @@ public struct InteractionTimeline: Sendable, Equatable {
         public let nanoseconds: UInt64
         /// The edit revision the entry concerns — the value identity of a frame.
         public let revision: Int
-        /// Frames only: draft or settle, delivered long edge, render start to landing.
+        /// Frames only: draft or settle, and the delivered long edge.
         public var draft: Bool?
         public var longEdge: Int?
+        /// Frames only: render handed over to frame landed, as its requester saw it.
         public var renderMilliseconds: Double?
+        /// Frames only: the part of that spent inside the renderer. The difference is
+        /// the two hops and any wait for the requester's thread.
+        public var laneMilliseconds: Double?
 
         public init(kind: Stage, nanoseconds: UInt64, revision: Int, draft: Bool? = nil,
-                    longEdge: Int? = nil, renderMilliseconds: Double? = nil) {
+                    longEdge: Int? = nil, renderMilliseconds: Double? = nil,
+                    laneMilliseconds: Double? = nil) {
             self.kind = kind
             self.nanoseconds = nanoseconds
             self.revision = revision
             self.draft = draft
             self.longEdge = longEdge
             self.renderMilliseconds = renderMilliseconds
+            self.laneMilliseconds = laneMilliseconds
         }
     }
 
@@ -74,6 +80,12 @@ public struct InteractionTimeline: Sendable, Equatable {
         public var maxInputToFrameMilliseconds: Double?
         /// The last input to the first frame depicting it. Nil if it never rendered.
         public var lastInputToFrameMilliseconds: Double?
+        /// From an input to the viewer asking for its draft: main-thread time alone.
+        public var medianInputToRequestMilliseconds: Double?
+        public var maxInputToRequestMilliseconds: Double?
+        /// Draft frames: as the requester saw them, and inside the renderer.
+        public var medianDraftRenderMilliseconds: Double?
+        public var medianDraftLaneMilliseconds: Double?
         public var lastInputRevision: Int?
         public var lastFrameRevision: Int?
 
@@ -103,6 +115,9 @@ public struct InteractionTimeline: Sendable, Equatable {
         out.frames = frames.count
         out.lastInputRevision = inputs.last?.revision
         out.lastFrameRevision = frames.map(\.revision).max()
+        let drafts = frames.filter { $0.draft == true }
+        out.medianDraftRenderMilliseconds = Self.median(drafts.compactMap(\.renderMilliseconds))
+        out.medianDraftLaneMilliseconds = Self.median(drafts.compactMap(\.laneMilliseconds))
         guard let first = inputs.first?.nanoseconds,
               let last = inputs.last?.nanoseconds else { return out }
         func milliseconds(_ from: UInt64, _ to: UInt64) -> Double {
@@ -126,6 +141,16 @@ public struct InteractionTimeline: Sendable, Equatable {
             out.maxFrameGapMilliseconds = longest
         }
 
+        let asking: [Double] = entries.compactMap { request in
+            guard request.kind == .request,
+                  let input = Self.lastInput(atOrBefore: request.revision, in: inputs),
+                  input.revision == request.revision,
+                  request.nanoseconds >= input.nanoseconds else { return nil }
+            return milliseconds(input.nanoseconds, request.nanoseconds)
+        }
+        out.medianInputToRequestMilliseconds = Self.median(asking)
+        out.maxInputToRequestMilliseconds = asking.max()
+
         // Only the first frame to show a newer revision counts: a settle of a revision
         // already on screen is sharpness arriving, not the value arriving.
         var slowest: Double?
@@ -140,6 +165,13 @@ public struct InteractionTimeline: Sendable, Equatable {
         }
         out.maxInputToFrameMilliseconds = slowest
         return out
+    }
+
+    private static func median(_ values: [Double]) -> Double? {
+        guard !values.isEmpty else { return nil }
+        let sorted = values.sorted()
+        let middle = sorted.count / 2
+        return sorted.count % 2 == 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2
     }
 
     /// Inputs are recorded in revision order, so this is a binary search.

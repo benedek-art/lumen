@@ -138,12 +138,14 @@ final class LatencyHUD: ObservableObject {
 
     func noteTimeline(_ kind: InteractionTimeline.Stage, revision: Int?,
                       draft: Bool? = nil, longEdge: Int? = nil,
-                      renderMilliseconds: Double? = nil) {
+                      renderMilliseconds: Double? = nil,
+                      laneMilliseconds: Double? = nil) {
         guard timelineEnabled, let revision else { return }
         timeline.record(InteractionTimeline.Stamp(
             kind: kind, nanoseconds: DispatchTime.now().uptimeNanoseconds,
             revision: revision, draft: draft, longEdge: longEdge,
-            renderMilliseconds: renderMilliseconds))
+            renderMilliseconds: renderMilliseconds,
+            laneMilliseconds: laneMilliseconds))
     }
 
     /// A pixel-touching edit happened. The next draft that lands closes the loop.

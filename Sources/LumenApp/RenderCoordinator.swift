@@ -55,6 +55,9 @@ struct RenderResult: @unchecked Sendable {
     /// gain map is built on — exactly as they do with the preview off.
     var edrImage: CGImage? = nil
     var edrWhiteTarget: Double? = nil
+    /// Wall time inside the coordinator for this render — decode, graph, readback —
+    /// without the hops to and from the caller. Zero where nothing stamped it.
+    var laneMilliseconds: Double = 0
 }
 
 struct DevelopedPreviewIdentity: Equatable, Sendable {
@@ -264,7 +267,8 @@ actor RenderCoordinator {
         latestGeneration = max(latestGeneration, generation)
         // Drop work that is already stale before paying for a decode.
         guard generation >= latestGeneration else { return nil }
-        return await produce(url: url, recipe: recipe, maxLongEdge: maxLongEdge,
+        let entered = DispatchTime.now().uptimeNanoseconds
+        var result = await produce(url: url, recipe: recipe, maxLongEdge: maxLongEdge,
                              draft: draft,
                              // A FRAME SOMEBODY IS LOOKING AT DECODES AT FULL DETAIL.
                              // Apple's draft decode is a lower-quality demosaic — a
@@ -280,6 +284,9 @@ actor RenderCoordinator {
                              softProof: softProof,
                              region: region,
                              edrWhiteTarget: edrWhiteTarget)
+        result?.laneMilliseconds =
+            Double(DispatchTime.now().uptimeNanoseconds - entered) / 1e6
+        return result
     }
 
     /// A render nobody else is waiting on — the scope proxy, the Auto-tone probe. It

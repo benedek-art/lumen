@@ -1038,7 +1038,8 @@ final class PhotoRenderModel: ObservableObject {
         LatencyHUD.shared.noteTimeline(
             .frame, revision: editRevision, draft: result.isDraft,
             longEdge: Swift.max(result.image.width, result.image.height),
-            renderMilliseconds: renderMilliseconds)
+            renderMilliseconds: renderMilliseconds,
+            laneMilliseconds: result.laneMilliseconds)
         // Only the settle loop knows which request it answered; it sets this after.
         settledRequest = nil
         // A result that could not stat its file keeps the identity this photo already
