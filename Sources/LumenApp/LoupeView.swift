@@ -1119,6 +1119,7 @@ final class PhotoRenderModel: ObservableObject {
             settledRecipe = recipe
         }
         revision &+= 1
+        LumenDriver.frameApplied(result, recipe: recipe, model: self)
     }
 }
 
@@ -2106,6 +2107,7 @@ struct LoupeView: View {
             }
         }
         .frame(width: drawn.width, height: drawn.height)
+        .driverAnchor("viewer.image")
         .scaleEffect(stretch)
         .offset(offset)
         .frame(width: container.width, height: container.height)

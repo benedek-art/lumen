@@ -1,0 +1,143 @@
+name: Driver
+
+# Runs the real app on a macOS runner under the in-app automation driver: synthesized
+# user input, screenshots, state dumps and a frame timeline per scenario.
+# How to write and run a scenario: driver/README.md.
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "Sources/LumenApp/Driver/**"
+      - "driver/**"
+      - ".github/workflows/driver.yml"
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: "Scenario files or globs under driver/scenarios, space-separated. Empty with an inline scenario runs only that."
+        required: false
+        default: "smoke.json"
+      scenario:
+        description: "Inline scenario JSON: one object, or an array of them. Runs without a commit."
+        required: false
+        default: ""
+      ref:
+        description: "Branch, tag or SHA of the app to test. Empty: the ref this run was dispatched on. The driver and its scenarios always come from the dispatching ref."
+        required: false
+        default: ""
+      runs_on:
+        description: "Runner label. macos-15 is a GitHub VM (paravirtual GPU); a self-hosted Mac gives real-GPU numbers."
+        required: false
+        default: "macos-15"
+      config:
+        description: "Build configuration. Timing numbers mean something only in release."
+        type: choice
+        options: [release, debug]
+        default: release
+      strict:
+        description: "Fail the job when an expectation fails (default: only on a driver error, hang or crash)"
+        type: boolean
+        default: false
+
+# Every run is its own group: dispatches never cancel or queue behind one another.
+concurrency:
+  group: driver-${{ github.run_id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ${{ inputs.runs_on || 'macos-15' }}
+    timeout-minutes: 45
+    env:
+      RAW_DIR: ${{ github.workspace }}/.driver-raw
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      # Testing another ref: lay this ref's driver over it, so a branch that predates
+      # the driver, or carries an older one, is driven by the current one.
+      - name: Check out the driver
+        if: inputs.ref != ''
+        uses: actions/checkout@v4
+        with:
+          path: .driver-src
+
+      - name: Install the driver into the tested ref
+        shell: bash
+        run: |
+          if [ -d .driver-src ]; then
+            rm -rf driver Sources/LumenApp/Driver
+            cp -R .driver-src/driver driver
+            cp -R .driver-src/Sources/LumenApp/Driver Sources/LumenApp/Driver
+            rm -rf .driver-src
+          fi
+          git log -1 --format='testing %H %s'
+          python3 driver/tools/install-hooks.py
+
+      - name: Runner facts
+        shell: bash
+        run: |
+          sw_vers
+          swift --version 2>&1 | head -2
+          system_profiler SPDisplaysDataType 2>/dev/null | grep -E "Resolution|Chipset|Metal|Displays|UI Looks" || true
+          python3 -c "import sys; print(sys.version)"
+          python3 -c "import numpy, PIL; print('numpy', numpy.__version__, 'pillow', PIL.__version__)" || true
+          sudo -n sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
+            "select service, client, auth_value from access where service in ('kTCCServicePostEvent','kTCCServiceAccessibility','kTCCServiceScreenCapture','kTCCServiceListenEvent')" || true
+
+      - name: Scenarios for this run
+        id: plan
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          SUITE: ${{ inputs.suite }}
+          INLINE: ${{ inputs.scenario }}
+          CONFIG_INPUT: ${{ inputs.config }}
+        run: |
+          mkdir -p driver-inline
+          list="smoke.json"
+          if [ "$EVENT" = "workflow_dispatch" ]; then list="$SUITE"; fi
+          if [ -n "$INLINE" ]; then
+            printf '%s' "$INLINE" > driver-inline/input.json
+            python3 driver/tools/split-inline.py driver-inline/input.json driver-inline
+            list="$list $(ls driver-inline/inline-*.json | tr '\n' ' ')"
+          fi
+          echo "scenarios: $list"
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+          echo "config=${CONFIG_INPUT:-release}" >> "$GITHUB_OUTPUT"
+
+      # Restored whether or not this run needs them; run-suite.sh fetches on a miss
+      # only when a selected scenario asks for "fixture": "raw".
+      - name: Cache the RAW fixtures
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.RAW_DIR }}
+          key: driver-raw-v1-${{ hashFiles('driver/fixtures/raw.tsv') }}
+
+      - name: Python imaging for the pixel witness
+        shell: bash
+        run: python3 -c "import numpy, PIL" 2>/dev/null || python3 -m pip install --quiet --break-system-packages numpy pillow || true
+
+      - name: Build and run
+        shell: bash
+        env:
+          CONFIG: ${{ steps.plan.outputs.config }}
+          STRICT: ${{ inputs.strict && '1' || '' }}
+          OUT: ${{ github.workspace }}/driver-out
+          LIST: ${{ steps.plan.outputs.list }}
+        run: |
+          set -f
+          driver/tools/run-suite.sh $LIST
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: driver-${{ github.run_id }}
+          path: driver-out
+          retention-days: 14
+          if-no-files-found: warn

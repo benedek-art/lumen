@@ -703,7 +703,7 @@ struct LumenSlider: View {
                       ?? "\(title) — double-click to reset")
             }
 
-            track
+            track.driverAnchor(driverID + "#track")
 
             valueField
         }
@@ -833,7 +833,7 @@ struct LumenSlider: View {
             case .decrement: accessibilityStep(.decrement)
             @unknown default: break
             }
-        }
+        }.driverAnchor(driverID)
     }
 
     /// One VoiceOver increment or decrement: a single step of this control, never the

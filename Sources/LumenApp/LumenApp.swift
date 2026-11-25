@@ -65,7 +65,7 @@ final class LumenAppDelegate: NSObject, NSApplicationDelegate {
 
 @main
 struct LumenApp: App {
-    @StateObject private var state = AppState()
+    @StateObject private var state = LumenDriver.makeAppState()
     @NSApplicationDelegateAdaptor(LumenAppDelegate.self) private var delegate
 
     var body: some Scene {
@@ -105,6 +105,11 @@ struct LumenApp: App {
                     // Files handed over by Finder during launch win over the reopen:
                     // the photographer asked for THOSE, this launch.
                     let launchedWith = delegate.attach(state)
+                    // Under the automation driver: no reopen, no updater.
+                    if LumenDriver.isActive {
+                        LumenDriver.start(state)
+                        return
+                    }
                     if launchedWith.isEmpty {
                         // The owner's first Mac session started at the empty state and
                         // so has every launch since; a daily driver reopens where you

@@ -318,6 +318,7 @@ struct ContentView: View {
             case .loupe:
                 if let photo = state.primarySelection {
                     LoupeView(photo: photo)
+                        .driverAnchor("viewer")
                 } else {
                     GridView()
                 }

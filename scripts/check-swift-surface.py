@@ -198,6 +198,15 @@ GENERIC_NAME = re.compile(r"\b([A-Z]\w*)\s*(?::|,|$)")
 # not declared in-tree gets reported, so adding a genuinely new platform type means
 # adding it here — which is the point. Single capital letters are generic parameters.
 KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
+    # The automation driver (`Sources/LumenApp/Driver`): synthesized Quartz events, the
+    # run-loop observer behind its timeline, and its permission probes.
+    "CGEvent", "CGEventType", "CGEventField", "CGEventFlags", "CGEventSource",
+    "CGMouseButton", "CGKeyCode", "CGWarpMouseCursorPosition",
+    "CGAssociateMouseAndMouseCursorPosition", "CGPreflightPostEventAccess",
+    "CGPreflightScreenCaptureAccess", "AXIsProcessTrusted", "ApplicationServices",
+    "NSAccessibilityProtocol", "CFRunLoopActivity", "CFRunLoopObserverCreateWithHandler",
+    "CFRunLoopAddObserver", "CFRunLoopGetMain", "CFGetTypeID", "CFBooleanGetTypeID",
+    "Unmanaged", "UnicodeScalar",
     # Native APIs used by the audited persistence/export safety regressions.
     "SQLITE_OPEN_READONLY", "RENAME_EXCL", "NSBitmapImageRep",
     # POSIX errno values and open(2) flags: the export's no-overwrite fallback
