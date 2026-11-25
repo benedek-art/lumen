@@ -221,13 +221,9 @@ def cmd_local(args):
     env["LUMEN_RENDERLAB"] = ",".join(manifests)
     env.setdefault("LUMEN_RENDERLAB_OUT", str(Path(out).resolve()))
     env["PATH"] = "/opt/swift/usr/bin:" + env.get("PATH", "")
-    build = subprocess.run(["swift", "build", "-c", "release", "--build-tests"], cwd=ROOT, env=env,
-                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    if build.returncode:
-        print("\n".join(l for l in build.stdout.splitlines() if "error:" in l)[:4000])
-        return build.returncode
+    # `swift test -c release` (not `swift build`) so @testable imports are compiled in.
     start = time.time()
-    run = subprocess.run(["swift", "test", "-c", "release", "--skip-build", "--filter",
+    run = subprocess.run(["swift", "test", "-c", "release", "--filter",
                           "RenderLabReferenceHarness"], cwd=ROOT, env=env,
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     for line in run.stdout.splitlines():

@@ -3,7 +3,7 @@
 # contact sheets. How to use it: renderlab/README.md.
 name: Render lab
 
-run-name: "Render lab ${{ github.event_name == 'push' && 'request' || inputs.lane }} ${{ inputs.manifests }} ${{ inputs.label }} ${{ github.event_name == 'push' && github.event.head_commit.message || '' }}"
+run-name: "Render lab ${{ github.event_name == 'push' && 'request' || inputs.lane }} ${{ inputs.manifests }} ${{ inputs.label }} ${{ github.sha }}"
 
 # Two ways in. workflow_dispatch with the inputs below; or a push that changes
 # docs/renderlab-request.json (same keys as the inputs) on any branch. The request file
@@ -129,7 +129,7 @@ jobs:
         run: |
           start=$(date +%s)
           set +e
-          swift build -c release --build-tests > build.log 2>&1
+          swift test -c release --filter RenderLabTests > build.log 2>&1
           status=$?
           grep -E "error:" build.log | sed "s#$GITHUB_WORKSPACE/##" | sort -u | head -40
           echo "build seconds: $(( $(date +%s) - start ))" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -186,7 +186,7 @@ jobs:
         run: |
           start=$(date +%s)
           set +e
-          swift build -c release --build-tests > build.log 2>&1
+          swift test -c release --filter RenderLabTests > build.log 2>&1
           status=$?
           grep -E "error:" build.log | sed "s#$GITHUB_WORKSPACE/##" | sort -u | head -40
           echo "build seconds: $(( $(date +%s) - start ))" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -283,7 +283,7 @@ jobs:
           export PATH="/opt/swift/usr/bin:$PATH"
           start=$(date +%s)
           set +e
-          swift build -c release --build-tests > build.log 2>&1
+          swift test -c release --filter RenderLabTests > build.log 2>&1
           status=$?
           grep -E "error:" build.log | sed "s#$GITHUB_WORKSPACE/##" | sort -u | head -40
           echo "build seconds: $(( $(date +%s) - start ))"
