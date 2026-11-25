@@ -816,26 +816,11 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// `O`: show or hide the overlay for the mask the panel has selected. With no mask
-    /// selected there is nothing to show, so the key does nothing rather than picking
-    /// a mask on the user's behalf.
-    ///
-    /// This is the PINNED overlay: pressing the key says "leave it up", and it survives
-    /// the hover and auto-hide rules below.
+    /// `O`: an explicit Show or Hide that outranks the automatic overlay. The panel's
+    /// overlay control is the way back to Automatic.
     func toggleMaskOverlay() {
-        if soloMaskOverlay != nil {
-            maskOverlayPinned = false
-            // O means OFF, including off a mask that is still being made. Leaving the
-            // persistent id set would put the red straight back on the next hover exit.
-            maskOverlayPersistentID = nil
-            cancelMaskOverlayTimers()
-            soloMaskOverlay = nil
-            return
-        }
-        guard let id = activeMaskID ?? currentRecipe.masks.first?.id else { return }
-        cancelMaskOverlayTimers()
-        maskOverlayPinned = true
-        soloMaskOverlay = id
+        syncMaskOverlaySelection()
+        sendMaskOverlay(.toggle)
     }
 
     // MARK: - The ambient overlay (docs/35 §4.4)
@@ -881,17 +866,21 @@ final class AppState: ObservableObject {
     /// launch would move it anyway.
     @Published var maskPanelOffset: CGSize = .zero
 
-    /// Whether the photographer asked for the overlay and it should stay up.
-    ///
-    /// The three transient rules below — flash on create, show on hover, hide while an
-    /// adjustment is dragged — all defer to this. A pinned overlay is a decision; an
-    /// ambient one is feedback, and feedback that will not go away is an obstruction.
-    private(set) var maskOverlayPinned = false
+    /// Every input to the overlay, reduced by `MaskOverlayRule`. `soloMaskOverlay` is
+    /// its output; the driver's state dump reads both from here.
+    @Published private(set) var maskOverlay = MaskOverlayRule() {
+        didSet {
+            guard maskOverlay.shownID != oldValue.shownID else { return }
+            // A different mask's alpha must not stand in for this one's while it builds.
+            if oldValue.shownID != nil, maskOverlay.shownID != nil { maskOverlayAlpha = nil }
+            refreshMaskOverlay()
+        }
+    }
 
-    /// Hover intent, and the auto-hide after a creation flash. Both are `Task`s rather
-    /// than timers so a second event supersedes the first by cancellation.
-    private var maskOverlayHideTask: Task<Void, Never>?
     private var maskOverlayHoverTask: Task<Void, Never>?
+    private var maskOverlayPendingHoverID: String?
+    private var maskOverlayHoverRegions: [String: String] = [:]
+    private var maskOverlayLastHoverRegion: String?
 
     /// Milliseconds of pointer dwell before a hovered row shows its overlay.
     ///
@@ -900,8 +889,6 @@ final class AppState: ObservableObject {
     /// the feature (docs/36 §1.4). 120 ms is below the threshold at which a deliberate
     /// hover feels laggy and above the time a pointer spends passing over a 30 pt row.
     static let maskOverlayHoverIntentMS: UInt64 = 120
-    /// How long a newly created mask shows itself before getting out of the way.
-    static let maskOverlayFlashMS: UInt64 = 1_400
 
     // MARK: - Mask thumbnails (docs/35 §4.3)
 
@@ -1037,218 +1024,162 @@ final class AppState: ObservableObject {
                        intent: .defaultIntent)
     }
 
-    /// Keep the overlay up until it is deliberately taken down.
-    ///
-    /// For the row menu's "Keep it showing", which is the pointer's version of what `O`
-    /// does. Separate from `toggleMaskOverlay` because the menu has already decided
-    /// WHICH mask and does not want the key's "pick one if none is selected" rule.
-    /// Leave the overlay up until told otherwise, optionally raising a named mask's.
-    ///
-    /// Takes the id so its one caller stops writing `soloMaskOverlay` directly — the
-    /// raw write is how the pin and the solo got out of step in the first place.
-    func pinMaskOverlay(_ id: String? = nil) {
-        cancelMaskOverlayTimers()
-        maskOverlayPinned = true
-        maskOverlayPersistentID = nil
-        if let id, soloMaskOverlay != id { soloMaskOverlay = id }
+    /// The one writer of `maskOverlay`.
+    func sendMaskOverlay(_ event: MaskOverlayRule.Event) {
+        var next = maskOverlay
+        next.reduce(event)
+        if next != maskOverlay { maskOverlay = next }
     }
 
-    /// Take the pin off, and take the overlay down with it.
-    ///
-    /// THE MISSING HALF OF `pinMaskOverlay`, and its absence was a trap. The row menu's
-    /// "Keep it hidden" set `soloMaskOverlay = nil` and left `maskOverlayPinned` TRUE —
-    /// and `flashMaskOverlay`, `hoverMaskOverlay` and `setMaskEdgeGesture` all open with
-    /// `guard !maskOverlayPinned`. So showing an overlay once and hiding it once killed
-    /// every ambient path for the rest of the photograph: no creation flash, no hover,
-    /// no overlay while dragging an edge. Nothing said so, and only `O` could undo it.
-    func unpinMaskOverlay() {
-        cancelMaskOverlayTimers()
-        maskOverlayPinned = false
-        maskOverlayPersistentID = nil
-        if soloMaskOverlay != nil { soloMaskOverlay = nil }
+    /// The panel's selection as the overlay sees it: the panel falls back to the first
+    /// mask when none is selected, so the overlay does too.
+    func syncMaskOverlaySelection() {
+        let masks = currentRecipe.masks
+        let id = activeMaskID.flatMap { id in masks.contains(where: { $0.id == id }) ? id : nil }
+            ?? masks.first?.id
+        sendMaskOverlay(.selected(id))
     }
 
-    /// A mask is new and has not been adjusted yet: leave its overlay up.
-    ///
-    /// THE RULE THIS COMPLETES, in one sentence: a mask's overlay is persistent from the
-    /// moment it is created until the first time an Effect control is touched, and
-    /// hover-only afterwards.
-    ///
-    /// Before this there was no persistent state at all. Every path was a 1400 ms
-    /// countdown or a pointer dwell, so the answer to "show me what I just selected"
-    /// was a flash you had to catch — and for a brush, a gradient, a radial or an
-    /// outline the flash rendered NOTHING, because an undrawn mask's alpha is zero and
-    /// `colorOverlay` composites `c.mix(tint, a·s)`: at `a = 0` the output is the
-    /// photograph, byte for byte. Painting did not raise it either. So a brush mask
-    /// could go from creation to fully adjusted without the red being visible for one
-    /// frame, which is exactly what the owner reported.
-    ///
-    /// Setting it on an undrawn mask is right rather than merely harmless: nothing is
-    /// selected, so nothing SHOULD be washed red, and the moment the first stroke lands
-    /// the alpha stops being zero and the overlay is already standing there. The
-    /// feedback arrives with the selection instead of before it.
-    ///
-    /// It defers to the pin, because a pin is a decision and this is a default.
-    func beginPersistentMaskOverlay(_ id: String) {
-        guard !maskOverlayPinned else { return }
-        cancelMaskOverlayTimers()
-        maskOverlayPersistentID = id
-        soloMaskOverlay = id
+    func setMaskOverlayChoice(_ choice: MaskOverlayRule.Choice) {
+        syncMaskOverlaySelection()
+        sendMaskOverlay(.choose(choice))
     }
 
-    /// The mask whose overlay stays up because it has not been adjusted yet, if any.
-    ///
-    /// Not published: every reader of it goes through `soloMaskOverlay`, which is.
-    private var maskOverlayPersistentID: String?
-
-    /// The three inputs every ambient overlay rule is gated on, as one value.
-    ///
-    /// `MaskOverlayRule` lives in LumenCore because this class needs a catalog on disk
-    /// to construct and therefore cannot be unit tested, which is how a five-input state
-    /// machine reached the owner with three defects and no test on any of them. The
-    /// guards below CALL it rather than restating it.
-    private var maskOverlayRule: MaskOverlayRule {
-        MaskOverlayRule(pinned: maskOverlayPinned,
-                        persistentID: maskOverlayPersistentID,
-                        suppressed: maskOverlaySuppressed)
+    func cycleMaskOverlayChoice() {
+        setMaskOverlayChoice(MaskOverlayRule.nextChoice(after: maskOverlay.choice))
     }
 
-    /// A mask was just created: show what it selected, then stand down.
+    /// A mask was just made and selected: its overlay stays up until it is adjusted.
+    func noteMaskCreated(_ id: String) {
+        sendMaskOverlay(.created(id))
+    }
+
+    func noteMaskComponentAdded(_ id: String) {
+        sendMaskOverlay(.componentAdded(id))
+    }
+
+    /// The pointer entered or left a mask's row, one of its component rows, or its
+    /// thumbnail. `region` tells those apart, so moving between two rows of the same
+    /// mask does not take the overlay down whichever order SwiftUI reports them in.
     ///
-    /// The first second of every mask used to look like nothing at all — `addMask`
-    /// appended, selected, and returned without touching the overlay, so the one moment
-    /// a photographer most needs to see what a mask does had no feedback in it
-    /// (docs/35 §2.3).
-    func flashMaskOverlay(_ id: String) {
-        // SUPPRESSION IS AUTHORITATIVE NOW. `maskOverlaySuppressed` existed, was set on
-        // every Effect press, and was read by nothing except its own dedup guard — so a
-        // flash arriving mid-drag (clicking another mask's pin, say) put the red back
-        // over the pixels the photographer was in the middle of judging.
-        guard maskOverlayRule.ambientAllowed else { return }
-        cancelMaskOverlayTimers()
-        soloMaskOverlay = id
-        // `Task` inherits this type's `@MainActor` isolation, so the body already
-        // runs where `soloMaskOverlay` lives — a `MainActor.run` here would be a
-        // second hop to the actor it is already on.
-        maskOverlayHideTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: Self.maskOverlayFlashMS * 1_000_000)
-            guard !Task.isCancelled, let self, !self.maskOverlayPinned,
-                  self.soloMaskOverlay == id else { return }
-            // A mask that has not been adjusted yet keeps its overlay. The stand-down
-            // is for feedback that has been seen, not for a selection still being made.
-            guard self.maskOverlayRule.mayStandDown(id) else { return }
-            self.soloMaskOverlay = nil
+    /// Entering waits out the intent hold; leaving is immediate.
+    func hoverMaskOverlay(_ id: String, inside: Bool, region: String? = nil) {
+        let key = region ?? id
+        if inside {
+            maskOverlayHoverRegions[key] = id
+            maskOverlayLastHoverRegion = key
+        } else if maskOverlayHoverRegions[key] == id {
+            maskOverlayHoverRegions[key] = nil
         }
-    }
-
-    /// A mask row (or its pin) is under the pointer, or the pointer has left.
-    ///
-    /// Entering arms the intent timer; leaving cancels it and takes the overlay down
-    /// unless it was pinned. Passing the SAME id again while it is already showing is a
-    /// no-op rather than a re-arm, so a row that redraws under a stationary pointer does
-    /// not make the overlay blink.
-    func hoverMaskOverlay(_ id: String?) {
-        guard maskOverlayRule.ambientAllowed else { return }
-        maskOverlayHoverTask?.cancel()
-        maskOverlayHideTask?.cancel()
-        guard let id else {
-            // THE POINTER LEFT. Fall back to the persistent overlay if one is standing
-            // rather than to nothing: hovering a second mask's row while a new, unadjusted
-            // mask is lit used to end with the photograph dark, because the exit cleared
-            // the solo outright and nothing put the persistent one back.
-            let fallback = maskOverlayRule.afterHoverExit
-            if soloMaskOverlay != fallback { soloMaskOverlay = fallback }
+        let target = maskOverlayLastHoverRegion.flatMap { maskOverlayHoverRegions[$0] }
+            ?? maskOverlayHoverRegions.values.first
+        guard let target else {
+            cancelMaskOverlayHover()
+            if maskOverlay.panelHoverID != nil { sendMaskOverlay(.panelHover(nil)) }
             return
         }
-        guard soloMaskOverlay != id else { return }
+        if maskOverlay.panelHoverID == target {
+            maskOverlayHoverTask?.cancel()
+            maskOverlayPendingHoverID = nil
+            return
+        }
+        guard maskOverlayPendingHoverID != target else { return }
+        maskOverlayHoverTask?.cancel()
+        maskOverlayPendingHoverID = target
         maskOverlayHoverTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: Self.maskOverlayHoverIntentMS * 1_000_000)
             guard !Task.isCancelled, let self,
-                  self.maskOverlayRule.ambientAllowed else { return }
-            self.soloMaskOverlay = id
+                  self.maskOverlayPendingHoverID == target else { return }
+            self.maskOverlayPendingHoverID = nil
+            self.sendMaskOverlay(.panelHover(target))
         }
     }
 
-    /// An adjustment slider is being dragged: the overlay is in the way of the thing
-    /// being judged, so it goes — even if it was pinned, and it comes back when the
-    /// drag ends. Lightroom's rule, and it is right.
-    func setMaskOverlaySuppressed(_ suppressed: Bool) {
-        guard maskOverlaySuppressed != suppressed else { return }
-        maskOverlaySuppressed = suppressed
-        if suppressed {
-            // THE FIRST EFFECT TOUCH ENDS THE PERSISTENT PHASE, and this is the line
-            // that decides the whole rule. Up to here the mask was still being MADE and
-            // its overlay stayed up so the selection could be judged; from here the
-            // photographer is judging pixels, and a red wash over the exact pixels being
-            // judged is an obstruction. It ends on the PRESS rather than the release, so
-            // the overlay is already gone for the very first adjustment.
-            //
-            // Deliberately not fired by the Edge zone: refining an edge is still
-            // selection work, and `setMaskEdgeGesture` is what that zone calls.
-            maskOverlayPersistentID = nil
-            maskOverlayResumeID = soloMaskOverlay
-            cancelMaskOverlayTimers()
-            if soloMaskOverlay != nil { soloMaskOverlay = nil }
-        } else if maskOverlayPinned, let id = maskOverlayResumeID,
-                  currentRecipe.masks.contains(where: { $0.id == id }) {
-            soloMaskOverlay = id
-            maskOverlayResumeID = nil
-        } else {
-            maskOverlayResumeID = nil
-        }
-    }
-
-    /// An EDGE control is being dragged: show the matte, because the edge IS the thing
-    /// being judged. The exact complement of `setMaskOverlaySuppressed`, and they are a
-    /// pair rather than two rules — an Effect slider moves the picture and the overlay
-    /// covers it up, an Edge slider moves the SELECTION and the overlay is the only
-    /// place it is visible at all.
-    ///
-    /// Dragging Refine, Expand/Contract, Soften Edge or a Levels handle with no overlay
-    /// up is a control whose whole output is invisible while you are using it, which is
-    /// the "I want to know what Feather does" complaint in its purest form: the glyph
-    /// says what the parameter means, and this says what it just did to THIS photograph.
-    ///
-    /// It stands down the way a creation flash does rather than snapping off, so
-    /// nudging a value repeatedly does not strobe. A PINNED overlay is left exactly
-    /// alone in both directions — that is a decision, and this is feedback.
-    func setMaskEdgeGesture(_ active: Bool, mask id: String?) {
-        guard !maskOverlayPinned else { return }
-        if active {
-            guard let id else { return }
-            cancelMaskOverlayTimers()
-            maskEdgeGestureID = id
-            if soloMaskOverlay != id { soloMaskOverlay = id }
-        } else {
-            guard let held = maskEdgeGestureID else { return }
-            maskEdgeGestureID = nil
-            guard soloMaskOverlay == held else { return }
-            flashMaskOverlay(held)
-        }
-    }
-
-    private var maskEdgeGestureID: String?
-
-    private var maskOverlaySuppressed = false
-    private var maskOverlayResumeID: String?
-
-    private func cancelMaskOverlayTimers() {
-        maskOverlayHideTask?.cancel()
-        maskOverlayHideTask = nil
+    private func cancelMaskOverlayHover() {
         maskOverlayHoverTask?.cancel()
         maskOverlayHoverTask = nil
+        maskOverlayPendingHoverID = nil
     }
 
-    /// `⌥O` and `⇧O`: cycle the mode and the colour. Cycling either turns the overlay
-    /// ON if it is off — pressing a key that changes how a thing is drawn and seeing
-    /// nothing happen is how a user concludes the key is broken.
-    ///
-    /// THEY NO LONGER PIN AS A SIDE EFFECT. Both used to run
-    /// `else { maskOverlayPinned = true }`, so cycling the colour of an overlay that was
-    /// merely hovering silently converted it into a permanent one — a key that says it
-    /// changes an appearance quietly changing a persistence rule instead. Turning a
-    /// missing overlay on is still right and still goes through `toggleMaskOverlay`,
-    /// which pins deliberately; an overlay already up is left exactly as it was found.
+    /// Forget every hovered row: the rows belong to a photograph or an editor that is
+    /// going away, and a row removed under the pointer never reports its exit.
+    private func resetMaskOverlayHover() {
+        cancelMaskOverlayHover()
+        maskOverlayHoverRegions = [:]
+        maskOverlayLastHoverRegion = nil
+    }
+
+    /// The pointer is on another mask's pin on the canvas, or on none.
+    func hoverMaskPin(_ id: String?) {
+        guard maskOverlay.canvasHoverID != id else { return }
+        sendMaskOverlay(.canvasHover(id))
+    }
+
+    /// A drag that moves a selection: on-canvas geometry, a brush stroke, an Edge row.
+    func setMaskSelectionGesture(_ active: Bool, mask id: String?) {
+        sendMaskOverlay(.selectionGesture(active ? id : nil))
+    }
+
+    /// After any edit, undo or redo of the shown photograph: drop ids that are gone,
+    /// and end the creation phase if a mask's adjustment changed.
+    func noteMaskEdit(from before: [Mask]?) {
+        guard let photo = primarySelection else { return }
+        let after = recipe(for: photo).masks
+        guard let before, before != after else { return }
+        reconcileMaskSelection(with: after)
+        let ids = after.map(\.id)
+        if ids != before.map(\.id) {
+            maskOverlayHoverRegions = maskOverlayHoverRegions.filter { ids.contains($0.value) }
+            if let pending = maskOverlayPendingHoverID, !ids.contains(pending) {
+                cancelMaskOverlayHover()
+            }
+            sendMaskOverlay(.masksChanged(ids))
+            syncMaskOverlaySelection()
+        }
+        for mask in after {
+            guard let old = before.first(where: { $0.id == mask.id }) else { continue }
+            if old.adjust != mask.adjust || old.amount != mask.amount || old.blend != mask.blend {
+                sendMaskOverlay(.adjusted(mask.id, held: sliderGestureActive))
+                break
+            }
+        }
+    }
+
+    /// Undo and redo restore masks without touching the selection, so a selection of a
+    /// mask or component that no longer exists left the panel on the first mask and the
+    /// canvas with no handles. Both readers fall back the same way once this has run.
+    private func reconcileMaskSelection(with masks: [Mask]) {
+        if let id = activeMaskID, !masks.contains(where: { $0.id == id }) {
+            activeMaskID = masks.first?.id
+            activeComponentIndex = 0
+        }
+        guard let id = activeMaskID ?? masks.first?.id,
+              let mask = masks.first(where: { $0.id == id }) else { return }
+        let last = Swift.max(mask.components.count - 1, 0)
+        if activeComponentIndex > last { activeComponentIndex = last }
+    }
+
+    /// The photographs a mask edit lands on: the one being edited, never the rest of
+    /// the selection (Lightroom Classic without Auto Sync). Paste, Paste Masks and
+    /// presets are the explicit multi-photo routes and keep `editTargets`.
+    var maskEditTargets: [PhotoItem] { primarySelection.map { [$0] } ?? [] }
+
+    /// `updateRecipe` for every mask edit: the active photograph only.
+    func updateMasks(coalescingKey: String? = nil, label: String? = nil,
+                     _ mutate: (inout Recipe) -> Void) {
+        updateRecipe(coalescingKey: coalescingKey, label: label,
+                     targets: maskEditTargets) { _, recipe in mutate(&recipe) }
+    }
+
+    /// The mask editor opened or closed, by whatever route.
+    func noteMaskingChanged(_ masking: Bool) {
+        resetMaskOverlayHover()
+        sendMaskOverlay(.masking(masking))
+        if masking { syncMaskOverlaySelection() }
+    }
+
+    /// `⌥O` and `⇧O`: cycle the mode and the colour, turning the overlay on if it is
+    /// off — a key that changes how a thing is drawn must show it.
     func cycleMaskOverlayMode() {
         maskOverlayMode = maskOverlayMode.next
         if soloMaskOverlay == nil { toggleMaskOverlay() }
@@ -1263,9 +1194,10 @@ final class AppState: ObservableObject {
     ///
     /// The gate on the digit keys. Digits are RATINGS everywhere else in this
     /// application, and a rating lost to a brush's Flow would be unrecoverable — so the
-    /// brush has to be the thing actually selected, not merely possible.
+    /// brush has to be the thing actually selected, not merely possible. "Selected" is
+    /// the same fallback the panel highlights and the canvas paints with.
     var activeComponentIsBrush: Bool {
-        guard let id = activeMaskID,
+        guard let id = activeMaskID ?? currentRecipe.masks.first?.id,
               let mask = currentRecipe.masks.first(where: { $0.id == id }),
               mask.components.indices.contains(activeComponentIndex) else { return false }
         return mask.components[activeComponentIndex].kind == .brush
@@ -1275,7 +1207,7 @@ final class AppState: ObservableObject {
     func invertActiveMaskComponent() {
         guard let id = activeMaskID ?? currentRecipe.masks.first?.id else { return }
         let index = activeComponentIndex
-        updateRecipe(coalescingKey: nil) { recipe in
+        updateMasks(coalescingKey: nil) { recipe in
             guard let m = recipe.masks.firstIndex(where: { $0.id == id }),
                   recipe.masks[m].components.indices.contains(index) else { return }
             recipe.masks[m].components[index].invert.toggle()
@@ -1553,17 +1485,16 @@ final class AppState: ObservableObject {
     @Published var mixerBand: Int = 0
     @Published var mixerAllBands: Bool = false
 
-    /// Which mask the loupe is showing as an overlay, if any. Setting it rasterizes
-    /// that mask's alpha.
-    @Published var soloMaskOverlay: String? {
-        didSet {
-            guard soloMaskOverlay != oldValue else { return }
-            refreshMaskOverlay()
-        }
-    }
+    /// Which mask the loupe is showing as an overlay, if any: `maskOverlay`'s output.
+    var soloMaskOverlay: String? { maskOverlay.shownID }
     /// Which mask and component the panel has selected. Published because the on-image
     /// canvas edits geometry and lives in the viewer, not the panel.
-    @Published var activeMaskID: String?
+    @Published var activeMaskID: String? {
+        didSet {
+            guard activeMaskID != oldValue else { return }
+            syncMaskOverlaySelection()
+        }
+    }
     @Published var activeComponentIndex: Int = 0
     @Published var clippingOverlay: ClippingOverlay.Mode?
     /// Focus peaking — the edge-detection overlay that makes a wide-aperture or
@@ -1830,6 +1761,10 @@ final class AppState: ObservableObject {
         history.onChange = { [weak self] in self?.refreshCommandState() }
         refreshCommandState()
         refreshLibrarySections()
+        maskOverlay = MaskOverlayRule(masking: PanelLayout.shared.layout.isMasking)
+        PanelLayout.shared.onMaskingChange = { [weak self] masking in
+            self?.noteMaskingChanged(masking)
+        }
     }
 
     /// Bring `commands` up to date. Cheap and idempotent by construction, so it is
@@ -3574,21 +3509,10 @@ final class AppState: ObservableObject {
     private func cursorDidChange(to photo: PhotoItem) {
         activeMaskID = nil
         activeComponentIndex = 0
-        // AND THE SOLO, for the same reason and it was the one that got left behind. A
-        // mask id is per-photograph, so after arrowing to the next frame `soloMaskOverlay`
-        // still held the previous photo's mask: the overlay did not draw (its raster
-        // comes back nil for an id this recipe has no mask for) AND the next press of `O`
-        // took the "solo is set, clear it" branch — so the first O after every photo
-        // change did nothing and you had to press it twice.
-        // And the ambient state with it: a pin, a pending hover and a pending flash all
-        // name a mask that belongs to the photograph being left.
-        maskOverlayPinned = false
-        maskOverlayResumeID = nil
-        // The persistent overlay is per-mask and a mask id is per-photograph, so it
-        // travels with the pin and the pending timers rather than outliving them.
-        maskOverlayPersistentID = nil
-        cancelMaskOverlayTimers()
-        soloMaskOverlay = nil
+        // The overlay's inputs all name masks of the photograph being left.
+        resetMaskOverlayHover()
+        sendMaskOverlay(.photoChanged)
+        syncMaskOverlaySelection()
         loadStrokeSets(for: recipe(for: photo))
         scheduleScopeRefresh()
         // The clipping panel follows the cursor and NOTHING ELSE. It is measured on the
@@ -3660,16 +3584,11 @@ final class AppState: ObservableObject {
     /// panel's own `deleteMask` is private to a view — which is why Delete, while
     /// masking, used to reach for the only deletion it could see and flag the
     /// PHOTOGRAPH rejected instead.
-    ///
-    /// Through the pin, like every other path that removes a mask: deleting the mask
-    /// whose overlay was pinned would otherwise leave the pin standing over nothing,
-    /// which silently disables flash and hover for the rest of the session.
     func deleteActiveMask() {
         guard let id = activeMaskID ?? currentRecipe.masks.first?.id else { return }
-        updateRecipe(coalescingKey: nil, label: "Delete Mask") { recipe in
+        updateMasks(coalescingKey: nil, label: "Delete Mask") { recipe in
             recipe.masks.removeAll { $0.id == id }
         }
-        if soloMaskOverlay == id { unpinMaskOverlay() }
         activeMaskID = currentRecipe.masks.first?.id
         activeComponentIndex = 0
     }
@@ -4088,7 +4007,7 @@ final class AppState: ObservableObject {
                         recipe.develop.pointColors[index].sample = rgb
                     }
                 case .maskSample(let maskID, let component):
-                    updateRecipe { recipe in
+                    updateMasks { recipe in
                         guard let m = recipe.masks.firstIndex(where: { $0.id == maskID }),
                               recipe.masks[m].components.indices.contains(component)
                         else { return }
@@ -4130,7 +4049,7 @@ final class AppState: ObservableObject {
                         }
                     }
                 case .maskPointColor(let maskID):
-                    updateRecipe { recipe in
+                    updateMasks { recipe in
                         guard let m = recipe.masks.firstIndex(where: { $0.id == maskID }),
                               recipe.masks[m].adjust.pointColors.count < 8
                         else { return }
@@ -4172,6 +4091,7 @@ final class AppState: ObservableObject {
                       _ mutate: (PhotoItem, inout Recipe) -> Void) {
         let targets = explicit ?? editTargets
         guard !targets.isEmpty else { return }
+        let masksBefore = primarySelection.map { recipe(for: $0).masks }
         var before: [URL: HistoryStack.PhotoEdit] = [:]
         var after: [URL: HistoryStack.PhotoEdit] = [:]
         var changed: [URL: Recipe] = [:]
@@ -4220,6 +4140,7 @@ final class AppState: ObservableObject {
             // The HUD's input side: the next draft that lands closes the loop.
             LatencyHUD.shared.noteInput()
         }
+        noteMaskEdit(from: masksBefore)
     }
 
     // MARK: Slider gestures
@@ -4368,13 +4289,12 @@ final class AppState: ObservableObject {
     }
 
     private func closeSliderGesture() {
-        let endsWheelBurst = wheelGestureOwner != nil
         wheelSettleCloser?.cancel()
         wheelSettleCloser = nil
         wheelGestureOwner = nil
-        // The mask Edge rows force the overlay on through their gesture sink, and a
-        // wheel burst never sends that sink its `false`.
-        if endsWheelBurst { setMaskEdgeGesture(false, mask: nil) }
+        // Ends every mask gesture, including one whose release was dropped and a wheel
+        // burst, which never sends its `false`.
+        sendMaskOverlay(.gesturesEnded)
         guard sliderGestureActive else { return }
         sliderGestureActive = false
         gestureWatchdog?.cancel()
@@ -4511,11 +4431,15 @@ final class AppState: ObservableObject {
         // End deferred persistence before restoring history, so a later release or
         // quit cannot save the value that undo has just rejected.
         sliderGesture(active: false)
+        let masksBefore = primarySelection.map { recipe(for: $0).masks }
         apply(history.undo())
+        noteMaskEdit(from: masksBefore)
     }
     func redo() {
         sliderGesture(active: false)
+        let masksBefore = primarySelection.map { recipe(for: $0).masks }
         apply(history.redo())
+        noteMaskEdit(from: masksBefore)
     }
 
     /// Put one history step back, restoring only the fields it recorded.

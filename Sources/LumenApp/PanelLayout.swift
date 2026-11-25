@@ -48,6 +48,9 @@ final class PanelLayout: ObservableObject {
 
     private let defaults: UserDefaults?
 
+    /// Told when the mask editor opens or closes, by any route.
+    var onMaskingChange: ((Bool) -> Void)?
+
     init(layout: WorkspaceLayout = .initial, defaults: UserDefaults? = nil) {
         self.layout = layout
         self.defaults = defaults
@@ -185,10 +188,12 @@ final class PanelLayout: ObservableObject {
         // inside it opened on visibly different timings — the kind of mismatch nobody
         // can name and everybody feels. Critically damped: leaves immediately, no
         // overshoot, which is right for furniture being moved rather than thrown.
+        let maskingFlipped = next.isMasking != layout.isMasking
         withAnimation(Lumen.motionFold) {
             layout = next
         }
         persist(next)
+        if maskingFlipped { onMaskingChange?(next.isMasking) }
     }
 
     // MARK: Persistence

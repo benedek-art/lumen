@@ -249,7 +249,10 @@ struct CurveEditorView: View {
     static func edit(_ state: AppState, target: Target, key: String?,
                      label: String? = nil,
                      _ body: @escaping (inout CurveSet) -> Void) {
-        state.updateRecipe(coalescingKey: key, label: label) { document in
+        // A mask's curve is a mask edit: the active photograph only.
+        let photos: [PhotoItem]?
+        if case .mask = target { photos = state.maskEditTargets } else { photos = nil }
+        state.updateRecipe(coalescingKey: key, label: label, targets: photos) { _, document in
             switch target {
             case .global:
                 body(&document.develop.curve)
