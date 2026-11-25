@@ -47,6 +47,9 @@ def main():
     parser.add_argument("--force", action="store_true", help="force-push (for a throwaway queue branch)")
     parser.add_argument("--remote", default="origin")
     parser.add_argument("--dry-run", action="store_true", help="create the commit, do not push")
+    parser.add_argument("--wait", action="store_true",
+                        help="then wait for the run and print its results (results.py)")
+    parser.add_argument("--out", default="", help="with --wait: where to unpack the artifact")
     args = parser.parse_args()
 
     scenarios = []
@@ -92,6 +95,11 @@ def main():
     if current == branch and git("rev-parse", "HEAD") == base:
         git("merge", "--ff-only", commit)
     print(commit)
+    if args.wait:
+        command = [sys.executable, str(Path(__file__).resolve().parent / "results.py"), commit]
+        if args.out:
+            command += ["--out", args.out]
+        sys.exit(subprocess.run(command).returncode)
 
 
 if __name__ == "__main__":

@@ -58,6 +58,19 @@ final class DriverInput {
         return p.x >= 1 && p.y >= 1 && p.x < screen.width - 1 && p.y < screen.height - 1
     }
 
+    func receivedCount(_ type: String) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return received[type] ?? 0
+    }
+
+    /// When the app last received an event of this type, in driver time.
+    func lastReceived(_ type: String) -> Double? {
+        lock.lock()
+        defer { lock.unlock() }
+        return receivedAt[type]
+    }
+
     // MARK: Geometry
 
     /// The view whose flipped coordinate space SwiftUI calls `.global`.
