@@ -519,6 +519,12 @@ final class PhotoRenderModel: ObservableObject {
     /// they change only when `image` does, and `revision` publishes that.
     private(set) var regionUnit: CGRect?
     private(set) var regionFullPixel: CGSize?
+    /// The last WHOLE-frame image of the recipe on screen, kept while a region image
+    /// shows so that zooming out or panning past the region's margin uncovers a soft
+    /// picture rather than the surround. Dropped when a region of another recipe or
+    /// photograph lands, so it is never a different edit. Changes only in `apply`.
+    private(set) var backdrop: CGImage?
+    private var backdropRecipe: Recipe?
     @Published private(set) var isDraft: Bool = false
     @Published private(set) var usedEmbeddedPreview: Bool = false
     /// Whatever the coordinator wants said out loud — "kernel library unavailable",
@@ -1111,6 +1117,13 @@ final class PhotoRenderModel: ObservableObject {
         // has: `load` reads a nil here as a replaced file and clears the frame.
         let sourceIdentity = result.sourceIdentity
             ?? (imageURL == url ? imageSourceIdentity : nil)
+        if result.regionUnit == nil {
+            backdrop = result.image
+            backdropRecipe = recipe
+        } else if imageURL != url || backdropRecipe != recipe {
+            backdrop = nil
+            backdropRecipe = nil
+        }
         image = result.image
         edrImage = result.edrImage
         imageURL = url
@@ -2310,16 +2323,23 @@ struct LoupeView: View {
     private func afterPlate(_ cg: CGImage, ratio: Double, drawn: CGSize,
                             region: CGRect?) -> some View {
         if let region {
-            plate(cg,
-                  ratio: Double(Swift.max(drawn.width * region.width,
-                                          drawn.height * region.height))
-                      * Double(Swift.max(displayScale, 1))
-                      / Double(Swift.max(Swift.max(cg.width, cg.height), 1)),
-                  drawn: CGSize(width: drawn.width * region.width,
-                                height: drawn.height * region.height),
-                  resamplingLongEdge: effectiveRenderedLongEdge(cg))
-                .offset(x: (region.midX - 0.5) * drawn.width,
-                        y: (region.midY - 0.5) * drawn.height)
+            ZStack {
+                if let under = model.backdrop {
+                    plate(under, ratio: effectiveRatio(image: under, drawn: drawn),
+                          drawn: drawn)
+                }
+                plate(cg,
+                      ratio: Double(Swift.max(drawn.width * region.width,
+                                              drawn.height * region.height))
+                          * Double(Swift.max(displayScale, 1))
+                          / Double(Swift.max(Swift.max(cg.width, cg.height), 1)),
+                      drawn: CGSize(width: drawn.width * region.width,
+                                    height: drawn.height * region.height),
+                      resamplingLongEdge: effectiveRenderedLongEdge(cg))
+                    .offset(x: (region.midX - 0.5) * drawn.width,
+                            y: (region.midY - 0.5) * drawn.height)
+            }
+            .frame(width: drawn.width, height: drawn.height)
         } else {
             plate(cg, ratio: ratio, drawn: drawn)
         }
@@ -2507,8 +2527,13 @@ struct LoupeView: View {
     /// The whole-frame plate's draw ratio — device pixels per pixel of `image` — for
     /// the resampling rule.
     private func effectiveRatio(image: CGImage, container: CGSize) -> Double {
-        let drawn = drawnFull(forZoom: layoutZoom, image: image, container: container)
-        return Double(Swift.max(drawn.width, drawn.height))
+        effectiveRatio(image: image,
+                       drawn: drawnFull(forZoom: layoutZoom, image: image,
+                                        container: container))
+    }
+
+    private func effectiveRatio(image: CGImage, drawn: CGSize) -> Double {
+        Double(Swift.max(drawn.width, drawn.height))
             * Double(Swift.max(displayScale, 1))
             / Double(Swift.max(Swift.max(image.width, image.height), 1))
     }
