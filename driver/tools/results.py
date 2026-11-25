@@ -79,7 +79,7 @@ def main():
         for step in report.get("steps", []):
             status = step.get("status")
             label = f"   [{step.get('i'):>2}] {step.get('do')}"
-            if step.get("id", "").startswith("s") is False:
+            if step.get("id") != f"s{step.get('i')}":
                 label += f" {step.get('id')}"
             if status == "error":
                 print(f"{label}: ERROR {step.get('error')}")
@@ -91,6 +91,8 @@ def main():
             elif args.steps:
                 print(f"{label}: {status}")
             if "gestureMs" in step and (args.steps or step.get("do") in ("drag", "pinch", "swipe")):
+                if status == "ok" and not args.steps:
+                    print(label + (f"  ({step['note']})" if step.get("note") else ""))
                 numbers = {k: short(step[k]) for k in GESTURE_KEYS if k in step}
                 if "latencyMs" in step:
                     numbers["latencyMs"] = {k: short(v) for k, v in step["latencyMs"].items()}

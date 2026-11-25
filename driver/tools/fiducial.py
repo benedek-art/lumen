@@ -59,7 +59,8 @@ def _lines(bits, lit, axis):
                 end += 1
             w = score[x:end + 1]
             if w.sum() > 0:
-                found.append(float((np.arange(x, end + 1) * w).sum() / w.sum()) + 0.5)
+                # A flip at index i lies between pixels i and i + 1: edge coordinate i + 1.
+                found.append(float((np.arange(x, end + 1) * w).sum() / w.sum()) + 1.0)
             x = end + 1
         else:
             x += 1
@@ -116,6 +117,7 @@ def locate(rgb, meta, roi=None):
       lines      grid lines used [vertical, horizontal]
       rms        residual of the line fit, pixels
       match      share of sampled cells agreeing with the map at the chosen placement
+      method     "grid", or "extent" when only the picture's outline could be used
     """
     h_all, w_all = rgb.shape[:2]
     x0, y0, w, h = (0, 0, w_all, h_all) if roi is None else [int(round(v)) for v in roi]
@@ -137,7 +139,7 @@ def locate(rgb, meta, roi=None):
     if fx is None and fy is not None:
         fx = _lattice(vertical, pitch_hint=fy[1])
     if fx is None or fy is None:
-        return None
+        return _extent(lit, meta, x0, y0)
     ax, px, nx, rx = fx
     ay, py, ny, ry = fy
 
@@ -158,7 +160,7 @@ def locate(rgb, meta, roi=None):
             patch = code[max(cy - 1, 0):cy + 2, max(cx - 1, 0):cx + 2].ravel()
             seen[(i, j)] = int(np.bincount(patch, minlength=8).argmax())
     if len(seen) < 4:
-        return None
+        return _extent(lit, meta, x0, y0)
 
     grid, cols, rows = meta["grid"], meta["cols"], meta["rows"]
     best, second, where = -1.0, -1.0, None
@@ -184,16 +186,45 @@ def locate(rgb, meta, roi=None):
             elif s > second:
                 second = s
     if where is None or best < 0.85 or best - second < 0.08:
-        return None
+        return _extent(lit, meta, x0, y0)
     di, dj = where
     cell = meta["cell"]
     sx, sy = px / cell, py / cell
     ox = x0 + ax - di * px
     oy = y0 + ay - dj * py
     return {
+        "method": "grid",
         "scale": (sx + sy) / 2, "sx": sx, "sy": sy, "ox": ox, "oy": oy,
         "rect": [ox, oy, sx * meta["width"], sy * meta["height"]],
         "lines": [nx, ny], "rms": max(rx, ry), "match": best,
+    }
+
+
+def _extent(lit, meta, x0, y0):
+    """Fallback when the cells cannot be resolved (the picture is drawn very small):
+    the lit block's bounding box, if the whole picture is inside the view with surround
+    on every side and has the fixture's shape. Good to about a pixel; says nothing
+    about which part of the image is where."""
+    cols, rows = lit.sum(axis=0), lit.sum(axis=1)
+    if cols.max() < 8 or rows.max() < 8:
+        return None
+    xs = np.nonzero(cols >= 0.5 * cols.max())[0]
+    ys = np.nonzero(rows >= 0.5 * rows.max())[0]
+    left, right, top, bottom = xs[0], xs[-1] + 1, ys[0], ys[-1] + 1
+    H, W = lit.shape
+    if left <= 0 or top <= 0 or right >= W or bottom >= H:
+        return None
+    w, h = right - left, bottom - top
+    if abs(w / h - meta["width"] / meta["height"]) > 0.03 * meta["width"] / meta["height"]:
+        return None
+    if lit[top:bottom, left:right].mean() < 0.9:
+        return None
+    sx, sy = w / meta["width"], h / meta["height"]
+    return {
+        "method": "extent",
+        "scale": (sx + sy) / 2, "sx": sx, "sy": sy, "ox": float(x0 + left), "oy": float(y0 + top),
+        "rect": [float(x0 + left), float(y0 + top), float(w), float(h)],
+        "lines": [0, 0], "rms": 1.0, "match": 0.0,
     }
 
 

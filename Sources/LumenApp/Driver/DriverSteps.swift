@@ -560,7 +560,10 @@ extension DriverSession {
         }
         // One more turn so the handler of the last event has run and been sampled.
         await sleep(0.03)
-        let ended = DriverClock.now()
+        // The gesture ends when the app receives its last event, not when this task
+        // next gets the main thread.
+        var ended = DriverClock.now()
+        if delivered, let at = input.lastReceived(endEvent), at >= began { ended = at }
 
         if holdsModifiers {
             input.setModifiers(previousModifiers)

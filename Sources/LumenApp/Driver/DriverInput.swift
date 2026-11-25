@@ -37,6 +37,7 @@ final class DriverInput {
     private let source = CGEventSource(stateID: .hidSystemState)
     private let lock = NSLock()
     private var received: [String: Int] = [:]
+    private var receivedAt: [String: Double] = [:]
     /// CGEvent integer fields that make `NSEvent(cgEvent:)` name this window; found by
     /// trial at start. Empty: in-process scroll and gesture events are handed to the
     /// view under them directly (`intercept`).
@@ -82,6 +83,13 @@ final class DriverInput {
         lock.lock()
         defer { lock.unlock() }
         return received[type] ?? 0
+    }
+
+    /// When the app last received an event of this type, in driver time.
+    func lastReceived(_ type: String) -> Double? {
+        lock.lock()
+        defer { lock.unlock() }
+        return receivedAt[type]
     }
 
     // MARK: Geometry
@@ -174,6 +182,7 @@ final class DriverInput {
         let typeName = DriverInput.name(event.type)
         lock.lock()
         received[typeName, default: 0] += 1
+        receivedAt[typeName] = DriverClock.now()
         lock.unlock()
         var row: [String: Any] = ["type": typeName,
                                   "et": DriverClock.fromUptime(event.timestamp),

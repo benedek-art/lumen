@@ -107,7 +107,7 @@ def main():
             rect = [v / scale for v in place["rect"]]
             pt_per_px = place["scale"] / scale
             entry.update({
-                "located": True, "scale": pt_per_px, "rect": {"x": rect[0], "y": rect[1],
+                "located": True, "method": place["method"], "scale": pt_per_px, "rect": {"x": rect[0], "y": rect[1],
                                                                "w": rect[2], "h": rect[3]},
                 "lines": place["lines"], "rms": place["rms"] / scale, "match": place["match"],
                 # Positive: surround shows between the image edge and the viewer edge.

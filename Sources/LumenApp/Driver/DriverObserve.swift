@@ -472,10 +472,13 @@ extension DriverSession {
         if let settledAt { out["releaseToSettledMs"] = (settledAt - ended) * 1000 }
         out["settled"] = settledAt != nil
 
-        let newHitches = hitches[hitchesFrom...].filter { $0.t >= began && $0.t <= ended + 0.05 }
+        // A hitch row is stamped at its end; one that began inside the gesture counts.
+        let newHitches = hitches[hitchesFrom...].filter { $0.t - $0.ms / 1000 <= ended }
         out["hitches"] = newHitches.count
         out["hitchMaxMs"] = newHitches.map { $0.ms }.max() ?? 0
         out["hitchTotalMs"] = newHitches.map { $0.ms }.reduce(0, +)
+        let later = hitches[hitchesFrom...].filter { $0.t - $0.ms / 1000 > ended }
+        out["hitchAfterMaxMs"] = later.map { $0.ms }.max() ?? 0
 
         if let watch {
             func value(_ recipe: Recipe) -> Any { recipeValues(recipe)[watch] ?? NSNull() }
