@@ -7,22 +7,21 @@ import XCTest
 
 final class MaskOverlayRuleTests: XCTestCase {
 
-    private typealias Rule = MaskOverlayRule
 
-    private func rule(_ events: Rule.Event...) -> Rule {
-        var r = Rule(masking: true)
+    private func rule(_ events: MaskOverlayRule.Event...) -> MaskOverlayRule {
+        var r = MaskOverlayRule(masking: true)
         for e in events { r.reduce(e) }
         return r
     }
 
-    private func shown(_ r: Rule) -> String? { r.shownID }
+    private func shown(_ r: MaskOverlayRule) -> String? { r.shownID }
 
     // MARK: - Defaults
 
     func testNothingIsShownByDefault() {
-        XCTAssertNil(Rule().shownID)
-        XCTAssertNil(Rule(masking: true).shownID)
-        XCTAssertEqual(Rule().choice, .automatic)
+        XCTAssertNil(MaskOverlayRule().shownID)
+        XCTAssertNil(MaskOverlayRule(masking: true).shownID)
+        XCTAssertEqual(MaskOverlayRule().choice, .automatic)
     }
 
     func testSelectingAMaskAloneShowsNothing() {
@@ -178,9 +177,9 @@ final class MaskOverlayRuleTests: XCTestCase {
     }
 
     func testTheControlCyclesThroughAllThreeChoices() {
-        XCTAssertEqual(Rule.nextChoice(after: .automatic), .show)
-        XCTAssertEqual(Rule.nextChoice(after: .show), .hide)
-        XCTAssertEqual(Rule.nextChoice(after: .hide), .automatic)
+        XCTAssertEqual(MaskOverlayRule.nextChoice(after: .automatic), .show)
+        XCTAssertEqual(MaskOverlayRule.nextChoice(after: .show), .hide)
+        XCTAssertEqual(MaskOverlayRule.nextChoice(after: .hide), .automatic)
     }
 
     // MARK: - Selection, photo, masking
@@ -221,7 +220,7 @@ final class MaskOverlayRuleTests: XCTestCase {
     }
 
     func testNothingShowsOutsideMaskingWhateverTheInputs() {
-        var r = Rule(masking: false)
+        var r = MaskOverlayRule(masking: false)
         r.reduce(.selected("a"))
         r.reduce(.choose(.show))
         r.reduce(.panelHover("a"))
@@ -229,7 +228,7 @@ final class MaskOverlayRuleTests: XCTestCase {
     }
 
     func testOFromOutsideMaskingShowsOnceTheEditorOpens() {
-        var r = Rule(masking: false)
+        var r = MaskOverlayRule(masking: false)
         r.reduce(.selected("a"))
         r.reduce(.toggle)
         r.reduce(.masking(true))
@@ -285,7 +284,7 @@ final class MaskOverlayRuleTests: XCTestCase {
     // MARK: - The full sequence
 
     func testCreateAdjustHoverPinUnpinSelectOtherUndo() {
-        var r = Rule(masking: false)
+        var r = MaskOverlayRule(masking: false)
         r.reduce(.masking(true))
         r.reduce(.selected("a")); r.reduce(.created("a"))
         XCTAssertEqual(r.shownID, "a", "create")
@@ -321,7 +320,7 @@ final class MaskOverlayRuleTests: XCTestCase {
     /// nothing, and after any adjustment with no pointer on a row or pin and no gesture,
     /// Automatic shows nothing. No sequence can leave the red stuck in Automatic.
     func testNoSequenceLeavesTheRedStuckInAutomatic() {
-        let events: [Rule.Event] = [
+        let events: [MaskOverlayRule.Event] = [
             .created("a"), .created("b"), .selected("a"), .selected("b"), .selected(nil),
             .componentAdded("a"), .selectionGesture("a"), .selectionGesture(nil),
             .adjusted("a", held: true), .adjusted("b", held: false), .gesturesEnded,
@@ -329,11 +328,11 @@ final class MaskOverlayRuleTests: XCTestCase {
             .canvasHover("a"), .canvasHover(nil), .toggle, .choose(.show), .choose(.hide),
             .masksChanged(["a"]), .masksChanged(["a", "b"]),
         ]
-        var frontier: [Rule] = [Rule(masking: true)]
+        var frontier: [MaskOverlayRule] = [MaskOverlayRule(masking: true)]
         var seen: Set<String> = []
-        func key(_ r: Rule) -> String { String(describing: r) }
+        func key(_ r: MaskOverlayRule) -> String { String(describing: r) }
         for _ in 0..<4 {
-            var next: [Rule] = []
+            var next: [MaskOverlayRule] = []
             for r in frontier {
                 for e in events {
                     var s = r
@@ -347,7 +346,7 @@ final class MaskOverlayRuleTests: XCTestCase {
                     XCTAssertNil(moved.shownID)
 
                     var settled = s
-                    for e in [Rule.Event.choose(.automatic), .adjusted("x", held: false),
+                    for e in [MaskOverlayRule.Event.choose(.automatic), .adjusted("x", held: false),
                               .gesturesEnded, .panelHover(nil), .canvasHover(nil)] {
                         settled.reduce(e)
                     }
@@ -362,6 +361,6 @@ final class MaskOverlayRuleTests: XCTestCase {
     func testTheStateRoundTripsThroughJSONForTheDriverDump() throws {
         let r = rule(.created("a"), .panelHover("b"))
         let data = try JSONEncoder().encode(r)
-        XCTAssertEqual(try JSONDecoder().decode(Rule.self, from: data), r)
+        XCTAssertEqual(try JSONDecoder().decode(MaskOverlayRule.self, from: data), r)
     }
 }
