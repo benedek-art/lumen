@@ -2523,6 +2523,8 @@ struct MaskPanel: View {
             if MaskPanel.aiKinds.contains(kind), m.refine == MaskRefine() { m.refine.feather = 10 }
         }
         let index = Swift.max((mask(id)?.components.count ?? 1) - 1, 0)
+        // The board can be open under a mask that is disclosed but not selected.
+        selectedMaskID = id
         selectedComponent = index
         state.noteMaskComponentAdded(id)
         armIfItNeedsAColour(kind: kind, maskID: id, component: index)
@@ -2554,7 +2556,10 @@ struct MaskPanel: View {
                   m.components.indices.contains(target) else { return }
             m.components.swapAt(index, target)
         }
-        if mask(id)?.components.indices.contains(target) == true { selectedComponent = target }
+        if mask(id)?.components.indices.contains(target) == true {
+            selectedMaskID = id
+            selectedComponent = target
+        }
     }
 
     /// Move a mask one place, WITHIN ITS FOLDER.
@@ -2596,6 +2601,7 @@ struct MaskPanel: View {
             guard m.components.indices.contains(index) else { return }
             m.components.remove(at: index)
         }
+        guard activeMask?.id == id else { return }
         selectedComponent = Swift.max(Swift.min(index, (mask(id)?.components.count ?? 0) - 1), 0)
     }
 
