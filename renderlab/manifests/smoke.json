@@ -1,0 +1,9 @@
+{
+  "name": "smoke",
+  "defaults": {"longEdge": 768, "tile": 240},
+  "jobs": [
+    {"id": "exposure", "photos": ["6929", "chart:greyRamp"], "paths": ["export", "settled"],
+     "sweep": {"path": "develop.tone.exposure", "values": [-1, 1], "neutral": 0}},
+    {"id": "plain", "photo": "5812", "recipe": {"develop.tone.contrast": 30}}
+  ]
+}
