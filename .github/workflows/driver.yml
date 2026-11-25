@@ -11,6 +11,8 @@ on:
       - "Sources/LumenApp/Driver/**"
       - "driver/**"
       - ".github/workflows/driver.yml"
+      # A run request: see driver/README.md. A docs-only push starts no other lane.
+      - "docs/driver-requests/**"
   workflow_dispatch:
     inputs:
       suite:
@@ -22,7 +24,7 @@ on:
         required: false
         default: ""
       ref:
-        description: "Branch, tag or SHA of the app to test. Empty: the ref this run was dispatched on. The driver and its scenarios always come from the dispatching ref."
+        description: "Branch, tag or SHA of the app to test. Empty: the commit this run was started on. The driver and its scenarios always come from that commit."
         required: false
         default: ""
       runs_on:
@@ -56,27 +58,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref }}
-
-      # Testing another ref: lay this ref's driver over it, so a branch that predates
-      # the driver, or carries an older one, is driven by the current one.
-      - name: Check out the driver
-        if: inputs.ref != ''
-        uses: actions/checkout@v4
-        with:
-          path: .driver-src
-
-      - name: Install the driver into the tested ref
-        shell: bash
-        run: |
-          if [ -d .driver-src ]; then
-            rm -rf driver Sources/LumenApp/Driver
-            cp -R .driver-src/driver driver
-            cp -R .driver-src/Sources/LumenApp/Driver Sources/LumenApp/Driver
-            rm -rf .driver-src
-          fi
-          git log -1 --format='testing %H %s'
-          python3 driver/tools/install-hooks.py
+          fetch-depth: 2
 
       - name: Runner facts
         shell: bash
@@ -84,12 +66,8 @@ jobs:
           sw_vers
           swift --version 2>&1 | head -2
           system_profiler SPDisplaysDataType 2>/dev/null | grep -E "Resolution|Chipset|Metal|Displays|UI Looks" || true
-          python3 -c "import sys; print(sys.version)"
-          python3 -c "import numpy, PIL; print('numpy', numpy.__version__, 'pillow', PIL.__version__)" || true
-          sudo -n sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
-            "select service, client, auth_value from access where service in ('kTCCServicePostEvent','kTCCServiceAccessibility','kTCCServiceScreenCapture','kTCCServiceListenEvent')" || true
 
-      - name: Scenarios for this run
+      - name: What this run does
         id: plan
         shell: bash
         env:
@@ -97,18 +75,30 @@ jobs:
           SUITE: ${{ inputs.suite }}
           INLINE: ${{ inputs.scenario }}
           CONFIG_INPUT: ${{ inputs.config }}
+          REF_INPUT: ${{ inputs.ref }}
+          STRICT_INPUT: ${{ inputs.strict }}
+        run: python3 driver/tools/plan.py | tee -a "$GITHUB_OUTPUT"
+
+      # Testing another ref: keep this commit's driver and lay it over that ref, so a
+      # branch that predates the driver, or carries an older one, is driven by this one.
+      - name: Check out the app under test and install the driver
+        shell: bash
+        env:
+          REF: ${{ steps.plan.outputs.ref }}
         run: |
-          mkdir -p driver-inline
-          list="smoke.json"
-          if [ "$EVENT" = "workflow_dispatch" ]; then list="$SUITE"; fi
-          if [ -n "$INLINE" ]; then
-            printf '%s' "$INLINE" > driver-inline/input.json
-            python3 driver/tools/split-inline.py driver-inline/input.json driver-inline
-            list="$list $(ls driver-inline/inline-*.json | tr '\n' ' ')"
+          if [ -n "$REF" ]; then
+            keep="$RUNNER_TEMP/driver-src"
+            rm -rf "$keep" && mkdir -p "$keep"
+            cp -R driver "$keep/driver"
+            cp -R Sources/LumenApp/Driver "$keep/Driver"
+            git fetch --depth 1 origin "$REF"
+            git checkout --force --detach FETCH_HEAD
+            rm -rf driver Sources/LumenApp/Driver
+            cp -R "$keep/driver" driver
+            cp -R "$keep/Driver" Sources/LumenApp/Driver
           fi
-          echo "scenarios: $list"
-          echo "list=$list" >> "$GITHUB_OUTPUT"
-          echo "config=${CONFIG_INPUT:-release}" >> "$GITHUB_OUTPUT"
+          git log -1 --format='testing %H %s'
+          python3 driver/tools/install-hooks.py
 
       # Restored whether or not this run needs them; run-suite.sh fetches on a miss
       # only when a selected scenario asks for "fixture": "raw".
@@ -141,7 +131,7 @@ jobs:
         shell: bash
         env:
           CONFIG: ${{ steps.plan.outputs.config }}
-          STRICT: ${{ inputs.strict && '1' || '' }}
+          STRICT: ${{ steps.plan.outputs.strict }}
           OUT: ${{ github.workspace }}/driver-out
           APP_CACHE: ${{ github.workspace }}/.driver-app
           LIST: ${{ steps.plan.outputs.list }}
