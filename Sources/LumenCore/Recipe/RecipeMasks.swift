@@ -955,3 +955,17 @@ public enum BrushStrokes {
             + "the masking would have exported empty"
     }
 }
+
+extension Mask {
+    /// Duplicate-and-Invert: one inverted reference to `source`, so the pair sums to 1
+    /// under any Refine (a toggled whole-mask invert runs before Refine and does not)
+    /// and stays linked to later edits of the source.
+    public static func invertedReference(to source: Mask) -> Mask {
+        var ref = MaskComponent(op: .add, kind: .maskRef)
+        ref.maskRef = source.id
+        ref.invert = true
+        return Mask(name: source.name, enabled: source.enabled, amount: source.amount,
+                    components: [ref], adjust: source.adjust, blend: source.blend,
+                    group: source.group)
+    }
+}
