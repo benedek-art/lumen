@@ -1,0 +1,4472 @@
+{
+ "suite": "",
+ "scenarios": [
+  {
+   "name": "r2-01-launch-focus",
+   "description": "At launch the grid is up; where do bare cull keys go?",
+   "fixture": "raw",
+   "window": {
+    "width": 1440,
+    "height": 900
+   },
+   "timeoutSeconds": 290,
+   "hangSeconds": 40,
+   "steps": [
+    {
+     "do": "wait",
+     "seconds": 5
+    },
+    {
+     "do": "state",
+     "name": "launch",
+     "texts": true
+    },
+    {
+     "do": "shot",
+     "name": "launch"
+    },
+    {
+     "do": "key",
+     "key": "p"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "x"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "3"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "state",
+     "name": "after-pxx"
+    },
+    {
+     "do": "shot",
+     "name": "after-px3"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "after-return",
+     "texts": true
+    },
+    {
+     "do": "shot",
+     "name": "after-return"
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       382,
+       156
+      ]
+     },
+     "via": "hid",
+     "id": "click0"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "clicked"
+    },
+    {
+     "do": "key",
+     "key": "p"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "p-after-click"
+    },
+    {
+     "do": "shot",
+     "name": "p-after-click"
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "after a click, P picks and advances",
+     "eq": 1
+    },
+    {
+     "do": "key",
+     "key": "left"
+    },
+    {
+     "do": "key",
+     "key": "down"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "state",
+     "name": "down"
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "down moves one row",
+     "eq": "app.gridColumns"
+    },
+    {
+     "do": "key",
+     "key": "up"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "up moves back",
+     "eq": 0
+    },
+    {
+     "do": "key",
+     "key": "space"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "expect",
+     "that": "viewMode",
+     "note": "a space tap ends back in the grid",
+     "eq": "grid"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "expect",
+     "that": "viewMode",
+     "note": "Escape in the grid does nothing",
+     "eq": "grid"
+    },
+    {
+     "do": "key",
+     "key": "2",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "fresh-develop"
+    },
+    {
+     "do": "shot",
+     "name": "fresh-develop"
+    },
+    {
+     "do": "key",
+     "key": "4",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "fresh-grade"
+    },
+    {
+     "do": "shot",
+     "name": "fresh-grade"
+    },
+    {
+     "do": "key",
+     "key": "1",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "back-cull"
+    },
+    {
+     "do": "shot",
+     "name": "back-cull"
+    },
+    {
+     "do": "key",
+     "key": "x"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "state",
+     "name": "x-after-cmd1"
+    }
+   ]
+  },
+  {
+   "name": "r2-02-latency-cull",
+   "description": "Next-photo latency in the Cull loupe (filmstrip on)",
+   "fixture": "raw",
+   "window": {
+    "width": 1440,
+    "height": 900
+   },
+   "timeoutSeconds": 290,
+   "hangSeconds": 40,
+   "steps": [
+    {
+     "do": "wait",
+     "seconds": 4
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       382,
+       156
+      ]
+     },
+     "via": "hid",
+     "id": "focus-click"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "key",
+     "key": "e"
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "wait",
+     "seconds": 4
+    },
+    {
+     "do": "shot",
+     "name": "lat-start"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "id": "next1",
+     "settle": 20,
+     "film": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "id": "next2",
+     "settle": 20,
+     "film": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "id": "next3",
+     "settle": 20,
+     "film": 60
+    },
+    {
+     "do": "shot",
+     "name": "immediately-after-next3"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "id": "next4",
+     "settle": 20,
+     "film": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "id": "next5",
+     "settle": 20,
+     "film": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "id": "next6",
+     "settle": 20,
+     "film": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "id": "next7",
+     "settle": 20,
+     "film": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "id": "next8",
+     "settle": 20,
+     "film": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 8,
+     "interval": 0.06,
+     "id": "rapid-back",
+     "settle": 25,
+     "film": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "rapid paging lands on 0",
+     "eq": 0
+    },
+    {
+     "do": "wait",
+     "seconds": 3
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 8,
+     "interval": 0.12,
+     "id": "rapid-fwd-8hz",
+     "settle": 25,
+     "film": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "8 Hz paging lands on 8",
+     "eq": 8
+    },
+    {
+     "do": "state",
+     "name": "end"
+    },
+    {
+     "do": "shot",
+     "name": "end"
+    }
+   ]
+  },
+  {
+   "name": "r2-03-loupe-cull",
+   "description": "Loupe culling with auto-advance; marks survive paging; sidecar",
+   "fixture": "raw",
+   "window": {
+    "width": 1440,
+    "height": 900
+   },
+   "timeoutSeconds": 290,
+   "hangSeconds": 40,
+   "steps": [
+    {
+     "do": "wait",
+     "seconds": 4
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       382,
+       156
+      ]
+     },
+     "via": "hid",
+     "id": "focus-click"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "key",
+     "key": "e"
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "state",
+     "name": "c0"
+    },
+    {
+     "do": "expect",
+     "that": "app.autoAdvance",
+     "note": "on by default",
+     "eq": true
+    },
+    {
+     "do": "key",
+     "key": "p"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "p decides and advances",
+     "eq": 1
+    },
+    {
+     "do": "key",
+     "key": "x"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "x decides and advances",
+     "eq": 2
+    },
+    {
+     "do": "key",
+     "key": "3"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "3 decides and advances",
+     "eq": 3
+    },
+    {
+     "do": "key",
+     "key": "6"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "6 decides and advances",
+     "eq": 4
+    },
+    {
+     "do": "key",
+     "key": "5"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "5 decides and advances",
+     "eq": 5
+    },
+    {
+     "do": "key",
+     "key": "u"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "u decides and advances",
+     "eq": 6
+    },
+    {
+     "do": "key",
+     "key": "-"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "- in the loupe zooms out, no label, no advance",
+     "eq": 6
+    },
+    {
+     "do": "state",
+     "name": "after-minus"
+    },
+    {
+     "do": "key",
+     "key": "9"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "9 blue advances",
+     "eq": 7
+    },
+    {
+     "do": "key",
+     "key": "4"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "4 advances",
+     "eq": 8
+    },
+    {
+     "do": "key",
+     "key": "p"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "P on the last frame stays",
+     "eq": 8
+    },
+    {
+     "do": "state",
+     "name": "last-p1"
+    },
+    {
+     "do": "key",
+     "key": "p"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "state",
+     "name": "last-p2"
+    },
+    {
+     "do": "key",
+     "key": "p"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "state",
+     "name": "last-p3"
+    },
+    {
+     "do": "shot",
+     "name": "last-p3"
+    },
+    {
+     "do": "key",
+     "key": "left"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "shot",
+     "name": "back-7"
+    },
+    {
+     "do": "key",
+     "key": "left"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "shot",
+     "name": "back-6"
+    },
+    {
+     "do": "key",
+     "key": "left"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "shot",
+     "name": "back-5"
+    },
+    {
+     "do": "key",
+     "key": "left"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "shot",
+     "name": "back-4"
+    },
+    {
+     "do": "key",
+     "key": "left"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "shot",
+     "name": "back-3"
+    },
+    {
+     "do": "key",
+     "key": "left"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "shot",
+     "name": "back-2"
+    },
+    {
+     "do": "key",
+     "key": "left"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "shot",
+     "name": "back-1"
+    },
+    {
+     "do": "key",
+     "key": "left"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "shot",
+     "name": "back-0"
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "back at frame 0",
+     "eq": 0
+    },
+    {
+     "do": "wait",
+     "seconds": 2.0
+    },
+    {
+     "do": "state",
+     "name": "back-at-0"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 8,
+     "interval": 0.25
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "state",
+     "name": "forward-at-8"
+    },
+    {
+     "do": "key",
+     "key": "g"
+    },
+    {
+     "do": "wait",
+     "seconds": 3
+    },
+    {
+     "do": "shot",
+     "name": "grid-badges"
+    },
+    {
+     "do": "state",
+     "name": "grid-badges"
+    }
+   ]
+  },
+  {
+   "name": "r2-04-rapid-keys",
+   "description": "Cull keys at 25 per second do not skip or double-apply",
+   "fixture": "raw",
+   "window": {
+    "width": 1440,
+    "height": 900
+   },
+   "timeoutSeconds": 290,
+   "hangSeconds": 40,
+   "steps": [
+    {
+     "do": "wait",
+     "seconds": 4
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       382,
+       156
+      ]
+     },
+     "via": "hid",
+     "id": "focus-click"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "key",
+     "key": "e"
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "wait",
+     "seconds": 2
+    },
+    {
+     "do": "key",
+     "key": "p",
+     "count": 8,
+     "interval": 0.04,
+     "id": "rapid-p",
+     "settle": 15
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "8 fast P advance exactly 8",
+     "eq": 8
+    },
+    {
+     "do": "state",
+     "name": "after-rapid-p"
+    },
+    {
+     "do": "key",
+     "key": "p",
+     "count": 5,
+     "interval": 0.06,
+     "id": "rapid-p-last"
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "state",
+     "name": "after-rapid-p-last"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 8,
+     "interval": 0.04,
+     "id": "rapid-left",
+     "settle": 15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "8 fast lefts land on 0",
+     "eq": 0
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 8,
+     "interval": 0.04,
+     "id": "rapid-right",
+     "settle": 15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "8 fast rights land on 8",
+     "eq": 8
+    },
+    {
+     "do": "key",
+     "key": "g"
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 8,
+     "interval": 0.04
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "grid: 8 fast lefts land on 0",
+     "eq": 0
+    },
+    {
+     "do": "key",
+     "key": "x",
+     "count": 4,
+     "interval": 0.04,
+     "id": "rapid-x-grid"
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "grid: 4 fast X advance 4",
+     "eq": 4
+    },
+    {
+     "do": "key",
+     "key": "3",
+     "count": 3,
+     "interval": 0.04,
+     "id": "rapid-3-grid"
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "grid: 3 fast 3 advance 3",
+     "eq": 7
+    },
+    {
+     "do": "state",
+     "name": "after-rapid-grid"
+    },
+    {
+     "do": "wait",
+     "seconds": 2
+    },
+    {
+     "do": "shot",
+     "name": "rapid-grid"
+    }
+   ]
+  },
+  {
+   "name": "r2-05-autoadvance-off",
+   "description": "Toggles with auto-advance off, shift forces, labels vs ratings",
+   "fixture": "raw",
+   "window": {
+    "width": 1440,
+    "height": 900
+   },
+   "timeoutSeconds": 290,
+   "hangSeconds": 40,
+   "steps": [
+    {
+     "do": "wait",
+     "seconds": 4
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       382,
+       156
+      ]
+     },
+     "via": "hid",
+     "id": "focus-click"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "key",
+     "key": "e"
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "key",
+     "key": "a"
+    },
+    {
+     "do": "expect",
+     "that": "app.autoAdvance",
+     "note": "A turns auto-advance off",
+     "eq": false
+    },
+    {
+     "do": "state",
+     "name": "a-off"
+    },
+    {
+     "do": "key",
+     "key": "p"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "P stays with auto-advance off",
+     "eq": 0
+    },
+    {
+     "do": "state",
+     "name": "p1"
+    },
+    {
+     "do": "key",
+     "key": "p"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "state",
+     "name": "p2"
+    },
+    {
+     "do": "key",
+     "key": "3"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "state",
+     "name": "r3"
+    },
+    {
+     "do": "key",
+     "key": "6"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "state",
+     "name": "r3-red"
+    },
+    {
+     "do": "key",
+     "key": "3"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "state",
+     "name": "r0-red"
+    },
+    {
+     "do": "key",
+     "key": "6"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "state",
+     "name": "r0-nolabel"
+    },
+    {
+     "do": "key",
+     "key": "p",
+     "modifiers": [
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "shift-P advances",
+     "eq": 1
+    },
+    {
+     "do": "key",
+     "key": "3",
+     "modifiers": [
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "shift-3 advances",
+     "eq": 2
+    },
+    {
+     "do": "key",
+     "key": "x",
+     "modifiers": [
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "shift-X advances",
+     "eq": 3
+    },
+    {
+     "do": "key",
+     "key": "6",
+     "modifiers": [
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "shift-6 advances",
+     "eq": 4
+    },
+    {
+     "do": "key",
+     "key": "0",
+     "modifiers": [
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "shift-0 advances",
+     "eq": 5
+    },
+    {
+     "do": "key",
+     "key": "u",
+     "modifiers": [
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "shift-U advances",
+     "eq": 6
+    },
+    {
+     "do": "key",
+     "key": "g"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "key",
+     "key": "-",
+     "modifiers": [
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "shift-minus (purple) advances in the grid",
+     "eq": 7
+    },
+    {
+     "do": "key",
+     "key": "-"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "minus in the grid = purple, no advance",
+     "eq": 7
+    },
+    {
+     "do": "state",
+     "name": "end-off"
+    },
+    {
+     "do": "key",
+     "key": "a"
+    },
+    {
+     "do": "expect",
+     "that": "app.autoAdvance",
+     "note": "A turns it back on",
+     "eq": true
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "shot",
+     "name": "grid-end"
+    }
+   ]
+  },
+  {
+   "name": "r2-06-targets-undo",
+   "description": "Grid decides for the selection, loupe for the active frame; undo",
+   "fixture": "raw",
+   "window": {
+    "width": 1440,
+    "height": 900
+   },
+   "timeoutSeconds": 290,
+   "hangSeconds": 40,
+   "steps": [
+    {
+     "do": "wait",
+     "seconds": 4
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       382,
+       156
+      ]
+     },
+     "via": "hid",
+     "id": "focus-click"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "key",
+     "key": "a",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "app.selection.count",
+     "note": "cmd-A selects all nine",
+     "eq": 9
+    },
+    {
+     "do": "key",
+     "key": "5"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "state",
+     "name": "all-5"
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "no advance over a multi-selection",
+     "eq": 0
+    },
+    {
+     "do": "shot",
+     "name": "grid-all-5"
+    },
+    {
+     "do": "key",
+     "key": "e"
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "key",
+     "key": "2"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "state",
+     "name": "loupe-2"
+    },
+    {
+     "do": "key",
+     "key": "right"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "key",
+     "key": "p"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "state",
+     "name": "loupe-right-p"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "undo1"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "undo2"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "undo3"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "redo1"
+    },
+    {
+     "do": "key",
+     "key": "g"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "key",
+     "key": "d",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "expect",
+     "that": "app.selection.count",
+     "note": "cmd-D clears the selection",
+     "eq": 0
+    },
+    {
+     "do": "shot",
+     "name": "after-select-none"
+    },
+    {
+     "do": "key",
+     "key": "x"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "state",
+     "name": "x-after-select-none"
+    },
+    {
+     "do": "shot",
+     "name": "grid-after-x"
+    },
+    {
+     "do": "menu",
+     "path": "Edit > Select Rejects"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "state",
+     "name": "select-rejects"
+    },
+    {
+     "do": "menu",
+     "path": "Edit > Select by Rating > 5\u2605"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "state",
+     "name": "select-5"
+    },
+    {
+     "do": "menu",
+     "path": "Edit > Deselect Unpicked"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "state",
+     "name": "deselect-unpicked"
+    }
+   ]
+  },
+  {
+   "name": "r2-07-filters",
+   "description": "Library filter chords, cmd-L, cmd-backslash, empty view, reject under a filter",
+   "fixture": "raw",
+   "window": {
+    "width": 1440,
+    "height": 900
+   },
+   "timeoutSeconds": 290,
+   "hangSeconds": 40,
+   "steps": [
+    {
+     "do": "wait",
+     "seconds": 4
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       382,
+       156
+      ]
+     },
+     "via": "hid",
+     "id": "focus-click"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "key",
+     "key": "p"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "x"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "3"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "p"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "5"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "8"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "x"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "seven decisions, seven advances",
+     "eq": 7
+    },
+    {
+     "do": "key",
+     "key": "a"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 7,
+     "interval": 0.12
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "back to 0",
+     "eq": 0
+    },
+    {
+     "do": "key",
+     "key": "4"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "key",
+     "key": "a"
+    },
+    {
+     "do": "state",
+     "name": "marked"
+    },
+    {
+     "do": "shot",
+     "name": "marked"
+    },
+    {
+     "do": "key",
+     "key": "p",
+     "modifiers": [
+      "cmd",
+      "option"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "expect",
+     "that": "photo.count",
+     "note": "picks only: 2",
+     "eq": 2
+    },
+    {
+     "do": "shot",
+     "name": "f-picks"
+    },
+    {
+     "do": "state",
+     "name": "f-picks"
+    },
+    {
+     "do": "key",
+     "key": "3",
+     "modifiers": [
+      "cmd",
+      "ctrl"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "expect",
+     "that": "photo.count",
+     "note": "picks rated 3+: 1",
+     "eq": 1
+    },
+    {
+     "do": "shot",
+     "name": "f-picks-3"
+    },
+    {
+     "do": "key",
+     "key": "l",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "expect",
+     "that": "photo.count",
+     "note": "cmd-L off: 9",
+     "eq": 9
+    },
+    {
+     "do": "state",
+     "name": "f-off"
+    },
+    {
+     "do": "shot",
+     "name": "f-off"
+    },
+    {
+     "do": "key",
+     "key": "l",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "expect",
+     "that": "photo.count",
+     "note": "cmd-L on again: 1",
+     "eq": 1
+    },
+    {
+     "do": "state",
+     "name": "f-on"
+    },
+    {
+     "do": "key",
+     "key": "\\",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "expect",
+     "that": "photo.count",
+     "note": "cmd-backslash clears",
+     "eq": 9
+    },
+    {
+     "do": "state",
+     "name": "f-cleared"
+    },
+    {
+     "do": "key",
+     "key": "\\",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "state",
+     "name": "f-clear-noop"
+    },
+    {
+     "do": "key",
+     "key": "x",
+     "modifiers": [
+      "cmd",
+      "option"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "expect",
+     "that": "photo.count",
+     "note": "rejected only: 2",
+     "eq": 2
+    },
+    {
+     "do": "key",
+     "key": "x",
+     "modifiers": [
+      "cmd",
+      "option"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "expect",
+     "that": "photo.count",
+     "note": "second press off: 9",
+     "eq": 9
+    },
+    {
+     "do": "key",
+     "key": "u",
+     "modifiers": [
+      "cmd",
+      "option"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "expect",
+     "that": "photo.count",
+     "note": "unflagged only: 5",
+     "eq": 5
+    },
+    {
+     "do": "shot",
+     "name": "f-unflagged"
+    },
+    {
+     "do": "key",
+     "key": "5",
+     "modifiers": [
+      "cmd",
+      "ctrl"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "expect",
+     "that": "photo.count",
+     "note": "unflagged 5-star: 1",
+     "eq": 1
+    },
+    {
+     "do": "key",
+     "key": "\\",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "key",
+     "key": "x",
+     "modifiers": [
+      "cmd",
+      "option"
+     ]
+    },
+    {
+     "do": "key",
+     "key": "5",
+     "modifiers": [
+      "cmd",
+      "ctrl"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "expect",
+     "that": "photo.count",
+     "note": "rejected 5-star: 0",
+     "eq": 0
+    },
+    {
+     "do": "shot",
+     "name": "f-empty"
+    },
+    {
+     "do": "state",
+     "name": "f-empty"
+    },
+    {
+     "do": "key",
+     "key": "\\",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "expect",
+     "that": "photo.count",
+     "note": "cleared from empty: 9",
+     "eq": 9
+    },
+    {
+     "do": "key",
+     "key": "p",
+     "modifiers": [
+      "cmd",
+      "option"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "key",
+     "key": "l"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "state",
+     "name": "lo-dim"
+    },
+    {
+     "do": "key",
+     "key": "\\",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "state",
+     "name": "lo-dim-clear"
+    },
+    {
+     "do": "key",
+     "key": "p",
+     "modifiers": [
+      "cmd",
+      "option"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "key",
+     "key": "l"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "key",
+     "key": "l"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "state",
+     "name": "lo-out"
+    },
+    {
+     "do": "shot",
+     "name": "lo-out"
+    },
+    {
+     "do": "key",
+     "key": "\\",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "state",
+     "name": "lo-out-clear"
+    },
+    {
+     "do": "key",
+     "key": "l"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "lo-back"
+    },
+    {
+     "do": "key",
+     "key": "\\",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "key",
+     "key": "p",
+     "modifiers": [
+      "cmd",
+      "option"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "key",
+     "key": "tab",
+     "modifiers": [
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "stab-hidden"
+    },
+    {
+     "do": "key",
+     "key": "\\",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "state",
+     "name": "stab-clear"
+    },
+    {
+     "do": "key",
+     "key": "tab",
+     "modifiers": [
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "key",
+     "key": "\\",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "key",
+     "key": "u",
+     "modifiers": [
+      "cmd",
+      "option"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "state",
+     "name": "u-before-loupe"
+    },
+    {
+     "do": "key",
+     "key": "e"
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "state",
+     "name": "u-loupe-before-x"
+    },
+    {
+     "do": "shot",
+     "name": "u-loupe-before-x"
+    },
+    {
+     "do": "key",
+     "key": "x"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "u-loupe-after-x"
+    },
+    {
+     "do": "shot",
+     "name": "u-loupe-after-x"
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "u-loupe-after-x-settled"
+    },
+    {
+     "do": "key",
+     "key": "x"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "u-loupe-after-x2"
+    },
+    {
+     "do": "key",
+     "key": "\\",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "key",
+     "key": "g"
+    },
+    {
+     "do": "wait",
+     "seconds": 2
+    },
+    {
+     "do": "state",
+     "name": "f-final"
+    },
+    {
+     "do": "shot",
+     "name": "f-final"
+    }
+   ]
+  },
+  {
+   "name": "r2-08-filterbar",
+   "description": "Filter popover, search field, sort menu, direction, auto-advance switch",
+   "fixture": "raw",
+   "window": {
+    "width": 1440,
+    "height": 900
+   },
+   "timeoutSeconds": 290,
+   "hangSeconds": 40,
+   "steps": [
+    {
+     "do": "wait",
+     "seconds": 4
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       382,
+       156
+      ]
+     },
+     "via": "hid",
+     "id": "focus-click"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "key",
+     "key": "p"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "3"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 2,
+     "interval": 0.2
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "state",
+     "name": "fb-start"
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       430,
+       69
+      ]
+     },
+     "via": "hid",
+     "id": "filter-button"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "popover-open"
+    },
+    {
+     "do": "shot",
+     "name": "popover-open"
+    },
+    {
+     "do": "key",
+     "key": "x"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "p"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "state",
+     "name": "popover-x"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "popover-closed"
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       320,
+       69
+      ]
+     },
+     "via": "hid",
+     "id": "search-click"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "type",
+     "text": "pxu1"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "state",
+     "name": "typed"
+    },
+    {
+     "do": "shot",
+     "name": "typed"
+    },
+    {
+     "do": "key",
+     "key": "a",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "state",
+     "name": "typed-cmd-a"
+    },
+    {
+     "do": "key",
+     "key": "delete"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "typed-deleted"
+    },
+    {
+     "do": "type",
+     "text": "portrait"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "search-portrait"
+    },
+    {
+     "do": "shot",
+     "name": "search-portrait"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "state",
+     "name": "search-escape"
+    },
+    {
+     "do": "key",
+     "key": "\\",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "search-cleared"
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       382,
+       156
+      ]
+     },
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "p"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "state",
+     "name": "p-after-search"
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       540,
+       69
+      ]
+     },
+     "via": "hid",
+     "id": "sort-click"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "shot",
+     "name": "sort-open"
+    },
+    {
+     "do": "state",
+     "name": "sort-open",
+     "texts": true
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       1191,
+       69
+      ]
+     },
+     "via": "hid",
+     "id": "direction"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "state",
+     "name": "direction"
+    },
+    {
+     "do": "shot",
+     "name": "direction"
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       1191,
+       69
+      ]
+     },
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       1318,
+       69
+      ]
+     },
+     "via": "hid",
+     "id": "aa-toggle"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "state",
+     "name": "aa-toggle"
+    },
+    {
+     "do": "expect",
+     "that": "app.autoAdvance",
+     "note": "the switch turns auto-advance off",
+     "eq": false
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       1318,
+       69
+      ]
+     },
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "app.autoAdvance",
+     "note": "and on",
+     "eq": true
+    }
+   ]
+  },
+  {
+   "name": "r2-09-loupe-nav",
+   "description": "Arrows pan when zoomed; cmd-arrows page; - = ladder; E/G",
+   "fixture": "raw",
+   "window": {
+    "width": 1440,
+    "height": 900
+   },
+   "timeoutSeconds": 290,
+   "hangSeconds": 40,
+   "steps": [
+    {
+     "do": "wait",
+     "seconds": 4
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       382,
+       156
+      ]
+     },
+     "via": "hid",
+     "id": "focus-click"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "key",
+     "key": "e"
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "key",
+     "key": "z"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "expect",
+     "that": "viewport.zoom",
+     "note": "Z zooms to 1:1",
+     "gt": 0
+    },
+    {
+     "do": "state",
+     "name": "z-zoomed"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 5,
+     "interval": 0.1
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "zoomed: left pans",
+     "eq": 0
+    },
+    {
+     "do": "state",
+     "name": "z-left"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "modifiers": [
+      "cmd"
+     ],
+     "count": 3,
+     "interval": 0.15,
+     "id": "cmd-right"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "cmd-right pages while zoomed",
+     "eq": 3
+    },
+    {
+     "do": "expect",
+     "that": "viewport.zoom",
+     "note": "new photo opens at fit",
+     "eq": 0
+    },
+    {
+     "do": "shot",
+     "name": "cmd-right-early"
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "cmd-right-settled"
+    },
+    {
+     "do": "menu",
+     "path": "View > Next Photo"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "View > Next Photo pages",
+     "eq": 4
+    },
+    {
+     "do": "shot",
+     "name": "next-early"
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "key",
+     "key": "-"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "state",
+     "name": "minus-at-fit"
+    },
+    {
+     "do": "key",
+     "key": "="
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "expect",
+     "that": "viewport.zoom",
+     "note": "= zooms in",
+     "gt": 0
+    },
+    {
+     "do": "key",
+     "key": "-",
+     "count": 4,
+     "interval": 0.2
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "expect",
+     "that": "viewport.zoom",
+     "note": "- walks back to fit",
+     "eq": 0
+    },
+    {
+     "do": "state",
+     "name": "minus-walk"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "modifiers": [
+      "cmd"
+     ],
+     "count": 6,
+     "interval": 0.12
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "cmd-left stops at 0",
+     "eq": 0
+    },
+    {
+     "do": "key",
+     "key": "left"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "note": "left at 0 stays",
+     "eq": 0
+    },
+    {
+     "do": "key",
+     "key": "e"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.12
+    },
+    {
+     "do": "key",
+     "key": "g"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.12
+    },
+    {
+     "do": "key",
+     "key": "e"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.12
+    },
+    {
+     "do": "key",
+     "key": "g"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.12
+    },
+    {
+     "do": "key",
+     "key": "e"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.12
+    },
+    {
+     "do": "key",
+     "key": "g"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.12
+    },
+    {
+     "do": "key",
+     "key": "e"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.12
+    },
+    {
+     "do": "key",
+     "key": "g"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.12
+    },
+    {
+     "do": "key",
+     "key": "e"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.12
+    },
+    {
+     "do": "key",
+     "key": "g"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.12
+    },
+    {
+     "do": "key",
+     "key": "e"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.12
+    },
+    {
+     "do": "key",
+     "key": "g"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.12
+    },
+    {
+     "do": "key",
+     "key": "e"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.12
+    },
+    {
+     "do": "key",
+     "key": "g"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.12
+    },
+    {
+     "do": "key",
+     "key": "e"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.12
+    },
+    {
+     "do": "key",
+     "key": "g"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.12
+    },
+    {
+     "do": "key",
+     "key": "e"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.12
+    },
+    {
+     "do": "key",
+     "key": "g"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.12
+    },
+    {
+     "do": "key",
+     "key": "e"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.12
+    },
+    {
+     "do": "key",
+     "key": "g"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.12
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "viewMode",
+     "note": "after 10 E/G pairs: grid",
+     "eq": "grid"
+    },
+    {
+     "do": "key",
+     "key": "e"
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "eg-final"
+    },
+    {
+     "do": "state",
+     "name": "eg-final"
+    }
+   ]
+  },
+  {
+   "name": "r2-10-views-c-n",
+   "description": "C and N enter and leave; decisions in Compare and Survey",
+   "fixture": "raw",
+   "window": {
+    "width": 1440,
+    "height": 900
+   },
+   "timeoutSeconds": 290,
+   "hangSeconds": 40,
+   "steps": [
+    {
+     "do": "wait",
+     "seconds": 4
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       382,
+       156
+      ]
+     },
+     "via": "hid",
+     "id": "focus-click"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       552,
+       156
+      ]
+     },
+     "via": "hid",
+     "modifiers": [
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "state",
+     "name": "two-selected"
+    },
+    {
+     "do": "key",
+     "key": "c"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "expect",
+     "that": "viewMode",
+     "note": "C opens Compare",
+     "eq": "compare"
+    },
+    {
+     "do": "shot",
+     "name": "compare"
+    },
+    {
+     "do": "state",
+     "name": "compare"
+    },
+    {
+     "do": "key",
+     "key": "p"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "compare-p"
+    },
+    {
+     "do": "key",
+     "key": "c"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "c-again"
+    },
+    {
+     "do": "key",
+     "key": "e"
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "key",
+     "key": "c"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "c-from-loupe"
+    },
+    {
+     "do": "key",
+     "key": "c"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "c-c-from-loupe"
+    },
+    {
+     "do": "key",
+     "key": "a",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "key",
+     "key": "n"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "expect",
+     "that": "viewMode",
+     "note": "N opens Survey",
+     "eq": "survey"
+    },
+    {
+     "do": "shot",
+     "name": "survey"
+    },
+    {
+     "do": "key",
+     "key": "right"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "state",
+     "name": "survey-right"
+    },
+    {
+     "do": "key",
+     "key": "x"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "survey-x"
+    },
+    {
+     "do": "key",
+     "key": "n"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "n-again"
+    },
+    {
+     "do": "key",
+     "key": "e"
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "key",
+     "key": "n"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "key",
+     "key": "n"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "n-n-from-loupe"
+    }
+   ]
+  },
+  {
+   "name": "r2-11-rail-filmstrip",
+   "description": "Rail clicks; filmstrip click grammar, grid button and heights",
+   "fixture": "raw",
+   "window": {
+    "width": 1440,
+    "height": 900
+   },
+   "timeoutSeconds": 290,
+   "hangSeconds": 40,
+   "steps": [
+    {
+     "do": "wait",
+     "seconds": 4
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       382,
+       156
+      ]
+     },
+     "via": "hid",
+     "id": "focus-click"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       1411,
+       165
+      ]
+     },
+     "via": "hid",
+     "id": "rail-develop"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "rail-develop"
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       1411,
+       215
+      ]
+     },
+     "via": "hid",
+     "id": "rail-crop"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "rail-crop"
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       1411,
+       268
+      ]
+     },
+     "via": "hid",
+     "id": "rail-grade"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "rail-grade"
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       1411,
+       320
+      ]
+     },
+     "via": "hid",
+     "id": "rail-deliver"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "rail-deliver"
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       1411,
+       115
+      ]
+     },
+     "via": "hid",
+     "id": "rail-cull"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "rail-cull"
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       1411,
+       385
+      ]
+     },
+     "via": "hid",
+     "id": "rail-masks"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "rail-masks"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "key",
+     "key": "4",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "grade-before"
+    },
+    {
+     "do": "shot",
+     "name": "grade-before"
+    },
+    {
+     "do": "key",
+     "key": "1",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "key",
+     "key": "e"
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "state",
+     "name": "strip-start"
+    },
+    {
+     "do": "shot",
+     "name": "strip-start"
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       576,
+       830
+      ]
+     },
+     "via": "hid",
+     "id": "strip3"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "strip3"
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       756,
+       830
+      ]
+     },
+     "via": "hid",
+     "modifiers": [
+      "shift"
+     ],
+     "id": "strip-shift5"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "strip-shift5"
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       666,
+       830
+      ]
+     },
+     "via": "hid",
+     "modifiers": [
+      "cmd"
+     ],
+     "id": "strip-cmd4"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "strip-cmd4"
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       846,
+       830
+      ]
+     },
+     "via": "hid",
+     "count": 2,
+     "id": "strip-dbl6"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "strip-dbl6"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 2,
+     "interval": 0.4
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "shot",
+     "name": "strip-after-right"
+    },
+    {
+     "do": "state",
+     "name": "strip-after-right"
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       243,
+       846
+      ]
+     },
+     "via": "hid",
+     "id": "taller"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "shot",
+     "name": "strip-taller"
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       243,
+       846
+      ]
+     },
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "shot",
+     "name": "strip-tallest"
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       243,
+       863
+      ]
+     },
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       243,
+       863
+      ]
+     },
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       243,
+       863
+      ]
+     },
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "shot",
+     "name": "strip-shortest"
+    },
+    {
+     "do": "state",
+     "name": "strip-anchors"
+    }
+   ]
+  },
+  {
+   "name": "r2-12-resize",
+   "description": "Drag the divider left of the develop column",
+   "fixture": "raw",
+   "window": {
+    "width": 1440,
+    "height": 900
+   },
+   "timeoutSeconds": 290,
+   "hangSeconds": 40,
+   "steps": [
+    {
+     "do": "wait",
+     "seconds": 4
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       382,
+       156
+      ]
+     },
+     "via": "hid",
+     "id": "focus-click"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "key",
+     "key": "2",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "r0"
+    },
+    {
+     "do": "drag",
+     "id": "widen",
+     "target": "develop.column",
+     "from": [
+      0,
+      0.5
+     ],
+     "to": [
+      -0.6,
+      0.5
+     ],
+     "offset": [
+      -2.5,
+      0
+     ],
+     "duration": 0.6
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "w-after-widen"
+    },
+    {
+     "do": "shot",
+     "name": "w-after-widen"
+    },
+    {
+     "do": "drag",
+     "id": "narrow",
+     "target": "develop.column",
+     "from": [
+      0,
+      0.5
+     ],
+     "to": [
+      0.9,
+      0.5
+     ],
+     "offset": [
+      -2.5,
+      0
+     ],
+     "duration": 0.6
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "w-after-narrow"
+    },
+    {
+     "do": "shot",
+     "name": "w-after-narrow"
+    },
+    {
+     "do": "drag",
+     "id": "mid",
+     "target": "develop.column",
+     "from": [
+      0,
+      0.5
+     ],
+     "to": [
+      -0.3,
+      0.5
+     ],
+     "offset": [
+      -2.5,
+      0
+     ],
+     "duration": 0.5
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "w-mid"
+    },
+    {
+     "do": "key",
+     "key": "g"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "key",
+     "key": "e"
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 30
+    },
+    {
+     "do": "state",
+     "name": "w-after-grid"
+    },
+    {
+     "do": "key",
+     "key": "4",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "state",
+     "name": "w-after-grade"
+    },
+    {
+     "do": "key",
+     "key": "tab"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "tab"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "w-after-tab"
+    },
+    {
+     "do": "key",
+     "key": "f"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "state",
+     "name": "film-toggled"
+    },
+    {
+     "do": "key",
+     "key": "k",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "type",
+     "text": "Exposure"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "state",
+     "name": "palette-exposure"
+    },
+    {
+     "do": "shot",
+     "name": "palette-exposure"
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure",
+     "at": [
+      0.06,
+      0.5
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "state",
+     "name": "slider-focused"
+    },
+    {
+     "do": "key",
+     "key": "tab"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "state",
+     "name": "tab-with-slider"
+    },
+    {
+     "do": "key",
+     "key": "right"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "right-with-slider"
+    },
+    {
+     "do": "key",
+     "key": "p"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "p-with-slider"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "cmdright-with-slider"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "state",
+     "name": "esc1"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "state",
+     "name": "esc2"
+    }
+   ]
+  },
+  {
+   "name": "r2-13-relaunch-layout",
+   "description": "The layout the previous launch left behind",
+   "fixture": "raw",
+   "window": {
+    "width": 1440,
+    "height": 900
+   },
+   "timeoutSeconds": 290,
+   "hangSeconds": 40,
+   "steps": [
+    {
+     "do": "wait",
+     "seconds": 4
+    },
+    {
+     "do": "state",
+     "name": "relaunch"
+    },
+    {
+     "do": "shot",
+     "name": "relaunch"
+    },
+    {
+     "do": "key",
+     "key": "2",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "relaunch-develop"
+    },
+    {
+     "do": "shot",
+     "name": "relaunch-develop"
+    }
+   ]
+  },
+  {
+   "name": "r2-14-palette-printer",
+   "description": "cmd-K results; printer-light keys with Grading open and elsewhere",
+   "fixture": "raw",
+   "window": {
+    "width": 1440,
+    "height": 900
+   },
+   "timeoutSeconds": 290,
+   "hangSeconds": 40,
+   "steps": [
+    {
+     "do": "wait",
+     "seconds": 4
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       382,
+       156
+      ]
+     },
+     "via": "hid",
+     "id": "focus-click"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "key",
+     "key": "2",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "key",
+     "key": "k",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "type",
+     "text": "kel"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "shot",
+     "name": "kel-0.3"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "shot",
+     "name": "kel-1.3"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.0
+    },
+    {
+     "do": "shot",
+     "name": "kel-3.3"
+    },
+    {
+     "do": "state",
+     "name": "kel"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "key",
+     "key": "k",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "type",
+     "text": "noise"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.0
+    },
+    {
+     "do": "shot",
+     "name": "noise"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "key",
+     "key": "k",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "type",
+     "text": "nr"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.0
+    },
+    {
+     "do": "shot",
+     "name": "nr"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "key",
+     "key": "k",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "type",
+     "text": "printer"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.0
+    },
+    {
+     "do": "shot",
+     "name": "printer"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "printer-return"
+    },
+    {
+     "do": "shot",
+     "name": "printer-return"
+    },
+    {
+     "do": "key",
+     "key": "."
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "period1"
+    },
+    {
+     "do": "key",
+     "key": ".",
+     "count": 3,
+     "interval": 0.2
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "period4"
+    },
+    {
+     "do": "key",
+     "key": ","
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "comma"
+    },
+    {
+     "do": "key",
+     "key": ".",
+     "modifiers": [
+      "ctrl"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "ctrl-period"
+    },
+    {
+     "do": "key",
+     "key": ".",
+     "modifiers": [
+      "option"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "opt-period"
+    },
+    {
+     "do": "key",
+     "key": ".",
+     "modifiers": [
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "shift-period"
+    },
+    {
+     "do": "shot",
+     "name": "printer-after"
+    },
+    {
+     "do": "key",
+     "key": "2",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "key",
+     "key": "."
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "develop-period"
+    },
+    {
+     "do": "key",
+     "key": "4",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "grade-again"
+    },
+    {
+     "do": "key",
+     "key": "g"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "key",
+     "key": "."
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "state",
+     "name": "grid-period"
+    },
+    {
+     "do": "key",
+     "key": "e"
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 30
+    },
+    {
+     "do": "key",
+     "key": "tab"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "key",
+     "key": "."
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "state",
+     "name": "tab-hidden-period"
+    },
+    {
+     "do": "key",
+     "key": "tab"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    }
+   ]
+  },
+  {
+   "name": "r2-15-sizes",
+   "description": "Thumbnail size keys and clamps (last: the size persists)",
+   "fixture": "raw",
+   "window": {
+    "width": 1440,
+    "height": 900
+   },
+   "timeoutSeconds": 290,
+   "hangSeconds": 40,
+   "steps": [
+    {
+     "do": "wait",
+     "seconds": 4
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       382,
+       156
+      ]
+     },
+     "via": "hid",
+     "id": "focus-click"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "key",
+     "key": "]",
+     "count": 3,
+     "interval": 0.15
+    },
+    {
+     "do": "expect",
+     "that": "app.gridThumbnailSize",
+     "note": "] three times = 160+72",
+     "eq": 232
+    },
+    {
+     "do": "key",
+     "key": "[",
+     "count": 10,
+     "interval": 0.1
+    },
+    {
+     "do": "expect",
+     "that": "app.gridThumbnailSize",
+     "note": "[ clamps at 96",
+     "eq": 96
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "shot",
+     "name": "grid-96"
+    },
+    {
+     "do": "key",
+     "key": "]",
+     "count": 20,
+     "interval": 0.1
+    },
+    {
+     "do": "expect",
+     "that": "app.gridThumbnailSize",
+     "note": "] clamps at 512",
+     "eq": 512
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "shot",
+     "name": "grid-512"
+    },
+    {
+     "do": "key",
+     "key": "-",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "expect",
+     "that": "app.gridThumbnailSize",
+     "note": "cmd-minus steps down in the grid",
+     "eq": 488
+    },
+    {
+     "do": "key",
+     "key": "=",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "expect",
+     "that": "app.gridThumbnailSize",
+     "note": "cmd-= steps up",
+     "eq": 512
+    },
+    {
+     "do": "key",
+     "key": "[",
+     "count": 15,
+     "interval": 0.08
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "expect",
+     "that": "app.gridThumbnailSize",
+     "note": "back to 152",
+     "eq": 152
+    },
+    {
+     "do": "state",
+     "name": "sizes-end"
+    }
+   ]
+  }
+ ],
+ "ref": "claude/loving-cray-d58nrb-integration",
+ "config": "release",
+ "strict": false,
+ "note": "library tester run 2"
+}
