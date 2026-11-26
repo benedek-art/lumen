@@ -751,7 +751,8 @@ actor RenderCoordinator {
         // The result is deliberately discarded. The value is the cache entry it leaves
         // behind, which is also why a hit costs nothing: `decode` answers from the
         // cache before it considers going to the file.
-        _ = source.decode(recipe: recipe, draft: false, scaleFactor: scale)
+        // `settledDecode`: the settle reads that entry, not a plain scaled decode.
+        _ = source.settledDecode(recipe: recipe, scaleFactor: scale)
     }
 
     func nativeSize(for url: URL) -> (width: Int, height: Int)? {
