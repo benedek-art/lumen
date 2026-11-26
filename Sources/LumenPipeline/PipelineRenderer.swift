@@ -339,14 +339,17 @@ public final class PipelineRenderer {
 
     /// The plan a PREVIEW frame renders through.
     func previewPlan(source: any ImageSource, recipe: Recipe, draft: Bool,
-                     softProof: SoftProof?) -> RenderPlan {
+                     softProof: SoftProof?, tableIdentitySuffix: String = "") -> RenderPlan {
         // The photograph's identity, stamped BEFORE the plan is built: the plan's
         // stale-table door (`PlanTableCache.pairedTableAllowingStale`) may only
         // borrow a table this photograph rendered with — the newest entry in the
         // slot, unqualified, is whatever photograph was edited last, which is how
         // stepping from a B&W edit flashed the next colour frame monochrome
         // (docs/31 round two §4).
-        Self.stampRenderIdentity(source)
+        // A suffix files this plan's tables apart from the photograph's own drafts.
+        PlanTableCache.setRenderIdentity(
+            PlanTableCache.renderIdentity(for: source.url) + tableIdentitySuffix)
+        defer { if !tableIdentitySuffix.isEmpty { Self.stampRenderIdentity(source) } }
         return RenderPlan(recipe: recipe,
                           asShotKelvin: source.asShotTemperature,
                           asShotTint: source.asShotTint,
@@ -562,7 +565,8 @@ public final class PipelineRenderer {
                                       showingUncropped: Bool = false,
                                       strokeSets: [String: BrushStrokeSet] = [:],
                                       softProof: SoftProof? = nil,
-                                      region: CGRect? = nil) throws -> PreviewDelivery {
+                                      region: CGRect? = nil,
+                                      tableIdentitySuffix: String = "") throws -> PreviewDelivery {
         // Decode at the target resolution, not the sensor's: a 2560 px preview of a
         // 7000 px raw decodes roughly seven times less data.
         let native = source.nativeLongEdge
@@ -581,7 +585,8 @@ public final class PipelineRenderer {
         let planStarted = DispatchTime.now().uptimeNanoseconds
         let planInterval = Self.signposter.beginInterval("plan")
         let plan = previewPlan(source: source, recipe: recipe, draft: draft,
-                               softProof: softProof)
+                               softProof: softProof,
+                               tableIdentitySuffix: tableIdentitySuffix)
         Self.signposter.endInterval("plan", planInterval)
         let graphStarted = DispatchTime.now().uptimeNanoseconds
         let planMs = Double(graphStarted - planStarted) / 1e6

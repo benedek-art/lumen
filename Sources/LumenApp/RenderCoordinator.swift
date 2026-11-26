@@ -289,6 +289,33 @@ actor RenderCoordinator {
         return result
     }
 
+    /// Renders each recipe at a draft's size and discards it, so Core Image has
+    /// compiled the programs those drafts need (`DraftWarmup`). Exact tables under their
+    /// own identity: nothing here can lend a table to the photograph's drafts. Stops at
+    /// the first viewer request that arrives. Ends with `current` under the
+    /// photograph's identity, because an exact table hit adopts the identity of the
+    /// render that hit it and the stale door must find this photograph's tables again.
+    func warmDraftPrograms(url: URL, recipes: [Recipe], current: Recipe, maxLongEdge: Int,
+                           strokeSets: [String: BrushStrokeSet]) async {
+        let quietSince = latestGeneration
+        guard KernelLibrary.coreAvailable, let source = try? self.source(for: url) else {
+            return
+        }
+        defer {
+            _ = try? renderer.renderPreviewDelivery(
+                source: source, recipe: current, maxLongEdge: maxLongEdge,
+                draft: false, coarseDecode: false, strokeSets: strokeSets)
+        }
+        for recipe in recipes {
+            await Task.yield()
+            guard latestGeneration == quietSince, !Task.isCancelled else { return }
+            _ = try? renderer.renderPreviewDelivery(
+                source: source, recipe: recipe, maxLongEdge: maxLongEdge,
+                draft: false, coarseDecode: false, strokeSets: strokeSets,
+                tableIdentitySuffix: "|warm")
+        }
+    }
+
     /// A render nobody else is waiting on — the scope proxy, the Auto-tone probe. It
     /// neither claims a ticket nor yields to one: the caller has its own supersede
     /// check, and letting these touch `latestGeneration` would have them cancelling

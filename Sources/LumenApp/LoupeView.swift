@@ -591,6 +591,11 @@ final class PhotoRenderModel: ObservableObject {
 
     /// Draft sizing while a gesture moves a control the RAW decoder reads.
     private var decodeDrag = DecodeDrag()
+
+    /// `DraftWarmup` keys already warmed, and the size drafts were last asked at.
+    var draftProgramsWarmed: Set<String> = []
+    private(set) var lastDraftLongEdgeAsked: Int?
+
     /// The edit revision of the frame on screen, where the surface reports one.
     private(set) var shownEditRevision: Int?
 
@@ -843,6 +848,7 @@ final class PhotoRenderModel: ObservableObject {
                              inputs: requestInputs)
             }
             let request = draftRequest(longEdge: sizedEdge)
+            lastDraftLongEdgeAsked = sizedEdge
             LatencyHUD.shared.noteTimeline(.request, revision: editRevision)
             // Through the pump, never awaited on the coordinator from this task: a drag
             // cancels this task on every event, and the coordinator drops a cancelled
@@ -1594,6 +1600,7 @@ struct LoupeView: View {
                         state.thumbnails.recordDeveloped(url: photo.id, image: cg, identity: identity)
                     }
                 }
+                await warmDraftPrograms(longEdge: longEdge, region: region)
                 await warmNextPhoto(longEdge: longEdge)
             }
             .task(id: BeforeKey(url: photo.id, recipe: beforeRecipe,
@@ -1664,6 +1671,21 @@ struct LoupeView: View {
     /// to spend that time BEFORE it is felt. `DecodeWarming` (LumenCore, tested) holds
     /// both halves of the rule: which neighbour, and the gate that keeps a warm from
     /// landing in front of a photographer who is paging rather than editing.
+    /// After a settle, the GPU programs a first drag of each common control needs
+    /// (`DraftWarmup`), once per photograph and set of controls at their default.
+    @MainActor
+    private func warmDraftPrograms(longEdge: Int, region: CGRect?) async {
+        guard !Task.isCancelled, region == nil, !state.sliderGestureActive,
+              !model.isDraft, model.imageURL == photo.id else { return }
+        let recipe = renderRecipe
+        let key = photo.id.absoluteString + "#" + DraftWarmup.signature(of: recipe)
+        guard model.draftProgramsWarmed.insert(key).inserted else { return }
+        await state.renderCoordinator.warmDraftPrograms(
+            url: photo.id, recipes: DraftWarmup.recipes(from: recipe), current: recipe,
+            maxLongEdge: model.lastDraftLongEdgeAsked ?? longEdge,
+            strokeSets: state.strokeSets(for: recipe))
+    }
+
     @MainActor
     private func warmNextPhoto(longEdge: Int) async {
         guard !Task.isCancelled else { return }
