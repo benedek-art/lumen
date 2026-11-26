@@ -1801,10 +1801,15 @@ public final class CatalogStore {
                   prepareBackupPayloads(path: candidate, liveCatalogPath: path) else { continue }
             let stamp = String(CatalogStore.now())
             let setAside = path + ".damaged-" + stamp
+            let staged = path + ".restoring-" + stamp
             do {
+                try? manager.removeItem(atPath: staged)
+                try manager.copyItem(atPath: candidate, toPath: staged)
+                try clearSidecarDebt(at: staged)
                 try setAsideCatalog(at: path, to: setAside)
-                try manager.copyItem(atPath: candidate, toPath: path)
+                try manager.moveItem(atPath: staged, toPath: path)
             } catch {
+                try? manager.removeItem(atPath: staged)
                 // A restore that cannot complete must not leave the catalog half
                 // replaced. Put the original back if it is still where we moved it,
                 // and report the damage rather than a restore that did not happen.
@@ -1925,6 +1930,15 @@ public final class CatalogStore {
         } catch {
             return .unavailable(String(describing: error))
         }
+    }
+
+    /// A backup's `sidecar_unsaved` predates every sidecar saved since it was taken;
+    /// paying it from the restored catalog writes backup-era state over them.
+    private static func clearSidecarDebt(at path: String) throws {
+        let database = try SQLiteDatabase(path: path)
+        defer { database.close() }
+        try database.execute("PRAGMA journal_mode=DELETE;")
+        try database.run("DELETE FROM meta WHERE key = ?;", [.text(UnsavedSidecarRecord.metaKey)])
     }
 
     /// Move a catalog and its WAL companions aside, together.
