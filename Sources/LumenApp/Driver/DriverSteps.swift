@@ -539,15 +539,17 @@ extension DriverSession {
             out["at"] = DriverJSON.point(p)
 
         case "pinch":
-            // `scale` is the whole gesture's factor; each event carries an equal share
-            // of (scale - 1) as its magnification delta, which is what a trackpad sends.
+            // `scale` is the whole gesture's factor. Each event's magnification d is the
+            // same, chosen so the product of (1 + d) is `scale`: AppKit's convention,
+            // where a handler multiplies its scale by 1 + magnification per event.
             let p = try await resolvePoint(step)
             touched = [p]
             var deltas = step.doubles("deltas") ?? []
             if deltas.isEmpty {
                 let scale = step.double("scale") ?? 2
                 let count = Swift.max(Int((Swift.max(duration, 1 / hz) * hz).rounded()), 1)
-                deltas = [Double](repeating: (scale - 1) / Double(count), count: count)
+                let each = pow(Swift.max(scale, 0.01), 1 / Double(count)) - 1
+                deltas = [Double](repeating: each, count: count)
             }
             ticks.append(DriverTick(at: 0) { input.move(to: p) })
             ticks.append(DriverTick(at: 0.05) { input.pinchEvent(0, phase: 1, at: p) })

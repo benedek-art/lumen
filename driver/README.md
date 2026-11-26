@@ -216,7 +216,7 @@ gesture recognizers. None calls the app's own functions.
 | `drag` | `target`, `from` and `to` (fractions of the target), or `toTarget`/`toAt`; `path` (extra `[fx, fy]` waypoints); `duration`, `hz` (60), `ease` (`linear`/`inout`), `pressHold` (0.05), `hold` before release (0.05), `button`, `modifiers` |
 | `scroll` | a mouse wheel: `target`, `at`, `lines` `[dx, dy]`, `count` (1), `interval` (0.05), `modifiers` (`["option"]` zooms sliders) |
 | `swipe` | a two-finger trackpad scroll with began/changed/ended phases: `target`, `at`, `by` `[dx, dy]` total points, `duration`, `hz`; `momentum`: `{"by": [dx, dy], "duration": 0.5}` adds the coasting phase |
-| `pinch` | a trackpad pinch with began/changed/ended phases: `target`, `at`, `scale` (the whole gesture's factor; each event carries an equal share of `scale - 1`), `duration`, `hz`, or explicit `deltas` |
+| `pinch` | a trackpad pinch with began/changed/ended phases: `target`, `at`, `scale` (the whole gesture's factor: every event carries the same magnification d with (1 + d) multiplied over all events equal to `scale`, AppKit's convention), `duration`, `hz`, or explicit `deltas` |
 | `smartMagnify` | the two-finger double-tap: `target`, `at` |
 | `key` | `key` (a letter, digit, symbol, or `return tab space delete escape left right up down`), `modifiers` (`cmd shift option ctrl`), `count`, `interval` |
 | `type` | `text`: typed one character at a time into whatever has keyboard focus |

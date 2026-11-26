@@ -44,7 +44,9 @@
     {"do": "expect", "that": "steps.pinch-live.hitchAfterMaxMs", "lt": 250, "note": "after the pinch the app answers again within a quarter second"},
     {"do": "expect", "that": "steps.pinch-live.screenChangesDuring", "ge": 15, "note": "the picture visibly follows the pinch (30 Hz watch of the screen)"},
     {"do": "shot", "name": "pinch-live-settled"},
-    {"do": "state", "name": "end"}
+    {"do": "state", "name": "end"},
+    {"do": "expect", "that": "loupe.nativeMagnifyEvents", "gt": 0, "note": "(branches that count them) the pinches arrived as native magnify events"},
+    {"do": "expect", "that": "loupe.fallbackMagnifyEvents", "eq": 0, "note": "(branches that count them) none came through the fallback"}
   ],
   "witness": [
     {"that": "groups.one.scaleRatio", "near": 1.03, "tol": 0.01, "note": "one +0.03 magnify makes the picture 1.03x as wide"},
