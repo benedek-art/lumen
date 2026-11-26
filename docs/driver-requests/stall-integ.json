@@ -1,0 +1,8 @@
+{
+ "suite": "repro-slider-drag.json",
+ "scenarios": [],
+ "ref": "",
+ "config": "release",
+ "strict": false,
+ "note": "stall sampler on integration a786f23d"
+}
