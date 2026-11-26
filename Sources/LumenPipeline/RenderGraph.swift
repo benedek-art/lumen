@@ -1494,14 +1494,17 @@ public struct RenderGraph {
     /// that keeps the scene-linear mean over a `sigma` neighbourhood.
     static func balancedLumaRatio(_ image: CIImage, delta: CIImage, limit: Double,
                                   sigma: Double, floorEV: Double? = nil) -> CIImage? {
-        guard let one = Self.constant(RGB(gray: 1), extent: image.extent),
-              let ratio = KernelLibrary.apply(KernelLibrary.lumaRatio, extent: image.extent,
-                                              [one, delta, Float(limit)])
+        let w = RGBColorSpace.rec2020.luminanceWeights
+        guard let ratio = KernelLibrary.apply(
+                KernelLibrary.ratioPair, extent: image.extent,
+                [image, delta, Float(limit), CIVector(x: w.r, y: w.g, z: w.b),
+                 Float(floorEV ?? -1000)])
         else { return nil }
         return Self.balancedRatio(image, ratio: ratio, sigma: sigma, floorEV: floorEV)
     }
 
-    /// `image × ratio` (ratio in r), balanced as `balancedLumaRatio` describes.
+    /// `image × ratio.r`, renormalised against `ratio.g` as `balancedLumaRatio` describes
+    /// (the same ratio in both for Texture and Clarity; undamped by Halo for sharpening).
     static func balancedRatio(_ image: CIImage, ratio: CIImage, sigma: Double,
                               floorEV: Double? = nil) -> CIImage? {
         let w = RGBColorSpace.rec2020.luminanceWeights

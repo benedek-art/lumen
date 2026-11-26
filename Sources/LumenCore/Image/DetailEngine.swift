@@ -636,20 +636,24 @@ public struct DetailEngine: Sendable {
         let gradient = fit(d.gradient, width: w, height: h)
 
         var delta = Plane(width: w, height: h)
+        // Without the halo damp: the renormalisation is measured on this, so Halo
+        // Suppression removes light rather than handing it back to the neighbourhood.
+        var undamped = Plane(width: w, height: h)
         for y in 0..<h {
             for x in 0..<w {
                 let usm = logLum[x, y] - blurred[x, y]
                 var v = amount * Num.mix(usm, fine[x, y], detail)
-                if v > 0 && halo > 0 {
-                    // Only the bright overshoot is damped, and only once it is large
-                    // enough to read as a rim rather than as edge definition.
-                    v *= 1.0 - halo * Num.smoothstep(0.15, 0.60, usm)
-                }
                 if masking > 0 {
                     let edge = Num.smoothstep(0.02 + 0.10 * masking,
                                               0.10 + 0.25 * masking,
                                               gradient[x, y])
                     v *= Num.mix(1.0, edge, masking)
+                }
+                undamped[x, y] = v
+                if v > 0 && halo > 0 {
+                    // Only the bright overshoot is damped, and only once it is large
+                    // enough to read as a rim rather than as edge definition.
+                    v *= 1.0 - halo * Num.smoothstep(0.15, 0.60, usm)
                 }
                 delta[x, y] = v
             }
@@ -657,7 +661,8 @@ public struct DetailEngine: Sendable {
         return applyBalancedLumaRatio(
             image, deltaEV: delta, limit: sharpenLimitEV,
             sigma: sharpenBalanceSigma(radius: radius, longEdge: Swift.max(w, h)),
-            space: d.space, floorEV: blackAnchorEV + sharpenFloorMarginEV)
+            space: d.space, floorEV: blackAnchorEV + sharpenFloorMarginEV,
+            renormDeltaEV: undamped)
     }
 
     /// Sharpening never darkens a pixel to within this many EV of the display black.
@@ -695,7 +700,8 @@ public struct DetailEngine: Sendable {
     /// neighbourhood's level without undoing the contrast inside it.
     static func applyBalancedLumaRatio(_ image: ImageBuffer, deltaEV: Plane, limit: Double,
                                        sigma: Double, space: RGBColorSpace,
-                                       floorEV: Double? = nil) -> ImageBuffer {
+                                       floorEV: Double? = nil,
+                                       renormDeltaEV: Plane? = nil) -> ImageBuffer {
         let w = image.width
         let h = image.height
         let p = renormPower
@@ -705,11 +711,20 @@ public struct DetailEngine: Sendable {
         var moved = Plane(width: w, height: h)
         for y in 0..<h {
             for x in 0..<w {
-                let k = pow(2.0, Num.clamp(deltaEV[x, y], -limit, limit))
                 let l = Swift.max(lum[x, y], 0)
+                // Floored before the renormalisation as well as after, so the light the
+                // floor keeps in the shadows is part of what the neighbourhood balances.
+                func ratioOf(_ ev: Double) -> Double {
+                    let k = pow(2.0, Num.clamp(ev, -limit, limit))
+                    guard let floorEV, k < 1 else { return k }
+                    let headroom = Num.safeLog2(l / 0.18) - floorEV
+                    return pow(2.0, -flooredLoss(-log2(k), headroom: headroom))
+                }
+                let k = ratioOf(deltaEV[x, y])
+                let kr = renormDeltaEV.map { ratioOf($0[x, y]) } ?? k
                 ratio[x, y] = k
                 base[x, y] = pow(Swift.max(l, 1e-10), p)
-                moved[x, y] = pow(Swift.max(l * k, 1e-10), p)
+                moved[x, y] = pow(Swift.max(l * kr, 1e-10), p)
             }
         }
         let before = SpatialOps.gaussianBlur(base, sigma: sigma)
@@ -1149,27 +1164,6 @@ public struct DetailEngine: Sendable {
     }
 
     // MARK: - Shared recombination
-
-    /// Apply a per-pixel ΔEV plane to RGB as one multiply. This is the single place any
-    /// presence or sharpening tool touches pixel values, which is what makes "chroma
-    /// untouched, colour cannot shift" a property of the engine rather than a promise
-    /// repeated per tool. `limit` bounds the excursion so a pathological coefficient cannot
-    /// turn into an infinity downstream.
-    private static func applyLumaRatio(_ image: ImageBuffer, deltaEV: Plane,
-                                       limit: Double) -> ImageBuffer {
-        let w = image.width
-        let h = image.height
-        let delta = fit(deltaEV, width: w, height: h)
-        var out = image
-        for y in 0..<h {
-            for x in 0..<w {
-                let d = Num.clamp(delta[x, y], -limit, limit)
-                if d == 0 { continue }
-                out[x, y] = image[x, y] * pow(2.0, d)
-            }
-        }
-        return out
-    }
 
     /// Resample a cached plane onto the render target's extent. Fit view and full render
     /// share one decomposition (docs/06 §10.1, "scale honesty"), so a mismatch is expected

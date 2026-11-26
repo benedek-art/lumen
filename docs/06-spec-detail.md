@@ -320,6 +320,10 @@ that amplifies the finest wavelet scales (reusing the shared wavelet stack — t
 is derived from it for free). Halo Suppression asymmetrically limits the *bright* overshoot of
 sharpened edges (bright halos are perceptually much more objectionable than dark lines — the
 insight behind C1's control). All sharpening recombines by RGB ratio: no color fringing at edges.
+The ratio is renormalised over a neighbourhood several radii wide so sharpening (and Texture and
+Clarity, which recombine the same way) adds edge contrast without changing a region's mean
+brightness, and sharpening's darkening is compressed so it never pushes a pixel onto the display
+black.
 
 **How it feels.** Sits under the Capture toggle. Clicking any sharpen slider's label opens a 1:1
 detail loupe at the image center (draggable) — sharpening judged at fit zoom is guesswork, and the

@@ -106,7 +106,7 @@ public enum KernelLibrary {
     /// a bilateral base for this job.
     ///
     /// The exponent is CLAMPED at ±4 EV — the twin of the reference's
-    /// `DetailEngine.applyLumaRatio(limit: 4)`, which bounds every presence tool's
+    /// `DetailEngine.applyBalancedLumaRatio(limit: 4)`, which bounds every presence tool's
     /// excursion "so a pathological coefficient cannot turn into an infinity
     /// downstream" (docs/31 round two §15). This kernel had no limit at all: `k` at
     /// Texture ±100 is 21.6 per encoded unit, so a pathological band drove
@@ -199,9 +199,6 @@ public enum KernelLibrary {
         float fineEV = fine.r * range;
         float v = amount * mix(usm, fineEV, detail);
 
-        float bright = step(0.0, v) * halo;
-        v = v * (1.0 - bright * smoothstep(0.15, 0.60, usm));
-
         // `gradient` arrives in EV/px already — `structureTensor` scales at the source
         // so one quantity is not denominated two different ways in two kernels. `range`
         // still converts `lum` and `fine`, which are encoded.
@@ -209,26 +206,36 @@ public enum KernelLibrary {
                                 0.10 + 0.25 * masking,
                                 gradient.r);
         v = v * mix(1.0, edge, masking);
-        return vec4(v, v, v, 1.0);
+        float undamped = v;
+
+        float bright = step(0.0, v) * halo;
+        v = v * (1.0 - bright * smoothstep(0.15, 0.60, usm));
+        return vec4(v, undamped, 0.0, 1.0);
     }
     """
 
-    /// Apply a per-pixel EV delta as a LUMINANCE ratio, so sharpening cannot shift hue
-    /// or saturation the way a per-channel unsharp mask does. Limited, because an
-    /// unbounded gain on a specular highlight is how a sharpener makes white holes.
-    static let lumaRatioSource = """
-    kernel vec4 lumenLumaRatio(__sample image, __sample deltaEV, float limit) {
-        float d = clamp(deltaEV.r, -limit, limit);
-        return vec4(image.rgb * exp2(d), image.a);
+    /// Two EV deltas (r, g) as two ratios, each clamped to ±`limit` and, above
+    /// `floorEV`, with its darkening compressed (`DetailEngine.flooredLoss`).
+    static let ratioPairSource = """
+    kernel vec4 lumenRatioPair(__sample image, __sample deltaEV, float limit, vec3 w,
+                               float floorEV) {
+        float a = exp2(clamp(deltaEV.r, -limit, limit));
+        float b = exp2(clamp(deltaEV.g, -limit, limit));
+        if (floorEV > -500.0) {
+            float headroom = log2(max(dot(image.rgb, w), 1e-10) / 0.18) - floorEV;
+            float keptA = headroom > 0.0 ? headroom * (1.0 - exp(log2(a) / headroom)) : 0.0;
+            float keptB = headroom > 0.0 ? headroom * (1.0 - exp(log2(b) / headroom)) : 0.0;
+            a = a < 1.0 ? exp2(-keptA) : a;
+            b = b < 1.0 ? exp2(-keptB) : b;
+        }
+        return vec4(a, b, 0.0, 1.0);
     }
     """
 
-    /// `Y^power` before (r) and after (g) a luminance ratio: the planes
-    /// `DetailEngine.applyBalancedLumaRatio` blurs.
     static let ratioEnergySource = """
     kernel vec4 lumenRatioEnergy(__sample image, __sample ratio, vec3 w, float power) {
         float y = max(dot(image.rgb, w), 0.0);
-        float yk = max(y * ratio.r, 1e-10);
+        float yk = max(y * ratio.g, 1e-10);
         y = max(y, 1e-10);
         return vec4(pow(y, power), pow(yk, power), 0.0, 1.0);
     }
@@ -365,7 +372,7 @@ public enum KernelLibrary {
     /// where a hard step measures 1.00 — which are the subjects the positive control
     /// exists for, so the gate only starts closing above them.
     /// The exponent carries the same ±4 EV clamp as `detailGain` — the twin of the
-    /// reference's `applyLumaRatio(limit: 4)`; see that kernel's comment.
+    /// reference's `applyBalancedLumaRatio(limit: 4)`; see that kernel's comment.
     static let detailGainGatedSource = """
     kernel vec4 lumenDetailGainGated(__sample hi, __sample lo, __sample gate,
                                      float k, float negative,
@@ -1190,7 +1197,7 @@ public enum KernelLibrary {
     public static let structureTensor = make(structureTensorSource)
     public static let coherence = make(coherenceSource)
     public static let detailGainGated = make(detailGainGatedSource)
-    public static let lumaRatio = make(lumaRatioSource)
+    public static let ratioPair = make(ratioPairSource)
     public static let ratioEnergy = make(ratioEnergySource)
     public static let ratioBalance = make(ratioBalanceSource)
     public static let tensorMagnitude = make(tensorMagnitudeSource)
@@ -1265,8 +1272,9 @@ public enum KernelLibrary {
             ("blendMask", blendMask), ("blendMaskMode", blendMaskMode),
             ("grain", grain), ("vignette", vignette),
             ("detailGain", detailGain), ("dehaze", dehaze), ("addGlow", addGlow),
-            ("sharpenDelta", sharpenDelta), ("lumaRatio", lumaRatio),
-            ("ratioEnergy", ratioEnergy), ("ratioBalance", ratioBalance),
+            ("sharpenDelta", sharpenDelta),
+            ("ratioPair", ratioPair), ("ratioEnergy", ratioEnergy),
+            ("ratioBalance", ratioBalance),
             ("subtract", subtract), ("thresholdMask", thresholdMask), ("detailRemap", detailRemap),
             ("structureTensor", structureTensor),
             ("coherence", coherence), ("detailGainGated", detailGainGated),

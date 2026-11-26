@@ -4116,7 +4116,7 @@ final class KernelGoldenTests: XCTestCase {
     // MARK: - Texture's gain carries the reference's ±4 EV limit (docs/31 R2 §15)
 
     /// The texture kernels' exponent clamps at ±4 EV, exactly where the reference
-    /// clamps every presence excursion (`DetailEngine.applyLumaRatio(limit: 4)`).
+    /// clamps every presence excursion (`DetailEngine.applyBalancedLumaRatio(limit: 4)`).
     ///
     /// Driven at the kernel level, because that is where the limit lives: a band
     /// of 0.5 encoded units (12 EV) under Texture +100's own coefficient
