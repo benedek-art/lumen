@@ -120,9 +120,12 @@ resource_id `render-lab.yml`, branch filter. Then open sheets with the Read tool
 | `2607` | Panasonic GH5S RW2 | shadow-heavy; denoise |
 | `6001` | Fujifilm X-H2 RAF, X-Trans | different demosaic, 40 MP, orientation 6 |
 | `1346` | Canon 5D CR2 | control case, shadows |
+| `4145` | Sony A7C ARW, ISO 12800 | high ISO, full frame: fern foliage, wood, white pot |
+| `2260` | Nikon D5600 NEF, ISO 12800 | high ISO, night street: deep shadows, mixed street light |
+| `2127` | Nikon D5500 NEF, ISO 6400 | high ISO event (wedding proxy): faces, hair, satin gowns |
 
-All CC0 from raw.pixls.us, sha256-verified (`photos.tsv`, `fetch-photos.sh`). None of them is
-a true high-ISO frame; adding one is a gap (§7). `6001` (X-H2 RAF) is refused by
+All CC0 from raw.pixls.us, sha256-verified (`photos.tsv`, `fetch-photos.sh`). `4145`, `2260` and `2127`
+are the high-ISO frames (6400 to 12800) for noise reduction. `6001` (X-H2 RAF) is refused by
 `AppleRawSource` on the hosted macos-15 runner (`undecodable`), so it has no plate and fails
 on the shipping path there.
 
@@ -221,7 +224,7 @@ Masks (brush, AI subject/sky, linear/radial gradients: the patch accepts `masks`
 brush strokes and AI mattes need inputs the lab does not supply), heal strokes (blob refs),
 crop/straighten on the reference path, Upright, soft proof, HDR/gain-map export,
 JPEG/HEIC/TIFF export settings (export is PNG 8-bit sRGB), the true AI denoise model (not
-shipped; the AI mode is an Apple-decoder stand-in), a genuine high-ISO corpus file, and
+shipped; the AI mode is an Apple-decoder stand-in), and
 interactive drag timing (the `draft` path renders single frames).
 
 ## 8. Maintenance
