@@ -83,7 +83,7 @@ A request file is `{"suite": "...", "scenarios": [...], "ref": "...", "config": 
 |---|---|
 | `--scenario file.json` (repeatable) | scenarios sent inline. A file may hold one scenario or an array of them |
 | `--suite "smoke.json repro-*.json"` | committed scenarios, as files or globs under `driver/scenarios/` on the requests branch |
-| `--ref <branch or sha>` | the app code to test. Default: the requests branch's own copy |
+| `--ref <branch, tag or sha>` | the app code to test, resolved to its full commit SHA before the request is written (a short SHA or a branch name is fine). Default: the requests branch's own copy |
 | `--name`, `--note` | the request's file name and a line for the commit message |
 | `--strict` | fail the job when a check fails. Without it the job is red only for a driver error, hang, timeout or crash |
 | `--config debug` | faster build, meaningless timings |
@@ -106,7 +106,9 @@ build.log
   report.json        verdict, machine, every step's result and measurements
   timeline.jsonl     every input event sent and received, every frame, hitch and commit
   state-<name>.json  state dumps asked for by `state` steps; state-final.json always
-  shots/<name>.png   window screenshots; shots/<id>-NNN.png from a captured gesture
+  shots/<name>.png   window screenshots, every sheet, popover, panel and open menu
+                     over the window composited in; shots/<id>-NNN.png from a gesture
+  targets-<name>.txt from `listTargets`: every name on screen, by window
   witness.json       geometry measured from the screenshots' pixels (fiducial runs)
   probe.json         from a `probe` step
   scenario.json, app.log, exit.txt
@@ -181,28 +183,53 @@ in one request are cheap; many requests are not.
 
 Every pointer verb takes `"target"` and optionally `"at": [fx, fy]` (a fraction of the
 target's rectangle, default its centre `[0.5, 0.5]`) and `"offset": [dx, dy]` in points.
+All rectangles are main-window points from the window's top-left corner, including those
+of sheets, popovers, panels and menus.
 
-| target | means |
-|---|---|
-| `"viewer"` | the picture area of the loupe |
-| `"viewer.image"` | the picture itself, wherever zoom and pan have put it |
-| `"slider/<Label>#track"` | a slider's track, by the label the app shows: `slider/Exposure#track`. `slider/<Label>` is the whole row (label, track, number) |
-| `"develop.column"`, `"sidebar"`, `"filterbar"`, `"filmstrip"`, `"rail"`, `"statusbar"`, `"grid"`, `"compare"` | the window's regions |
-| `"mask-kind/<Name>"`, `"mask-create"`, `"mask-row"` | the mask kind tiles (`mask-kind/Linear Gradient`), the + button, a row of the mask list |
-| `{"anchor": "slider/Saturation#track", "index": 1, "within": "develop.column"}` | the same names, choosing among several with one label (reading order) or only those inside another target |
-| `{"text": "Presence", "within": "develop.column", "index": 0}` | the words on screen, found by OCR on a screenshot. Works for anything with a visible label; costs about a second |
-| `{"point": [x, y]}` | window points from the window's top-left corner |
-| `"window"`, `"cursor"` | the whole window; wherever the pointer is |
+**Discover names first**: `{"do": "listTargets", "name": "develop"}` writes
+`targets-develop.txt`, every name on screen grouped by window. Copy names from it.
 
-A named target must be on screen. For a control further down a scrolling column use
+A name is `kind/Label`. It is looked up as an anchor first (exact), then in the app's
+accessibility tree (kind by role, then the label: exact, then ignoring case with `...`
+equal to `…`, then as a prefix). `*/Label` takes any kind.
+
+| name | what it is | source |
+|---|---|---|
+| `viewer`, `viewer.image`, `develop.column`, `sidebar`, `filterbar`, `filmstrip`, `rail`, `statusbar`, `grid`, `compare` | the window's regions; `viewer.image` is the picture wherever zoom and pan put it | anchor |
+| `slider/<Label>`, `slider/<Label>#track` | a `LumenSlider` row, its track: `slider/Exposure#track` (also in the export sheet: `slider/Quality#track`) | anchor |
+| `toggle/<Title>` | a `LumenToggleRow`: `toggle/Strip GPS` | anchor |
+| `segment/<Label>` | one option of a `LumenSegmented`: `segment/PNG`, `segment/Screen` | anchor |
+| `section/<Title>` | a `LumenSectionHeader` (click folds it): `section/Format` | anchor |
+| `menu/<Shown title>`, `picker/<Title>`, `menuitem/<Title>` | a `LumenMenu` trigger by what it shows; a `LumenMenuPicker` by its row title (`picker/Colour`); an item of an open `LumenMenu` | anchor |
+| `checkbox/<Group>` | a box in Copy / Sync Settings: `checkbox/Spot Removal` | anchor |
+| `rail/<Workspace>` | the rail tabs: `rail/Cull` `rail/Develop` `rail/Crop` `rail/Grade` `rail/Deliver` | anchor |
+| `source/<Title>` | a sidebar source row: `source/All photos`, `source/Picked` | anchor |
+| `filmstrip-cell/<file>`, `grid-cell/<file>` | a photo's cell: `grid-cell/fiducial.png` | anchor |
+| `mask-kind/<Name>`, `mask-create`, `mask-row` | the mask kind tiles, the + button, a row of the mask list | anchor |
+| `crop-corner/<topLeft topRight bottomLeft bottomRight>`, `crop-edge/<top bottom left right>`, `heal.canvas` | the crop frame's handles in Crop; the heal tool's canvas (spots are drawn, not views: aim at fractions of it) | anchor |
+| `button/<Title>` | any button by its title, description or tooltip: `button/Export…`, `button/Close`, `button/Export Here` | accessibility |
+| `checkbox/…` `toggle/…` `radio/…` `popup/…` `field/…` `text/…` `stepper/…` `image/…` `link/…` | AppKit and SwiftUI controls by role: `popup/…` is an AppKit pop-up button, `field/…` a text field (click it, then `type`), `text/…` a label | accessibility |
+| `menubar/<Title>`, `menuitem/<Title>` | the menu bar (`menubar/View`), items of an open menu | accessibility |
+| `sheet`, `popover`, `alert`, `filePanel`, `colors`, `panel`, `child`, `menu`, `keyWindow` | the frontmost window of that role; `{"window": "sheet", "index": 1}` for another | window list |
+| `window`, `cursor` | the main window; wherever the pointer is | |
+| `{"name": "button/Reset", "index": 1, "within": "sheet"}` | the second match in reading order, only those whose centre is inside another target (any target, including a window role) | |
+| `{"ax": "Export", "role": "AXButton"}` | accessibility by label and raw role | accessibility |
+| `{"text": "Presence", "within": "develop.column"}` | the words on screen, found by OCR. Large clear words only; costs about a second | OCR |
+| `{"point": [x, y]}` | main-window points | |
+
+A target must be on screen. For a control further down a scrolling column use
 `{"do": "scrollTo", "target": "slider/Texture#track"}` first (default container
-`develop.column`, or `"in": "<target>"`). When a target is not found the error lists the
-names that are on screen; a `state` step lists them all with their rectangles, and
-`"texts": true` on it adds everything OCR can read.
+`develop.column`; `"in": "sheet"` scrolls a sheet). When a target is not found the error
+names similar ones and the open windows. Each pointer step's row says how its target was
+found (`lastTarget`).
 
-Named targets are views carrying `.driverAnchor("name")`, a modifier that does nothing
-outside the driver. To make a new control addressable, add that modifier to it (and to
-`driver/tools/install-hooks.py`, which keeps the hook lines installable on older refs).
+Anchors are views carrying `.driverAnchor("name")`, a modifier that does nothing outside
+the driver. The shared controls register themselves (`LumenSlider`, `LumenToggleRow`,
+`LumenSegmented`, `LumenSectionHeader`, `LumenMenu`, `LumenMenuPicker`, `LumenMenuItem`),
+so a new panel built from them is named with no work. To name something else, append the
+modifier to an existing line (tests cite panel lines by number) and add the hook to
+`driver/tools/install-hooks.py`, which installs it on refs that predate it. Everything
+else is reachable by its accessibility name, which needs no hook.
 
 ### Input verbs
 
@@ -303,7 +330,11 @@ Not the real path, and marked so in each step's `via`: `open` and `direct` (`dir
 | `expect` | a check; see below |
 | `shot` | a window screenshot `shots/<name>.png`; also stores the mean colour of `region` (default `viewer.image`) as `shots.<name>.r/g/b/luma/lumaSD` |
 | `compare` | `a`, `b`: two shot names; stores `compare.<name>.meanAbs`, `.changedFraction`, `.dr/.dg/.db` and `.redShift` (positive when the region moved toward red, the mask overlay's signature) for `region` (default `viewer.image`) |
-| `state` | writes `state-<name>.json`: everything below plus every named target's rectangle, the menu bar and the sidecar; `"texts": true` adds OCR |
+| `state` | writes `state-<name>.json`: everything below plus every named target's rectangle, the menu bar and the sidecar; `"texts": true` adds OCR, `"ax": true` the accessibility names |
+| `listTargets` | writes `targets-<name>.txt` and `.json`: every window, every anchor and every accessibility name on screen, grouped by window, with rectangles. Run it once wherever you are going to aim |
+| `press` | performs `AXPress` (or `action`) on a named accessibility element: no pointer, `via: ax`. For a control the pointer cannot reach |
+| `filePanel` | waits for the open or save panel and points it at `folder` (`$OUT`, `$PHOTOS`, `$TMP` expand; created if missing), optionally `fileName`. `via: direct`. Confirm it with a click or `return`; `"confirm": "direct"` calls the panel's OK |
+| `files` | lists `dir` (default `$OUT`): `steps.<id>.count`, `.bytes`. Files under `$OUT` are in the artifact |
 | `mark` | a named row in the timeline |
 | `probe` | writes `probe.json`: permissions, display modes, each capture method, each backend's delivery |
 
@@ -323,6 +354,9 @@ Paths you can read:
 | path | what |
 |---|---|
 | `viewMode`, `workspace`, `masking`, `scanning`, `status` | `grid loupe compare survey`; the workspace; the status-bar message |
+| `windows.sheet`, `.popover`, `.alert`, `.filePanel`, `.colors`, `.panel`, `.menu` | whether such a window is on screen (`waitFor` `windows.sheet` `eq true` after opening one); `windows.count`, `.roles`, `.key` (the key window's role), `.sheetTitle`, `.list.N.role/title/x/y/w/h` |
+| `export.running`, `.progress`, `.recipes.items.N.<field>` | the export batch, and the export recipes as the sheet edits them (`export.recipes.items.0.quality`, `.metadata.includeGPS`, `.sharpen.medium`) |
+| `lastTarget.source`, `.name` | how the last pointer step's target was found: `anchor`, `ax`, `window` or `text` |
 | `photo.name`, `photo.index`, `photo.count` | the selected photo and the roll size |
 | `viewport.zoom`, `.panX`, `.panY` | the app's zoom (0 is fit, 1 is 1:1) and pan |
 | `viewport.viewer.x/y/w/h`, `viewport.image.x/y/w/h` | the viewer and the drawn picture, in window points, as the app lays them out |
@@ -446,16 +480,19 @@ You can run it yourself on a downloaded run:
 - **OCR is weak on this runner.** The accurate recognizer returns nothing on the VM and
   the fast one misreads small 1x type ("Pivot" comes back as "Diwot"). `{"text": ...}`
   targets work for large, clear words only; prefer named targets.
-- **The app's accessibility tree is not visible from inside the process** (SwiftUI builds
-  it only for an outside client), so there is no `ax` addressing that works yet.
-- **Named targets exist for**: the window's regions, every `LumenSlider`, the mask kind
-  tiles, the mask + button and mask rows. Buttons, toggles, section headers, menus in
-  panels, filmstrip cells and sidebar rows have no names yet: reach them with `at`
-  fractions of a region, or add `.driverAnchor`.
+- **Accessibility names cost main-thread time.** The tree is read the way an outside
+  client reads it (from a background thread, while the main thread answers), and once a
+  client has asked, SwiftUI keeps the tree up to date. A scenario that measures timing
+  should aim only at anchors (slider tracks, regions) and not run `listTargets`, `press`
+  or a name that is not an anchor before its measured gestures.
+- **Heal spots and mask pins have no names**: they are drawn on a canvas; aim at fractions of `heal.canvas` or `viewer.image`.
 - **The pixel witness needs the fiducial fixture** and at least two grid lines each
   way. It does not understand rotation, flips or crops.
-- **One window, one process per scenario.** Sheets and popovers are other windows: the
-  driver neither targets nor screenshots them yet.
+- **One process per scenario.** Sheets, popovers, panels, alerts and the open panel are
+  targetable and in screenshots. A window that reaches past the main window is also saved
+  whole as `shots/<name>.<role><n>.png` (listed in the shot's `windows`).
+- **A menu-bar menu runs its own tracking loop.** Clicking `menubar/View` by `hid` opens
+  it; prefer the `menu` verb, which performs the item without the loop.
 - **The catalog database is not copied into the artifact.** The XMP sidecar is in every
   `state` dump (`sidecar`).
 - **HID events need the point on the display.** The driver switches the runner's display

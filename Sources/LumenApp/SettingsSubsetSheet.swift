@@ -92,7 +92,7 @@ struct SettingsSubsetSheet: View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(groups, id: \.self) { group in
                 HStack(spacing: 7) {
-                    LumenCheckbox(isOn: binding(for: group))
+                    LumenCheckbox(isOn: binding(for: group)).driverAnchor("checkbox/" + group.title)
                     // The label toggles too, as an AppKit checkbox's title does.
                     Text(group.title)
                         .font(.lumenBody)

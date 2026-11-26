@@ -1849,7 +1849,7 @@ struct LumenSectionHeader: View {
         // a pointing hand over a label that answers no click is a promise broken — and
         // over a greyed verb inside the row, for the same reason (`rowCursorEnabled`).
         .lumenClickCursor(rowCursorEnabled)
-        .animation(Lumen.motionState, value: hovering)
+        .animation(Lumen.motionState, value: hovering).driverAnchor("section/" + title)
         .padding(.top, topRhythm)
     }
 
@@ -1946,7 +1946,7 @@ struct LumenSegmented<T: Hashable>: View {
                         hovered = nil
                     }
                 }
-                .lumenClickCursor()
+                .lumenClickCursor().driverAnchor("segment/" + option.label)
             }
         }
         // One group, so the options read as a set rather than as loose buttons.
@@ -2432,7 +2432,7 @@ struct LumenToggleRow: View {
         .accessibilityValue(Text(isOn ? "on" : "off"))
         .accessibilityHint(Text(help ?? ""))
         .accessibilityAddTraits(.isButton)
-        .accessibilityAction { if isEnabled { isOn.toggle() } }
+        .accessibilityAction { if isEnabled { isOn.toggle() } }.driverAnchor("toggle/" + title)
     }
 }
 

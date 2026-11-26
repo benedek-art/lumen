@@ -1893,7 +1893,7 @@ struct CropOverlayView: View {
                 .frame(width: CropOverlayView.cornerTarget,
                        height: CropOverlayView.cornerTarget)
                 .gesture(resizeGesture(handle, in: frame))
-                .help("Drag to reframe from this corner.")
+                .help("Drag to reframe from this corner.").driverAnchor("crop-corner/" + handle.rawValue)
         }
         .frame(width: CropOverlayView.cornerBox, height: CropOverlayView.cornerBox)
         .position(point)
@@ -1946,7 +1946,7 @@ struct CropOverlayView: View {
                 .frame(width: horizontal ? length : CropOverlayView.edgeThickness,
                        height: horizontal ? CropOverlayView.edgeThickness : length)
                 .gesture(resizeGesture(handle, in: frame))
-                .help("Drag to move this edge on its own.")
+                .help("Drag to move this edge on its own.").driverAnchor("crop-edge/" + handle.rawValue)
         }
         .position(centre)
     }

@@ -33,6 +33,18 @@ enum DriverCapture {
         return detach ? detached(image) : image
     }
 
+    /// Everything on screen inside a Quartz rectangle, as the window server composites
+    /// it: other processes' windows too (the open panel's content is drawn by a service).
+    /// Needs screen-recording permission.
+    static func screen(quartz rect: CGRect) -> CGImage? {
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2),
+                                 "CGWindowListCreateImage") else { return nil }
+        let function = unsafeBitCast(symbol, to: WindowListCreateImage.self)
+        // 1 = on-screen windows only, all of them; 8 = native resolution.
+        guard let image = function(rect, 1, 0, 8)?.takeRetainedValue() else { return nil }
+        return detached(image)
+    }
+
     /// A copy that owns its pixels. The window server's image shares a surface that is
     /// reused once the window redraws; read later, it is noise.
     static func detached(_ image: CGImage) -> CGImage? {

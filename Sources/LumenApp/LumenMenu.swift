@@ -251,7 +251,7 @@ struct LumenMenu<Content: View>: View {
         .lumenClickCursor()
         .animation(Lumen.motionState, value: hovering)
         .animation(Lumen.motionFold, value: isOpen)
-        .help(help ?? title)
+        .help(help ?? title).driverAnchor("menu/" + title)
     }
 }
 
@@ -318,7 +318,7 @@ struct LumenMenuItem: View {
         .buttonStyle(.plain)
         .disabled(!isEnabled)
         .onHover { hovering = $0 }
-        .animation(Lumen.motionState, value: hovering)
+        .animation(Lumen.motionState, value: hovering).driverAnchor("menuitem/" + title)
     }
 }
 
@@ -414,7 +414,7 @@ struct LumenMenuPicker<Value: Hashable>: View {
                         selection = option.value
                     }
                 }
-            }
+            }.driverAnchor("picker/" + title)
             Spacer(minLength: 0)
         }
         .frame(height: Lumen.rowHeight)

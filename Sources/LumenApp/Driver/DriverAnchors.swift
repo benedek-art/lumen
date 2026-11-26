@@ -7,17 +7,20 @@ import AppKit
 import LumenCore
 import SwiftUI
 
-/// Frames reported by `.driverAnchor(_:)`, in SwiftUI global (window content) points.
-/// Lock-protected so no caller needs an actor.
+/// Frames reported by `.driverAnchor(_:)`, in SwiftUI global points of the window the
+/// view is in (nil: the main window). Lock-protected so no caller needs an actor.
 final class DriverAnchors {
 
     static let shared = DriverAnchors()
     private init() {}
 
-    private struct Entry {
+    struct Entry {
         let id: String
         var frame: CGRect
         var visible: Bool
+        weak var window: NSWindow?
+        /// Inside a sheet or popover, whether or not its window is known yet.
+        var presented = false
     }
 
     private let lock = NSLock()
@@ -31,10 +34,22 @@ final class DriverAnchors {
         return nextToken
     }
 
-    func noteAnchor(id: String, token: Int, frame: CGRect) {
+    func noteAnchor(id: String, token: Int, frame: CGRect, presented: Bool = false) {
         lock.lock()
         defer { lock.unlock() }
-        entries[token] = Entry(id: id, frame: frame, visible: true)
+        let window = entries[token]?.window
+        entries[token] = Entry(id: id, frame: frame, visible: true, window: window,
+                               presented: presented)
+    }
+
+    func noteWindow(token: Int, window: NSWindow?) {
+        lock.lock()
+        defer { lock.unlock() }
+        if entries[token] == nil {
+            entries[token] = Entry(id: "", frame: .zero, visible: false, window: window)
+        } else {
+            entries[token]?.window = window
+        }
     }
 
     func hide(token: Int) {
@@ -43,42 +58,50 @@ final class DriverAnchors {
         entries[token]?.visible = false
     }
 
-    private func live() -> [Entry] {
+    /// Every live entry, in no particular order.
+    func live() -> [Entry] {
         lock.lock()
         defer { lock.unlock() }
-        return entries.values.filter { $0.visible && $0.frame.width > 0 && $0.frame.height > 0 }
-    }
-
-    private static func readingOrder(_ a: CGRect, _ b: CGRect) -> Bool {
-        if abs(a.minY - b.minY) > 0.5 { return a.minY < b.minY }
-        return a.minX < b.minX
-    }
-
-    /// Every live frame registered under `id`, top-to-bottom then left-to-right.
-    func frames(id: String) -> [CGRect] {
-        live().filter { $0.id == id }.map(\.frame).sorted(by: DriverAnchors.readingOrder)
-    }
-
-    /// Ids matching a `*`-suffixed prefix or an exact id.
-    func ids(matching pattern: String) -> [String] {
-        let all = Set(live().map(\.id))
-        if pattern.hasSuffix("*") {
-            let prefix = String(pattern.dropLast())
-            return all.filter { $0.hasPrefix(prefix) }.sorted()
+        return entries.values.filter {
+            $0.visible && !$0.id.isEmpty && $0.frame.width > 0 && $0.frame.height > 0
         }
-        return all.contains(pattern) ? [pattern] : []
+    }
+}
+
+/// Records which window an anchor inside a sheet or popover is in. Zero-sized, draws
+/// nothing, takes no clicks.
+private struct DriverWindowProbe: NSViewRepresentable {
+    let token: Int
+
+    final class ProbeView: NSView {
+        var token = 0
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            let view: NSView = self
+            DriverAnchors.shared.noteWindow(token: token, window: view.window)
+        }
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
 
-    func all() -> [(id: String, frame: CGRect)] {
-        live().map { (id: $0.id, frame: $0.frame) }.sorted { a, b in
-            if a.id != b.id { return a.id < b.id }
-            return DriverAnchors.readingOrder(a.frame, b.frame)
+    func makeNSView(context: Context) -> ProbeView {
+        let view = ProbeView(frame: .zero)
+        view.token = token
+        return view
+    }
+
+    func updateNSView(_ view: ProbeView, context: Context) {
+        if view.token != token {
+            view.token = token
+            let host: NSView = view
+            DriverAnchors.shared.noteWindow(token: token, window: host.window)
         }
     }
 }
 
 private struct DriverAnchorModifier: ViewModifier {
     let id: String
+    /// True inside a sheet or popover: only those anchors pay for a window probe.
+    @Environment(\.isPresented) private var presented
     @State private var token: Int = DriverAnchors.shared.makeToken()
 
     func body(content: Content) -> some View {
@@ -88,18 +111,26 @@ private struct DriverAnchorModifier: ViewModifier {
                 Color.clear
                     .onAppear {
                         DriverAnchors.shared.noteAnchor(id: id, token: token,
-                                                 frame: proxy.frame(in: .global))
+                                                 frame: proxy.frame(in: .global),
+                                                 presented: presented)
                     }
                     .onChange(of: proxy.frame(in: .global)) { _, frame in
-                        DriverAnchors.shared.noteAnchor(id: id, token: token, frame: frame)
+                        DriverAnchors.shared.noteAnchor(id: id, token: token, frame: frame,
+                                                 presented: presented)
                     }
                     .onChange(of: id) { _, newID in
                         DriverAnchors.shared.noteAnchor(id: newID, token: token,
-                                                 frame: proxy.frame(in: .global))
+                                                 frame: proxy.frame(in: .global),
+                                                 presented: presented)
                     }
                     .onDisappear { DriverAnchors.shared.hide(token: token) }
             }
         )
+            .background {
+                if presented {
+                    DriverWindowProbe(token: token).frame(width: 0, height: 0)
+                }
+            }
     }
 }
 
