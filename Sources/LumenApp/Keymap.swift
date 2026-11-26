@@ -230,6 +230,8 @@ final class KeyDispatcher {
 
         // ---- Editing -----------------------------------------------------------
         case "\\":
+            // Only the loupe draws the before plate (driver keymap-backslash-in-grid).
+            guard state.viewMode == .loupe else { return false }
             state.showBefore.toggle()
 
         // The before/after family. `LoupeViewport.beforeMode` had no writer anywhere:
@@ -333,6 +335,8 @@ final class KeyDispatcher {
             // Invert the selected COMPONENT, which is what this key means in LR and in
             // docs/08 §8.1. The whole-mask invert is a toggle in the panel, because a
             // second invert key would be two keys nobody could tell apart.
+            // Masking scope only (docs/12; driver keymap-invert-outside-masking).
+            guard PanelLayout.shared.layout.isMasking else { return false }
             state.invertActiveMaskComponent()
 
         // The three panel keys now name a workspace AND a section, because a workspace
@@ -488,6 +492,8 @@ final class KeyDispatcher {
             // while a click zoomed where you pointed — on the key whose own
             // documentation says "centred on the cursor". Exactly the bug the comment
             // above claims was fixed for Z, reintroduced one case later.
+            // Guarded like Z: Compare and Survey do not draw this zoom.
+            guard state.viewMode == .loupe else { return false }
             LoupeViewport.shared.toggleZoom()
 
         default:
