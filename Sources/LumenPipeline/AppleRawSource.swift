@@ -24,8 +24,9 @@ import LumenCore
 public enum RawSourceError: Error, LocalizedError {
     case unreadable(URL)
     case undecodable(URL)
-    /// macOS opens the file but has no RAW decoder for it (corpus 6001: a compressed
-    /// Fujifilm X-H2 RAF, which Apple lists as "uncompressed RAW format only").
+    /// macOS opens the file but selects no RAW decoder for it: corpus 6001, a compressed
+    /// Fujifilm X-H2 RAF (Apple: "uncompressed RAW format only"), and also a truncated
+    /// CR2 from a camera macOS supports.
     case noRawDecoder(URL)
     /// macOS decodes the file to an all-black frame (corpus 1087: Leica M Monochrom
     /// DNG on macOS 15).
@@ -36,7 +37,7 @@ public enum RawSourceError: Error, LocalizedError {
         switch self {
         case .unreadable: return "file unreadable"
         case .undecodable: return "this file could not be decoded"
-        case .noRawDecoder: return "macOS has no RAW decoder for this file"
+        case .noRawDecoder: return "macOS can't decode this RAW file"
         case .blankDecode: return "macOS decodes this monochrome RAW as a black frame"
         }
     }
@@ -50,9 +51,10 @@ public enum RawSourceError: Error, LocalizedError {
                 + "or incomplete."
         case .noRawDecoder(let url):
             return "\(url.lastPathComponent) can't be developed: the RAW decoder in this "
-                + "version of macOS does not support it. Some cameras are supported "
-                + "only in uncompressed RAW (Fujifilm, for example); Apple's list of "
-                + "supported cameras says which."
+                + "version of macOS can't read it. Either the file is damaged or "
+                + "incomplete, or it is a RAW variant this macOS does not support; some "
+                + "cameras are supported only in uncompressed RAW (Fujifilm, for "
+                + "example), and Apple's list of supported cameras says which."
         case .blankDecode(let url):
             return "\(url.lastPathComponent) can't be developed: the RAW decoder in this "
                 + "version of macOS returns a completely black image for this "
