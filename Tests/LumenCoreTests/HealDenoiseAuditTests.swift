@@ -124,6 +124,24 @@ final class HealDenoiseAuditTests: XCTestCase {
         XCTAssertLessThan(spread, 1.6, "kept noise varies \(spread)× across signal level")
     }
 
+    /// Deep shadow at ISO 102400, every master setting: the patch keeps its brightness.
+    func testDeepShadowsKeepTheirLevelAtEverySetting() {
+        let profile = NoiseProfile.forISO(102_400)
+        var report: [String] = []
+        for (i, level) in [0.0, 0.0005, 0.002, 0.01].enumerated() {
+            let frame = flatField(level: level, profile: profile, seed: 300 + UInt64(i))
+            let before = greenStats(frame)
+            for (l, c) in [(1.0, 0.0), (0, 1), (10, 0), (0, 10), (25, 25), (60, 60), (100, 100)] {
+                let after = greenStats(ClassicalDenoise(ClassicNR(luma: l, chroma: c, hotPixels: 0),
+                                                        profile: profile).apply(frame))
+                let bias = (after.mean - before.mean) / profile.sigma(at: level)
+                report.append(String(format: "x=%.4f L%.0f/C%.0f:%+.3f", level, l, c, bias))
+                XCTAssertLessThan(abs(bias), 0.25, "x=\(level) L\(l) C\(c) shifted by \(bias) σ")
+            }
+        }
+        print("shadow bias:", report.joined(separator: " "))
+    }
+
     func testMoreLuminanceNeverKeepsMoreNoise() {
         let profile = NoiseProfile.forISO(6400)
         let frame = flatField(level: 0.08, profile: profile, seed: 42)
