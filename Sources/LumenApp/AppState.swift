@@ -4192,7 +4192,8 @@ final class AppState: ObservableObject {
     /// bumped in `flushSliderGesture`, which the release, the photo switch and the
     /// 8-second watchdog all already call, so the deferred settle inherits all three
     /// safety nets rather than needing its own.
-    @Published private(set) var settleTick: Int = 0
+    /// Not `@Published`: `edits.settle()` tells its readers (the loupe, compare).
+    private(set) var settleTick: Int = 0
     /// Re-key viewers on a completed rescan even when URL and recipe stayed equal.
     @Published private(set) var sourceRevision: Int = 0
 
@@ -4220,7 +4221,29 @@ final class AppState: ObservableObject {
 
     /// A `LumenSlider` drag holds the panels' edit signal (`PanelEditRevision`).
     lazy var sliderDragHoldSink: (Bool) -> Void = { [weak self] held in
-        self?.panelEdits.hold(held)
+        guard let self else { return }
+        if held {
+            self.panelRelease?.cancel()
+            self.panelRelease = nil
+            self.panelEdits.hold(true)
+        } else {
+            self.releasePanelsAfterSettle()
+        }
+    }
+
+    private var panelRelease: Task<Void, Never>?
+    /// Long enough for a fit settle to land before the panels' catch-up pass takes
+    /// the main thread.
+    static let panelReleaseDelayNanoseconds: UInt64 = 150_000_000
+
+    private func releasePanelsAfterSettle() {
+        guard panelRelease == nil else { return }
+        panelRelease = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: Self.panelReleaseDelayNanoseconds)
+            guard !Task.isCancelled, let self else { return }
+            self.panelRelease = nil
+            self.panelEdits.hold(false)
+        }
     }
 
     /// Slider keyboard focus, and DELIBERATELY NOT `@Published`.
@@ -4323,7 +4346,7 @@ final class AppState: ObservableObject {
         // burst, which never sends its `false`.
         sendMaskOverlay(.gesturesEnded)
         // Any close releases the panels, whatever closed it.
-        panelEdits.hold(false)
+        releasePanelsAfterSettle()
         guard sliderGestureActive else { return }
         sliderGestureActive = false
         gestureWatchdog?.cancel()
@@ -4400,6 +4423,7 @@ final class AppState: ObservableObject {
         // skips it (`FrameDelivery.settleIsRedundant`), and a gesture that landed on
         // its last drafted value would otherwise never settle at all.
         settleTick &+= 1
+        edits.settle()
     }
 
     /// INTERNAL, not private, because `AppStateActions` is an extension in another file

@@ -60,6 +60,12 @@ final class EditRevision: ObservableObject {
     @Published private(set) var value: Int = 0
 
     func bump() { value &+= 1 }
+
+    /// `AppState.settleTick` moved: published here so a release re-keys the surfaces
+    /// that render, not the whole window.
+    @Published private(set) var settles: Int = 0
+
+    func settle() { settles &+= 1 }
 }
 
 /// `EditRevision` for the develop panels, held while a `LumenSlider` is being dragged:
