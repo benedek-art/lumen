@@ -1338,19 +1338,19 @@ struct LumenSlider: View {
                     // Under a moving hand every sample would start another count.
                     .contentTransition(isDragging || isScrubbing ? .identity : .numericText())
                     .foregroundStyle(isModified ? Lumen.primaryText : Lumen.secondaryText)
+                    // The hit shape spans the whole pill, its 5 pt padding below included:
+                    // a click that misses the field sends typed digits to the key grammar.
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                    .padding(.horizontal, 5)
                     .contentShape(Rectangle())
+                    .padding(.horizontal, -5)
                     .onTapGesture {
                         textValue = formatted
                         isEditingText = true
                     }
-                    // THE CURSOR IS THE ADVERTISEMENT. This readout is the app's
-                    // PRECISION instrument — 2.13 points per unit against the track's
-                    // 0.71, three times finer — and its only disclosure was a tooltip
-                    // after a one-second hover delay. Meanwhile it is a 44x22 target
-                    // against the coarse track's 180x22, so the app gave the blunt tool
-                    // four times the hit area of the fine one and told nobody the fine
-                    // one existed. Every other tool in this category — Figma, Resolve,
-                    // After Effects, Photoshop, Capture One — says it with the cursor.
+                    // THE CURSOR IS THE ADVERTISEMENT: the readout is the precision
+                    // instrument, three times finer than the track, and a tooltip is not
+                    // a disclosure (Figma, Resolve, Photoshop, Capture One use the cursor).
                     .lumenScrubCursor()
                     // SCRUB THE NUMBER (docs/28 Phase 6). `minimumDistance: 3` is what
                     // keeps tap-to-type alive: a press that does not travel three points
