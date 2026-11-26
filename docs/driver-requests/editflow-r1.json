@@ -1,0 +1,8205 @@
+{
+ "suite": "",
+ "scenarios": [
+  {
+   "name": "ef-slider",
+   "fixture": "fiducial",
+   "timeoutSeconds": 420,
+   "description": "Slider contract on Exposure/Contrast/Clarity: soft pin, typing grammar, double-click resets, arrows, Escape, option-scroll, fine drag.",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop"
+    },
+    {
+     "do": "state",
+     "name": "a00-open"
+    },
+    {
+     "do": "shot",
+     "name": "a00"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Exposure#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      1.6,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "pastSoft",
+     "note": "drag far past the right end of the track"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.tone.exposure",
+     "near": 5,
+     "tol": 0.001,
+     "note": "drag pins at the soft limit +5"
+    },
+    {
+     "do": "state",
+     "name": "a01-pastsoft"
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -24,
+      0
+     ],
+     "note": "open Exposure readout for typing"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "type",
+     "text": "8"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.tone.exposure",
+     "near": 8,
+     "tol": 0.001,
+     "note": "typing 8 over a pre-selected readout gives 8 (no clear)"
+    },
+    {
+     "do": "state",
+     "name": "a02-type8-noclear"
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -24,
+      0
+     ],
+     "note": "open Exposure readout for typing"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "delete",
+     "count": 12,
+     "interval": 0.02
+    },
+    {
+     "do": "type",
+     "text": "8"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.tone.exposure",
+     "near": 8,
+     "tol": 0.001,
+     "note": "typed 8 beyond soft limit accepted"
+    },
+    {
+     "do": "shot",
+     "name": "a03-type8"
+    },
+    {
+     "do": "state",
+     "name": "a03-type8"
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -24,
+      0
+     ],
+     "note": "open Exposure readout for typing"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "delete",
+     "count": 12,
+     "interval": 0.02
+    },
+    {
+     "do": "type",
+     "text": "+= 0.3"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.tone.exposure",
+     "near": 8.3,
+     "tol": 0.001,
+     "note": "typed '+= 0.3': += 0.3 adds"
+    },
+    {
+     "do": "state",
+     "name": "a04-00"
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -24,
+      0
+     ],
+     "note": "open Exposure readout for typing"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "delete",
+     "count": 12,
+     "interval": 0.02
+    },
+    {
+     "do": "type",
+     "text": "* 2"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.tone.exposure",
+     "near": 10,
+     "tol": 0.001,
+     "note": "typed '* 2': * 2 clamps to the hard limit 10"
+    },
+    {
+     "do": "state",
+     "name": "a04-01"
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -24,
+      0
+     ],
+     "note": "open Exposure readout for typing"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "delete",
+     "count": 12,
+     "interval": 0.02
+    },
+    {
+     "do": "type",
+     "text": "/ 2"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.tone.exposure",
+     "near": 5,
+     "tol": 0.001,
+     "note": "typed '/ 2': / 2 halves"
+    },
+    {
+     "do": "state",
+     "name": "a04-02"
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -24,
+      0
+     ],
+     "note": "open Exposure readout for typing"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "delete",
+     "count": 12,
+     "interval": 0.02
+    },
+    {
+     "do": "type",
+     "text": "/ 0"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.tone.exposure",
+     "near": 5,
+     "tol": 0.001,
+     "note": "typed '/ 0': / 0 rejected, value unchanged"
+    },
+    {
+     "do": "state",
+     "name": "a04-03"
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -24,
+      0
+     ],
+     "note": "open Exposure readout for typing"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "delete",
+     "count": 12,
+     "interval": 0.02
+    },
+    {
+     "do": "type",
+     "text": "abc"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.tone.exposure",
+     "near": 5,
+     "tol": 0.001,
+     "note": "typed 'abc': abc rejected"
+    },
+    {
+     "do": "state",
+     "name": "a04-04"
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -24,
+      0
+     ],
+     "note": "open Exposure readout for typing"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "delete",
+     "count": 12,
+     "interval": 0.02
+    },
+    {
+     "do": "type",
+     "text": "nan"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.tone.exposure",
+     "near": 5,
+     "tol": 0.001,
+     "note": "typed 'nan': nan rejected"
+    },
+    {
+     "do": "state",
+     "name": "a04-05"
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -24,
+      0
+     ],
+     "note": "open Exposure readout for typing"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "delete",
+     "count": 12,
+     "interval": 0.02
+    },
+    {
+     "do": "type",
+     "text": "1e9"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.tone.exposure",
+     "near": 10,
+     "tol": 0.001,
+     "note": "typed '1e9': 1e9 clamps (or is rejected)"
+    },
+    {
+     "do": "state",
+     "name": "a04-06"
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -24,
+      0
+     ],
+     "note": "open Exposure readout for typing"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "delete",
+     "count": 12,
+     "interval": 0.02
+    },
+    {
+     "do": "type",
+     "text": "-= 20"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.tone.exposure",
+     "near": -10,
+     "tol": 0.001,
+     "note": "typed '-= 20': -= 20 clamps to -10"
+    },
+    {
+     "do": "state",
+     "name": "a04-07"
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -24,
+      0
+     ],
+     "note": "open Exposure readout for typing"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "delete",
+     "count": 12,
+     "interval": 0.02
+    },
+    {
+     "do": "type",
+     "text": "-0"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.tone.exposure",
+     "exists": false,
+     "note": "typed '-0': -0 is zero"
+    },
+    {
+     "do": "state",
+     "name": "a04-08"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "a05-sidecar-after-minus0"
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -24,
+      0
+     ],
+     "note": "open Exposure readout for typing"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "delete",
+     "count": 12,
+     "interval": 0.02
+    },
+    {
+     "do": "type",
+     "text": "1.5"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "state",
+     "name": "a06-pre-dclabel"
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure",
+     "at": [
+      0.06,
+      0.5
+     ],
+     "count": 2,
+     "note": "double-click the Exposure label"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.tone.exposure",
+     "exists": false,
+     "note": "double-click label resets Exposure"
+    },
+    {
+     "do": "state",
+     "name": "a07-dclabel"
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -24,
+      0
+     ],
+     "note": "open Exposure readout for typing"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "delete",
+     "count": 12,
+     "interval": 0.02
+    },
+    {
+     "do": "type",
+     "text": "2"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "state",
+     "name": "a08-pre-dctrack"
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure#track",
+     "at": [
+      0.2,
+      0.5
+     ],
+     "count": 2,
+     "note": "double-click the Exposure track away from the thumb"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.tone.exposure",
+     "exists": false,
+     "note": "double-click track resets Exposure"
+    },
+    {
+     "do": "state",
+     "name": "a09-dctrack"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.tone.exposure",
+     "near": 2,
+     "tol": 0.001,
+     "note": "one undo after a track double-click brings back exactly 2.00"
+    },
+    {
+     "do": "state",
+     "name": "a10-dctrack-undo"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Contrast#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Contrast",
+     "at": [
+      0.06,
+      0.5
+     ],
+     "note": "single click on the Contrast label to focus the row"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "state",
+     "name": "a11-focus"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 5,
+     "interval": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.tone.contrast",
+     "eq": -5,
+     "note": "left x5 = -5"
+    },
+    {
+     "do": "state",
+     "name": "a12-left5"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "modifiers": [
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.tone.contrast",
+     "eq": 5,
+     "note": "shift-right = +10 steps"
+    },
+    {
+     "do": "key",
+     "key": "up"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.tone.contrast",
+     "eq": 6,
+     "note": "up = +1"
+    },
+    {
+     "do": "key",
+     "key": "down"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.tone.contrast",
+     "eq": 5,
+     "note": "down = -1"
+    },
+    {
+     "do": "state",
+     "name": "a13-arrows"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "expect",
+     "that": "viewMode",
+     "eq": "loupe",
+     "note": "first Escape only drops focus"
+    },
+    {
+     "do": "key",
+     "key": "right"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.tone.contrast",
+     "eq": 5,
+     "note": "after Escape, arrows no longer nudge"
+    },
+    {
+     "do": "state",
+     "name": "a14-esc1"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "viewMode",
+     "eq": "grid",
+     "note": "second Escape goes to grid"
+    },
+    {
+     "do": "state",
+     "name": "a15-esc2"
+    },
+    {
+     "do": "key",
+     "key": "e"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 20
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Clarity#track"
+    },
+    {
+     "do": "state",
+     "name": "a16-pre-optscroll"
+    },
+    {
+     "do": "scroll",
+     "target": "slider/Clarity",
+     "at": [
+      0.5,
+      0.5
+     ],
+     "lines": [
+      0,
+      1
+     ],
+     "count": 3,
+     "interval": 0.15,
+     "modifiers": [
+      "option"
+     ],
+     "note": "option-scroll 3 clicks over Clarity"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.detail.clarity",
+     "exists": true,
+     "note": "option-scroll nudges Clarity"
+    },
+    {
+     "do": "state",
+     "name": "a17-optscroll"
+    },
+    {
+     "do": "scroll",
+     "target": "slider/Clarity",
+     "at": [
+      0.5,
+      0.5
+     ],
+     "lines": [
+      0,
+      -3
+     ],
+     "count": 2,
+     "note": "plain scroll over Clarity"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "a18-plainscroll"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Contrast#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Contrast",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -24,
+      0
+     ],
+     "note": "open Contrast readout for typing"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "delete",
+     "count": 12,
+     "interval": 0.02
+    },
+    {
+     "do": "type",
+     "text": "0"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "drag",
+     "target": "slider/Contrast#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.75,
+      0.5
+     ],
+     "duration": 0.5,
+     "id": "coarse"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "state",
+     "name": "a19-coarse"
+    },
+    {
+     "do": "click",
+     "target": "slider/Contrast",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -24,
+      0
+     ],
+     "note": "open Contrast readout for typing"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "delete",
+     "count": 12,
+     "interval": 0.02
+    },
+    {
+     "do": "type",
+     "text": "0"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "drag",
+     "target": "slider/Contrast#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.75,
+      0.5
+     ],
+     "duration": 0.5,
+     "id": "fine",
+     "modifiers": [
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "state",
+     "name": "a20-fine"
+    },
+    {
+     "do": "click",
+     "target": "slider/Contrast",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -24,
+      0
+     ],
+     "note": "open Contrast readout for typing"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "delete",
+     "count": 12,
+     "interval": 0.02
+    },
+    {
+     "do": "type",
+     "text": "0"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "drag",
+     "id": "scrub",
+     "target": "slider/Contrast",
+     "from": [
+      0.93,
+      0.5
+     ],
+     "to": [
+      1.13,
+      0.5
+     ],
+     "duration": 0.5,
+     "note": "scrub the Contrast number 20% of the row width"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "state",
+     "name": "a21-scrub"
+    },
+    {
+     "do": "click",
+     "target": "slider/Contrast",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -24,
+      0
+     ],
+     "note": "open Contrast readout for typing"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "delete",
+     "count": 12,
+     "interval": 0.02
+    },
+    {
+     "do": "type",
+     "text": "0"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "drag",
+     "target": "slider/Contrast#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.7,
+      0.5
+     ],
+     "duration": 0.5,
+     "id": "trackSameDistance",
+     "note": "placeholder distance for comparison"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "state",
+     "name": "a22-track"
+    }
+   ]
+  },
+  {
+   "name": "ef-coalesce",
+   "fixture": "fiducial",
+   "timeoutSeconds": 300,
+   "description": "Undo granularity: one long drag with a pause, repeated drags 0.5/1.6/2.5 s apart, alternating sliders.",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "state",
+     "name": "b00"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Exposure#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.75,
+      0.5
+     ],
+     "duration": 4.5,
+     "id": "longdrag",
+     "path": [
+      [
+       0.6,
+       0.5
+      ],
+      [
+       0.6,
+       0.5
+      ]
+     ],
+     "note": "one drag with a 1.5 s pause in the middle"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "state",
+     "name": "b01-longdrag"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.tone.exposure",
+     "exists": false,
+     "note": "one undo removes the whole long drag"
+    },
+    {
+     "do": "state",
+     "name": "b02-undo"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "state",
+     "name": "b03-redo"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "b04"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Exposure#track",
+     "from": [
+      0.6,
+      0.5
+     ],
+     "to": [
+      0.65,
+      0.5
+     ],
+     "duration": 0.3,
+     "id": "s1"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "drag",
+     "target": "slider/Exposure#track",
+     "from": [
+      0.65,
+      0.5
+     ],
+     "to": [
+      0.7,
+      0.5
+     ],
+     "duration": 0.3,
+     "id": "s2"
+    },
+    {
+     "do": "state",
+     "name": "b05-gap05"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "b06"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Exposure#track",
+     "from": [
+      0.7,
+      0.5
+     ],
+     "to": [
+      0.65,
+      0.5
+     ],
+     "duration": 0.3,
+     "id": "s3"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.6
+    },
+    {
+     "do": "drag",
+     "target": "slider/Exposure#track",
+     "from": [
+      0.65,
+      0.5
+     ],
+     "to": [
+      0.6,
+      0.5
+     ],
+     "duration": 0.3,
+     "id": "s4"
+    },
+    {
+     "do": "state",
+     "name": "b07-gap16"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "b08"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Exposure#track",
+     "from": [
+      0.6,
+      0.5
+     ],
+     "to": [
+      0.55,
+      0.5
+     ],
+     "duration": 0.3,
+     "id": "s5"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "drag",
+     "target": "slider/Exposure#track",
+     "from": [
+      0.55,
+      0.5
+     ],
+     "to": [
+      0.5,
+      0.5
+     ],
+     "duration": 0.3,
+     "id": "s6"
+    },
+    {
+     "do": "state",
+     "name": "b09-gap25"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Contrast#track"
+    },
+    {
+     "do": "state",
+     "name": "b10"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Contrast#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.6,
+      0.5
+     ],
+     "duration": 0.3,
+     "id": "c1"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "drag",
+     "target": "slider/Highlights#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.4,
+      0.5
+     ],
+     "duration": 0.3,
+     "id": "h1"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "drag",
+     "target": "slider/Contrast#track",
+     "from": [
+      0.6,
+      0.5
+     ],
+     "to": [
+      0.7,
+      0.5
+     ],
+     "duration": 0.3,
+     "id": "c2"
+    },
+    {
+     "do": "state",
+     "name": "b11-alternate"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "state",
+     "name": "b12-u1"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "state",
+     "name": "b13-u2"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "state",
+     "name": "b14-u3"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ],
+     "count": 3,
+     "interval": 0.3
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "state",
+     "name": "b15-redo3"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "b16-sidecar"
+    }
+   ]
+  },
+  {
+   "name": "ef-undo-tools",
+   "fixture": "fiducial",
+   "timeoutSeconds": 480,
+   "description": "Undo/redo across WB, exposure, crop angle, linear mask, heal spot, rating, Auto Tone and Reset; recipe and sidecar after each.",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "c00"
+    },
+    {
+     "do": "shot",
+     "name": "c00"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Temp#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Temp#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.65,
+      0.5
+     ],
+     "duration": 0.5,
+     "id": "temp"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "c01-temp"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -24,
+      0
+     ],
+     "note": "open Exposure readout for typing"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "delete",
+     "count": 12,
+     "interval": 0.02
+    },
+    {
+     "do": "type",
+     "text": "0.8"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "c02-exposure"
+    },
+    {
+     "do": "key",
+     "key": "r",
+     "note": "crop tool"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "c03a-crop-entered"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Angle#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Angle#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.6,
+      0.5
+     ],
+     "duration": 0.5,
+     "id": "angle"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "key",
+     "key": "2",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 20
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "c03-crop"
+    },
+    {
+     "do": "key",
+     "key": "m"
+    },
+    {
+     "do": "waitFor",
+     "that": "masking",
+     "eq": true,
+     "timeout": 5
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "click",
+     "target": "mask-kind/Linear Gradient"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "drag",
+     "id": "grad",
+     "target": "viewer",
+     "from": [
+      0.5,
+      0.25
+     ],
+     "to": [
+      0.5,
+      0.7
+     ],
+     "duration": 0.6
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "c04-mask"
+    },
+    {
+     "do": "key",
+     "key": "q",
+     "note": "heal tool"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "click",
+     "target": "viewer",
+     "at": [
+      0.3,
+      0.35
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "key",
+     "key": "q"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "c05-heal"
+    },
+    {
+     "do": "key",
+     "key": "3",
+     "note": "rating 3"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "c06-rating"
+    },
+    {
+     "do": "key",
+     "key": "a",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ],
+     "note": "Auto Tone"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.0
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 20
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "c07-auto"
+    },
+    {
+     "do": "key",
+     "key": "r",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ],
+     "note": "Reset Settings"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "c08-reset"
+    },
+    {
+     "do": "shot",
+     "name": "c08"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 20
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "c100-undo1"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 20
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "c101-undo2"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 20
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "c102-undo3"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 20
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "c103-undo4"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 20
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "c104-undo5"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 20
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "c105-undo6"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 20
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "c106-undo7"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 20
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "c107-undo8"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 20
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "c108-undo9"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 20
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "c109-undo10"
+    },
+    {
+     "do": "shot",
+     "name": "c-undone-all"
+    },
+    {
+     "do": "compare",
+     "name": "undoneVsOpen",
+     "a": "c00",
+     "b": "c-undone-all"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "state",
+     "name": "c200-redo1"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "state",
+     "name": "c201-redo2"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "state",
+     "name": "c202-redo3"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "state",
+     "name": "c203-redo4"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "state",
+     "name": "c204-redo5"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "state",
+     "name": "c205-redo6"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "state",
+     "name": "c206-redo7"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "state",
+     "name": "c207-redo8"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "state",
+     "name": "c208-redo9"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "state",
+     "name": "c209-redo10"
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 20
+    },
+    {
+     "do": "wait",
+     "seconds": 2.0
+    },
+    {
+     "do": "state",
+     "name": "c30-final"
+    },
+    {
+     "do": "shot",
+     "name": "c30"
+    }
+   ]
+  },
+  {
+   "name": "ef-history-snap",
+   "fixture": "fiducial",
+   "timeoutSeconds": 300,
+   "description": "History card row clicks and a named snapshot save/restore/undo, reached by OCR.",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -24,
+      0
+     ],
+     "note": "open Exposure readout for typing"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "delete",
+     "count": 12,
+     "interval": 0.02
+    },
+    {
+     "do": "type",
+     "text": "0.5"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -24,
+      0
+     ],
+     "note": "open Exposure readout for typing"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "delete",
+     "count": 12,
+     "interval": 0.02
+    },
+    {
+     "do": "type",
+     "text": "1.0"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Contrast#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Contrast",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -24,
+      0
+     ],
+     "note": "open Contrast readout for typing"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "delete",
+     "count": 12,
+     "interval": 0.02
+    },
+    {
+     "do": "type",
+     "text": "20"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "d00-edited"
+    },
+    {
+     "do": "scroll",
+     "target": "develop.column",
+     "at": [
+      0.5,
+      0.5
+     ],
+     "lines": [
+      0,
+      -12
+     ],
+     "count": 12,
+     "interval": 0.05,
+     "note": "scroll the develop column to the bottom"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "d01-bottom",
+     "texts": true
+    },
+    {
+     "do": "shot",
+     "name": "d01"
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "History",
+      "within": "develop.column"
+     },
+     "note": "open the History card"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "scroll",
+     "target": "develop.column",
+     "at": [
+      0.5,
+      0.5
+     ],
+     "lines": [
+      0,
+      -12
+     ],
+     "count": 8,
+     "interval": 0.05
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "d02-history",
+     "texts": true
+    },
+    {
+     "do": "shot",
+     "name": "d02"
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "As opened",
+      "within": "develop.column"
+     },
+     "note": "jump to the base row"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "d03-asopened",
+     "texts": true
+    },
+    {
+     "do": "shot",
+     "name": "d03"
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Contrast",
+      "within": "develop.column"
+     },
+     "note": "jump forward to the newest row"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "d04-forward",
+     "texts": true
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Snapshot name",
+      "within": "develop.column"
+     },
+     "note": "focus the snapshot name field"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "type",
+     "text": "snapA"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Save",
+      "within": "develop.column"
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "expect",
+     "that": "app.photoSnapshots.rows.count",
+     "eq": 1,
+     "note": "the snapshot is saved"
+    },
+    {
+     "do": "state",
+     "name": "d05-saved",
+     "texts": true
+    },
+    {
+     "do": "shot",
+     "name": "d05"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -24,
+      0
+     ],
+     "note": "open Exposure readout for typing"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "delete",
+     "count": 12,
+     "interval": 0.02
+    },
+    {
+     "do": "type",
+     "text": "-1"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "d06-edited-after-snap"
+    },
+    {
+     "do": "scroll",
+     "target": "develop.column",
+     "at": [
+      0.5,
+      0.5
+     ],
+     "lines": [
+      0,
+      -12
+     ],
+     "count": 12,
+     "interval": 0.05
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "d07",
+     "texts": true
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "snapA",
+      "within": "develop.column"
+     },
+     "note": "restore the snapshot"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "d08-restored",
+     "texts": true
+    },
+    {
+     "do": "shot",
+     "name": "d08"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "d09-restore-undone"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "d10-sidecar"
+    }
+   ]
+  },
+  {
+   "name": "ef-sheet-calib",
+   "fixture": "fiducial",
+   "timeoutSeconds": 600,
+   "description": "Copy Settings\u2026 sheet: Return with defaults, then blind clicks down the sheet at x=602 to find each row (status names what got copied).",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop"
+    },
+    {
+     "do": "state",
+     "name": "h00"
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "h01-sheet-open"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "exists": true,
+     "note": "default Copy Settings\u2026 status"
+    },
+    {
+     "do": "state",
+     "name": "h02-default"
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       40
+      ]
+     },
+     "note": "probe y=40"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe40",
+     "note": "status after probe y=40"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=40?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       40
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore40",
+     "note": "status after restoring y=40"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       52
+      ]
+     },
+     "note": "probe y=52"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe52",
+     "note": "status after probe y=52"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=52?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       52
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore52",
+     "note": "status after restoring y=52"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       64
+      ]
+     },
+     "note": "probe y=64"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe64",
+     "note": "status after probe y=64"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=64?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       64
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore64",
+     "note": "status after restoring y=64"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       76
+      ]
+     },
+     "note": "probe y=76"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe76",
+     "note": "status after probe y=76"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=76?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       76
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore76",
+     "note": "status after restoring y=76"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       88
+      ]
+     },
+     "note": "probe y=88"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe88",
+     "note": "status after probe y=88"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=88?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       88
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore88",
+     "note": "status after restoring y=88"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       100
+      ]
+     },
+     "note": "probe y=100"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe100",
+     "note": "status after probe y=100"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=100?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       100
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore100",
+     "note": "status after restoring y=100"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       112
+      ]
+     },
+     "note": "probe y=112"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe112",
+     "note": "status after probe y=112"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=112?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       112
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore112",
+     "note": "status after restoring y=112"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       124
+      ]
+     },
+     "note": "probe y=124"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe124",
+     "note": "status after probe y=124"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=124?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       124
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore124",
+     "note": "status after restoring y=124"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       136
+      ]
+     },
+     "note": "probe y=136"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe136",
+     "note": "status after probe y=136"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=136?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       136
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore136",
+     "note": "status after restoring y=136"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       148
+      ]
+     },
+     "note": "probe y=148"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe148",
+     "note": "status after probe y=148"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=148?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       148
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore148",
+     "note": "status after restoring y=148"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       160
+      ]
+     },
+     "note": "probe y=160"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe160",
+     "note": "status after probe y=160"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=160?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       160
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore160",
+     "note": "status after restoring y=160"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       172
+      ]
+     },
+     "note": "probe y=172"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe172",
+     "note": "status after probe y=172"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=172?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       172
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore172",
+     "note": "status after restoring y=172"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       184
+      ]
+     },
+     "note": "probe y=184"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe184",
+     "note": "status after probe y=184"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=184?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       184
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore184",
+     "note": "status after restoring y=184"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       196
+      ]
+     },
+     "note": "probe y=196"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe196",
+     "note": "status after probe y=196"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=196?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       196
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore196",
+     "note": "status after restoring y=196"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       208
+      ]
+     },
+     "note": "probe y=208"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe208",
+     "note": "status after probe y=208"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=208?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       208
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore208",
+     "note": "status after restoring y=208"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       220
+      ]
+     },
+     "note": "probe y=220"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe220",
+     "note": "status after probe y=220"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=220?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       220
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore220",
+     "note": "status after restoring y=220"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       232
+      ]
+     },
+     "note": "probe y=232"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe232",
+     "note": "status after probe y=232"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=232?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       232
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore232",
+     "note": "status after restoring y=232"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       244
+      ]
+     },
+     "note": "probe y=244"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe244",
+     "note": "status after probe y=244"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=244?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       244
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore244",
+     "note": "status after restoring y=244"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       256
+      ]
+     },
+     "note": "probe y=256"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe256",
+     "note": "status after probe y=256"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=256?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       256
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore256",
+     "note": "status after restoring y=256"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       268
+      ]
+     },
+     "note": "probe y=268"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe268",
+     "note": "status after probe y=268"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=268?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       268
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore268",
+     "note": "status after restoring y=268"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       280
+      ]
+     },
+     "note": "probe y=280"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe280",
+     "note": "status after probe y=280"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=280?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       280
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore280",
+     "note": "status after restoring y=280"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       292
+      ]
+     },
+     "note": "probe y=292"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe292",
+     "note": "status after probe y=292"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=292?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       292
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore292",
+     "note": "status after restoring y=292"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       304
+      ]
+     },
+     "note": "probe y=304"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe304",
+     "note": "status after probe y=304"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=304?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       304
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore304",
+     "note": "status after restoring y=304"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       316
+      ]
+     },
+     "note": "probe y=316"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe316",
+     "note": "status after probe y=316"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=316?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       316
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore316",
+     "note": "status after restoring y=316"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       328
+      ]
+     },
+     "note": "probe y=328"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe328",
+     "note": "status after probe y=328"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=328?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       328
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore328",
+     "note": "status after restoring y=328"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       340
+      ]
+     },
+     "note": "probe y=340"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe340",
+     "note": "status after probe y=340"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=340?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       340
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore340",
+     "note": "status after restoring y=340"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       352
+      ]
+     },
+     "note": "probe y=352"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe352",
+     "note": "status after probe y=352"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=352?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       352
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore352",
+     "note": "status after restoring y=352"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       364
+      ]
+     },
+     "note": "probe y=364"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe364",
+     "note": "status after probe y=364"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=364?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       364
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore364",
+     "note": "status after restoring y=364"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       376
+      ]
+     },
+     "note": "probe y=376"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe376",
+     "note": "status after probe y=376"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=376?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       376
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore376",
+     "note": "status after restoring y=376"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       388
+      ]
+     },
+     "note": "probe y=388"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe388",
+     "note": "status after probe y=388"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=388?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       388
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore388",
+     "note": "status after restoring y=388"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       400
+      ]
+     },
+     "note": "probe y=400"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe400",
+     "note": "status after probe y=400"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=400?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       400
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore400",
+     "note": "status after restoring y=400"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       412
+      ]
+     },
+     "note": "probe y=412"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe412",
+     "note": "status after probe y=412"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=412?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       412
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore412",
+     "note": "status after restoring y=412"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       424
+      ]
+     },
+     "note": "probe y=424"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe424",
+     "note": "status after probe y=424"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=424?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       424
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore424",
+     "note": "status after restoring y=424"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       436
+      ]
+     },
+     "note": "probe y=436"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe436",
+     "note": "status after probe y=436"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=436?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       436
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore436",
+     "note": "status after restoring y=436"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       448
+      ]
+     },
+     "note": "probe y=448"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe448",
+     "note": "status after probe y=448"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=448?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       448
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore448",
+     "note": "status after restoring y=448"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       460
+      ]
+     },
+     "note": "probe y=460"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe460",
+     "note": "status after probe y=460"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=460?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       460
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore460",
+     "note": "status after restoring y=460"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       472
+      ]
+     },
+     "note": "probe y=472"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe472",
+     "note": "status after probe y=472"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=472?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       472
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore472",
+     "note": "status after restoring y=472"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       484
+      ]
+     },
+     "note": "probe y=484"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe484",
+     "note": "status after probe y=484"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=484?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       484
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore484",
+     "note": "status after restoring y=484"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       496
+      ]
+     },
+     "note": "probe y=496"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe496",
+     "note": "status after probe y=496"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=496?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       496
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore496",
+     "note": "status after restoring y=496"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       508
+      ]
+     },
+     "note": "probe y=508"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "probe508",
+     "note": "status after probe y=508"
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": true,
+     "note": "sheet still up after probe y=508?"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7
+    },
+    {
+     "do": "click",
+     "target": {
+      "point": [
+       602,
+       508
+      ]
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.25
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "restore508",
+     "note": "status after restoring y=508"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    }
+   ]
+  },
+  {
+   "name": "ef-paste",
+   "fixture": "raw",
+   "timeoutSeconds": 600,
+   "description": "Copy/Paste Settings variants, Copy Settings\u2026 default subset, Paste from Previous, between the A7 IV ARW and the 5D CR2.",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "5D-12MP.CR2",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "e00-B-initial"
+    },
+    {
+     "do": "open",
+     "photo": "A7IV-33MP.ARW",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "e01-A-initial"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Temp#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Temp#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.62,
+      0.5
+     ],
+     "duration": 0.5
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -24,
+      0
+     ],
+     "note": "open Exposure readout for typing"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "delete",
+     "count": 12,
+     "interval": 0.02
+    },
+    {
+     "do": "type",
+     "text": "1.25"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Clarity#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Clarity",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -24,
+      0
+     ],
+     "note": "open Clarity readout for typing"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "delete",
+     "count": 12,
+     "interval": 0.02
+    },
+    {
+     "do": "type",
+     "text": "30"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "r"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Angle#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Angle",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -24,
+      0
+     ],
+     "note": "open Angle readout for typing"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "delete",
+     "count": 12,
+     "interval": 0.02
+    },
+    {
+     "do": "type",
+     "text": "5"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "2",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "key",
+     "key": "m"
+    },
+    {
+     "do": "waitFor",
+     "that": "masking",
+     "eq": true,
+     "timeout": 5
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "click",
+     "target": "mask-kind/Linear Gradient"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "drag",
+     "target": "viewer",
+     "from": [
+      0.5,
+      0.2
+     ],
+     "to": [
+      0.5,
+      0.6
+     ],
+     "duration": 0.6
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "key",
+     "key": "q"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "click",
+     "target": "viewer",
+     "at": [
+      0.3,
+      0.35
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "key",
+     "key": "q"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "wait",
+     "seconds": 2.0
+    },
+    {
+     "do": "state",
+     "name": "e02-A-edited"
+    },
+    {
+     "do": "shot",
+     "name": "e02"
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd"
+     ],
+     "note": "Copy Settings"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "open",
+     "photo": "5D-12MP.CR2",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "state",
+     "name": "e03-B-before"
+    },
+    {
+     "do": "key",
+     "key": "v",
+     "modifiers": [
+      "cmd"
+     ],
+     "note": "Paste Settings"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "e04-B-paste"
+    },
+    {
+     "do": "shot",
+     "name": "e04"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "e05-B-paste-undo"
+    },
+    {
+     "do": "key",
+     "key": "v",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ],
+     "note": "Paste Without Masks"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "e06-B-paste-nomask"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "menu",
+     "path": "Edit > Paste Includes Spot Removal"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "state",
+     "name": "e07-retouch-on"
+    },
+    {
+     "do": "key",
+     "key": "v",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "e08-B-paste-retouch"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "menu",
+     "path": "Edit > Paste Includes Spot Removal"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "menu",
+     "path": "Edit > Paste Masks"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "e09-B-pastemasks"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "e10-B-clean"
+    },
+    {
+     "do": "open",
+     "photo": "A7IV-33MP.ARW",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "e11-sheet"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "e12-copied-subset"
+    },
+    {
+     "do": "open",
+     "photo": "5D-12MP.CR2",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "key",
+     "key": "v",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "e13-B-subset-paste"
+    },
+    {
+     "do": "shot",
+     "name": "e13"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "e14-B-subset-undo"
+    },
+    {
+     "do": "open",
+     "photo": "A7IV-33MP.ARW",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "open",
+     "photo": "5D-12MP.CR2",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "key",
+     "key": "v",
+     "modifiers": [
+      "ctrl",
+      "cmd"
+     ],
+     "note": "Paste from Previous"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "e15-B-fromprev"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "e16-B-fromprev-undo"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -24,
+      0
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "key",
+     "key": "v",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "state",
+     "name": "e17-textfield-cmdv"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "state",
+     "name": "e18-after-textfield"
+    }
+   ]
+  },
+  {
+   "name": "ef-multi",
+   "fixture": "raw",
+   "timeoutSeconds": 600,
+   "description": "Editing with three photos selected: exposure drag, a mask, crop angle, heal spot; then undo and redo.",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "5D-12MP.CR2",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 2.0
+    },
+    {
+     "do": "state",
+     "name": "f00-B"
+    },
+    {
+     "do": "open",
+     "photo": "XH2-40MP.RAF",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 2.0
+    },
+    {
+     "do": "state",
+     "name": "f01-C"
+    },
+    {
+     "do": "open",
+     "photo": "A7IV-33MP.ARW",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 2.0
+    },
+    {
+     "do": "state",
+     "name": "f02-A"
+    },
+    {
+     "do": "key",
+     "key": "a",
+     "modifiers": [
+      "cmd"
+     ],
+     "note": "Select All"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "expect",
+     "that": "app.selection.count",
+     "eq": 3,
+     "note": "three selected"
+    },
+    {
+     "do": "state",
+     "name": "f03-selall"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Exposure#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.62,
+      0.5
+     ],
+     "duration": 0.5,
+     "id": "multiexp"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "f04-multiexp"
+    },
+    {
+     "do": "key",
+     "key": "m"
+    },
+    {
+     "do": "waitFor",
+     "that": "masking",
+     "eq": true,
+     "timeout": 5
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "click",
+     "target": "mask-kind/Linear Gradient"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "drag",
+     "target": "viewer",
+     "from": [
+      0.5,
+      0.2
+     ],
+     "to": [
+      0.5,
+      0.6
+     ],
+     "duration": 0.6
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Exposure#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.6,
+      0.5
+     ],
+     "duration": 0.4
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "f05-multimask"
+    },
+    {
+     "do": "key",
+     "key": "r"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Angle#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Angle",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -24,
+      0
+     ],
+     "note": "open Angle readout for typing"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "delete",
+     "count": 12,
+     "interval": 0.02
+    },
+    {
+     "do": "type",
+     "text": "4"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "2",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "f06-multicrop"
+    },
+    {
+     "do": "key",
+     "key": "q"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "click",
+     "target": "viewer",
+     "at": [
+      0.3,
+      0.35
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "key",
+     "key": "q"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "f07-multiheal"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "f08-u1"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "f09-u2"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "f10-u3"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "f11-u4"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "f12-u5"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.0
+    },
+    {
+     "do": "open",
+     "photo": "5D-12MP.CR2",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 2.0
+    },
+    {
+     "do": "state",
+     "name": "f13-B-end"
+    },
+    {
+     "do": "open",
+     "photo": "XH2-40MP.RAF",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 2.0
+    },
+    {
+     "do": "state",
+     "name": "f14-C-end"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ],
+     "count": 5,
+     "interval": 0.5
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "f15-C-redo"
+    },
+    {
+     "do": "open",
+     "photo": "5D-12MP.CR2",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 2.0
+    },
+    {
+     "do": "state",
+     "name": "f16-B-redo"
+    },
+    {
+     "do": "open",
+     "photo": "A7IV-33MP.ARW",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 2.0
+    },
+    {
+     "do": "state",
+     "name": "f17-A-redo"
+    }
+   ]
+  },
+  {
+   "name": "ef-presets",
+   "fixture": "raw",
+   "timeoutSeconds": 600,
+   "description": "Temp As-Shot resets, Auto and Reset on a RAW, a develop preset saved and applied and undone, Sync Settings\u2026 defaults.",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "5D-12MP.CR2",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 2.0
+    },
+    {
+     "do": "state",
+     "name": "g00-B"
+    },
+    {
+     "do": "open",
+     "photo": "A7IV-33MP.ARW",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 2.0
+    },
+    {
+     "do": "state",
+     "name": "g01-A"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Temp#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Temp#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.65,
+      0.5
+     ],
+     "duration": 0.5
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "g02-temp"
+    },
+    {
+     "do": "click",
+     "target": "slider/Temp",
+     "at": [
+      0.06,
+      0.5
+     ],
+     "count": 2
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.raw.temp",
+     "exists": false,
+     "note": "double-click Temp label returns to As Shot"
+    },
+    {
+     "do": "state",
+     "name": "g03-temp-reset"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Temp#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.65,
+      0.5
+     ],
+     "duration": 0.5
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "click",
+     "target": "slider/Temp#track",
+     "at": [
+      0.2,
+      0.5
+     ],
+     "count": 2
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.raw.temp",
+     "exists": false,
+     "note": "double-click Temp track returns to As Shot"
+    },
+    {
+     "do": "state",
+     "name": "g04-temp-trackreset"
+    },
+    {
+     "do": "key",
+     "key": "a",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 30
+    },
+    {
+     "do": "state",
+     "name": "g05-auto"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "g06-auto-undo"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -24,
+      0
+     ],
+     "note": "open Exposure readout for typing"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "delete",
+     "count": 12,
+     "interval": 0.02
+    },
+    {
+     "do": "type",
+     "text": "1.0"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Clarity#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Clarity",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -24,
+      0
+     ],
+     "note": "open Clarity readout for typing"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "delete",
+     "count": 12,
+     "interval": 0.02
+    },
+    {
+     "do": "type",
+     "text": "25"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "g07-A-edited"
+    },
+    {
+     "do": "key",
+     "key": "r",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "g08-reset"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "g09-reset-undo"
+    },
+    {
+     "do": "key",
+     "key": "n",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "g10-presetsheet"
+    },
+    {
+     "do": "type",
+     "text": "Warm"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "g11-preset-saved"
+    },
+    {
+     "do": "open",
+     "photo": "5D-12MP.CR2",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "g12-B-before"
+    },
+    {
+     "do": "menu",
+     "path": "Photo > Develop Presets > Warm"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "g13-B-preset"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "g14-B-preset-undo"
+    },
+    {
+     "do": "open",
+     "photo": "A7IV-33MP.ARW",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "key",
+     "key": "a",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "key",
+     "key": "s",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "g15-syncsheet"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "g16-synced"
+    },
+    {
+     "do": "open",
+     "photo": "5D-12MP.CR2",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "g17-B-synced"
+    },
+    {
+     "do": "open",
+     "photo": "XH2-40MP.RAF",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "g18-C-synced"
+    }
+   ]
+  }
+ ],
+ "ref": "",
+ "config": "release",
+ "strict": false,
+ "note": "editflow tester run 1 (areas 11/27/28) on integration 805455c0 with its own driver"
+}
