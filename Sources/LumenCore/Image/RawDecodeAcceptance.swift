@@ -35,4 +35,20 @@ public enum RawDecodeAcceptance {
         return nativeSize.width.isFinite && nativeSize.height.isFinite
             && nativeSize.width >= 1 && nativeSize.height >= 1
     }
+
+    /// Whether interleaved RGBA scene-linear samples hold any light at all. A decode
+    /// whose every colour sample is at or below `floor` is a blank frame (macOS 15 on
+    /// the Leica M Monochrom DNG: every sample 0 or -1.3e-10), not a dark photograph:
+    /// sensor read noise alone is ~1e-3 of white after black subtraction.
+    public static func carriesSignal(rgba: [Float], floor: Float = 1e-5) -> Bool {
+        var index = 0
+        while index + 2 < rgba.count {
+            for channel in index..<(index + 3) where rgba[channel].isFinite
+                && rgba[channel] > floor {
+                return true
+            }
+            index += 4
+        }
+        return false
+    }
 }

@@ -21,9 +21,44 @@ import CoreVideo
 import Foundation
 import LumenCore
 
-public enum RawSourceError: Error {
+public enum RawSourceError: Error, LocalizedError {
     case unreadable(URL)
     case undecodable(URL)
+    /// macOS opens the file but has no RAW decoder for it (corpus 6001: a compressed
+    /// Fujifilm X-H2 RAF, which Apple lists as "uncompressed RAW format only").
+    case noRawDecoder(URL)
+    /// macOS decodes the file to an all-black frame (corpus 1087: Leica M Monochrom
+    /// DNG on macOS 15).
+    case blankDecode(URL)
+
+    /// Short, for the viewer's badge.
+    public var shortReason: String {
+        switch self {
+        case .unreadable: return "file unreadable"
+        case .undecodable: return "this file could not be decoded"
+        case .noRawDecoder: return "macOS has no RAW decoder for this file"
+        case .blankDecode: return "macOS decodes this monochrome RAW as a black frame"
+        }
+    }
+
+    public var errorDescription: String? {
+        switch self {
+        case .unreadable(let url):
+            return "\(url.lastPathComponent) could not be read."
+        case .undecodable(let url):
+            return "\(url.lastPathComponent) could not be decoded. It may be damaged "
+                + "or incomplete."
+        case .noRawDecoder(let url):
+            return "\(url.lastPathComponent) can't be developed: the RAW decoder in this "
+                + "version of macOS does not support it. Some cameras are supported "
+                + "only in uncompressed RAW (Fujifilm, for example); Apple's list of "
+                + "supported cameras says which."
+        case .blankDecode(let url):
+            return "\(url.lastPathComponent) can't be developed: the RAW decoder in this "
+                + "version of macOS returns a completely black image for this "
+                + "monochrome file, so Lumen will not show or export it as a photograph."
+        }
+    }
 }
 
 public final class AppleRawSource: ImageSource {
@@ -82,7 +117,7 @@ public final class AppleRawSource: ImageSource {
         // No RAW decoder selected: what the filter would deliver is ImageIO's reading
         // of the container (an embedded thumbnail for the P65+ IIQ), not a decode.
         guard RawParams.selectsRawDecoder(filter.decoderVersion.rawValue) else {
-            throw RawSourceError.undecodable(url)
+            throw RawSourceError.noRawDecoder(url)
         }
         self.url = url
         self.filter = filter
@@ -101,6 +136,29 @@ public final class AppleRawSource: ImageSource {
         self.defaultColorNR = filter.colorNoiseReductionAmount
         self.defaultSharpness = filter.sharpnessAmount
         self.captureISO = CaptureMetadataReader.read(url: url)?.iso.map { Double($0) }
+
+        if Self.decodesAsOnePlane(url), !probeCarriesSignal() {
+            throw RawSourceError.blankDecode(url)
+        }
+    }
+
+    /// Only one-plane (monochrome) DNGs are probed; the probe costs a small decode.
+    private static func decodesAsOnePlane(_ url: URL) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
+        defer { try? handle.close() }
+        guard let prefix = try? handle.read(upToCount: 256 * 1024) else { return false }
+        return DNGRawPlanes.layout(prefix: prefix)?.isSinglePlaneLinear ?? false
+    }
+
+    /// A ~512 px decode through the real decode path; false when it is all black.
+    private func probeCarriesSignal() -> Bool {
+        defer { releaseDecodes() }
+        let scale = nativeLongEdge > 0 ? Swift.min(1.0, 512 / nativeLongEdge) : 1.0
+        guard let image = decode(recipe: Recipe(), draft: true, scaleFactor: scale),
+              let buffer = PipelineRenderer.buffer(from: image,
+                                                   context: DecodeMaterializer.context)
+        else { return true }
+        return RawDecodeAcceptance.carriesSignal(rgba: buffer.pixels)
     }
 
     /// Whether a decode by `version` must go through the RAW9 colour boundary.
