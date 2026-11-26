@@ -122,7 +122,9 @@ resource_id `render-lab.yml`, branch filter. Then open sheets with the Read tool
 | `1346` | Canon 5D CR2 | control case, shadows |
 
 All CC0 from raw.pixls.us, sha256-verified (`photos.tsv`, `fetch-photos.sh`). None of them is
-a true high-ISO frame; adding one is a gap (§7).
+a true high-ISO frame; adding one is a gap (§7). `6001` (X-H2 RAF) is refused by
+`AppleRawSource` on the hosted macos-15 runner (`undecodable`), so it has no plate and fails
+on the shipping path there.
 
 Charts (scene-linear, linear Rec.2020, mid-grey 0.18, generated at the render size, 3:2):
 `chart:greyRamp` (−8…+4 EV ramp + 13 one-stop patches), `chart:colorChecker` (24 patches,

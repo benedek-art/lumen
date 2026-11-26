@@ -89,7 +89,10 @@ public final class RenderLabRunner {
 
     func registerLUTs() throws {
         for (ref, path) in manifest.luts {
-            var candidates = [URL(fileURLWithPath: path)]
+            // CI copies manifests elsewhere, so committed manifests' relative paths are
+            // also tried against renderlab/manifests under the working directory.
+            var candidates = [URL(fileURLWithPath: path),
+                              URL(fileURLWithPath: "renderlab/manifests").appendingPathComponent(path)]
             if let dir = manifestDirectory {
                 candidates.insert(dir.appendingPathComponent(path), at: 0)
             }
