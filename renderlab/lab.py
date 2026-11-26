@@ -278,6 +278,11 @@ def cmd_plan(args):
     except ValueError:
         shards = 4
     drift = str(req.get("drift") or "").strip()
+    if (not drift and lane in ("linux", "both")) or drift == "auto":
+        # Reference results always travel with a sampled shipping-vs-reference check.
+        drift = "drift-sample"
+    if drift == "none":
+        drift = ""
     if drift and not all(c.isalnum() or c in "._-" for c in drift):
         raise SystemExit("bad drift name")
     runs_on = str(req.get("runs-on") or "macos-15").strip()

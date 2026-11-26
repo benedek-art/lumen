@@ -317,19 +317,28 @@ final class RenderLabShippingHarness: XCTestCase {
         let backend = ShippingBackend(photos: URL(fileURLWithPath: photos, isDirectory: true),
                                       scratch: FileManager.default.temporaryDirectory)
         var headers: [RenderLabPlate.Header] = []
+        var failures: [String] = []
         for id in ids {
             let started = Date()
-            var plates = [try backend.plate(id, longEdge: longEdge, crop: nil)]
-            for crop in Self.crops {
-                plates.append(try backend.plate(id, longEdge: nil, crop: crop))
+            do {
+                var plates = [try backend.plate(id, longEdge: longEdge, crop: nil)]
+                for crop in Self.crops {
+                    plates.append(try backend.plate(id, longEdge: nil, crop: crop))
+                }
+                for p in plates {
+                    try p.encoded().write(to: out.appendingPathComponent(p.header.id + ".plate"))
+                    headers.append(p.header)
+                }
+                print("renderlab-plate: \(id) \(plates.map { "\($0.header.id) \($0.header.width)x\($0.header.height)" }) "
+                    + "\(String(format: "%.1f", Date().timeIntervalSince(started))) s")
+            } catch {
+                // One file the decoder refuses must not cost the others their plates.
+                failures.append("\(id): \(error)")
+                print("renderlab-plate: FAILED \(id): \(error)")
             }
-            for p in plates {
-                try p.encoded().write(to: out.appendingPathComponent(p.header.id + ".plate"))
-                headers.append(p.header)
-            }
-            print("renderlab-plate: \(id) \(plates.map { "\($0.header.id) \($0.header.width)x\($0.header.height)" }) "
-                + "\(String(format: "%.1f", Date().timeIntervalSince(started))) s")
         }
+        try JSONEncoder().encode(failures).write(to: out.appendingPathComponent("failures.json"))
+        XCTAssertFalse(headers.isEmpty, "no plate decoded: \(failures)")
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         try encoder.encode(headers).write(to: out.appendingPathComponent("plates.json"))

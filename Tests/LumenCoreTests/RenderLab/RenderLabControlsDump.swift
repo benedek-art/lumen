@@ -28,13 +28,17 @@ final class RenderLabControlsDump: XCTestCase {
             return out
         }
 
+        let templateLeaves = Dictionary(
+            try RenderLabJSON.of(RecipePatch.optionalTemplate).flatLeaves().map { ($0.path, $0.value) },
+            uniquingKeysWith: { a, _ in a })
         var controls: [RenderLabJSON] = []
         for spec in ProofRegistry.all {
             let lo = try changed(spec.low, spec)
             let hi = try changed(spec.high, spec)
             let paths = Set(lo.keys).union(hi.keys).sorted()
             let moving = paths.filter { lo[$0] != hi[$0] }
-            let fixed = paths.filter { lo[$0] == hi[$0] }
+            // Values a patch would get anyway (optional-block defaults) are not worth listing.
+            let fixed = paths.filter { lo[$0] == hi[$0] && templateLeaves[$0] != hi[$0] }
             controls.append(.object([
                 "id": .string(spec.id),
                 "name": .string(spec.displayName),

@@ -132,6 +132,11 @@ public final class RenderLabRunner {
         try registerLUTs()
         var ordinal = -1
         for job in manifest.jobs {
+            if job.crop != nil, backend.kind == "reference" {
+                log("renderlab: skipping \(job.id): 1:1 crops need the shipping path "
+                    + "(use crop plate ids on the reference path)")
+                continue
+            }
             for photo in job.photos {
                 guard include(photo) else {
                     log("renderlab: skipping \(photo) in \(job.id) on the \(backend.kind) path")

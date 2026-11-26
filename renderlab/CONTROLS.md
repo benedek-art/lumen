@@ -164,32 +164,32 @@ Defaults are `Recipe()` (base `blank`). Base `imported` (the default) is what th
 
 | control | recipe path | range | neutral | default | also sets | source note |
 |---|---|---|---|---|---|---|
-| Red band (`bw.red`) | `look.bw.bands.0` | -100 … 100 | 0 | null | `look.bw.bands.1`=0<br>`look.bw.bands.2`=0<br>`look.bw.bands.3`=0<br>`look.bw.bands.4`=0<br>`look.bw.bands.5`=0<br>`look.bw.bands.6`=0<br>`look.bw.bands.7`=0<br>`look.bw.enabled`=true | 8 luminance contributions, −100…+100 |
-| Orange band (`bw.orange`) | `look.bw.bands.1` | -100 … 100 | 0 | null | `look.bw.bands.0`=0<br>`look.bw.bands.2`=0<br>`look.bw.bands.3`=0<br>`look.bw.bands.4`=0<br>`look.bw.bands.5`=0<br>`look.bw.bands.6`=0<br>`look.bw.bands.7`=0<br>`look.bw.enabled`=true | 8 luminance contributions, −100…+100 |
-| Yellow band (`bw.yellow`) | `look.bw.bands.2` | -100 … 100 | 0 | null | `look.bw.bands.0`=0<br>`look.bw.bands.1`=0<br>`look.bw.bands.3`=0<br>`look.bw.bands.4`=0<br>`look.bw.bands.5`=0<br>`look.bw.bands.6`=0<br>`look.bw.bands.7`=0<br>`look.bw.enabled`=true | 8 luminance contributions, −100…+100 |
-| Green band (`bw.green`) | `look.bw.bands.3` | -100 … 100 | 0 | null | `look.bw.bands.0`=0<br>`look.bw.bands.1`=0<br>`look.bw.bands.2`=0<br>`look.bw.bands.4`=0<br>`look.bw.bands.5`=0<br>`look.bw.bands.6`=0<br>`look.bw.bands.7`=0<br>`look.bw.enabled`=true | 8 luminance contributions, −100…+100 |
-| Aqua band (`bw.aqua`) | `look.bw.bands.4` | -100 … 100 | 0 | null | `look.bw.bands.0`=0<br>`look.bw.bands.1`=0<br>`look.bw.bands.2`=0<br>`look.bw.bands.3`=0<br>`look.bw.bands.5`=0<br>`look.bw.bands.6`=0<br>`look.bw.bands.7`=0<br>`look.bw.enabled`=true | 8 luminance contributions, −100…+100 |
-| Blue band (`bw.blue`) | `look.bw.bands.5` | -100 … 100 | 0 | null | `look.bw.bands.0`=0<br>`look.bw.bands.1`=0<br>`look.bw.bands.2`=0<br>`look.bw.bands.3`=0<br>`look.bw.bands.4`=0<br>`look.bw.bands.6`=0<br>`look.bw.bands.7`=0<br>`look.bw.enabled`=true | 8 luminance contributions, −100…+100 |
-| Purple band (`bw.purple`) | `look.bw.bands.6` | -100 … 100 | 0 | null | `look.bw.bands.0`=0<br>`look.bw.bands.1`=0<br>`look.bw.bands.2`=0<br>`look.bw.bands.3`=0<br>`look.bw.bands.4`=0<br>`look.bw.bands.5`=0<br>`look.bw.bands.7`=0<br>`look.bw.enabled`=true | 8 luminance contributions, −100…+100 |
-| Magenta band (`bw.magenta`) | `look.bw.bands.7` | -100 … 100 | 0 | null | `look.bw.bands.0`=0<br>`look.bw.bands.1`=0<br>`look.bw.bands.2`=0<br>`look.bw.bands.3`=0<br>`look.bw.bands.4`=0<br>`look.bw.bands.5`=0<br>`look.bw.bands.6`=0<br>`look.bw.enabled`=true | 8 luminance contributions, −100…+100 |
+| Red band (`bw.red`) | `look.bw.bands.0` | -100 … 100 | 0 | null |  | 8 luminance contributions, −100…+100 |
+| Orange band (`bw.orange`) | `look.bw.bands.1` | -100 … 100 | 0 | null |  | 8 luminance contributions, −100…+100 |
+| Yellow band (`bw.yellow`) | `look.bw.bands.2` | -100 … 100 | 0 | null |  | 8 luminance contributions, −100…+100 |
+| Green band (`bw.green`) | `look.bw.bands.3` | -100 … 100 | 0 | null |  | 8 luminance contributions, −100…+100 |
+| Aqua band (`bw.aqua`) | `look.bw.bands.4` | -100 … 100 | 0 | null |  | 8 luminance contributions, −100…+100 |
+| Blue band (`bw.blue`) | `look.bw.bands.5` | -100 … 100 | 0 | null |  | 8 luminance contributions, −100…+100 |
+| Purple band (`bw.purple`) | `look.bw.bands.6` | -100 … 100 | 0 | null |  | 8 luminance contributions, −100…+100 |
+| Magenta band (`bw.magenta`) | `look.bw.bands.7` | -100 … 100 | 0 | null |  | 8 luminance contributions, −100…+100 |
 
 ## Film Lab
 
 | control | recipe path | range | neutral | default | also sets | source note |
 |---|---|---|---|---|---|---|
-| Portra 400 strength (`film.portra400.strength`) | `look.filmLab.amount` | 0 … 100 | 0 | null | `look.filmLab.exposure`=0<br>`look.filmLab.grain.amount`=0<br>`look.filmLab.grain.size`=1<br>`look.filmLab.halation`=0<br>`look.filmLab.pushPull`=0<br>`look.filmLab.stock`="lumen/portra400" | 0…100 blend with the neutral rendering |
-| Gold 200 strength (`film.gold200.strength`) | `look.filmLab.amount` | 0 … 100 | 0 | null | `look.filmLab.exposure`=0<br>`look.filmLab.grain.amount`=0<br>`look.filmLab.grain.size`=1<br>`look.filmLab.halation`=0<br>`look.filmLab.pushPull`=0<br>`look.filmLab.stock`="lumen/gold200" | 0…100 blend with the neutral rendering |
-| Ektar 100 strength (`film.ektar100.strength`) | `look.filmLab.amount` | 0 … 100 | 0 | null | `look.filmLab.exposure`=0<br>`look.filmLab.grain.amount`=0<br>`look.filmLab.grain.size`=1<br>`look.filmLab.halation`=0<br>`look.filmLab.pushPull`=0<br>`look.filmLab.stock`="lumen/ektar100" | 0…100 blend with the neutral rendering |
-| Velvia 50 strength (`film.velvia50.strength`) | `look.filmLab.amount` | 0 … 100 | 0 | null | `look.filmLab.exposure`=0<br>`look.filmLab.grain.amount`=0<br>`look.filmLab.grain.size`=1<br>`look.filmLab.halation`=0<br>`look.filmLab.pushPull`=0<br>`look.filmLab.stock`="lumen/velvia50" | 0…100 blend with the neutral rendering |
-| Cine 250D strength (`film.cine250d.strength`) | `look.filmLab.amount` | 0 … 100 | 0 | null | `look.filmLab.exposure`=0<br>`look.filmLab.grain.amount`=0<br>`look.filmLab.grain.size`=1<br>`look.filmLab.halation`=0<br>`look.filmLab.pushPull`=0<br>`look.filmLab.stock`="lumen/cine250d" | 0…100 blend with the neutral rendering |
-| Tri-X 400 strength (`film.trix400.strength`) | `look.filmLab.amount` | 0 … 100 | 0 | null | `look.filmLab.exposure`=0<br>`look.filmLab.grain.amount`=0<br>`look.filmLab.grain.size`=1<br>`look.filmLab.halation`=0<br>`look.filmLab.pushPull`=0<br>`look.filmLab.stock`="lumen/trix400" | 0…100 blend with the neutral rendering |
-| Film exposure (`film.exposure`) | `look.filmLab.exposure` | -2 … 3 | 0 | null | `look.filmLab.amount`=100<br>`look.filmLab.grain.amount`=0<br>`look.filmLab.grain.size`=1<br>`look.filmLab.halation`=0<br>`look.filmLab.pushPull`=0<br>`look.filmLab.stock`="lumen/portra400" |  |
-| Push / pull (`film.pushPull`) | `look.filmLab.pushPull` | -1 … 2 | 0 | null | `look.filmLab.amount`=100<br>`look.filmLab.exposure`=0<br>`look.filmLab.grain.amount`=0<br>`look.filmLab.grain.size`=1<br>`look.filmLab.halation`=0<br>`look.filmLab.stock`="lumen/portra400" | −1…+2 stops (couples curve+grain+crossover, docs/05) |
-| Halation (`film.halation`) | `look.filmLab.halation` | 0 … 100 | 0 | null | `look.filmLab.amount`=100<br>`look.filmLab.exposure`=0<br>`look.filmLab.grain.amount`=0<br>`look.filmLab.grain.size`=1<br>`look.filmLab.pushPull`=0<br>`look.filmLab.stock`="lumen/portra400" | 0…100 |
-| Grain (`film.grain.amount`) | `look.filmLab.grain.amount` | 0 … 100 | 0 | null | `look.filmLab.amount`=100<br>`look.filmLab.exposure`=0<br>`look.filmLab.grain.size`=1<br>`look.filmLab.halation`=0<br>`look.filmLab.pushPull`=0<br>`look.filmLab.stock`="lumen/portra400" | 0…100 |
-| Grain size (`film.grain.size`) | `look.filmLab.grain.size` | 0.5 … 2 | 1 | null | `look.filmLab.amount`=100<br>`look.filmLab.exposure`=0<br>`look.filmLab.grain.amount`=100<br>`look.filmLab.halation`=0<br>`look.filmLab.pushPull`=0<br>`look.filmLab.stock`="lumen/portra400" | relative grain pitch, 1.0 = stock default |
-| Halo size (`film.halationSize`) | `look.filmLab.halationSize` | 0.5 … 2 | 1 | null | `look.filmLab.amount`=100<br>`look.filmLab.exposure`=0<br>`look.filmLab.grain.amount`=0<br>`look.filmLab.grain.size`=1<br>`look.filmLab.halation`=100<br>`look.filmLab.pushPull`=0<br>`look.filmLab.stock`="lumen/portra400" |  |
-| Halo redness (`film.halationRedness`) | `look.filmLab.halationRedness` | 0 … 100 | 50 | null | `look.filmLab.amount`=100<br>`look.filmLab.exposure`=0<br>`look.filmLab.grain.amount`=0<br>`look.filmLab.grain.size`=1<br>`look.filmLab.halation`=100<br>`look.filmLab.pushPull`=0<br>`look.filmLab.stock`="lumen/portra400" |  |
+| Portra 400 strength (`film.portra400.strength`) | `look.filmLab.amount` | 0 … 100 | 0 | null | `look.filmLab.stock`="lumen/portra400" | 0…100 blend with the neutral rendering |
+| Gold 200 strength (`film.gold200.strength`) | `look.filmLab.amount` | 0 … 100 | 0 | null | `look.filmLab.stock`="lumen/gold200" | 0…100 blend with the neutral rendering |
+| Ektar 100 strength (`film.ektar100.strength`) | `look.filmLab.amount` | 0 … 100 | 0 | null | `look.filmLab.stock`="lumen/ektar100" | 0…100 blend with the neutral rendering |
+| Velvia 50 strength (`film.velvia50.strength`) | `look.filmLab.amount` | 0 … 100 | 0 | null | `look.filmLab.stock`="lumen/velvia50" | 0…100 blend with the neutral rendering |
+| Cine 250D strength (`film.cine250d.strength`) | `look.filmLab.amount` | 0 … 100 | 0 | null | `look.filmLab.stock`="lumen/cine250d" | 0…100 blend with the neutral rendering |
+| Tri-X 400 strength (`film.trix400.strength`) | `look.filmLab.amount` | 0 … 100 | 0 | null | `look.filmLab.stock`="lumen/trix400" | 0…100 blend with the neutral rendering |
+| Film exposure (`film.exposure`) | `look.filmLab.exposure` | -2 … 3 | 0 | null | `look.filmLab.stock`="lumen/portra400" |  |
+| Push / pull (`film.pushPull`) | `look.filmLab.pushPull` | -1 … 2 | 0 | null | `look.filmLab.stock`="lumen/portra400" | −1…+2 stops (couples curve+grain+crossover, docs/05) |
+| Halation (`film.halation`) | `look.filmLab.halation` | 0 … 100 | 0 | null | `look.filmLab.stock`="lumen/portra400" | 0…100 |
+| Grain (`film.grain.amount`) | `look.filmLab.grain.amount` | 0 … 100 | 0 | null | `look.filmLab.stock`="lumen/portra400" | 0…100 |
+| Grain size (`film.grain.size`) | `look.filmLab.grain.size` | 0.5 … 2 | 1 | null | `look.filmLab.grain.amount`=100<br>`look.filmLab.stock`="lumen/portra400" | relative grain pitch, 1.0 = stock default |
+| Halo size (`film.halationSize`) | `look.filmLab.halationSize` | 0.5 … 2 | 1 | null | `look.filmLab.halation`=100<br>`look.filmLab.stock`="lumen/portra400" |  |
+| Halo redness (`film.halationRedness`) | `look.filmLab.halationRedness` | 0 … 100 | 50 | null | `look.filmLab.halation`=100<br>`look.filmLab.stock`="lumen/portra400" |  |
 
 ## Colour Balance
 
@@ -215,9 +215,9 @@ Defaults are `Recipe()` (base `blank`). Base `imported` (the default) is what th
 | control | recipe path | range | neutral | default | also sets | source note |
 |---|---|---|---|---|---|---|
 | Vignette (`look.vignette`) | `look.vignette` | -4 … 2 | 0 | 0 |  |  |
-| Grain (`look.grain.amount`) | `look.grain.amount` | 0 … 100 | 0 | null | `look.grain.roughness`=50<br>`look.grain.size`=50 | 0…100, 0 = off |
-| Grain size (`look.grain.size`) | `look.grain.size` | 0 … 100 | 50 | null | `look.grain.amount`=100<br>`look.grain.roughness`=50 | 0…100 → 7…56 µm pitch at a 35 mm gate |
-| Grain roughness (`look.grain.roughness`) | `look.grain.roughness` | 0 … 100 | 50 | null | `look.grain.amount`=100<br>`look.grain.size`=50 | 0…100 → 0.25…0.75 octave persistence |
+| Grain (`look.grain.amount`) | `look.grain.amount` | 0 … 100 | 0 | null |  | 0…100, 0 = off |
+| Grain size (`look.grain.size`) | `look.grain.size` | 0 … 100 | 50 | null | `look.grain.amount`=100 | 0…100 → 7…56 µm pitch at a 35 mm gate |
+| Grain roughness (`look.grain.roughness`) | `look.grain.roughness` | 0 … 100 | 50 | null | `look.grain.amount`=100 | 0…100 → 0.25…0.75 octave persistence |
 
 ## Display Transform
 

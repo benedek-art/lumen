@@ -87,6 +87,10 @@ workflow_id `render-lab.yml`, ref `<branch>`, inputs
 `manifest` (inline JSON string), `lane` = macos|linux|both, `shards`, `drift`, `plates`,
 `runs-on`, `label`).
 
+Any run with `lane` `linux` or `both` also runs the drift check (`drift-sample.json`: the
+same recipes on the shipping export and on the reference path, diffed per render) unless
+`"drift": "none"`; name another manifest to check that instead.
+
 Jobs: `plan` → `plates` (macOS, only when plates are not cached) → `shipping` (macOS:
 manifests on export/settled/draft, then drift) and `reference` (Linux, `shards` parallel
 jobs over plates) → `report` (merges everything into artifact **`renderlab-report`**).

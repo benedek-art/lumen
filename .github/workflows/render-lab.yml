@@ -118,8 +118,9 @@ jobs:
       - name: Fetch photos (sha256 verified)
         shell: bash
         run: bash renderlab/fetch-photos.sh renderlab/photos.tsv "$PHOTOS"
-      - name: Cache the build for this commit
-        uses: actions/cache@v4
+      - name: Restore the build for this commit
+        id: build-cache
+        uses: actions/cache/restore@v4
         with:
           path: .build
           key: renderlab-build-${{ runner.os }}-${{ github.sha }}
@@ -134,6 +135,12 @@ jobs:
           grep -E "error:" build.log | sed "s#$GITHUB_WORKSPACE/##" | sort -u | head -40
           echo "build seconds: $(( $(date +%s) - start ))" | tee -a "$GITHUB_STEP_SUMMARY"
           exit $status
+      - name: Save the build for this commit
+        if: always() && steps.build-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .build
+          key: renderlab-build-${{ runner.os }}-${{ github.sha }}
       - name: Decode plates
         shell: bash
         env:
@@ -175,8 +182,9 @@ jobs:
       - name: Fetch photos (sha256 verified)
         shell: bash
         run: bash renderlab/fetch-photos.sh renderlab/photos.tsv "$PHOTOS"
-      - name: Cache the build for this commit
-        uses: actions/cache@v4
+      - name: Restore the build for this commit
+        id: build-cache
+        uses: actions/cache/restore@v4
         with:
           path: .build
           key: renderlab-build-${{ runner.os }}-${{ github.sha }}
@@ -191,6 +199,12 @@ jobs:
           grep -E "error:" build.log | sed "s#$GITHUB_WORKSPACE/##" | sort -u | head -40
           echo "build seconds: $(( $(date +%s) - start ))" | tee -a "$GITHUB_STEP_SUMMARY"
           exit $status
+      - name: Save the build for this commit
+        if: always() && steps.build-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .build
+          key: renderlab-build-${{ runner.os }}-${{ github.sha }}
       - uses: actions/download-artifact@v4
         with:
           name: renderlab-manifests
@@ -271,8 +285,9 @@ jobs:
           key: ${{ needs.plan.outputs.plates-key }}
           enableCrossOsArchive: true
           fail-on-cache-miss: true
-      - name: Cache the build for this commit
-        uses: actions/cache@v4
+      - name: Restore the build for this commit
+        id: build-cache
+        uses: actions/cache/restore@v4
         with:
           path: .build
           key: renderlab-build-${{ runner.os }}-${{ github.sha }}
@@ -288,6 +303,12 @@ jobs:
           grep -E "error:" build.log | sed "s#$GITHUB_WORKSPACE/##" | sort -u | head -40
           echo "build seconds: $(( $(date +%s) - start ))"
           exit $status
+      - name: Save the build for this commit
+        if: always() && steps.build-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .build
+          key: renderlab-build-${{ runner.os }}-${{ github.sha }}
       - uses: actions/download-artifact@v4
         with:
           name: renderlab-manifests
