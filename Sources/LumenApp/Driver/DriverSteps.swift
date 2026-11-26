@@ -15,11 +15,41 @@ struct DriverTick {
 
 enum DriverPacer {
 
+    /// How well a gesture kept to its schedule: lateness of each event when posted.
+    struct PacerQuality {
+        var worstLateMs = 0.0
+        var meanLateMs = 0.0
+        var worstPostMs = 0.0
+    }
+
+    /// Asks the scheduler to treat this thread like an audio thread, so a 60 Hz event
+    /// stream stays 60 Hz while the app's own threads are busy.
+    private static func makeCurrentThreadPunctual() {
+        var timebase = mach_timebase_info_data_t()
+        mach_timebase_info(&timebase)
+        let ticksPerMs = 1_000_000.0 * Double(timebase.denom) / Double(Swift.max(timebase.numer, 1))
+        var policy = thread_time_constraint_policy_data_t(
+            period: UInt32(8 * ticksPerMs), computation: UInt32(1 * ticksPerMs),
+            constraint: UInt32(4 * ticksPerMs), preemptible: 1)
+        let count = mach_msg_type_number_t(
+            MemoryLayout<thread_time_constraint_policy_data_t>.size / MemoryLayout<Int32>.size)
+        _ = withUnsafeMutablePointer(to: &policy) { pointer in
+            pointer.withMemoryRebound(to: Int32.self, capacity: Int(count)) { raw in
+                thread_policy_set(mach_thread_self(),
+                                  thread_policy_flavor_t(THREAD_TIME_CONSTRAINT_POLICY), raw, count)
+            }
+        }
+    }
+
     /// Fires the ticks on their own thread, on schedule whatever the main thread is
     /// doing, the way a real device keeps reporting while the app is busy.
-    static func run(_ ticks: [DriverTick]) async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+    static func run(_ ticks: [DriverTick]) async -> PacerQuality {
+        await withCheckedContinuation { (continuation: CheckedContinuation<PacerQuality, Never>) in
             let thread = Thread {
+                makeCurrentThreadPunctual()
+                var quality = PacerQuality()
+                var lateTotal = 0.0
+                var fired = 0
                 // Ticks due at zero go first and the clock starts after them: the first
                 // post on a thread can take a while and must not bunch what follows.
                 for tick in ticks where tick.at <= 0 { tick.fire() }
@@ -27,20 +57,30 @@ enum DriverPacer {
                 var previousDue = 0.0
                 var lastFired = start
                 for tick in ticks where tick.at > 0 {
-                    // Late (the thread was descheduled): keep events apart all the
-                    // same, by up to 30 ms of their intended spacing, so a click's
-                    // press and release never collapse into one instant.
-                    let spacing = UInt64(Swift.min(tick.at - previousDue, 0.03) * 1e9)
-                    let due = Swift.max(start &+ UInt64(tick.at * 1e9), lastFired &+ spacing)
-                    let now = DispatchTime.now().uptimeNanoseconds
+                    // The schedule is absolute, so a late event is followed sooner and
+                    // the gesture keeps its length; but never closer than half the
+                    // intended gap (20 ms at most), so a click's press and release
+                    // cannot collapse into one instant.
+                    let floorGap = UInt64(Swift.min((tick.at - previousDue) * 0.5, 0.02) * 1e9)
+                    let scheduled = start &+ UInt64(tick.at * 1e9)
+                    let due = Swift.max(scheduled, lastFired &+ floorGap)
+                    var now = DispatchTime.now().uptimeNanoseconds
                     if due > now {
                         usleep(useconds_t(Swift.min((due - now) / 1000, 10_000_000)))
+                        now = DispatchTime.now().uptimeNanoseconds
                     }
+                    let late = now > scheduled ? Double(now - scheduled) / 1e6 : 0
                     tick.fire()
                     previousDue = tick.at
                     lastFired = DispatchTime.now().uptimeNanoseconds
+                    quality.worstLateMs = Swift.max(quality.worstLateMs, late)
+                    quality.worstPostMs = Swift.max(quality.worstPostMs,
+                                                    Double(lastFired - now) / 1e6)
+                    lateTotal += late
+                    fired += 1
                 }
-                continuation.resume()
+                quality.meanLateMs = fired > 0 ? lateTotal / Double(fired) : 0
+                continuation.resume(returning: quality)
             }
             thread.name = "lumen.driver.pacer"
             thread.qualityOfService = .userInteractive
@@ -605,7 +645,12 @@ extension DriverSession {
                 }
             }
         } else {
-            await DriverPacer.run(ticks)
+            let quality = await DriverPacer.run(ticks)
+            // How late the driver's own events were. Large numbers mean the gesture
+            // sent was not the gesture asked for, and its timings should not be read.
+            out["postLateWorstMs"] = quality.worstLateMs
+            out["postLateMeanMs"] = quality.meanLateMs
+            out["postCallWorstMs"] = quality.worstPostMs
         }
         let posted = DriverClock.now()
 
