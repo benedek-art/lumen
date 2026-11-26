@@ -1,4 +1,4 @@
-{"lane": "macos", "drift": "none", "label": "fix-sharpen",
+{"lane": "macos", "drift": "none", "label": "fix-sharpen-2",
  "manifest": {"name": "fix-sharpen",
   "defaults": {"longEdge": 1536, "paths": ["export"], "tile": 300},
   "jobs": [
@@ -13,11 +13,6 @@
    {"id": "capture-1to1", "photo": "6929", "crop": [0.45, 0.45, 0.1, 0.1], "tile": 360,
     "recipe": {"develop.detail.capture.auto": true},
     "sweep": {"path": "develop.detail.capture.amount", "values": [25, 50, 100, 150], "neutral": 0}},
-   {"id": "capture-switch", "photo": "6929", "crop": [0.45, 0.45, 0.1, 0.1], "tile": 360,
-    "variants": [{"label": "auto off", "recipe": {"develop.detail.capture.auto": false}},
-                 {"label": "auto on", "recipe": {"develop.detail.capture.auto": true}},
-                 {"label": "auto on ai NR 60", "recipe": {"develop.detail.capture.auto": true, "develop.denoise.mode": "ai", "develop.denoise.amount": 60}},
-                 {"label": "auto off ai NR 60", "recipe": {"develop.detail.capture.auto": false, "develop.denoise.mode": "ai", "develop.denoise.amount": 60}}]},
    {"id": "sharpen-sliders", "photo": "6929", "crop": [0.45, 0.45, 0.1, 0.1], "tile": 360,
     "recipe": {"develop.detail.sharpen.amount": 100},
     "variants": [{"label": "radius 0.5", "recipe": {"develop.detail.sharpen.radius": 0.5}},
@@ -40,6 +35,8 @@
                  {"label": "halo 100", "recipe": {"develop.detail.sharpen.haloSuppression": 100}}]},
    {"id": "texture", "photos": ["chart:detail", "6929"],
     "sweep": {"path": "develop.detail.texture", "values": [-100, -50, 50, 100], "neutral": 0}},
+   {"id": "texture-1to1", "photo": "6929", "crop": [0.45, 0.45, 0.1, 0.1], "tile": 360,
+    "sweep": {"path": "develop.detail.texture", "values": [-100, 100], "neutral": 0}},
    {"id": "clarity", "photos": ["chart:detail", "6929"],
     "sweep": {"path": "develop.detail.clarity", "values": [-100, -50, 50, 100], "neutral": 0}}
   ]}}
