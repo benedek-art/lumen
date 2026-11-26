@@ -80,6 +80,24 @@ final class ColorPublishedValueTests: XCTestCase {
                      within: 3e-4, "Adobe RGB")
     }
 
+    func testRec2020MatrixMatchesPublishedValues() {
+        // The BT.2020 NPM as tabulated to seven decimals (BT.2087 quotes four).
+        assertMatrix(RGBColorSpace.rec2020.toXYZ, [[0.6369580, 0.1446169, 0.1688810],
+                                                   [0.2627002, 0.6779981, 0.0593017],
+                                                   [0.0000000, 0.0280727, 1.0609851]],
+                     within: 1e-6, "Rec.2020")
+    }
+
+    func testProPhotoMatrixMatchesPublishedValues() {
+        // Lindbloom's ProPhoto (ROMM) D50 matrix, from the four-decimal primaries and a
+        // tabulated D50 of (0.96422, 1, 0.82521); ours uses ISO 22028-2's six-decimal
+        // primaries and the CIE D50 chromaticity, measured 2.2e-5 apart at most.
+        assertMatrix(RGBColorSpace.proPhoto.toXYZ, [[0.7976749, 0.1351917, 0.0313534],
+                                                    [0.2880402, 0.7118741, 0.0000857],
+                                                    [0.0000000, 0.0000000, 0.8252100]],
+                     within: 3e-5, "ProPhoto")
+    }
+
     // MARK: - Transfer functions, the linear toes
 
     func testSRGBLinearToeAndBreakpoint() {
