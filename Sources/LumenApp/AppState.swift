@@ -511,6 +511,9 @@ final class AppState: ObservableObject {
     @Published var maskOverlayTint: MaskOverlay.Tint = .red
 
     private var maskOverlayGeneration: Int = 0
+    /// The edit revision the overlay on screen was rasterized for. Not published:
+    /// it changes only with `maskOverlayAlpha`, which is.
+    private(set) var maskOverlayRevision: Int?
     /// The generation of the raster on screen, so a slower older one never replaces it.
     private var maskOverlayShownGeneration: Int = 0
     /// The live gesture's rasters: one in flight, the newest waiting.
@@ -540,6 +543,7 @@ final class AppState: ObservableObject {
         }
         let recipe = recipe(for: photo)
         let strokes = strokeSets(for: recipe)
+        let revision = edits.value
         maskOverlaySource = Self.maskOverlaySourceKey(url: photo.id, maskID: maskID,
                                                       recipe: recipe,
                                                       sourceIdentity: SourceFileIdentity.read(photo.id),
@@ -584,7 +588,9 @@ final class AppState: ObservableObject {
                           self.primarySelection?.id == photo.id,
                           generation > self.maskOverlayShownGeneration else { return false }
                     self.maskOverlayShownGeneration = generation
+                    self.maskOverlayRevision = revision
                     self.maskOverlayAlpha = draft
+                    LatencyHUD.shared.noteOverlay("maskAlpha", revision: revision)
                     return true
                 }
                 guard !Task.isCancelled,
@@ -601,7 +607,11 @@ final class AppState: ObservableObject {
                 url: photo.id, recipe: recipe, maskID: maskID, strokeSets: strokes)
             guard !Task.isCancelled, self.maskOverlayGeneration == generation else { return }
             self.maskOverlayShownGeneration = generation
+            self.maskOverlayRevision = revision
             self.maskOverlayAlpha = raster
+            if raster != nil {
+                LatencyHUD.shared.noteOverlay("maskAlpha", revision: revision)
+            }
         }
     }
 

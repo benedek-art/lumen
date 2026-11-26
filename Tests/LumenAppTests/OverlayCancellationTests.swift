@@ -7,7 +7,7 @@ import LumenCore
 /// The clipping, Visualize Spots and focus-peaking overlays build in a `Task.detached`,
 /// which `.task(id:)` cancelling its wrapper never reaches. A drag queued one
 /// full-frame pass per delivered frame. These pin both halves of the fix: the builds
-/// stop when cancelled, and each view holds and cancels the handle.
+/// stop when cancelled, and each view runs them one at a time through a pump.
 final class OverlayCancellationTests: XCTestCase {
 
     private nonisolated static func checkerboard() -> PixelSampler {
@@ -47,7 +47,9 @@ final class OverlayCancellationTests: XCTestCase {
                        "a superseded build must stop rather than run to completion")
     }
 
-    func testEachOverlayViewCancelsTheBuildBeforeIt() throws {
+    /// One build at a time, the newest waiting, the finished one shown. Cancelling the
+    /// build in flight for every delivered frame showed nothing until frames stopped.
+    func testEachOverlayViewBuildsThroughAPump() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
         let text = blankingComments(in: try String(
@@ -58,14 +60,16 @@ final class OverlayCancellationTests: XCTestCase {
             let body = try XCTUnwrap(
                 text.components(separatedBy: "struct \(name):").dropFirst().first,
                 "\(name) not found")
-            let after = try XCTUnwrap(
-                body.components(separatedBy: "func rebuild()").dropFirst().first,
-                "\(name) has no rebuild")
-            let rebuild = after.components(separatedBy: "static func build(").first ?? ""
-            XCTAssertTrue(rebuild.contains("buildTask?.cancel()"),
-                          "\(name) must cancel the detached build it started last")
-            XCTAssertTrue(rebuild.contains("buildTask = task"),
-                          "\(name) must hold the handle so the next rebuild can cancel it")
+            let parts = body.components(separatedBy: "func rebuild()")
+            XCTAssertTrue(parts.first?.contains("LatestWinsPump<BuildKey>()") ?? false,
+                          "\(name) must own a pump for its builds")
+            let after = try XCTUnwrap(parts.dropFirst().first, "\(name) has no rebuild")
+            let rebuild = after.components(separatedBy: "nonisolated static func").first ?? ""
+            XCTAssertTrue(rebuild.contains("await builds.submit("),
+                          "\(name) must submit its build to the pump")
+            XCTAssertFalse(rebuild.contains("Task.isCancelled"),
+                           "\(name) must not drop a finished build because a newer "
+                               + "frame restarted the view's task")
         }
     }
 }

@@ -55,6 +55,21 @@ enum LumenDriver {
         guard let session else { return }
         session.noteFrame(result, recipe: recipe, model: model)
     }
+
+    /// The app's own interaction stamps (`LatencyHUD`), as `tl` rows.
+    @MainActor
+    static func noteTimeline(_ stamp: InteractionTimeline.Stamp) {
+        guard session != nil else { return }
+        var row: [String: Any] = ["stage": stamp.kind.rawValue, "rev": stamp.revision]
+        if let draft = stamp.draft { row["draft"] = draft }
+        if let edge = stamp.longEdge { row["edge"] = edge }
+        if let ms = stamp.renderMilliseconds { row["ms"] = ms }
+        if let lane = stamp.laneMilliseconds { row["lane"] = lane }
+        if let name = stamp.name { row["name"] = name }
+        if let main = stamp.mainMilliseconds { row["main"] = main }
+        DriverTimeline.shared.add("tl", row,
+                                  at: Double(stamp.nanoseconds &- DriverClock.zero) / 1e9)
+    }
 }
 
 #endif

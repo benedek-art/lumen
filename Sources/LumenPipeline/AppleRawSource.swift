@@ -248,14 +248,16 @@ public final class AppleRawSource: ImageSource {
             resolvedVersion = pinnedVersion
         }
 
-        let standIn = dev.denoise.appleStandIn
+        // `Recipe.decodeInputs` is the one list of what this decode reads from the
+        // recipe; the viewer sizes a drag's drafts by whether these moved.
+        let inputs = recipe.decodeInputs
         let clampedScale = Num.clamp(scaleFactor, 0.01, 1.0)
         let key = DecodeKey(draft: draft,
                             scaleFactor: clampedScale,
-                            captureStrength: dev.detail.capture.strengthFraction,
-                            luminanceNR: standIn.luma,
-                            colorNR: standIn.chroma,
-                            lensProfile: dev.geometry.lens.profile,
+                            captureStrength: inputs.captureStrength,
+                            luminanceNR: inputs.luminanceNR,
+                            colorNR: inputs.colorNR,
+                            lensProfile: inputs.lensProfile,
                             decoderVersion: resolvedVersion.rawValue)
         // What this call ASKED the decoder for, in pixels. Not read back from the
         // result: see `DecodeEntry.askedLongEdge` for why the delivered extent is the

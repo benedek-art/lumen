@@ -343,6 +343,13 @@ the existing image without a new frame, so judge those from screenshots.
 event sent, `rx` an event the app received, `frame`, `commit` (the frame left for the
 window server), `hitch`, `step`, `shot`, `mark`.
 
+`tl` rows are the app's own stamps (`LatencyHUD.noteTimeline`), each with `stage` and
+`rev` (the edit revision it concerns): `input` an edit written; `turn` the end of that
+edit's run-loop turn, `main` = main-thread ms it cost; `request` and `start` a draft
+asked for and begun; `frame` handed to the view (`draft`, `edge`, `ms` as the viewer
+saw it, `lane` inside the renderer); `overlay` an overlay picture put on screen
+(`name`: `sampler`, `maskAlpha`, `maskWash`, `clipping`, `peaking`, `spots`).
+
 ## The pixel witness
 
 The app's own report of where the picture is (`viewport.image`) comes from the code

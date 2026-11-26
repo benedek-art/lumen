@@ -122,9 +122,10 @@ final class LatencyHUD: ObservableObject {
 
     // MARK: Timeline (for the automation driver)
 
-    /// Every input, draft request, render start and frame handed to the viewer, with
-    /// monotonic stamps (`DispatchTime.uptimeNanoseconds`) and the edit revision each
-    /// concerns. Separate from `enabled` and never published: recording must not add
+    /// Every input, draft request, render start, frame and overlay handed to the viewer,
+    /// and each input's main-thread turn, with monotonic stamps
+    /// (`DispatchTime.uptimeNanoseconds`) and the edit revision each concerns. Under the
+    /// driver every stamp is also a `tl` row in its timeline.jsonl. Separate from `enabled` and never published: recording must not add
     /// a body pass to the loop it measures. On from launch under `LUMEN_DRIVER`.
     var timelineEnabled = ProcessInfo.processInfo.environment["LUMEN_DRIVER"] != nil
     private(set) var timeline = InteractionTimeline()
@@ -139,18 +140,63 @@ final class LatencyHUD: ObservableObject {
     func noteTimeline(_ kind: InteractionTimeline.Stage, revision: Int?,
                       draft: Bool? = nil, longEdge: Int? = nil,
                       renderMilliseconds: Double? = nil,
-                      laneMilliseconds: Double? = nil) {
+                      laneMilliseconds: Double? = nil,
+                      name: String? = nil,
+                      mainMilliseconds: Double? = nil) {
         guard timelineEnabled, let revision else { return }
-        timeline.record(InteractionTimeline.Stamp(
+        let stamp = InteractionTimeline.Stamp(
             kind: kind, nanoseconds: DispatchTime.now().uptimeNanoseconds,
             revision: revision, draft: draft, longEdge: longEdge,
             renderMilliseconds: renderMilliseconds,
-            laneMilliseconds: laneMilliseconds))
+            laneMilliseconds: laneMilliseconds,
+            name: name, mainMilliseconds: mainMilliseconds)
+        timeline.record(stamp)
+        LumenDriver.noteTimeline(stamp)
+    }
+
+    /// An overlay picture depicting `revision` was put on screen.
+    func noteOverlay(_ name: String, revision: Int?) {
+        noteTimeline(.overlay, revision: revision, name: name)
+    }
+
+    // The main-thread cost of an input: from the edit being written to the end of the
+    // run-loop turn it was written in.
+    private var turnOpenedAt: UInt64?
+    private var turnRevision = 0
+    private var turnObserverInstalled = false
+
+    private func openTurn(revision: Int) {
+        guard timelineEnabled else { return }
+        if !turnObserverInstalled {
+            turnObserverInstalled = true
+            // After Core Animation's commit observer (order 2 000 000), so the view
+            // updates and layout the edit caused are inside the measurement.
+            let observer = CFRunLoopObserverCreateWithHandler(
+                kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue, true, 2_600_000
+            ) { [weak self] _, _ in
+                MainActor.assumeIsolated {
+                    self?.closeTurn()
+                }
+            }
+            CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+        }
+        // Several edits in one turn are one turn, measured from the first.
+        if turnOpenedAt == nil { turnOpenedAt = DispatchTime.now().uptimeNanoseconds }
+        turnRevision = revision
+    }
+
+    private func closeTurn() {
+        guard let opened = turnOpenedAt else { return }
+        turnOpenedAt = nil
+        noteTimeline(.turn, revision: turnRevision,
+                     mainMilliseconds:
+                        Double(DispatchTime.now().uptimeNanoseconds &- opened) / 1e6)
     }
 
     /// A pixel-touching edit happened. The next draft that lands closes the loop.
     func noteInput(revision: Int? = nil) {
         noteTimeline(.input, revision: revision)
+        if let revision { openTurn(revision: revision) }
         guard enabled else { return }
         let now = DispatchTime.now().uptimeNanoseconds
         lastInputAt = now
@@ -227,7 +273,7 @@ final class LatencyHUD: ObservableObject {
     /// Record a decode that actually went to the file. Values at or below
     /// `decodeHitCeiling` are cache hits and are ignored, so the line keeps saying what
     /// the last REAL decode cost.
-    static let decodeHitCeiling: Double = 1.0
+    static let decodeHitCeiling: Double = DecodeDrag.hitCeilingMilliseconds
 
     func noteDecode(milliseconds: Double) {
         guard enabled, milliseconds > LatencyHUD.decodeHitCeiling else { return }
