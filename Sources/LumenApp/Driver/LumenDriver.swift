@@ -24,6 +24,11 @@ enum LumenDriver {
     @MainActor
     static func makeAppState() -> AppState {
         guard isActive else { return AppState() }
+        // A scenario starts from the app's defaults. Only the driver's own bundle, so a
+        // driver run of the real app never clears the owner's preferences.
+        if let domain = Bundle.main.bundleIdentifier, domain.hasSuffix(".driver") {
+            UserDefaults.standard.removePersistentDomain(forName: domain)
+        }
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("lumen-driver-\(UUID().uuidString)", isDirectory: true)
         let catalog = root.appendingPathComponent("catalog", isDirectory: true)
