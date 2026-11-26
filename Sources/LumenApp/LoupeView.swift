@@ -579,6 +579,12 @@ final class PhotoRenderModel: ObservableObject {
     /// Draft renders: one in flight, the newest waiting (`FramePump`, LumenCore).
     private let drafts = LatestWinsPump<DraftRequest>()
 
+    /// Draft sizing while a gesture moves a control the RAW decoder reads.
+    private var decodeDrag = DecodeDrag()
+
+    /// The edit revision of the frame on screen, where the surface reports one.
+    private(set) var shownEditRevision: Int?
+
     /// The url of the most recent `load` call — the user's current intent, whatever
     /// state its task is in. `FrameDelivery.shouldShow`'s identity input: a completed
     /// frame for any other photograph must never be applied, however fresh.
@@ -672,7 +678,10 @@ final class PhotoRenderModel: ObservableObject {
         // The hand came up: let the ladder spend any headroom the gesture banked. It
         // is held during the drag because a rung earned back under a moving hand is a
         // visible change of sharpness; here it is one change, at rest, invisible.
-        if isSettleAsk { draftLadder.gestureEnded() }
+        if isSettleAsk {
+            draftLadder.gestureEnded()
+            decodeDrag.gestureEnded()
+        }
 
         // New photo: drop the previous photo's pixels rather than showing them under a
         // new filename, and give this one the instant embedded-preview path (Law 11).
@@ -694,6 +703,8 @@ final class PhotoRenderModel: ObservableObject {
             lastDraftAt = nil
             lastDraftWasSaturated = false
             lastDraftLongEdge = nil
+            decodeDrag.reset()
+            shownEditRevision = nil
             nativeLongEdge = nil
             regionUnit = nil
             regionFullPixel = nil
@@ -806,14 +817,23 @@ final class PhotoRenderModel: ObservableObject {
                     // at fit a stepped-down draft still shares the settle's decode.
                     notBelow: DraftLadder.sharpnessFloor(
                         drawnDeviceLongEdge: drawnDeviceLongEdge))
-            let request = DraftRequest(url: url, recipe: recipe,
-                                       longEdge: Swift.max(draftTarget, 64),
-                                       strokeRefs: Set(strokeSets.keys),
-                                       showingUncropped: showingUncropped,
-                                       softProof: softProof, region: region,
-                                       edrWhiteTarget: edrWhiteTarget,
-                                       inputs: requestInputs)
             let midGesture = lastRequestWasMidGesture
+            // A gesture moving a control the RAW decoder reads pays a demosaic per
+            // value. Once that has been measured too slow, its drafts are rendered at
+            // half the long edge (`DecodeDrag`); a settle never is.
+            let fullEdge = Swift.max(draftTarget, 64)
+            let sizedEdge = decodeDrag.longEdge(for: fullEdge, inputs: recipe.decodeInputs,
+                                                midGesture: midGesture)
+            let decodeDivisor = sizedEdge < fullEdge ? decodeDrag.divisor : 1
+            func draftRequest(longEdge: Int) -> DraftRequest {
+                DraftRequest(url: url, recipe: recipe, longEdge: longEdge,
+                             strokeRefs: Set(strokeSets.keys),
+                             showingUncropped: showingUncropped,
+                             softProof: softProof, region: region,
+                             edrWhiteTarget: edrWhiteTarget,
+                             inputs: requestInputs)
+            }
+            let request = draftRequest(longEdge: sizedEdge)
             LatencyHUD.shared.noteTimeline(.request, revision: editRevision)
             // Through the pump, never awaited on the coordinator from this task: a drag
             // cancels this task on every event, and the coordinator drops a cancelled
@@ -823,6 +843,7 @@ final class PhotoRenderModel: ObservableObject {
                 await self.renderDraft(request, draftRequested: draftRequested,
                                        coordinator: coordinator, strokeSets: strokeSets,
                                        midGesture: midGesture, editRevision: editRevision,
+                                       decodeDivisor: decodeDivisor,
                                        successorWaiting: successorWaiting)
             }
             guard !Task.isCancelled else { return }
@@ -841,6 +862,23 @@ final class PhotoRenderModel: ObservableObject {
             let elapsed = DispatchTime.now().uptimeNanoseconds &- requestStarted
             try? await Task.sleep(nanoseconds: RefineBudget.loupe.debounceNanoseconds(
                 discreteEdit: discreteEdit, elapsed: elapsed))
+
+            // The button is still down but the hand has rested on this value for the
+            // whole debounce: a draft that was reduced is redone at its full size, so
+            // a pause shows the value sharp without waiting for the release.
+            if sizedEdge < fullEdge, !Task.isCancelled,
+               latestGeneration == draftGeneration, gestureInFlight() {
+                let sharp = draftRequest(longEdge: fullEdge)
+                _ = await drafts.submit(sharp) { [self] successorWaiting in
+                    await self.renderDraft(sharp, draftRequested: draftRequested,
+                                           coordinator: coordinator,
+                                           strokeSets: strokeSets,
+                                           midGesture: midGesture,
+                                           editRevision: editRevision,
+                                           decodeDivisor: 1,
+                                           successorWaiting: successorWaiting)
+                }
+            }
         }
         guard !Task.isCancelled, latestGeneration == draftGeneration else { return }
 
@@ -980,6 +1018,7 @@ final class PhotoRenderModel: ObservableObject {
                              coordinator: RenderCoordinator,
                              strokeSets: [String: BrushStrokeSet],
                              midGesture: Bool, editRevision: Int?,
+                             decodeDivisor: Int,
                              successorWaiting: @MainActor () -> Bool) async -> Bool {
         // A photograph the viewer has left would be refused by `shouldShow` anyway.
         guard request.url == currentRequestURL else { return false }
@@ -1018,10 +1057,16 @@ final class PhotoRenderModel: ObservableObject {
         // scale comes back shorter, and the ladder and the HUD must see that.
         let renderedLongEdge =
             Swift.max(Swift.max(draft.image.width, draft.image.height), 64)
+        // A frame that paid a decode is the decode drag's evidence and not the
+        // ladder's: fewer graph pixels are not what would have made it cheaper.
+        let paidDecode = DecodeDrag.paidDecode(decodeMilliseconds: draft.decodeMilliseconds)
+        decodeDrag.record(
+            milliseconds: draft.laneMilliseconds > 0 ? draft.laneMilliseconds : draftMs,
+            paidDecode: paidDecode, divisor: decodeDivisor)
         // Only a steady-state whole-frame draft teaches the ladder: the first frame at
         // a new size pays a RAW decode no later one does (`isRepresentative`), and a
         // region's pixels are not denominated in rungs.
-        if request.region == nil, DraftLadder.isRepresentative(
+        if request.region == nil, !paidDecode, DraftLadder.isRepresentative(
             renderedLongEdge: renderedLongEdge,
             previousRenderedLongEdge: lastDraftLongEdge) {
             // `cost` is what the hand felt and decides the descent; `draftMs` is what
@@ -1064,6 +1109,7 @@ final class PhotoRenderModel: ObservableObject {
     private func apply(_ result: RenderResult, url: URL, recipe: Recipe,
                        editRevision: Int? = nil, renderMilliseconds: Double? = nil) {
         appliedGeneration = Swift.max(appliedGeneration, result.generation)
+        shownEditRevision = editRevision
         LatencyHUD.shared.noteTimeline(
             .frame, revision: editRevision, draft: result.isDraft,
             longEdge: Swift.max(result.image.width, result.image.height),
@@ -1210,6 +1256,8 @@ struct LoupeView: View {
     /// event becomes an increment. Nil between gestures.
     @State private var fallbackMagnification: CGFloat?
     @State private var sampler: PixelSampler?
+    /// Sampler builds: one at a time, the newest waiting, each finished one kept.
+    @State private var samplerBuilds = LatestWinsPump<SamplerKey>()
 
     @Environment(\.displayScale) private var displayScale: CGFloat
     @FocusState private var focused: Bool
@@ -1929,7 +1977,8 @@ struct LoupeView: View {
                                 sourceSize: sourceFrameSize
                                     ?? CGSize(width: cg.width, height: cg.height),
                                 mode: state.maskOverlayMode, tint: state.maskOverlayTint,
-                                strength: LoupeViewport.maskOverlayOpacity)
+                                strength: LoupeViewport.maskOverlayOpacity,
+                                revision: state.maskOverlayRevision)
                     .frame(width: drawn.width, height: drawn.height)
             }
 
@@ -2799,15 +2848,30 @@ struct LoupeView: View {
 
     @MainActor
     private func rebuildSampler() async {
-        guard samplerNeeded, let cg = model.image else {
-            sampler = nil
-            return
+        let key = SamplerKey(revision: model.revision, needed: samplerNeeded)
+        let cg: CGImage? = key.needed ? model.image : nil
+        let url = photo.id
+        let depicted = model.shownEditRevision
+        let frames = model
+        // Through the pump rather than awaited here: under a drag the next frame
+        // restarts this task before the last frame's sampler is built, and a build
+        // discarded for that left every overlay on the picture from before the drag.
+        _ = await samplerBuilds.submit(key) { _ in
+            guard let cg else {
+                sampler = nil
+                return false
+            }
+            var built: PixelSampler? = await Task.detached(priority: .userInitiated) {
+                PixelSampler.make(from: cg)
+            }.value
+            // The viewer has moved to another photograph: these are not its pixels.
+            guard frames.imageURL == url else { return false }
+            built?.revision = depicted
+            sampler = built
+            guard built != nil else { return false }
+            LatencyHUD.shared.noteOverlay("sampler", revision: depicted)
+            return true
         }
-        let built: PixelSampler? = await Task.detached(priority: .utility) {
-            PixelSampler.make(from: cg)
-        }.value
-        guard !Task.isCancelled else { return }
-        sampler = built
     }
 
     private func readout(at point: CGPoint, container: CGSize) -> ReadoutSample? {

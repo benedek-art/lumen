@@ -213,6 +213,8 @@ struct PixelSampler: Sendable {
     let height: Int
     /// RGBA8, row-major, row 0 at the top, alpha byte unused.
     let bytes: [UInt8]
+    /// The edit revision of the frame these pixels were taken from, for the timeline.
+    var revision: Int? = nil
 
     /// Sampling above this costs more memory than it buys accuracy for a cursor
     /// readout; the render proxies are smaller than it in practice.
@@ -402,9 +404,10 @@ struct ClippingOverlayView: View {
     var fullFrame: Bool = false
 
     @State private var overlay: CGImage?
-    /// The detached build in flight. `.task(id:)` cancels only the wrapper, so this is
-    /// what reaches the work — see `MaskOverlayView.rebuild`.
-    @State private var buildTask: Task<CGImage?, Never>?
+    /// Builds run one at a time, the newest waiting, and every finished one is shown.
+    /// Under a drag a new frame arrives before the last frame's overlay is built, so
+    /// cancelling the build in flight for each one showed nothing until the hand stopped.
+    @State private var builds = LatestWinsPump<BuildKey>()
 
     private struct BuildKey: Equatable {
         let sampler: UUID
@@ -435,15 +438,16 @@ struct ClippingOverlayView: View {
         let source = sampler
         let wanted = mode
         let flood = fullFrame
-        buildTask?.cancel()
-        let task = Task.detached(priority: .userInitiated) { () -> CGImage? in
-            ClippingOverlayView.build(sampler: source, mode: wanted, fullFrame: flood)
+        let key = BuildKey(sampler: source.id, mode: wanted, fullFrame: flood)
+        _ = await builds.submit(key) { _ in
+            let built = await Task.detached(priority: .userInitiated) { () -> CGImage? in
+                ClippingOverlayView.build(sampler: source, mode: wanted, fullFrame: flood)
+            }.value
+            overlay = built
+            guard built != nil else { return false }
+            LatencyHUD.shared.noteOverlay("clipping", revision: source.revision)
+            return true
         }
-        buildTask = task
-        let built = await task.value
-        guard !Task.isCancelled else { return }
-        // A cancelled build returns nil; keep the last good overlay rather than blank it.
-        if let built { overlay = built } else if !task.isCancelled { overlay = nil }
     }
 
     /// One pass over the sampled proxy. The bytes are sRGB-encoded, and the encoding is
@@ -520,8 +524,10 @@ struct SpotVisualizationView: View {
     let threshold: Double
 
     @State private var overlay: CGImage?
-    /// The detached build in flight, so a newer threshold can cancel it.
-    @State private var buildTask: Task<CGImage?, Never>?
+    /// Builds run one at a time, the newest waiting, and every finished one is shown.
+    /// Under a drag a new frame arrives before the last frame's overlay is built, so
+    /// cancelling the build in flight for each one showed nothing until the hand stopped.
+    @State private var builds = LatestWinsPump<BuildKey>()
 
     private struct BuildKey: Equatable {
         let sampler: UUID
@@ -548,14 +554,15 @@ struct SpotVisualizationView: View {
     private func rebuild() async {
         let source = sampler
         let wanted = threshold
-        buildTask?.cancel()
-        let task = Task.detached(priority: .userInitiated) { () -> CGImage? in
-            SpotVisualizationView.build(sampler: source, threshold: wanted)
+        _ = await builds.submit(BuildKey(sampler: source.id, threshold: wanted)) { _ in
+            let built = await Task.detached(priority: .userInitiated) { () -> CGImage? in
+                SpotVisualizationView.build(sampler: source, threshold: wanted)
+            }.value
+            overlay = built
+            guard built != nil else { return false }
+            LatencyHUD.shared.noteOverlay("spots", revision: source.revision)
+            return true
         }
-        buildTask = task
-        let built = await task.value
-        guard !Task.isCancelled else { return }
-        if let built { overlay = built } else if !task.isCancelled { overlay = nil }
     }
 
     nonisolated static func build(sampler: PixelSampler, threshold: Double) -> CGImage? {
@@ -721,8 +728,10 @@ struct FocusPeakingOverlayView: View {
     var settings: FocusPeakingSettings
 
     @State private var overlay: CGImage?
-    /// The detached build in flight, so the next frame of a drag can cancel it.
-    @State private var buildTask: Task<CGImage?, Never>?
+    /// Builds run one at a time, the newest waiting, and every finished one is shown.
+    /// Under a drag a new frame arrives before the last frame's overlay is built, so
+    /// cancelling the build in flight for each one showed nothing until the hand stopped.
+    @State private var builds = LatestWinsPump<BuildKey>()
 
     private struct BuildKey: Equatable {
         let sampler: UUID
@@ -758,14 +767,17 @@ struct FocusPeakingOverlayView: View {
         let source = sampler
         let wanted = settings.sensitivity
         let colour = settings.tint
-        buildTask?.cancel()
-        let task = Task.detached(priority: .userInitiated) { () -> CGImage? in
-            FocusPeakingOverlayView.build(sampler: source, sensitivity: wanted, tint: colour)
+        let key = BuildKey(sampler: source.id, sensitivity: wanted, tint: colour)
+        _ = await builds.submit(key) { _ in
+            let built = await Task.detached(priority: .userInitiated) { () -> CGImage? in
+                FocusPeakingOverlayView.build(sampler: source, sensitivity: wanted,
+                                              tint: colour)
+            }.value
+            overlay = built
+            guard built != nil else { return false }
+            LatencyHUD.shared.noteOverlay("peaking", revision: source.revision)
+            return true
         }
-        buildTask = task
-        let built = await task.value
-        guard !Task.isCancelled else { return }
-        if let built { overlay = built } else if !task.isCancelled { overlay = nil }
     }
 
     /// The confidence plane the engine returns for the frame on screen, at the
@@ -1007,10 +1019,14 @@ struct MaskOverlayView: View {
     var mode: MaskOverlay.Mode = .colorOverlay
     var tint: MaskOverlay.Tint = .red
     var strength: Double = MaskOverlay.defaultStrength
+    /// The edit revision `alpha` was rasterized for, for the timeline.
+    var revision: Int? = nil
 
     @State private var overlay: CGImage?
-    /// The composite in flight, so a superseded one can be told to stop.
-    @State private var buildTask: Task<CGImage?, Never>?
+    /// Builds run one at a time, the newest waiting, and every finished one is shown.
+    /// Under a drag a new frame arrives before the last frame's overlay is built, so
+    /// cancelling the build in flight for each one showed nothing until the hand stopped.
+    @State private var builds = LatestWinsPump<BuildKey>()
 
     /// The longest edge the composite is built at.
     ///
@@ -1066,42 +1082,31 @@ struct MaskOverlayView: View {
 
     @MainActor
     private func rebuild() async {
-        // CANCEL THE ONE BEFORE IT, and hold the handle so that is possible at all.
-        //
-        // `Task.detached` is not a child task, so `.task(id:)` tearing down the previous
-        // `rebuild` never reached the work it had started — and `await …value` on a
-        // `Task<_, Never>` does not observe the parent's cancellation either. Every
-        // superseded composite therefore ran to completion. During a drag that is one
-        // full-frame composite per delivered frame, none of them cancelled, none of them
-        // ever shown, each holding tens of megabytes while it ran; the queue only drained
-        // when the hand stopped. That is the trail.
-        //
-        // Detached is still right — this is heavy CPU work and it must not inherit the
-        // main actor — so the fix is an explicit handle rather than a child task.
-        buildTask?.cancel()
-        guard let alpha else {
-            buildTask = nil
-            overlay = nil
-            return
-        }
+        // Detached: this is heavy CPU work and must not inherit the main actor.
+        let plane = alpha
         let picture = sampler
         let wanted = mode
         let colour = tint
         let amount = strength
         let frame = geometry
         let native = sourceSize
-        let task = Task.detached(priority: .userInitiated) { () -> CGImage? in
-            MaskOverlayView.build(alpha: alpha, sampler: picture, geometry: frame,
-                                  sourceSize: native, mode: wanted,
-                                  tint: colour, strength: amount)
+        let depicted = revision
+        _ = await builds.submit(buildKey) { _ in
+            guard let plane else {
+                overlay = nil
+                return false
+            }
+            let built = await Task.detached(priority: .userInitiated) { () -> CGImage? in
+                MaskOverlayView.build(alpha: plane, sampler: picture, geometry: frame,
+                                      sourceSize: native, mode: wanted,
+                                      tint: colour, strength: amount)
+            }.value
+            // Nil means the composite could not be drawn; the last good one stays up.
+            guard let built else { return false }
+            overlay = built
+            LatencyHUD.shared.noteOverlay("maskWash", revision: depicted)
+            return true
         }
-        buildTask = task
-        let built = await task.value
-        guard !Task.isCancelled else { return }
-        // A cancelled build returns nil, and nil means "draw nothing". Keeping the last
-        // good overlay instead of blanking it is what stops the red flickering out on
-        // every superseded frame of a drag.
-        if let built { overlay = built }
     }
 
     /// Composited at the PICTURE's resolution when there is one, so the mask edge is

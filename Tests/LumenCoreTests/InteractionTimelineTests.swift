@@ -77,6 +77,46 @@ final class InteractionTimelineTests: XCTestCase {
                        "the settle's 88 ms is not a draft")
     }
 
+    /// An overlay is measured the way frames are, each under its own name.
+    func testAnOverlayThatWaitsForTheHandToStopIsOneLongGap() {
+        var timeline = InteractionTimeline()
+        for step in 0...50 { timeline.record(input(Double(step) * 10, step + 1)) }
+        for landing in stride(from: 30.0, through: 510.0, by: 30) {
+            timeline.record(frame(landing, Int(landing / 10) - 1))
+            timeline.record(.init(kind: .overlay, nanoseconds: ms(landing + 4),
+                                  revision: Int(landing / 10) - 1, name: "clipping"))
+        }
+        timeline.record(frame(540, 51))
+        timeline.record(.init(kind: .overlay, nanoseconds: ms(700), revision: 51,
+                              name: "maskWash"))
+        let summary = timeline.summary()
+        let clipping = summary.overlays["clipping"]
+        XCTAssertEqual(clipping?.updatesDuringInput, 16)
+        XCTAssertEqual(clipping?.maxGapMilliseconds ?? -1, 34, accuracy: 1e-6)
+        XCTAssertNil(clipping?.lastInputToUpdateMilliseconds,
+                     "it never showed the final value")
+        let wash = summary.overlays["maskWash"]
+        XCTAssertEqual(wash?.updates, 1)
+        XCTAssertEqual(wash?.updatesDuringInput, 0)
+        XCTAssertEqual(wash?.maxGapMilliseconds ?? -1, 700, accuracy: 1e-6)
+        XCTAssertEqual(wash?.lastInputToUpdateMilliseconds ?? -1, 200, accuracy: 1e-6)
+        XCTAssertEqual(summary.framesDuringInput, 16, "overlays are not frames")
+    }
+
+    /// What one input costs the main thread, whatever happens to its frame.
+    func testTheMainThreadTimePerInputIsSummarised() {
+        var timeline = InteractionTimeline()
+        for (step, cost) in [3.0, 9.0, 4.0, 21.0, 5.0].enumerated() {
+            timeline.record(input(Double(step) * 30, step + 1))
+            timeline.record(.init(kind: .turn, nanoseconds: ms(Double(step) * 30 + cost),
+                                  revision: step + 1, mainMilliseconds: cost))
+        }
+        let summary = timeline.summary()
+        XCTAssertEqual(summary.medianInputTurnMilliseconds ?? -1, 5, accuracy: 1e-6)
+        XCTAssertEqual(summary.maxInputTurnMilliseconds ?? -1, 21, accuracy: 1e-6)
+        XCTAssertNil(InteractionTimeline().summary().medianInputTurnMilliseconds)
+    }
+
     func testAFinalValueThatNeverRenderedIsReported() {
         var timeline = InteractionTimeline()
         timeline.record(input(0, 1))
