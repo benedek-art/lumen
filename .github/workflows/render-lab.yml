@@ -211,16 +211,6 @@ jobs:
         with:
           name: renderlab-manifests
           path: resolved
-      - name: Parity probe
-        if: always() && steps.build.outcome != 'failure'
-        shell: bash
-        run: |
-          grep -q '"probe"' docs/renderlab-request.json || exit 0
-          set +e
-          LUMEN_PARITY_PROBE_PHOTOS="$PHOTOS" swift test -c release --skip-build \
-            --filter "ExportParityProbe|TiledDeliveryTests" > probe.log 2>&1
-          grep -E "PROBE:|error:|Test Case .* (passed|failed)" probe.log | tee -a "$GITHUB_STEP_SUMMARY"
-          exit 0
       - name: Render on the shipping path
         if: needs.plan.outputs.macos == 'true'
         shell: bash
@@ -267,7 +257,6 @@ jobs:
             renderlab-out/
             lab.log
             drift.log
-            probe.log
           if-no-files-found: warn
           retention-days: 14
 

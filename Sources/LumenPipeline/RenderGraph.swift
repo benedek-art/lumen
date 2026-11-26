@@ -2065,25 +2065,6 @@ public struct RenderGraph {
         // which is how Texture died below 334 px. Under this conversion the smallest
         // real radius asks for 3 and gets a genuine 3-wide box, so nothing needs a floor
         // to avoid a primitive's dead zone.
-        //
-        // The same box through `KernelLibrary.boxPass` when it compiled: `CIBoxBlur` is
-        // not tiled, and on a full-size export frame it fails with a GPU out-of-memory
-        // error (render lab run 45744057183). Edges clamp exactly as above.
-        if let pass = KernelLibrary.boxPass {
-            let extent = image.extent
-            let reach = CGFloat(radius) + 1
-            let r = Float(radius)
-            guard let across = pass.apply(
-                    extent: extent.insetBy(dx: 0, dy: -reach),
-                    roiCallback: { _, rect in rect.insetBy(dx: -reach, dy: 0) },
-                    arguments: [image.clampedToExtent(), CIVector(x: 1, y: 0), r]),
-                  let down = pass.apply(
-                    extent: extent,
-                    roiCallback: { _, rect in rect.insetBy(dx: 0, dy: -reach) },
-                    arguments: [across, CIVector(x: 0, y: 1), r])
-            else { return nil }
-            return down
-        }
         let filter = CIFilter.boxBlur()
         filter.inputImage = image.clampedToExtent()
         filter.radius = Float(2 * radius + 1)
