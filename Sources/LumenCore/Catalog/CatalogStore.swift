@@ -2221,12 +2221,27 @@ public final class CatalogStore {
             let previews = try self.previews(photoID: id)
             try self.db.run("DELETE FROM album_photo   WHERE photo_id = ?;", [.integer(id)])
             try self.db.run("DELETE FROM photo_keyword WHERE photo_id = ?;", [.integer(id)])
+            let stackID = try self.db.scalarInt(
+                "SELECT stack_id FROM stack_member WHERE photo_id = ?;", [.integer(id)])
             try self.db.run("DELETE FROM stack_member  WHERE photo_id = ?;", [.integer(id)])
             try self.db.run("DELETE FROM history       WHERE photo_id = ?;", [.integer(id)])
             try self.db.run("DELETE FROM export_log    WHERE photo_id = ?;", [.integer(id)])
             try self.db.run("DELETE FROM edit          WHERE photo_id = ?;", [.integer(id)])
             try self.db.run("UPDATE stack SET pick_photo_id = NULL WHERE pick_photo_id = ?;",
                             [.integer(id)])
+            // A collapsed stack shows only its pick: losing it must re-pick from the
+            // survivors, or every one of them leaves the collapsed grid.
+            if let stackID {
+                if let survivor = try self.db.scalarInt(
+                    "SELECT photo_id FROM stack_member WHERE stack_id = ? "
+                    + "ORDER BY position ASC LIMIT 1;", [.integer(stackID)]) {
+                    try self.db.run("UPDATE stack SET pick_photo_id = ? "
+                                    + "WHERE id = ? AND pick_photo_id IS NULL;",
+                                    [.integer(survivor), .integer(stackID)])
+                } else {
+                    try self.db.run("DELETE FROM stack WHERE id = ?;", [.integer(stackID)])
+                }
+            }
             try self.db.run("DELETE FROM cache.preview      WHERE photo_id = ?;", [.integer(id)])
             try self.db.run("DELETE FROM cache.artifact     WHERE photo_id = ?;", [.integer(id)])
             try self.db.run("DELETE FROM cache.raw_stats    WHERE photo_id = ?;", [.integer(id)])
