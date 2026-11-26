@@ -75,7 +75,7 @@ final class GrainParityScanTests: XCTestCase {
     /// fourth name here means a fourth place that decides what a plate is, which is the
     /// defect this file exists for.
     private static let functionsAllowedToBuildAPlate: Set<String> =
-        ["plate", "applyGrain", "grainPlate"]
+        ["plate", "field", "applyGrain", "grainPlate"]
 
     // MARK: - The names this file scans for, written as Swift
 
@@ -101,6 +101,10 @@ final class GrainParityScanTests: XCTestCase {
         XCTAssertGreaterThan(scale, 0, "a plate scale is a positive cell size")
         let limited = plan.plate(channel: 0, renderPixelsPerCell: scale)
         XCTAssertEqual(limited.count, GrainPlan.plateSize * GrainPlan.plateSize)
+        // `.field(` is what both renderers evaluate; it is scanned with `.plate(`.
+        let field = plan.field(channel: 0, renderPixelsPerCell: scale)
+        XCTAssertEqual(field.weights.count, GrainField.octaveCount)
+        XCTAssertEqual(FilmGrainProfile.field(seed: 1).weights.count, GrainField.octaveCount)
 
         // `FilmGrainProfile.plate(` — the raw generator nothing outside `GrainPlan` may
         // reach — and `plateEncodeScale`, the constant the kernel divides back out.
@@ -268,9 +272,11 @@ final class GrainParityScanTests: XCTestCase {
         var rawGenerator: [String] = []
         for source in sources {
             let spans = Self.functions(in: source.structure)
-            for offset in Self.offsets(of: "FilmGrainProfile.plate(", in: source.code) {
+            let raw = Self.offsets(of: "FilmGrainProfile.plate(", in: source.code)
+                + Self.offsets(of: "FilmGrainProfile.field(", in: source.code)
+            for offset in raw.sorted() {
                 let function = Self.enclosing(offset, spans)?.name ?? "<no function>"
-                guard function != "plate" else { continue }
+                guard function != "plate", function != "field" else { continue }
                 rawGenerator.append(
                     "\(source.path):\(Self.line(at: offset, in: source.raw)) in \(function)")
             }
@@ -354,6 +360,13 @@ final class GrainParityScanTests: XCTestCase {
                           + "recovery lived in different files and did not agree once "
                           + "already; interpolating the one constant is what stops the "
                           + "pair drifting again")
+        // And the field generator stores with the same constant.
+        guard let field = Self.stringLiteral(after: "grainFieldSource", in: kernels) else {
+            return XCTFail("no `grainFieldSource` string literal in Kernels.swift")
+        }
+        XCTAssertTrue(field.contains("lumenGrainField"))
+        XCTAssertTrue(field.contains("FilmGrainProfile.plateEncodeScale"),
+                      "the grain field packs with something other than the named scale")
     }
 
     /// SECOND: both renderers read the two mix weights off the plan, by name, rather
@@ -420,7 +433,9 @@ final class GrainParityScanTests: XCTestCase {
         var calls: [PlateCall] = []
         for source in sources {
             let spans = functions(in: source.structure)
-            for offset in offsets(of: ".plate(", in: source.code) {
+            let found = offsets(of: ".plate(", in: source.code)
+                + offsets(of: ".field(", in: source.code)
+            for offset in found.sorted() {
                 let open = offset + 6
                 let text = callText(open: open, code: source.code,
                                     structure: source.structure)

@@ -273,20 +273,26 @@ final class CreativeGrainTests: XCTestCase {
             let plate = FilmGrainProfile.plate(size: size, seed: 99, sigma: 1,
                                                persistence: p)
             let values = plate.map(Double.init)
-            // Unit variance, at every roughness: the plate is rescaled after the octaves
-            // are summed.
-            XCTAssertEqual(Self.sigma(values), 1.0, accuracy: 1e-6,
-                           "roughness \(roughness) changed the plate's amplitude")
+            // Unit variance, at every roughness: the octaves are normalised after they
+            // are summed — exactly in expectation, and measured over a large block.
+            let field = FilmGrainProfile.field(seed: 99, persistence: p)
+            XCTAssertEqual(field.weights.map { $0 * $0 }.reduce(0, +)
+                               * GrainField.unitOctaveSigma * GrainField.unitOctaveSigma,
+                           1.0, accuracy: 1e-12,
+                           "roughness \(roughness) changed the field's amplitude")
+            let large = FilmGrainProfile.plate(size: 1024, seed: 99, sigma: 1,
+                                               persistence: p).map(Double.init)
+            XCTAssertEqual(Self.sigma(large), 1.0, accuracy: 0.03,
+                           "roughness \(roughness) changed the field's amplitude")
             // High-frequency content: the mean absolute difference between horizontal
-            // neighbours, wrapped, which rises as the fine octaves gain weight.
+            // neighbours, which rises as the fine octaves gain weight.
             var detail = 0.0
             for y in 0..<size {
-                for x in 0..<size {
-                    detail += abs(values[y * size + x]
-                                  - values[y * size + (x + 1) % size])
+                for x in 0..<(size - 1) {
+                    detail += abs(values[y * size + x] - values[y * size + x + 1])
                 }
             }
-            detail /= Double(size * size)
+            detail /= Double(size * (size - 1))
             print(String(format: "GRAIN roughness %5.0f → persistence %.3f → "
                          + "neighbour detail %.4f", roughness, p, detail))
             XCTAssertGreaterThan(detail, previousDetail,
@@ -707,17 +713,23 @@ extension CreativeGrainTests {
 
     // MARK: What must NOT change
 
-    /// AMPLITUDE IS PRESERVED. The plate renormalises to unit variance by measurement,
-    /// so dropping an octave makes the texture coarser and not quieter. A band-limited
-    /// plate that also lost energy would read as the grain slider having moved.
+    /// AMPLITUDE IS PRESERVED. The field renormalises over the octaves it keeps, so
+    /// dropping an octave makes the texture coarser and not quieter. A band-limited
+    /// field that also lost energy would read as the grain slider having moved. Exact in
+    /// expectation, and measured over a 1024² block.
     func testDroppingAnOctaveDoesNotChangeTheAmplitude() {
         for perCell in [0.25, 0.5, 1.0, 2.0] {
-            let plate = FilmGrainProfile.plate(size: 128, seed: 7, sigma: 1,
+            let field = FilmGrainProfile.field(seed: 7, renderPixelsPerCell: perCell)
+            XCTAssertEqual(field.weights.map { $0 * $0 }.reduce(0, +)
+                               * GrainField.unitOctaveSigma * GrainField.unitOctaveSigma,
+                           1, accuracy: 1e-12,
+                           "at \(perCell) px per texel the field's amplitude moved")
+            let plate = FilmGrainProfile.plate(size: 1024, seed: 7, sigma: 1,
                                                renderPixelsPerCell: perCell)
             let mean = plate.reduce(0.0) { $0 + Double($1) } / Double(plate.count)
             let variance = plate.reduce(0.0) { $0 + pow(Double($1) - mean, 2) }
                 / Double(plate.count)
-            XCTAssertEqual(variance.squareRoot(), 1, accuracy: 1e-6,
+            XCTAssertEqual(variance.squareRoot(), 1, accuracy: 0.03,
                            "at \(perCell) px per texel the plate's amplitude moved")
         }
     }

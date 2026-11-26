@@ -636,8 +636,7 @@ public enum ReferenceRenderer {
     /// implementation on this path and there always was.
     static func applyGrain(_ image: ImageBuffer, grain: GrainPlan, seed: UInt64,
                            longEdge: Int) -> ImageBuffer {
-        let plateSize = GrainPlan.plateSize
-        // One plate per emulsion layer, at that layer's own crystal size.
+        // One field per emulsion layer, at that layer's own crystal size.
         //
         // The amplitude envelope √(p(1−p)) was already per-channel, but a single noise
         // value `n` went into all three — which is a luminance overlay wearing film's
@@ -649,21 +648,17 @@ public enum ReferenceRenderer {
         // `plateSeed(channel:)` collapses to one seed on a monochrome stock, so Tri-X
         // keeps a single field and cannot acquire coloured speckle.
         //
-        // Through `GrainPlan.plate` rather than `FilmGrainProfile.plate`, because the
-        // plate's PERSISTENCE now lives on the profile and a caller that assembled the
-        // arguments itself would have had to remember to pass it — which is precisely
-        // how the GPU plate ended up with a different seed from this one, back when both
-        // spelled the seed themselves.
-        // The scales first: each layer's plate is BAND-LIMITED to the resolution it is
-        // about to be sampled at, so a preview is the low-pass of the export rather
-        // than a differently-pitched pattern (C2-01b). `RenderGraph` passes the same
-        // value from the same function, and gpu-parity is what holds the two together.
+        // Through `GrainPlan.field`, band-limited to the render through the same
+        // `plateScale` call `RenderGraph.grainPlate` makes (C2-01b).
         let scales = (0..<3).map {
             grain.plateScale(longEdgePixels: longEdge, channel: $0)
         }
-        let plates = (0..<3).map {
-            grain.plate(channel: $0, size: plateSize, seed: seed,
-                        renderPixelsPerCell: scales[$0])
+        // Rastered at pixel centres, top-down, frame-anchored: what `lumenGrainField`
+        // evaluates.
+        let rasters = (0..<3).map {
+            grain.field(channel: $0, seed: seed, renderPixelsPerCell: scales[$0])
+                .raster(width: image.width, height: image.height,
+                        texelsPerPixel: 1 / scales[$0])
         }
         var out = image
         let dmax = Swift.max(grain.dMax, 0.1)
@@ -685,14 +680,11 @@ public enum ReferenceRenderer {
                 let c = image[x, y]
                 var noise = RGB.zero
                 for channel in 0..<3 {
-                    noise[channel] = FilmGrainProfile.sample(
-                        plates[channel], size: plateSize,
-                        x: Double(x) / scales[channel],
-                        y: Double(y) / scales[channel])
+                    noise[channel] = rasters[channel][y * image.width + x]
                 }
                 // The three samples first, then the mix: the fields are sampled at
                 // three DIFFERENT cell sizes, so the shared component has to be formed
-                // here, after scaling, and not baked into the plates.
+                // here, after scaling, and not baked into the fields.
                 let shared = (noise.r + noise.g + noise.b) * lumaWeight
                 var result = RGB.zero
                 for channel in 0..<3 {
