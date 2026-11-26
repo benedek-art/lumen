@@ -125,7 +125,7 @@ public struct OperationReport: Codable, Equatable, Sendable, Identifiable {
                     outcome: .notAttempted, detail: "No concluded result was produced for this destination role."))
             }
         }
-        issues = result.refusals
+        issues = result.refusals + [IngestCardScan.notCopiedSentence(result.leftOnCard)].compactMap { $0 }
         finish(result.wasCancelled ? .cancelled : .completed, at: date)
     }
 }

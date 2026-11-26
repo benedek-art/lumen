@@ -224,6 +224,9 @@ public struct IngestReport: Sendable {
     /// Frames with at least one destination, every one of which landed or was already
     /// there — verified or not. Equal to `framesVerified` whenever verification is on.
     public var framesLanded: Int
+    /// Files on the card the plan did not copy. Non-empty keeps `allVerified` false.
+    public var leftOnCard: [URL] = []
+    public var backupSharesVolume: Bool = false
 
     /// `framesVerified` / `framesLanded` default to a count over `results` grouped by
     /// source, for a report built by hand; the driver passes the per-plan counts, which
@@ -259,9 +262,16 @@ public struct IngestReport: Sendable {
         results.filter { if case .alreadyPresent = $0.outcome { return true } else { return false } }
     }
 
-    /// Every planned frame is on every planned destination, and every one of those was
-    /// read back and matched. This — and nothing weaker — is what may offer eject.
+    /// Every planned frame is on every planned destination, every one of those was read
+    /// back and matched, and nothing on the card was left uncopied. This — and nothing
+    /// weaker — is what may offer eject.
     public var allVerified: Bool {
+        photosVerified && leftOnCard.isEmpty
+    }
+
+    /// `allVerified` without the left-on-card condition: what the planned frames alone
+    /// achieved. Never a reason to eject.
+    public var photosVerified: Bool {
         !wasCancelled
             && refusals.isEmpty
             && filesAttempted == filesPlanned
@@ -336,7 +346,8 @@ public struct IngestReport: Sendable {
                 sentence = "Ingested \(framesLanded) of \(filesPlanned) \(plannedWord) — "
                     + "\(filesAttempted - framesLanded) had nowhere to go"
             }
-            sentence += allVerified ? ", every copy verified." : ", UNVERIFIED."
+            sentence += allVerified ? ", every copy verified."
+                : photosVerified ? ", every photo copy verified." : ", UNVERIFIED."
         } else {
             // "Ingested" counts only frames proven on every destination — a frame that
             // failed is not ingested because it was attempted (S-03).
@@ -363,6 +374,12 @@ public struct IngestReport: Sendable {
         }
         if destinationAliasesSource {
             sentence += " · a destination is the source itself; an independent copy is still needed"
+        }
+        if backupSharesVolume {
+            sentence += " · primary and backup are on the same volume; one disk failure loses both"
+        }
+        if let left = IngestCardScan.notCopiedSentence(leftOnCard) {
+            sentence += " · " + left
         }
         return sentence
     }
@@ -582,10 +599,13 @@ public struct VerifiedCopyDriver: Sendable {
             report(copied: bytesCopied, processed: bytesProcessed)
         }
 
-        return IngestReport(results: results, refusals: plan.refusals,
-                            wasCancelled: cancelled, filesAttempted: attempted,
-                            filesPlanned: plan.copies.count, bytesCopied: bytesCopied,
-                            framesVerified: framesVerified, framesLanded: framesLanded)
+        var report = IngestReport(results: results, refusals: plan.refusals,
+                                  wasCancelled: cancelled, filesAttempted: attempted,
+                                  filesPlanned: plan.copies.count, bytesCopied: bytesCopied,
+                                  framesVerified: framesVerified, framesLanded: framesLanded)
+        report.leftOnCard = plan.leftOnCard
+        report.backupSharesVolume = plan.backupSharesVolume
+        return report
     }
 
     // MARK: - Pairs
