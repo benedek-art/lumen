@@ -1,6 +1,6 @@
 // DriverAX.swift
 // This process's accessibility tree, read the way an outside client reads it: through
-// AXUIElement from a background thread while the main thread stays free to answer.
+// AXUIElement, on the main thread (for this process the client runs the server inline).
 // Gives every button, checkbox, popup, field, menu-bar item and text its role and label,
 // in every window. Needs the accessibility permission (the hosted runner grants it).
 
@@ -23,6 +23,8 @@ struct DriverAXNode {
     let depth: Int
     /// The nearest enclosing window-like element: AXWindow, AXSheet, AXPopover, AXMenu…
     let container: String
+    /// That element's frame, Quartz points; zero when there is none.
+    let containerBox: CGRect
     let element: AXUIElement
 
     var kind: String { DriverAX.kind(role: role, subrole: subrole) }
@@ -132,35 +134,52 @@ enum DriverAX {
         return fallback
     }
 
-    /// Breadth-first over the whole application. Menu-bar menus are entered only while
-    /// open. Runs on the calling thread, which must not be the main thread.
     struct Result {
         var nodes: [DriverAXNode]
         var error: String?
         var ms: Double = 0
     }
 
+    /// Breadth-first over the whole application: its windows, sheets and popovers and the
+    /// menu bar. Menu-bar menus are entered only while open. For this process the AX
+    /// client calls the AppKit server code on the calling thread, which runs SwiftUI's
+    /// accessibility builder, so this must run on the main thread.
     private static func walk(limit: Int, seconds: Double) -> Result {
         let pid = ProcessInfo.processInfo.processIdentifier
         let app = AXUIElementCreateApplication(pid)
-        AXUIElementSetMessagingTimeout(app, 3)
+        AXUIElementSetMessagingTimeout(app, 2)
         let deadline = Date().addingTimeInterval(seconds)
         var nodes: [DriverAXNode] = []
-        var queue: [(AXUIElement, Int, String, Bool)] = [(app, 0, "AXApplication", false)]
+        typealias Item = (element: AXUIElement, depth: Int, container: String, box: CGRect)
+        var queue: [Item] = [(app, 0, "AXApplication", .zero)]
+        var tops: [AXUIElement] = []
+        // The menu bar and every window, whether or not AXChildren lists them.
+        for attribute in ["AXMenuBar", "AXWindows"] {
+            var value: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(app, attribute as CFString, &value) == .success,
+                  let value else { continue }
+            let found = CFGetTypeID(value) == AXUIElementGetTypeID()
+                ? [value as! AXUIElement] : elements(value as AnyObject)
+            for element in found where !tops.contains(where: { CFEqual($0, element) }) {
+                tops.append(element)
+                queue.append((element, 1, "AXApplication", .zero))
+            }
+        }
         var head = 0
         var firstError: String?
         var visited = 0
+        let windowLike: Set<String> = ["AXWindow", "AXSheet", "AXPopover", "AXMenu", "AXDrawer"]
         while head < queue.count, visited < limit {
             if Date() > deadline {
                 firstError = firstError ?? "stopped after \(seconds) s"
                 break
             }
-            let (element, depth, container, inMenuBar) = queue[head]
+            let item = queue[head]
             head += 1
             visited += 1
             var raw: CFArray?
             let status = AXUIElementCopyMultipleAttributeValues(
-                element, attributes as CFArray, AXCopyMultipleAttributeOptions(), &raw)
+                item.element, attributes as CFArray, AXCopyMultipleAttributeOptions(), &raw)
             guard status == .success, let values = raw as? [AnyObject],
                   values.count == attributes.count else {
                 if firstError == nil {
@@ -170,57 +189,59 @@ enum DriverAX {
                 continue
             }
             let role = string(values[0])
-            let subrole = string(values[1])
             var frame = CGRect.zero
             if let p = point(values[7]), let s = size(values[8]) {
                 frame = CGRect(origin: p, size: s)
             }
             let selected = flag(values[11], default: false)
-            if depth > 0 {
+            if item.depth > 0 {
                 nodes.append(DriverAXNode(
-                    role: role, subrole: subrole, title: string(values[2]),
-                    desc: string(values[3]), help: string(values[4]), ident: string(values[5]),
-                    value: string(values[6]), enabled: flag(values[9], default: true),
-                    quartz: frame, depth: depth, container: container, element: element))
+                    role: role, subrole: string(values[1]), title: string(values[2]),
+                    desc: string(values[3]), help: string(values[4]),
+                    ident: identifier(string(values[5])), value: string(values[6]),
+                    enabled: flag(values[9], default: true), quartz: frame, depth: item.depth,
+                    container: item.container, containerBox: item.box, element: item.element))
             }
-            let windowLike: Set<String> = ["AXWindow", "AXSheet", "AXPopover", "AXMenu",
-                                           "AXDrawer", "AXDialog"]
-            let here = windowLike.contains(role) ? role : container
-            let menuBar = inMenuBar || role == "AXMenuBar"
+            let isWindow = windowLike.contains(role) && frame.width > 0
+            let container = isWindow ? role : item.container
+            let box = isWindow ? frame : item.box
             // A closed menu-bar menu is hundreds of items nobody can click.
             if role == "AXMenuBarItem" && !selected { continue }
-            guard depth < 60 else { continue }
+            guard item.depth < 60 else { continue }
             for child in elements(values[10]) {
-                queue.append((child, depth + 1, here, menuBar))
+                if item.depth == 0, tops.contains(where: { CFEqual($0, child) }) { continue }
+                queue.append((child, item.depth + 1, container, box))
             }
         }
         return Result(nodes: nodes, error: nodes.isEmpty ? (firstError ?? "the tree is empty") : nil)
     }
 
-    /// The tree, read off the main thread. The main actor awaits without blocking, so
-    /// its run loop answers the requests.
-    static func snapshot(limit: Int = 6000, seconds: Double = 10) async -> Result {
+    /// SwiftUI's generated identifiers (`SwiftUI.ModifiedContent<…>-1-AppWindow-1`) name
+    /// nothing a person would type.
+    private static func identifier(_ text: String) -> String {
+        text.contains("<") || text.hasPrefix("SwiftUI.") || text.count > 80 ? "" : text
+    }
+
+    /// The tree, read on the main thread between two awaits.
+    @MainActor
+    static func snapshot(limit: Int = 6000, seconds: Double = 8) async -> Result {
+        await Task.yield()
         let began = DriverClock.now()
-        var result = await withCheckedContinuation { (continuation: CheckedContinuation<Result, Never>) in
-            let thread = Thread {
-                continuation.resume(returning: walk(limit: limit, seconds: seconds))
-            }
-            thread.name = "lumen.driver.ax"
-            thread.start()
-        }
+        var result = walk(limit: limit, seconds: seconds)
         result.ms = (DriverClock.now() - began) * 1000
         return result
     }
 
-    /// Performs an accessibility action (`AXPress` by default) off the main thread.
+    /// Sends an accessibility action (`AXPress` by default) from the next turn of the
+    /// main run loop, so an action that opens a modal panel does not block the driver.
+    @MainActor
     static func perform(_ action: String, on element: AXUIElement) async -> AXError {
-        await withCheckedContinuation { (continuation: CheckedContinuation<AXError, Never>) in
-            let thread = Thread {
-                continuation.resume(returning: AXUIElementPerformAction(element, action as CFString))
-            }
-            thread.name = "lumen.driver.ax.action"
-            thread.start()
+        DispatchQueue.main.async {
+            let status = AXUIElementPerformAction(element, action as CFString)
+            DriverTimeline.shared.add("ax", ["action": action, "status": Int(status.rawValue)])
         }
+        await Task.yield()
+        return .success
     }
 
     /// Nodes named `kind/label` (`kind` may be `*`), best match first: exact label, then

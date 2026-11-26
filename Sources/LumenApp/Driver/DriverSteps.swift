@@ -615,6 +615,8 @@ extension DriverSession {
         let samplesBefore = samples.count
         let hitchesBefore = hitches.count
         let receivedBefore = endEvent.isEmpty ? 0 : input.receivedCount(endEvent)
+        let pressBefore = input.receivedCount(endEvent == "rightMouseUp" ? "rightMouseDown"
+                                                                         : "leftMouseDown")
         var film: DriverFilm?
         if let hz = step.double("film"), let window {
             let region = anchorRect(step.string("filmRegion") ?? "viewer")
@@ -657,6 +659,13 @@ extension DriverSession {
         if !endEvent.isEmpty {
             delivered = await wait(timeout: step.double("deliveryTimeout") ?? 2) {
                 input.receivedCount(endEvent) > receivedBefore
+            }
+            // An AppKit control (a bordered button, a pop-up) tracks the press in its own
+            // loop, which takes the release before the app's monitor can see it.
+            let press = endEvent == "rightMouseUp" ? "rightMouseDown" : "leftMouseDown"
+            if !delivered, endEvent.hasSuffix("MouseUp"), input.receivedCount(press) > pressBefore {
+                delivered = true
+                out["releaseTracked"] = true
             }
         }
         // One more turn so the handler of the last event has run and been sampled.

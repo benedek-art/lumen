@@ -349,7 +349,7 @@ extension DriverSession {
             var row = other.json(index: index)
             // A window that reaches past the main window's edges is also saved whole.
             if !bounds.insetBy(dx: -1, dy: -1).contains(other.frame),
-               let alone = DriverWindows.single(other) {
+               let alone = DriverWindows.single(other, main: window) {
                 let extraFile = "shots/\(name).\(other.role)\(index).png"
                 DriverCapture.write(alone, to: outDir.appendingPathComponent(extraFile))
                 row["file"] = extraFile

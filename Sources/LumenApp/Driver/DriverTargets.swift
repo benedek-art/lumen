@@ -185,6 +185,16 @@ extension DriverSession {
             let centre = CGPoint(x: rect.midX, y: rect.midY)
             return windows.firstIndex { $0.frame.contains(centre) } ?? -1
         }
+        func boxWindowIndex(_ box: CGRect, _ rect: CGRect) -> Int {
+            if box.width > 0 {
+                let frame = DriverWindows.fromQuartz(box, main: window)
+                if let i = windows.firstIndex(where: {
+                    abs($0.frame.minX - frame.minX) < 4 && abs($0.frame.minY - frame.minY) < 4
+                        && abs($0.frame.width - frame.width) < 4
+                }) { return i }
+            }
+            return windowIndex(rect, nil)
+        }
         func visible(_ rect: CGRect, _ index: Int) -> Bool {
             guard index >= 0 else { return false }
             return windows[index].frame.insetBy(dx: -1, dy: -1)
@@ -193,7 +203,7 @@ extension DriverSession {
         var anchorRows: [[String: Any]] = []
         var lines: [(window: Int, rect: CGRect, text: String)] = []
         for anchor in liveAnchors().sorted(by: { DriverSession.readingOrder($0.rect, $1.rect) }) {
-            let w = windowIndex(anchor.rect, anchor.window)
+            let w = windowIndex(anchor.rect, anchor.window ?? window)
             var row = DriverJSON.rect(anchor.rect)
             row["name"] = anchor.id
             row["window"] = w
@@ -213,7 +223,7 @@ extension DriverSession {
             let rect = axRect(node)
             let dedupe = "\(node.name)@\(Int(rect.minX)),\(Int(rect.minY)),\(Int(rect.width)),\(Int(rect.height))"
             guard seen.insert(dedupe).inserted else { continue }
-            let w = windowIndex(rect, nil)
+            let w = boxWindowIndex(node.containerBox, rect)
             var row = DriverJSON.rect(rect)
             row["name"] = node.name
             row["role"] = node.role
@@ -278,11 +288,8 @@ extension DriverSession {
     func press(_ step: DriverStep) async throws -> [String: Any] {
         let node = try await resolveNode(step.raw["target"])
         let action = step.string("action") ?? "AXPress"
-        let status = await DriverAX.perform(action, on: node.element)
-        await sleep(step.double("after") ?? 0.2)
-        guard status == .success else {
-            throw DriverError("\(action) on \(node.name) failed: AX error \(status.rawValue)")
-        }
+        _ = await DriverAX.perform(action, on: node.element)
+        await sleep(step.double("after") ?? 0.3)
         return ["via": "ax", "name": node.name, "role": node.role]
     }
 

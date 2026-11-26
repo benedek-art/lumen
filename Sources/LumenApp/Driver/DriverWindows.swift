@@ -126,6 +126,14 @@ enum DriverWindows {
                 && $0.frame.intersects(CGRect(origin: .zero, size: main.frame.size))
         }
         guard !others.isEmpty else { return base }
+        // The window server's own composite when it may be had: it includes content other
+        // processes draw into this app's windows (the open panel). Else drawn here.
+        if CGPreflightScreenCaptureAccess(),
+           let screen = DriverCapture.screen(quartz: quartzFrame(of: main)),
+           screen.width == base.width, screen.height == base.height {
+            extra = others
+            return screen
+        }
         let scale = CGFloat(base.width) / Swift.max(main.frame.width, 1)
         let width = base.width
         let height = base.height
@@ -152,9 +160,16 @@ enum DriverWindows {
         return context.makeImage() ?? base
     }
 
-    /// One window alone, for a window that reaches past the main window's edges.
-    static func single(_ info: DriverWindowInfo) -> CGImage? {
-        DriverCapture.windowList(windowNumber: info.number)
+    /// One window alone, for a window that reaches past the main window's edges: the
+    /// screen under its frame when that may be read, else the window by itself.
+    static func single(_ info: DriverWindowInfo, main: NSWindow) -> CGImage? {
+        if CGPreflightScreenCaptureAccess() {
+            let top = primaryHeight - main.frame.maxY
+            let quartz = CGRect(x: info.frame.minX + main.frame.minX, y: info.frame.minY + top,
+                                width: info.frame.width, height: info.frame.height)
+            if let image = DriverCapture.screen(quartz: quartz) { return image }
+        }
+        return DriverCapture.windowList(windowNumber: info.number)
     }
 }
 
