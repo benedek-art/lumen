@@ -172,6 +172,39 @@ final class KernelGoldenTests: XCTestCase {
                              "the monochrome plate is flat, so this proves nothing")
     }
 
+    /// The GPU field is `GrainField.value` at every pixel centre, at a NON-unit cell
+    /// size and across more than two of the old 128-texel tile periods — where the tiled
+    /// plate left a seam of transparent texels (−4σ, a bright line) at every tile edge.
+    func testGrainFieldIsTheReferenceFieldWithNoSeams() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        for stock in [FilmStock.portra400, FilmStock.triX400] {
+            let plan = GrainPlan.film(FilmChain(FilmChain.defaultRecipe(for: stock),
+                                                displayWhite: 1.0))
+            let width = 400, height = 96, longEdge = 1536
+            let extent = CGRect(x: 0, y: 0, width: width, height: height)
+            guard let plate = RenderGraph.grainPlate(plan, extent: extent,
+                                                     longEdge: longEdge),
+                  let channels = plateChannels(plate, width: width, height: height)
+            else { return XCTFail("no grain field") }
+            var worst = 0.0
+            for channel in 0..<3 {
+                let scale = plan.plateScale(longEdgePixels: longEdge, channel: channel)
+                let expected = plan.field(channel: channel, renderPixelsPerCell: scale)
+                    .raster(width: width, height: height, texelsPerPixel: 1 / scale)
+                for i in 0..<(width * height) {
+                    let gpu = (channels[channel][i] - 0.5) * FilmGrainProfile.plateEncodeScale
+                    worst = Swift.max(worst, abs(gpu - expected[i]))
+                }
+            }
+            print("GRAINFIELD \(stock.id) @ \(longEdge) px: worst |gpu - cpu| "
+                  + String(format: "%.3e", worst))
+            XCTAssertLessThan(worst, 2e-2,
+                              "\(stock.id): the GPU grain field differs from the CPU's by "
+                                  + "\(worst) σ — a seam or a hash that is not exact in "
+                                  + "float32")
+        }
+    }
+
 
     // MARK: - Grain, against the reference renderer
 

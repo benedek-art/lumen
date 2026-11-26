@@ -1,0 +1,12 @@
+{"lane": "macos", "drift": "none", "label": "test-instruments-1",
+ "manifest": {"name": "instr-mac", "defaults": {"tile": 300},
+  "jobs": [
+   {"id": "a7settled800", "photo": "6929", "paths": ["settled"], "longEdge": 800,
+    "variants": [{"label": "ev0", "recipe": {}}, {"label": "ev+1.5", "recipe": {"develop.tone.exposure": 1.5}}]},
+   {"id": "a7settled1600", "photo": "6929", "paths": ["settled"], "longEdge": 1600,
+    "variants": [{"label": "ev0", "recipe": {}}, {"label": "ev+1.5", "recipe": {"develop.tone.exposure": 1.5}}, {"label": "ev-3", "recipe": {"develop.tone.exposure": -3}}]},
+   {"id": "rampship", "photo": "chart:greyRamp", "paths": ["settled", "export"], "longEdge": 1536,
+    "variants": [{"label": "ev0", "recipe": {}}, {"label": "ev+1", "recipe": {"develop.tone.exposure": 1}}, {"label": "ev-2", "recipe": {"develop.tone.exposure": -2}}, {"label": "blacks-100", "recipe": {"develop.tone.blacks": -100}}]},
+   {"id": "checkship", "photo": "chart:colorChecker", "paths": ["settled"], "longEdge": 1536,
+    "variants": [{"label": "ev0", "recipe": {}}]}
+  ]}}

@@ -112,7 +112,7 @@ struct WorkspaceRail: View {
         .lumenClickCursor()
         // The chord, in the tooltip, because a switcher that teaches its own shortcut
         // is how a photographer stops using the switcher.
-        .help("\(workspace.title) (⌘\(workspace.shortcutDigit))")
+        .help("\(workspace.title) (⌘\(workspace.shortcutDigit))").driverAnchor("rail/" + workspace.title)
     }
 
     /// The door wears the selected fill while masking — the strip this replaces never
@@ -185,7 +185,7 @@ struct MaskingReturnBar: View {
     @EnvironmentObject private var state: AppState
     /// This bar shows a mask count and a thumbnail, so it observes the edit signal —
     /// `AppState.recipes` is deliberately not published (see `EditRevision`).
-    @EnvironmentObject private var edits: EditRevision
+    @EnvironmentObject private var edits: PanelEditRevision
     @State private var backHovered = false
     @State private var masksHovered = false
 

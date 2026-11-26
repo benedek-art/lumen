@@ -116,6 +116,7 @@ struct ContentView: View {
             get: { state.sidebarVisible ? .all : .detailOnly },
             set: { state.sidebarVisible = ($0 != .detailOnly) })) {
             Sidebar()
+                .driverAnchor("sidebar")
                 .navigationSplitViewColumnWidth(min: 190, ideal: 230, max: 320)
         } detail: {
             VStack(spacing: 0) {
@@ -131,6 +132,7 @@ struct ContentView: View {
                 // pressed.
                 if !state.chromeHidden {
                     FilterBar()
+                        .driverAnchor("filterbar")
                         .opacity(state.chromeOpacity)
                 }
                 HStack(spacing: 0) {
@@ -163,6 +165,7 @@ struct ContentView: View {
                     if showsDevelopColumn, !state.chromeHidden {
                         columnResizer
                         DevelopPanel()
+                            .driverAnchor("develop.column")
                             .frame(width: state.developPanelWidth)
                             .opacity(state.chromeOpacity)
                     }
@@ -178,6 +181,7 @@ struct ContentView: View {
                     if !state.chromeHidden {
                         Divider().overlay(Lumen.separator).frame(width: 1)
                         WorkspaceRail()
+                            .driverAnchor("rail")
                             .opacity(state.chromeOpacity)
                     }
                 }
@@ -187,10 +191,12 @@ struct ContentView: View {
                     // No fixed frame here any more: the strip sizes itself from its
                     // own persisted height step (see `FilmstripView`).
                     FilmstripView()
+                        .driverAnchor("filmstrip")
                         .opacity(state.chromeOpacity)
                 }
                 if !state.chromeHidden {
                     StatusBar()
+                        .driverAnchor("statusbar")
                         .opacity(state.chromeOpacity)
                 }
             }
@@ -214,6 +220,7 @@ struct ContentView: View {
         // unconditionally on each pass. Today the global re-body hides that; the
         // moment AppState moves to `@Observable` it would BECOME the bug.
         .environment(\.sliderGestureChanged, state.sliderGestureSink)
+        .environment(\.sliderDragHold, state.sliderDragHoldSink)
         // The focus half of the same story (docs/28 Phase 7): a slider reports taking
         // and losing keyboard focus so `KeyDispatcher` hands the arrows back. Stored on
         // the state for the same reason as the gesture sink — a closure built here would
@@ -315,14 +322,17 @@ struct ContentView: View {
             switch state.viewMode {
             case .grid:
                 GridView()
+                    .driverAnchor("grid")
             case .loupe:
                 if let photo = state.primarySelection {
                     LoupeView(photo: photo)
+                        .driverAnchor("viewer")
                 } else {
                     GridView()
                 }
             case .compare, .survey:
                 CompareView()
+                    .driverAnchor("compare")
             }
         }
     }
@@ -1193,7 +1203,7 @@ private struct Sidebar: View {
         // The app's second accessibility label. The count is the row's other half and a
         // screen reader that reads only the title cannot tell an empty scope from a full
         // one — which is most of what these rows are for.
-        .accessibilityLabel(Text("\(title), \(count) photograph\(count == 1 ? "" : "s")"))
+        .accessibilityLabel(Text("\(title), \(count) photograph\(count == 1 ? "" : "s")")).driverAnchor("source/" + title)
     }
 
 

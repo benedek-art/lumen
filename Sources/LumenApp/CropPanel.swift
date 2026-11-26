@@ -299,7 +299,7 @@ struct CropSection: View {
     @EnvironmentObject var state: AppState
     /// This surface shows the edit, so it observes the edit signal —
     /// `AppState.recipes` is deliberately not published (see `EditRevision`).
-    @EnvironmentObject var edits: EditRevision
+    @EnvironmentObject var edits: PanelEditRevision
 
     /// The rectangle, the ruler and the guides all live in the viewer, so the panel
     /// needs handles on the same two objects the overlay reads.

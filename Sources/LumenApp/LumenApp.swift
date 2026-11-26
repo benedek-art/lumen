@@ -65,7 +65,7 @@ final class LumenAppDelegate: NSObject, NSApplicationDelegate {
 
 @main
 struct LumenApp: App {
-    @StateObject private var state = AppState()
+    @StateObject private var state = LumenDriver.makeAppState()
     @NSApplicationDelegateAdaptor(LumenAppDelegate.self) private var delegate
 
     var body: some Scene {
@@ -98,6 +98,7 @@ struct LumenApp: App {
                 // between two mouse events. `EditRevision`'s header has the rule for
                 // any view added later that reads a recipe.
                 .environmentObject(state.edits)
+                .environmentObject(state.panelEdits)
                 // Neutral dark chrome, always: the surround must not bias a colour
                 // judgement about the photograph (docs/00 Law 7).
                 .preferredColorScheme(.dark)
@@ -105,6 +106,11 @@ struct LumenApp: App {
                     // Files handed over by Finder during launch win over the reopen:
                     // the photographer asked for THOSE, this launch.
                     let launchedWith = delegate.attach(state)
+                    // Under the automation driver: no reopen, no updater.
+                    if LumenDriver.isActive {
+                        LumenDriver.start(state)
+                        return
+                    }
                     if launchedWith.isEmpty {
                         // The owner's first Mac session started at the empty state and
                         // so has every launch since; a daily driver reopens where you

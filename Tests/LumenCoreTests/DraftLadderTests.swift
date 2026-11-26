@@ -1042,7 +1042,8 @@ final class DraftLadderTests: XCTestCase {
         // after region rendering had cured the zoomed case.
         let floor = DraftLadder.sharpnessFloor(drawnDeviceLongEdge: 2360)
         let bounded = ladder.longEdge(requested: 4096, notBelow: floor)
-        XCTAssertEqual(bounded, 2360)
+        // The viewer's own 256 px bucket above 2360, not 2360 itself.
+        XCTAssertEqual(bounded, 2560)
         XCTAssertLessThanOrEqual(2360.0 / Double(bounded), DraftLadder.maxUpscale + 1e-9,
                                  "the whole point is the magnification, not the rung")
         XCTAssertEqual(DraftLadder.maxUpscale, 1,
@@ -1087,7 +1088,30 @@ final class DraftLadderTests: XCTestCase {
         XCTAssertNil(DraftLadder.sharpnessFloor(drawnDeviceLongEdge: .infinity))
         XCTAssertNil(DraftLadder.sharpnessFloor(drawnDeviceLongEdge: 0))
         XCTAssertNil(DraftLadder.sharpnessFloor(drawnDeviceLongEdge: -10))
-        // Never below the same 64 px guard the ask carries.
-        XCTAssertEqual(DraftLadder.sharpnessFloor(drawnDeviceLongEdge: 2), 64)
+        // The smallest floor is one ask bucket.
+        XCTAssertEqual(DraftLadder.sharpnessFloor(drawnDeviceLongEdge: 2),
+                       DraftResolution.ceilingBucket)
+    }
+
+    /// At fit the ask is the drawn extent's bucket (`DraftResolution.visibleCeiling`).
+    /// A stepped-down ladder must still answer that ask exactly: any other size is a
+    /// second decode scale, and the first draft at it pays a full RAW decode.
+    func testASteppedDownLadderStillSharesTheSettlesDecodeAtFit() {
+        var ladder = DraftLadder()
+        for _ in 0..<40 {
+            ladder.record(draftMilliseconds: DraftLadder.stepDownOver + 40,
+                          renderedLongEdge: ladder.longEdge(requested: 4096),
+                          requested: 4096)
+        }
+        for drawn in [900.0, 1727.5, 2360, 3212, 3327, 3329, 4000] {
+            guard let ask = DraftResolution.visibleCeiling(drawn) else {
+                return XCTFail("no ceiling for \(drawn)")
+            }
+            let fitAsk = Swift.min(ask, DraftLadder.interactiveLongEdgeCeiling)
+            XCTAssertEqual(
+                ladder.longEdge(requested: fitAsk,
+                                notBelow: DraftLadder.sharpnessFloor(drawnDeviceLongEdge: drawn)),
+                fitAsk, "drawn \(drawn)")
+        }
     }
 }

@@ -49,6 +49,18 @@ final class ZoomBroadcastTests: XCTestCase {
     /// starting point, and a publish counted here has to have come from this test.
     private func viewport() -> LoupeViewport { LoupeViewport() }
 
+    /// A viewport that knows its pane and frame, at 1:1: a 4800×3000 picture in a
+    /// 1600×1000 pane on a 1× display.
+    private func zoomedViewport() -> LoupeViewport {
+        let v = LoupeViewport()
+        let frame = CGSize(width: 4800, height: 3000)
+        v.setWorld(ViewerViewport.World(container: CGSize(width: 1600, height: 1000),
+                                        displayScale: 1, delivered: frame, native: frame,
+                                        fallbackLongEdge: 4800))
+        v.setZoom(1, at: nil)
+        return v
+    }
+
     func testAZoomChangePublishesExactlyOnce() {
         let v = viewport()
         var publishes = 0
@@ -95,43 +107,60 @@ final class ZoomBroadcastTests: XCTestCase {
         XCTAssertEqual(atFloor, 0, "24 events below fit, and fit is where it already was")
     }
 
-    /// A PAN IS ONE PUBLISH PER EVENT, NOT TWO.
-    ///
-    /// `panBy` wrote `pan` unclamped and every caller wrote it again to clamp — so a
-    /// trackpad flick or a held arrow key cost two invalidations per event, the first of
-    /// them showing a value the second immediately corrected. `panTo` clamps before it
-    /// publishes, and `panBy` is deleted so the shape cannot come back.
+    /// A PAN IS ONE PUBLISH PER EVENT, NOT TWO: the limit is applied before anything
+    /// is published, for the absolute verb and the delta verb alike.
     func testAPanEventPublishesOnceAndNotTwice() {
-        let v = viewport()
-        let container = CGSize(width: 1600, height: 1000)
-        let drawn = CGSize(width: 4800, height: 3000)
+        let v = zoomedViewport()
         var publishes = 0
         v.objectWillChange.sink { _ in publishes += 1 }.store(in: &cancellables)
 
         for step in 1...30 {
-            v.panTo(x: CGFloat(step) * 7, y: CGFloat(step) * 5,
-                    container: container, drawn: drawn)
+            v.panTo(x: CGFloat(step) * 7, y: CGFloat(step) * 5)
+        }
+        for _ in 1...30 {
+            v.panBy(x: -3, y: 2)
         }
 
-        XCTAssertEqual(publishes, 30, "thirty pan events, thirty invalidations")
+        XCTAssertEqual(publishes, 60, "sixty pan events, sixty invalidations")
     }
 
-    /// A pan already against the bound publishes nothing, for the same reason a zoom at
+    /// A pan already against the limit publishes nothing, for the same reason a zoom at
     /// the ceiling does: that is exactly when a hand keeps pushing.
     func testPanningIntoTheBoundPublishesNothingAfterTheFirst() {
-        let v = viewport()
-        let container = CGSize(width: 1600, height: 1000)
-        let drawn = CGSize(width: 4800, height: 3000)
-        v.panTo(x: 99_999, y: 99_999, container: container, drawn: drawn)
+        let v = zoomedViewport()
+        v.panTo(x: 99_999, y: 99_999)
         var publishes = 0
         v.objectWillChange.sink { _ in publishes += 1 }.store(in: &cancellables)
 
         for _ in 0..<20 {
-            v.panTo(x: 99_999, y: 99_999, container: container, drawn: drawn)
+            v.panTo(x: 99_999, y: 99_999)
+            v.panBy(x: 50, y: 50)
         }
 
-        XCTAssertEqual(publishes, 0, "already at the bound is not a change")
-        XCTAssertEqual(v.pan.width, drawn.width / 2, accuracy: 1e-9)
+        XCTAssertEqual(publishes, 0, "already at the limit is not a change")
+        // A quarter of the pane keeps picture in it: (1600 + 4800) / 2 − 400.
+        XCTAssertEqual(v.pan.width, 2800, accuracy: 1e-9)
+        XCTAssertEqual(v.pan.height, 1750, accuracy: 1e-9)
+    }
+
+    /// AN ANCHORED ZOOM IS ONE PUBLISH. Zoom and pan are one value, so a pinch event
+    /// that moves both — and begins the layout hold — invalidates the loupe once.
+    func testAnAnchoredPinchEventPublishesOnce() {
+        let v = zoomedViewport()
+        var publishes = 0
+        v.objectWillChange.sink { _ in publishes += 1 }.store(in: &cancellables)
+
+        for _ in 0..<40 {
+            v.pinch(.zoom(factor: 1.01), at: CGPoint(x: 300, y: 700),
+                    holdingLayout: true, native: true)
+        }
+
+        XCTAssertEqual(publishes, 40)
+        XCTAssertNotEqual(v.pan, .zero, "an off-centre anchor moves the pan with the zoom")
+        XCTAssertNotNil(v.geometry.held)
+        v.pinch(.ended, at: .zero, holdingLayout: true, native: true)
+        XCTAssertNil(v.geometry.held)
+        XCTAssertEqual(publishes, 41, "the hold ending is one more, and the last")
     }
 
     /// A 60-EVENT PINCH COSTS SIXTY PUBLISHES AND NOT ONE MORE — and, critically, costs
@@ -165,23 +194,18 @@ final class ZoomBroadcastTests: XCTestCase {
                            + "object")
     }
 
-    /// The pointer drag pans through `panTo` too. A direct `viewport.pan =` write skips
-    /// both the guard measured above and the HUD's input stamp, so the only direct
-    /// writes left in the loupe are the re-anchor inside `applyZoomChange`.
-    func testLoupeWritesPanDirectlyOnlyWhenReanchoringAZoom() throws {
+    /// Zoom and pan are written through the viewport's verbs and nowhere else: the
+    /// value they live in is `private(set)`, and it is the only stored geometry.
+    func testTheViewportGeometryIsWrittenOnlyThroughItsVerbs() throws {
         let code = blankingComments(in: try String(
             contentsOf: URL(fileURLWithPath: #filePath)
                 .deletingLastPathComponent().deletingLastPathComponent()
                 .deletingLastPathComponent()
                 .appendingPathComponent("Sources/LumenApp/LoupeView.swift"),
             encoding: .utf8))
-        let write = "viewport.pan = "
-        let reanchor = try XCTUnwrap(code.components(separatedBy: "func applyZoomChange(").last)
-            .components(separatedBy: "\n    }\n").first ?? ""
-        XCTAssertGreaterThan(reanchor.components(separatedBy: write).count, 1)
-        XCTAssertEqual(code.components(separatedBy: write).count,
-                       reanchor.components(separatedBy: write).count,
-                       "a `viewport.pan =` write outside applyZoomChange bypasses panTo")
+        XCTAssertTrue(code.contains("@Published private(set) var geometry = ViewerViewport()"))
+        XCTAssertFalse(code.contains("@Published var zoom"))
+        XCTAssertFalse(code.contains("@Published var pan"))
     }
 }
 #endif

@@ -1,0 +1,451 @@
+{
+ "name": "colour-mac",
+ "defaults": {
+  "longEdge": 1280,
+  "paths": [
+   "export"
+  ],
+  "tile": 260
+ },
+ "jobs": [
+  {
+   "id": "pc-spill",
+   "photos": [
+    "chart:hueRing",
+    "chart:skin",
+    "5812"
+   ],
+   "paths": [
+    "export",
+    "settled"
+   ],
+   "variants": [
+    {
+     "label": "pc skin h+30",
+     "recipe": {
+      "develop.pointColors": [
+       {
+        "sample": [
+         0.2727275874528304,
+         0.14453662821053104,
+         0.05261085501943138
+        ],
+        "range": 50,
+        "variance": 0,
+        "shift": {
+         "h": 30,
+         "s": 0,
+         "l": 0
+        }
+       }
+      ]
+     }
+    },
+    {
+     "label": "pc skin h+60",
+     "recipe": {
+      "develop.pointColors": [
+       {
+        "sample": [
+         0.2727275874528304,
+         0.14453662821053104,
+         0.05261085501943138
+        ],
+        "range": 50,
+        "variance": 0,
+        "shift": {
+         "h": 60,
+         "s": 0,
+         "l": 0
+        }
+       }
+      ]
+     }
+    },
+    {
+     "label": "pc skin s-100",
+     "recipe": {
+      "develop.pointColors": [
+       {
+        "sample": [
+         0.2727275874528304,
+         0.14453662821053104,
+         0.05261085501943138
+        ],
+        "range": 50,
+        "variance": 0,
+        "shift": {
+         "h": 0,
+         "s": -100,
+         "l": 0
+        }
+       }
+      ]
+     }
+    },
+    {
+     "label": "pc skin h-60",
+     "recipe": {
+      "develop.pointColors": [
+       {
+        "sample": [
+         0.2727275874528304,
+         0.14453662821053104,
+         0.05261085501943138
+        ],
+        "range": 50,
+        "variance": 0,
+        "shift": {
+         "h": -60,
+         "s": 0,
+         "l": 0
+        }
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "mix-hue-sat",
+   "photos": [
+    "chart:hueRing",
+    "chart:colorChecker",
+    "6929"
+   ],
+   "variants": [
+    {
+     "label": "orange hue +50",
+     "recipe": {
+      "develop.mixer.bands.1.hue": 50
+     }
+    },
+    {
+     "label": "orange hue +100",
+     "recipe": {
+      "develop.mixer.bands.1.hue": 100
+     }
+    },
+    {
+     "label": "orange hue -100",
+     "recipe": {
+      "develop.mixer.bands.1.hue": -100
+     }
+    },
+    {
+     "label": "orange sat +50",
+     "recipe": {
+      "develop.mixer.bands.1.sat": 50
+     }
+    },
+    {
+     "label": "orange sat +100",
+     "recipe": {
+      "develop.mixer.bands.1.sat": 100
+     }
+    },
+    {
+     "label": "azure hue +100",
+     "recipe": {
+      "develop.mixer.bands.5.hue": 100
+     }
+    },
+    {
+     "label": "orange lum -100",
+     "recipe": {
+      "develop.mixer.bands.1.lum": -100
+     }
+    }
+   ]
+  },
+  {
+   "id": "bw-neg",
+   "photos": [
+    "chart:gradient",
+    "chart:skin",
+    "6929"
+   ],
+   "variants": [
+    {
+     "label": "bw flat",
+     "recipe": {
+      "look.bw.enabled": true
+     }
+    },
+    {
+     "label": "bw azure -50",
+     "recipe": {
+      "look.bw.enabled": true,
+      "look.bw.bands.5": -50
+     }
+    },
+    {
+     "label": "bw azure -75",
+     "recipe": {
+      "look.bw.enabled": true,
+      "look.bw.bands.5": -75
+     }
+    },
+    {
+     "label": "bw azure -100",
+     "recipe": {
+      "look.bw.enabled": true,
+      "look.bw.bands.5": -100
+     }
+    },
+    {
+     "label": "bw azure +100",
+     "recipe": {
+      "look.bw.enabled": true,
+      "look.bw.bands.5": 100
+     }
+    },
+    {
+     "label": "bw red -100 orange -100",
+     "recipe": {
+      "look.bw.enabled": true,
+      "look.bw.bands.0": -100,
+      "look.bw.bands.1": -100
+     }
+    }
+   ]
+  },
+  {
+   "id": "wheel-zones",
+   "photo": "chart:greyRamp",
+   "paths": [
+    "export",
+    "settled"
+   ],
+   "variants": [
+    {
+     "label": "shadows sat0.8 h30",
+     "recipe": {
+      "look.wheels.shadows.sat": 0.8,
+      "look.wheels.shadows.hue": 30
+     }
+    },
+    {
+     "label": "mid sat0.8 h30",
+     "recipe": {
+      "look.wheels.mid.sat": 0.8,
+      "look.wheels.mid.hue": 30
+     }
+    },
+    {
+     "label": "high sat0.8 h30",
+     "recipe": {
+      "look.wheels.high.sat": 0.8,
+      "look.wheels.high.hue": 30
+     }
+    },
+    {
+     "label": "mid sat0.3 h240",
+     "recipe": {
+      "look.wheels.mid.sat": 0.3,
+      "look.wheels.mid.hue": 240
+     }
+    },
+    {
+     "label": "mid sat0.3 h30",
+     "recipe": {
+      "look.wheels.mid.sat": 0.3,
+      "look.wheels.mid.hue": 30
+     }
+    },
+    {
+     "label": "mid sat0.6 h240",
+     "recipe": {
+      "look.wheels.mid.sat": 0.6,
+      "look.wheels.mid.hue": 240
+     }
+    },
+    {
+     "label": "global h0",
+     "recipe": {
+      "look.wheels.global.sat": 0.6,
+      "look.wheels.global.hue": 0
+     }
+    },
+    {
+     "label": "global h360",
+     "recipe": {
+      "look.wheels.global.sat": 0.6,
+      "look.wheels.global.hue": 360
+     }
+    },
+    {
+     "label": "shadow blend50",
+     "recipe": {
+      "look.wheels.shadows.sat": 0.8,
+      "look.wheels.shadows.hue": 30,
+      "look.wheels.blending": 50
+     }
+    },
+    {
+     "label": "shadow blend100",
+     "recipe": {
+      "look.wheels.shadows.sat": 0.8,
+      "look.wheels.shadows.hue": 30,
+      "look.wheels.blending": 100
+     }
+    },
+    {
+     "label": "cb sat shadows +100",
+     "recipe": {
+      "look.wheels.colorBalance.saturation.shadows": 100,
+      "look.wheels.mid.sat": 0.3,
+      "look.wheels.mid.hue": 240
+     }
+    }
+   ]
+  },
+  {
+   "id": "wheel-split-real",
+   "photos": [
+    "6929",
+    "5812",
+    "1346"
+   ],
+   "variants": [
+    {
+     "label": "shadows teal 0.4",
+     "recipe": {
+      "look.wheels.shadows.sat": 0.4,
+      "look.wheels.shadows.hue": 200
+     }
+    },
+    {
+     "label": "mids teal 0.4",
+     "recipe": {
+      "look.wheels.mid.sat": 0.4,
+      "look.wheels.mid.hue": 200
+     }
+    },
+    {
+     "label": "split teal/orange 0.4",
+     "recipe": {
+      "look.wheels.shadows.sat": 0.4,
+      "look.wheels.shadows.hue": 200,
+      "look.wheels.high.sat": 0.4,
+      "look.wheels.high.hue": 40
+     }
+    }
+   ]
+  },
+  {
+   "id": "primaries",
+   "photos": [
+    "chart:colorChecker",
+    "5812"
+   ],
+   "variants": [
+    {
+     "label": "rPurity +100",
+     "recipe": {
+      "look.primaries.rPurity": 100
+     }
+    },
+    {
+     "label": "rPurity -100",
+     "recipe": {
+      "look.primaries.rPurity": -100
+     }
+    },
+    {
+     "label": "gPurity +100",
+     "recipe": {
+      "look.primaries.gPurity": 100
+     }
+    },
+    {
+     "label": "bHue +100",
+     "recipe": {
+      "look.primaries.bHue": 100
+     }
+    },
+    {
+     "label": "rHue +100",
+     "recipe": {
+      "look.primaries.rHue": 100
+     }
+    }
+   ]
+  },
+  {
+   "id": "printer",
+   "photo": "chart:greyRamp",
+   "recipe": {
+    "look.render.preset": "Linear"
+   },
+   "variants": [
+    {
+     "label": "master -12",
+     "recipe": {
+      "look.printerLights.master": -12
+     }
+    },
+    {
+     "label": "master -1",
+     "recipe": {
+      "look.printerLights.master": -1
+     }
+    },
+    {
+     "label": "master +1",
+     "recipe": {
+      "look.printerLights.master": 1
+     }
+    },
+    {
+     "label": "master +12",
+     "recipe": {
+      "look.printerLights.master": 12
+     }
+    },
+    {
+     "label": "master +48",
+     "recipe": {
+      "look.printerLights.master": 48
+     }
+    },
+    {
+     "label": "r -12",
+     "recipe": {
+      "look.printerLights.r": -12
+     }
+    },
+    {
+     "label": "r +12",
+     "recipe": {
+      "look.printerLights.r": 12
+     }
+    },
+    {
+     "label": "g -12",
+     "recipe": {
+      "look.printerLights.g": -12
+     }
+    },
+    {
+     "label": "g +12",
+     "recipe": {
+      "look.printerLights.g": 12
+     }
+    },
+    {
+     "label": "b -12",
+     "recipe": {
+      "look.printerLights.b": -12
+     }
+    },
+    {
+     "label": "b +12",
+     "recipe": {
+      "look.printerLights.b": 12
+     }
+    }
+   ]
+  }
+ ]
+}

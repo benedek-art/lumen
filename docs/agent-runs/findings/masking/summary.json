@@ -1,0 +1,107 @@
+[
+ {
+  "name": "m2-anothermask",
+  "verdict": "ERROR",
+  "exit": 2,
+  "passed": 1,
+  "checks": 1,
+  "errors": 2,
+  "seconds": 60.0,
+  "notes": [
+   "step 44 click: the text \"Choose a mask\" is not on screen (found 0)",
+   "step 49 click: the text \"Choose a mask\" is not on screen (found 0)"
+  ],
+  "failing": []
+ },
+ {
+  "name": "m2-brushkeys",
+  "verdict": "ERROR",
+  "exit": 2,
+  "passed": 1,
+  "checks": 1,
+  "errors": 4,
+  "seconds": 30.8,
+  "notes": [
+   "step 13 key: key via hid: the app never received the closing keyUp event",
+   "step 16 key: key via hid: the app never received the closing keyUp event"
+  ],
+  "failing": []
+ },
+ {
+  "name": "m2-colourrange-5d",
+  "verdict": "PASS",
+  "exit": 0,
+  "passed": 0,
+  "checks": 0,
+  "errors": 0,
+  "seconds": 31.9,
+  "notes": [],
+  "failing": []
+ },
+ {
+  "name": "m2-edge",
+  "verdict": "PASS",
+  "exit": 0,
+  "passed": 1,
+  "checks": 1,
+  "errors": 0,
+  "seconds": 36.7,
+  "notes": [],
+  "failing": []
+ },
+ {
+  "name": "m2-intersect",
+  "verdict": "PASS",
+  "exit": 0,
+  "passed": 1,
+  "checks": 1,
+  "errors": 0,
+  "seconds": 33.2,
+  "notes": [],
+  "failing": []
+ },
+ {
+  "name": "m2-radial",
+  "verdict": "PASS",
+  "exit": 0,
+  "passed": 1,
+  "checks": 1,
+  "errors": 0,
+  "seconds": 50.6,
+  "notes": [],
+  "failing": []
+ },
+ {
+  "name": "m2-range",
+  "verdict": "PASS",
+  "exit": 0,
+  "passed": 1,
+  "checks": 1,
+  "errors": 0,
+  "seconds": 37.6,
+  "notes": [],
+  "failing": []
+ },
+ {
+  "name": "m2-subtract",
+  "verdict": "PASS",
+  "exit": 0,
+  "passed": 1,
+  "checks": 1,
+  "errors": 0,
+  "seconds": 32.3,
+  "notes": [],
+  "failing": []
+ },
+ {
+  "name": "m2-tones-5d",
+  "verdict": "PASS",
+  "exit": 0,
+  "passed": 0,
+  "checks": 0,
+  "errors": 0,
+  "seconds": 51.4,
+  "notes": [],
+  "failing": []
+ }
+]

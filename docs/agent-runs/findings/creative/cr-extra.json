@@ -1,0 +1,98 @@
+{
+ "name": "cr-extra",
+ "defaults": {
+  "longEdge": 768,
+  "tile": 200
+ },
+ "jobs": [
+  {
+   "id": "tone",
+   "photos": [
+    "chart:greyRamp",
+    "5812",
+    "chart:skin"
+   ],
+   "variants": [
+    {
+     "label": "grade only",
+     "recipe": {
+      "look.wheels.shadows.hue": 220,
+      "look.wheels.shadows.sat": 0.5,
+      "look.wheels.high.hue": 45,
+      "look.wheels.high.sat": 0.5
+     }
+    },
+    {
+     "label": "bw panel + grade",
+     "recipe": {
+      "look.bw.enabled": true,
+      "look.wheels.shadows.hue": 220,
+      "look.wheels.shadows.sat": 0.5,
+      "look.wheels.high.hue": 45,
+      "look.wheels.high.sat": 0.5
+     }
+    },
+    {
+     "label": "trix only",
+     "recipe": {
+      "look.filmLab.stock": "lumen/trix400"
+     }
+    },
+    {
+     "label": "trix + grade",
+     "recipe": {
+      "look.filmLab.stock": "lumen/trix400",
+      "look.wheels.shadows.hue": 220,
+      "look.wheels.shadows.sat": 0.5,
+      "look.wheels.high.hue": 45,
+      "look.wheels.high.sat": 0.5
+     }
+    },
+    {
+     "label": "trix + printer R+12 B-12",
+     "recipe": {
+      "look.filmLab.stock": "lumen/trix400",
+      "look.printerLights.r": 12,
+      "look.printerLights.b": -12
+     }
+    },
+    {
+     "label": "trix + colour balance hue",
+     "recipe": {
+      "look.filmLab.stock": "lumen/trix400",
+      "look.wheels.colorBalance.chroma.global": 60
+     }
+    },
+    {
+     "label": "portra + grade",
+     "recipe": {
+      "look.filmLab.stock": "lumen/portra400",
+      "look.wheels.shadows.hue": 220,
+      "look.wheels.shadows.sat": 0.5,
+      "look.wheels.high.hue": 45,
+      "look.wheels.high.sat": 0.5
+     }
+    },
+    {
+     "label": "portra only",
+     "recipe": {
+      "look.filmLab.stock": "lumen/portra400"
+     }
+    },
+    {
+     "label": "portra + printer R+12",
+     "recipe": {
+      "look.filmLab.stock": "lumen/portra400",
+      "look.printerLights.r": 12
+     }
+    },
+    {
+     "label": "printer R+12 only",
+     "recipe": {
+      "look.printerLights.r": 12
+     }
+    }
+   ]
+  }
+ ]
+}

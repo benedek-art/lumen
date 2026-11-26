@@ -1,0 +1,195 @@
+{
+ "name": "denoise-ref",
+ "defaults": {
+  "longEdge": 1200,
+  "tile": 300,
+  "columns": 6
+ },
+ "jobs": [
+  {
+   "id": "look",
+   "photos": [
+    "4145-crop40-40",
+    "4145-crop15-20",
+    "4145-crop65-60",
+    "2260-crop40-40",
+    "2260-crop15-20",
+    "2260-crop65-60",
+    "2127-crop40-40",
+    "2127-crop15-20",
+    "2127-crop65-60"
+   ],
+   "variants": [
+    {
+     "label": "off",
+     "recipe": {
+      "develop.denoise.mode": "off"
+     }
+    },
+    {
+     "label": "imported",
+     "recipe": {}
+    }
+   ]
+  },
+  {
+   "id": "ref-luma",
+   "photos": [
+    "4145-crop40-40",
+    "2260-crop40-40",
+    "2127-crop65-60"
+   ],
+   "sweep": {
+    "path": "develop.denoise.classic.luma",
+    "values": [
+     0,
+     10,
+     20,
+     30,
+     40,
+     50,
+     60,
+     70,
+     80,
+     90,
+     100
+    ],
+    "neutral": 0
+   }
+  },
+  {
+   "id": "ref-chroma",
+   "photos": [
+    "4145-crop40-40",
+    "2260-crop40-40",
+    "2127-crop65-60"
+   ],
+   "sweep": {
+    "path": "develop.denoise.classic.chroma",
+    "values": [
+     0,
+     10,
+     20,
+     30,
+     40,
+     50,
+     60,
+     70,
+     80,
+     90,
+     100
+    ],
+    "neutral": 0
+   }
+  },
+  {
+   "id": "ref-lumaDetail",
+   "photos": [
+    "4145-crop40-40",
+    "2260-crop40-40",
+    "2127-crop65-60"
+   ],
+   "sweep": {
+    "path": "develop.denoise.classic.lumaDetail",
+    "values": [
+     0,
+     10,
+     20,
+     30,
+     40,
+     50,
+     60,
+     70,
+     80,
+     90,
+     100
+    ]
+   },
+   "recipe": {
+    "develop.denoise.classic.luma": 60
+   }
+  },
+  {
+   "id": "ref-lumaContrast",
+   "photos": [
+    "4145-crop40-40",
+    "2260-crop40-40",
+    "2127-crop65-60"
+   ],
+   "sweep": {
+    "path": "develop.denoise.classic.lumaContrast",
+    "values": [
+     0,
+     25,
+     50,
+     75,
+     100
+    ]
+   },
+   "recipe": {
+    "develop.denoise.classic.luma": 60
+   }
+  },
+  {
+   "id": "ref-colorDetail",
+   "photos": [
+    "4145-crop40-40",
+    "2260-crop40-40",
+    "2127-crop65-60"
+   ],
+   "sweep": {
+    "path": "develop.denoise.classic.colorDetail",
+    "values": [
+     0,
+     25,
+     50,
+     75,
+     100
+    ]
+   },
+   "recipe": {
+    "develop.denoise.classic.chroma": 80
+   }
+  },
+  {
+   "id": "ref-colorSmooth",
+   "photos": [
+    "4145-crop40-40",
+    "2260-crop40-40",
+    "2127-crop65-60"
+   ],
+   "sweep": {
+    "path": "develop.denoise.classic.colorSmoothness",
+    "values": [
+     0,
+     25,
+     50,
+     75,
+     100
+    ]
+   },
+   "recipe": {
+    "develop.denoise.classic.chroma": 80
+   }
+  },
+  {
+   "id": "ref-hot",
+   "photos": [
+    "4145-crop40-40",
+    "2260-crop40-40",
+    "2127-crop65-60"
+   ],
+   "sweep": {
+    "path": "develop.denoise.classic.hotPixels",
+    "values": [
+     0,
+     25,
+     50,
+     75,
+     100
+    ],
+    "neutral": 0
+   }
+  }
+ ]
+}

@@ -1,8 +1,9 @@
 // How far the photograph may be moved, which had no test at all.
 //
-// `LoupeGeometry.clampPan` is the single bound on the viewer's pan — nine call sites,
-// inherited by the compare panes — and `grep clampPan Tests` returned nothing before this
-// file. It was changed on the owner's report ("I can only pan to the side of the image …
+// `LoupeGeometry.clampPan` is the bound on the COMPARE panes' pan. It was the loupe's
+// too; the loupe's bound is now `ViewerViewport`'s (LumenCore, `ViewerViewportTests`),
+// which lets the picture past the borders. `grep clampPan Tests` returned nothing before
+// this file. It was changed on the owner's report ("I can only pan to the side of the image …
 // sometimes I want to get really close to the corners"), and a bound that is changed is a
 // bound that needs pinning, in both directions: it must reach the corner now, and it must
 // still refuse to let go of the picture entirely.

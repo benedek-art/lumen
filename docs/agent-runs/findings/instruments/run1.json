@@ -1,0 +1,1620 @@
+[
+ {
+  "name": "inst-fid-clip",
+  "fixture": "fiducial",
+  "timeoutSeconds": 400,
+  "steps": [
+   {
+    "do": "open",
+    "photo": "fiducial.png",
+    "workspace": "develop"
+   },
+   {
+    "do": "waitSettled"
+   },
+   {
+    "do": "state",
+    "name": "base",
+    "texts": true
+   },
+   {
+    "do": "expect",
+    "that": "app.scopes.histogram.clippedHighCounts",
+    "exists": true,
+    "note": "base: app.scopes.histogram.clippedHighCounts"
+   },
+   {
+    "do": "expect",
+    "that": "app.scopes.histogram.clippedLowCounts",
+    "exists": true,
+    "note": "base: app.scopes.histogram.clippedLowCounts"
+   },
+   {
+    "do": "expect",
+    "that": "app.scopes.histogram.sampleCount",
+    "exists": true,
+    "note": "base: app.scopes.histogram.sampleCount"
+   },
+   {
+    "do": "expect",
+    "that": "app.scopes.provenance",
+    "exists": true,
+    "note": "base: app.scopes.provenance"
+   },
+   {
+    "do": "expect",
+    "that": "app.readoutSpace",
+    "exists": true,
+    "note": "base: app.readoutSpace"
+   },
+   {
+    "do": "expect",
+    "that": "app.clippingOverlay",
+    "exists": true,
+    "note": "base: app.clippingOverlay"
+   },
+   {
+    "do": "expect",
+    "that": "render.longEdge",
+    "exists": true,
+    "note": "base: render.longEdge"
+   },
+   {
+    "do": "expect",
+    "that": "render.current",
+    "exists": true,
+    "note": "base: render.current"
+   },
+   {
+    "do": "expect",
+    "that": "recipe.develop.tone.exposure",
+    "exists": true,
+    "note": "base: recipe.develop.tone.exposure"
+   },
+   {
+    "do": "expect",
+    "that": "app.scopes.histogram.counts",
+    "exists": true,
+    "note": "base: full bins"
+   },
+   {
+    "do": "shot",
+    "name": "base"
+   },
+   {
+    "do": "move",
+    "target": "viewer.image",
+    "at": [
+     0.008333333333333333,
+     0.2625
+    ],
+    "duration": 0.2
+   },
+   {
+    "do": "wait",
+    "seconds": 1.0
+   },
+   {
+    "do": "shot",
+    "name": "ro-G"
+   },
+   {
+    "do": "expect",
+    "that": "viewport.lastCursorX",
+    "exists": true,
+    "note": "ro-G cursor"
+   },
+   {
+    "do": "move",
+    "target": "viewer.image",
+    "at": [
+     0.025,
+     0.2625
+    ],
+    "duration": 0.2
+   },
+   {
+    "do": "wait",
+    "seconds": 1.0
+   },
+   {
+    "do": "shot",
+    "name": "ro-W"
+   },
+   {
+    "do": "expect",
+    "that": "viewport.lastCursorX",
+    "exists": true,
+    "note": "ro-W cursor"
+   },
+   {
+    "do": "move",
+    "target": "viewer.image",
+    "at": [
+     0.041666666666666664,
+     0.2625
+    ],
+    "duration": 0.2
+   },
+   {
+    "do": "wait",
+    "seconds": 1.0
+   },
+   {
+    "do": "shot",
+    "name": "ro-Y"
+   },
+   {
+    "do": "expect",
+    "that": "viewport.lastCursorX",
+    "exists": true,
+    "note": "ro-Y cursor"
+   },
+   {
+    "do": "move",
+    "target": "viewer.image",
+    "at": [
+     0.058333333333333334,
+     0.2625
+    ],
+    "duration": 0.2
+   },
+   {
+    "do": "wait",
+    "seconds": 1.0
+   },
+   {
+    "do": "shot",
+    "name": "ro-R"
+   },
+   {
+    "do": "expect",
+    "that": "viewport.lastCursorX",
+    "exists": true,
+    "note": "ro-R cursor"
+   },
+   {
+    "do": "move",
+    "target": "viewer.image",
+    "at": [
+     0.033166666666666664,
+     0.2625
+    ],
+    "duration": 0.2
+   },
+   {
+    "do": "wait",
+    "seconds": 1.0
+   },
+   {
+    "do": "shot",
+    "name": "ro-edge"
+   },
+   {
+    "do": "expect",
+    "that": "viewport.lastCursorX",
+    "exists": true,
+    "note": "ro-edge cursor"
+   },
+   {
+    "do": "scrollTo",
+    "target": "slider/Exposure#track"
+   },
+   {
+    "do": "drag",
+    "id": "evup",
+    "target": "slider/Exposure#track",
+    "from": [
+     0.5,
+     0.5
+    ],
+    "to": [
+     0.8,
+     0.5
+    ],
+    "duration": 0.6,
+    "settle": 15
+   },
+   {
+    "do": "waitSettled"
+   },
+   {
+    "do": "expect",
+    "that": "app.scopes.histogram.clippedHighCounts",
+    "exists": true,
+    "note": "ev-hi: app.scopes.histogram.clippedHighCounts"
+   },
+   {
+    "do": "expect",
+    "that": "app.scopes.histogram.clippedLowCounts",
+    "exists": true,
+    "note": "ev-hi: app.scopes.histogram.clippedLowCounts"
+   },
+   {
+    "do": "expect",
+    "that": "app.scopes.histogram.sampleCount",
+    "exists": true,
+    "note": "ev-hi: app.scopes.histogram.sampleCount"
+   },
+   {
+    "do": "expect",
+    "that": "app.scopes.provenance",
+    "exists": true,
+    "note": "ev-hi: app.scopes.provenance"
+   },
+   {
+    "do": "expect",
+    "that": "app.readoutSpace",
+    "exists": true,
+    "note": "ev-hi: app.readoutSpace"
+   },
+   {
+    "do": "expect",
+    "that": "app.clippingOverlay",
+    "exists": true,
+    "note": "ev-hi: app.clippingOverlay"
+   },
+   {
+    "do": "expect",
+    "that": "render.longEdge",
+    "exists": true,
+    "note": "ev-hi: render.longEdge"
+   },
+   {
+    "do": "expect",
+    "that": "render.current",
+    "exists": true,
+    "note": "ev-hi: render.current"
+   },
+   {
+    "do": "expect",
+    "that": "recipe.develop.tone.exposure",
+    "exists": true,
+    "note": "ev-hi: recipe.develop.tone.exposure"
+   },
+   {
+    "do": "expect",
+    "that": "app.scopes.histogram.counts",
+    "exists": true,
+    "note": "ev-hi: full bins"
+   },
+   {
+    "do": "move",
+    "target": "viewer.image",
+    "at": [
+     0.025,
+     0.2625
+    ],
+    "duration": 0.2
+   },
+   {
+    "do": "wait",
+    "seconds": 1.0
+   },
+   {
+    "do": "shot",
+    "name": "ev-hi"
+   },
+   {
+    "do": "key",
+    "key": "j"
+   },
+   {
+    "do": "wait",
+    "seconds": 2.5
+   },
+   {
+    "do": "expect",
+    "that": "app.clippingOverlay",
+    "exists": true,
+    "note": "after J"
+   },
+   {
+    "do": "expect",
+    "that": "status",
+    "exists": true,
+    "note": "J status"
+   },
+   {
+    "do": "shot",
+    "name": "ev-hi-J"
+   },
+   {
+    "do": "key",
+    "key": "j"
+   },
+   {
+    "do": "wait",
+    "seconds": 1.5
+   },
+   {
+    "do": "expect",
+    "that": "app.clippingOverlay",
+    "exists": true,
+    "note": "after J again"
+   },
+   {
+    "do": "shot",
+    "name": "ev-hi-Joff"
+   },
+   {
+    "do": "move",
+    "target": {
+     "point": [
+      1362,
+      136
+     ]
+    },
+    "duration": 0.3
+   },
+   {
+    "do": "wait",
+    "seconds": 2.5
+   },
+   {
+    "do": "expect",
+    "that": "app.clippingOverlay",
+    "exists": true,
+    "note": "hover high triangle (peek)"
+   },
+   {
+    "do": "shot",
+    "name": "peek-hi"
+   },
+   {
+    "do": "click",
+    "target": {
+     "point": [
+      1362,
+      136
+     ]
+    }
+   },
+   {
+    "do": "move",
+    "target": "viewer.image",
+    "at": [
+     0.5,
+     0.5
+    ],
+    "duration": 0.3
+   },
+   {
+    "do": "wait",
+    "seconds": 2.0
+   },
+   {
+    "do": "expect",
+    "that": "app.clippingOverlay",
+    "exists": true,
+    "note": "after clicking high triangle and leaving (locked)"
+   },
+   {
+    "do": "shot",
+    "name": "lock-hi"
+   },
+   {
+    "do": "key",
+    "key": "j"
+   },
+   {
+    "do": "wait",
+    "seconds": 1.5
+   },
+   {
+    "do": "expect",
+    "that": "app.clippingOverlay",
+    "exists": true,
+    "note": "J with locked triangle"
+   },
+   {
+    "do": "shot",
+    "name": "lock-hi-J"
+   },
+   {
+    "do": "key",
+    "key": "j"
+   },
+   {
+    "do": "wait",
+    "seconds": 1.5
+   },
+   {
+    "do": "drag",
+    "id": "dragJ",
+    "target": "slider/Exposure#track",
+    "from": [
+     0.8,
+     0.5
+    ],
+    "to": [
+     0.55,
+     0.5
+    ],
+    "duration": 1.5,
+    "hz": 60,
+    "settle": 20,
+    "film": 30,
+    "watch": "develop.tone.exposure"
+   },
+   {
+    "do": "shot",
+    "name": "after-dragJ"
+   },
+   {
+    "do": "drag",
+    "id": "dragJcap",
+    "target": "slider/Exposure#track",
+    "from": [
+     0.55,
+     0.5
+    ],
+    "to": [
+     0.8,
+     0.5
+    ],
+    "duration": 1.2,
+    "hz": 30,
+    "capture": 6
+   },
+   {
+    "do": "waitSettled"
+   },
+   {
+    "do": "shot",
+    "name": "after-dragJcap"
+   },
+   {
+    "do": "key",
+    "key": "j"
+   },
+   {
+    "do": "drag",
+    "id": "evdown",
+    "target": "slider/Exposure#track",
+    "from": [
+     0.8,
+     0.5
+    ],
+    "to": [
+     0.2,
+     0.5
+    ],
+    "duration": 0.6,
+    "settle": 15
+   },
+   {
+    "do": "drag",
+    "id": "blacks",
+    "target": "slider/Blacks#track",
+    "from": [
+     0.5,
+     0.5
+    ],
+    "to": [
+     0.0,
+     0.5
+    ],
+    "duration": 0.6,
+    "settle": 15
+   },
+   {
+    "do": "waitSettled"
+   },
+   {
+    "do": "expect",
+    "that": "app.scopes.histogram.clippedHighCounts",
+    "exists": true,
+    "note": "lo: app.scopes.histogram.clippedHighCounts"
+   },
+   {
+    "do": "expect",
+    "that": "app.scopes.histogram.clippedLowCounts",
+    "exists": true,
+    "note": "lo: app.scopes.histogram.clippedLowCounts"
+   },
+   {
+    "do": "expect",
+    "that": "app.scopes.histogram.sampleCount",
+    "exists": true,
+    "note": "lo: app.scopes.histogram.sampleCount"
+   },
+   {
+    "do": "expect",
+    "that": "app.scopes.provenance",
+    "exists": true,
+    "note": "lo: app.scopes.provenance"
+   },
+   {
+    "do": "expect",
+    "that": "app.readoutSpace",
+    "exists": true,
+    "note": "lo: app.readoutSpace"
+   },
+   {
+    "do": "expect",
+    "that": "app.clippingOverlay",
+    "exists": true,
+    "note": "lo: app.clippingOverlay"
+   },
+   {
+    "do": "expect",
+    "that": "render.longEdge",
+    "exists": true,
+    "note": "lo: render.longEdge"
+   },
+   {
+    "do": "expect",
+    "that": "render.current",
+    "exists": true,
+    "note": "lo: render.current"
+   },
+   {
+    "do": "expect",
+    "that": "recipe.develop.tone.exposure",
+    "exists": true,
+    "note": "lo: recipe.develop.tone.exposure"
+   },
+   {
+    "do": "expect",
+    "that": "recipe.develop.tone.blacks",
+    "exists": true,
+    "note": "lo blacks"
+   },
+   {
+    "do": "shot",
+    "name": "lo"
+   },
+   {
+    "do": "move",
+    "target": {
+     "point": [
+      1023,
+      136
+     ]
+    },
+    "duration": 0.3
+   },
+   {
+    "do": "wait",
+    "seconds": 2.5
+   },
+   {
+    "do": "expect",
+    "that": "app.clippingOverlay",
+    "exists": true,
+    "note": "hover low triangle"
+   },
+   {
+    "do": "shot",
+    "name": "peek-lo"
+   },
+   {
+    "do": "move",
+    "target": "viewer.image",
+    "at": [
+     0.5,
+     0.5
+    ],
+    "duration": 0.3
+   },
+   {
+    "do": "key",
+    "key": "j"
+   },
+   {
+    "do": "wait",
+    "seconds": 2.5
+   },
+   {
+    "do": "shot",
+    "name": "lo-J"
+   },
+   {
+    "do": "state",
+    "name": "end"
+   }
+  ]
+ },
+ {
+  "name": "inst-fid-zoom",
+  "fixture": "fiducial",
+  "timeoutSeconds": 400,
+  "steps": [
+   {
+    "do": "open",
+    "photo": "fiducial.png",
+    "workspace": "develop"
+   },
+   {
+    "do": "waitSettled"
+   },
+   {
+    "do": "scrollTo",
+    "target": "slider/Exposure#track"
+   },
+   {
+    "do": "drag",
+    "id": "evup",
+    "target": "slider/Exposure#track",
+    "from": [
+     0.5,
+     0.5
+    ],
+    "to": [
+     0.8,
+     0.5
+    ],
+    "duration": 0.6,
+    "settle": 15
+   },
+   {
+    "do": "waitSettled"
+   },
+   {
+    "do": "key",
+    "key": "s"
+   },
+   {
+    "do": "wait",
+    "seconds": 3
+   },
+   {
+    "do": "expect",
+    "that": "app.showScopes",
+    "exists": true,
+    "note": "S"
+   },
+   {
+    "do": "expect",
+    "that": "app.scopes.waveform.columns",
+    "exists": true,
+    "note": "waveform cols"
+   },
+   {
+    "do": "shot",
+    "name": "scopes-wave"
+   },
+   {
+    "do": "state",
+    "name": "scopes",
+    "texts": true
+   },
+   {
+    "do": "click",
+    "target": {
+     "text": "Parade",
+     "within": "develop.column"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "shot",
+    "name": "scopes-parade"
+   },
+   {
+    "do": "click",
+    "target": {
+     "text": "Vector",
+     "within": "develop.column"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "shot",
+    "name": "scopes-vector"
+   },
+   {
+    "do": "key",
+    "key": "s"
+   },
+   {
+    "do": "key",
+    "key": "f",
+    "modifiers": [
+     "shift"
+    ]
+   },
+   {
+    "do": "wait",
+    "seconds": 3
+   },
+   {
+    "do": "expect",
+    "that": "app.focusPeaking",
+    "exists": true,
+    "note": "peaking on"
+   },
+   {
+    "do": "shot",
+    "name": "peak-fit"
+   },
+   {
+    "do": "move",
+    "target": "viewer.image",
+    "at": [
+     0.3,
+     0.3
+    ],
+    "duration": 0.2
+   },
+   {
+    "do": "direct",
+    "call": "oneToOne"
+   },
+   {
+    "do": "waitSettled"
+   },
+   {
+    "do": "wait",
+    "seconds": 2
+   },
+   {
+    "do": "expect",
+    "that": "viewport.zoom",
+    "exists": true,
+    "note": "zoom"
+   },
+   {
+    "do": "expect",
+    "that": "render.region",
+    "exists": true,
+    "note": "region"
+   },
+   {
+    "do": "shot",
+    "name": "peak-1to1"
+   },
+   {
+    "do": "drag",
+    "id": "pan1",
+    "target": "viewer",
+    "from": [
+     0.6,
+     0.6
+    ],
+    "to": [
+     0.4,
+     0.45
+    ],
+    "duration": 0.5,
+    "capture": 3
+   },
+   {
+    "do": "waitSettled"
+   },
+   {
+    "do": "wait",
+    "seconds": 2
+   },
+   {
+    "do": "shot",
+    "name": "peak-1to1-panned"
+   },
+   {
+    "do": "key",
+    "key": "f",
+    "modifiers": [
+     "shift"
+    ]
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "key",
+    "key": "j"
+   },
+   {
+    "do": "wait",
+    "seconds": 3
+   },
+   {
+    "do": "waitSettled"
+   },
+   {
+    "do": "expect",
+    "that": "render.region",
+    "exists": true,
+    "note": "region with J"
+   },
+   {
+    "do": "expect",
+    "that": "render.longEdge",
+    "exists": true,
+    "note": "longEdge with J at 1:1"
+   },
+   {
+    "do": "shot",
+    "name": "J-1to1"
+   },
+   {
+    "do": "drag",
+    "id": "pan2",
+    "target": "viewer",
+    "from": [
+     0.4,
+     0.45
+    ],
+    "to": [
+     0.6,
+     0.6
+    ],
+    "duration": 0.5,
+    "capture": 3
+   },
+   {
+    "do": "waitSettled"
+   },
+   {
+    "do": "wait",
+    "seconds": 2
+   },
+   {
+    "do": "shot",
+    "name": "J-1to1-panned"
+   },
+   {
+    "do": "key",
+    "key": "j"
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "waitSettled"
+   },
+   {
+    "do": "move",
+    "target": "viewer.image",
+    "at": [
+     0.5,
+     0.5
+    ],
+    "duration": 0.2
+   },
+   {
+    "do": "wait",
+    "seconds": 1.5
+   },
+   {
+    "do": "shot",
+    "name": "ro-1to1"
+   },
+   {
+    "do": "click",
+    "target": {
+     "text": "sRGB 255",
+     "within": "develop.column"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "expect",
+    "that": "app.readoutSpace",
+    "exists": true,
+    "note": "after click 1"
+   },
+   {
+    "do": "move",
+    "target": "viewer.image",
+    "at": [
+     0.5,
+     0.5
+    ],
+    "duration": 0.2
+   },
+   {
+    "do": "wait",
+    "seconds": 1.5
+   },
+   {
+    "do": "shot",
+    "name": "ro-space2"
+   },
+   {
+    "do": "direct",
+    "call": "fit"
+   },
+   {
+    "do": "waitSettled"
+   },
+   {
+    "do": "key",
+    "key": "i"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "expect",
+    "that": "info.mode",
+    "exists": true,
+    "note": "I 1"
+   },
+   {
+    "do": "shot",
+    "name": "info1"
+   },
+   {
+    "do": "key",
+    "key": "i"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "expect",
+    "that": "info.mode",
+    "exists": true,
+    "note": "I 2"
+   },
+   {
+    "do": "shot",
+    "name": "info2"
+   },
+   {
+    "do": "key",
+    "key": "i"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "expect",
+    "that": "info.mode",
+    "exists": true,
+    "note": "I 3"
+   },
+   {
+    "do": "key",
+    "key": "["
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "expect",
+    "that": "app.inspectionHold",
+    "exists": true,
+    "note": "after [ press/release"
+   },
+   {
+    "do": "modifiers",
+    "hold": [
+     "shift"
+    ]
+   },
+   {
+    "do": "key",
+    "key": "["
+   },
+   {
+    "do": "modifiers",
+    "hold": []
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "expect",
+    "that": "app.inspectionHold",
+    "exists": true,
+    "note": "after shift-[ press/release"
+   },
+   {
+    "do": "shot",
+    "name": "after-hold"
+   },
+   {
+    "do": "expect",
+    "that": "recipe.develop.tone.shadows",
+    "exists": true,
+    "note": "hold wrote nothing"
+   },
+   {
+    "do": "key",
+    "key": "l"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.8
+   },
+   {
+    "do": "expect",
+    "that": "app.lightsOut",
+    "exists": true,
+    "note": "L1"
+   },
+   {
+    "do": "shot",
+    "name": "L1"
+   },
+   {
+    "do": "key",
+    "key": "l"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.8
+   },
+   {
+    "do": "expect",
+    "that": "app.lightsOut",
+    "exists": true,
+    "note": "L2"
+   },
+   {
+    "do": "shot",
+    "name": "L2"
+   },
+   {
+    "do": "key",
+    "key": "l"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.8
+   },
+   {
+    "do": "expect",
+    "that": "app.lightsOut",
+    "exists": true,
+    "note": "L3"
+   },
+   {
+    "do": "shot",
+    "name": "L3"
+   },
+   {
+    "do": "key",
+    "key": "b",
+    "modifiers": [
+     "cmd"
+    ]
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "expect",
+    "that": "app.assessmentMode",
+    "exists": true,
+    "note": "cmdB"
+   },
+   {
+    "do": "shot",
+    "name": "cmdB"
+   },
+   {
+    "do": "key",
+    "key": "b",
+    "modifiers": [
+     "cmd"
+    ]
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "menu",
+    "path": "View > HDR Preview"
+   },
+   {
+    "do": "wait",
+    "seconds": 2
+   },
+   {
+    "do": "expect",
+    "that": "loupe.hdrPreview",
+    "exists": true,
+    "note": "HDR"
+   },
+   {
+    "do": "shot",
+    "name": "hdr"
+   },
+   {
+    "do": "menu",
+    "path": "View > HDR Preview"
+   },
+   {
+    "do": "state",
+    "name": "end"
+   }
+  ]
+ },
+ {
+  "name": "inst-raw-a7",
+  "fixture": "raw",
+  "timeoutSeconds": 600,
+  "steps": [
+   {
+    "do": "open",
+    "photo": "A7IV",
+    "workspace": "develop",
+    "timeout": 120
+   },
+   {
+    "do": "waitSettled",
+    "timeout": 60
+   },
+   {
+    "do": "expect",
+    "that": "app.scopes.histogram.clippedHighCounts",
+    "exists": true,
+    "note": "a7: app.scopes.histogram.clippedHighCounts"
+   },
+   {
+    "do": "expect",
+    "that": "app.scopes.histogram.clippedLowCounts",
+    "exists": true,
+    "note": "a7: app.scopes.histogram.clippedLowCounts"
+   },
+   {
+    "do": "expect",
+    "that": "app.scopes.histogram.sampleCount",
+    "exists": true,
+    "note": "a7: app.scopes.histogram.sampleCount"
+   },
+   {
+    "do": "expect",
+    "that": "app.scopes.provenance",
+    "exists": true,
+    "note": "a7: app.scopes.provenance"
+   },
+   {
+    "do": "expect",
+    "that": "app.readoutSpace",
+    "exists": true,
+    "note": "a7: app.readoutSpace"
+   },
+   {
+    "do": "expect",
+    "that": "app.clippingOverlay",
+    "exists": true,
+    "note": "a7: app.clippingOverlay"
+   },
+   {
+    "do": "expect",
+    "that": "render.longEdge",
+    "exists": true,
+    "note": "a7: render.longEdge"
+   },
+   {
+    "do": "expect",
+    "that": "render.current",
+    "exists": true,
+    "note": "a7: render.current"
+   },
+   {
+    "do": "expect",
+    "that": "recipe.develop.tone.exposure",
+    "exists": true,
+    "note": "a7: recipe.develop.tone.exposure"
+   },
+   {
+    "do": "shot",
+    "name": "a7-open"
+   },
+   {
+    "do": "key",
+    "key": "h",
+    "modifiers": [
+     "shift"
+    ]
+   },
+   {
+    "do": "waitFor",
+    "that": "app.rawTruth",
+    "exists": true,
+    "timeout": 90
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "expect",
+    "that": "app.rawTruth.clippedHighPercent",
+    "exists": true,
+    "note": "raw truth high %"
+   },
+   {
+    "do": "expect",
+    "that": "app.rawTruth.clippedLowPercent",
+    "exists": true,
+    "note": "raw truth low %"
+   },
+   {
+    "do": "expect",
+    "that": "app.rawTruth.nearClippedHighPercent",
+    "exists": true,
+    "note": "raw near-high %"
+   },
+   {
+    "do": "expect",
+    "that": "app.rawTruth.provenance",
+    "exists": true,
+    "note": "provenance"
+   },
+   {
+    "do": "expect",
+    "that": "app.rawTruth.sampleCount",
+    "exists": true,
+    "note": "samples"
+   },
+   {
+    "do": "expect",
+    "that": "app.rawTruthPlan",
+    "exists": true,
+    "note": "plan"
+   },
+   {
+    "do": "shot",
+    "name": "a7-rawtruth"
+   },
+   {
+    "do": "state",
+    "name": "a7-rawtruth",
+    "texts": true
+   },
+   {
+    "do": "key",
+    "key": "j"
+   },
+   {
+    "do": "wait",
+    "seconds": 3
+   },
+   {
+    "do": "shot",
+    "name": "a7-J"
+   },
+   {
+    "do": "move",
+    "target": {
+     "point": [
+      1362,
+      136
+     ]
+    },
+    "duration": 0.3
+   },
+   {
+    "do": "wait",
+    "seconds": 3
+   },
+   {
+    "do": "expect",
+    "that": "app.clippingOverlay",
+    "exists": true,
+    "note": "a7 peek"
+   },
+   {
+    "do": "shot",
+    "name": "a7-peek-hi"
+   },
+   {
+    "do": "move",
+    "target": "viewer.image",
+    "at": [
+     0.5,
+     0.5
+    ],
+    "duration": 0.3
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "scrollTo",
+    "target": "slider/Exposure#track"
+   },
+   {
+    "do": "drag",
+    "id": "a7dragJ",
+    "target": "slider/Exposure#track",
+    "from": [
+     0.5,
+     0.5
+    ],
+    "to": [
+     0.7,
+     0.5
+    ],
+    "duration": 1.5,
+    "hz": 60,
+    "settle": 30,
+    "film": 20,
+    "watch": "develop.tone.exposure"
+   },
+   {
+    "do": "waitSettled",
+    "timeout": 60
+   },
+   {
+    "do": "expect",
+    "that": "app.scopes.histogram.clippedHighCounts",
+    "exists": true,
+    "note": "a7-ev: app.scopes.histogram.clippedHighCounts"
+   },
+   {
+    "do": "expect",
+    "that": "app.scopes.histogram.clippedLowCounts",
+    "exists": true,
+    "note": "a7-ev: app.scopes.histogram.clippedLowCounts"
+   },
+   {
+    "do": "expect",
+    "that": "app.scopes.histogram.sampleCount",
+    "exists": true,
+    "note": "a7-ev: app.scopes.histogram.sampleCount"
+   },
+   {
+    "do": "expect",
+    "that": "app.scopes.provenance",
+    "exists": true,
+    "note": "a7-ev: app.scopes.provenance"
+   },
+   {
+    "do": "expect",
+    "that": "app.readoutSpace",
+    "exists": true,
+    "note": "a7-ev: app.readoutSpace"
+   },
+   {
+    "do": "expect",
+    "that": "app.clippingOverlay",
+    "exists": true,
+    "note": "a7-ev: app.clippingOverlay"
+   },
+   {
+    "do": "expect",
+    "that": "render.longEdge",
+    "exists": true,
+    "note": "a7-ev: render.longEdge"
+   },
+   {
+    "do": "expect",
+    "that": "render.current",
+    "exists": true,
+    "note": "a7-ev: render.current"
+   },
+   {
+    "do": "expect",
+    "that": "recipe.develop.tone.exposure",
+    "exists": true,
+    "note": "a7-ev: recipe.develop.tone.exposure"
+   },
+   {
+    "do": "shot",
+    "name": "a7-ev-J"
+   },
+   {
+    "do": "key",
+    "key": "j"
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "key",
+    "key": "f",
+    "modifiers": [
+     "shift"
+    ]
+   },
+   {
+    "do": "wait",
+    "seconds": 4
+   },
+   {
+    "do": "shot",
+    "name": "a7-peak-fit"
+   },
+   {
+    "do": "move",
+    "target": "viewer.image",
+    "at": [
+     0.5,
+     0.45
+    ],
+    "duration": 0.2
+   },
+   {
+    "do": "direct",
+    "call": "oneToOne"
+   },
+   {
+    "do": "waitSettled",
+    "timeout": 60
+   },
+   {
+    "do": "wait",
+    "seconds": 4
+   },
+   {
+    "do": "expect",
+    "that": "render.region",
+    "exists": true,
+    "note": "a7 region"
+   },
+   {
+    "do": "shot",
+    "name": "a7-peak-1to1"
+   },
+   {
+    "do": "key",
+    "key": "f",
+    "modifiers": [
+     "shift"
+    ]
+   },
+   {
+    "do": "wait",
+    "seconds": 2
+   },
+   {
+    "do": "shot",
+    "name": "a7-1to1-nopeak"
+   },
+   {
+    "do": "state",
+    "name": "end"
+   }
+  ]
+ },
+ {
+  "name": "inst-raw-5d",
+  "fixture": "raw",
+  "timeoutSeconds": 400,
+  "steps": [
+   {
+    "do": "open",
+    "photo": "5D",
+    "workspace": "develop",
+    "timeout": 90
+   },
+   {
+    "do": "waitSettled",
+    "timeout": 60
+   },
+   {
+    "do": "expect",
+    "that": "app.scopes.histogram.clippedHighCounts",
+    "exists": true,
+    "note": "5d: app.scopes.histogram.clippedHighCounts"
+   },
+   {
+    "do": "expect",
+    "that": "app.scopes.histogram.clippedLowCounts",
+    "exists": true,
+    "note": "5d: app.scopes.histogram.clippedLowCounts"
+   },
+   {
+    "do": "expect",
+    "that": "app.scopes.histogram.sampleCount",
+    "exists": true,
+    "note": "5d: app.scopes.histogram.sampleCount"
+   },
+   {
+    "do": "expect",
+    "that": "app.scopes.provenance",
+    "exists": true,
+    "note": "5d: app.scopes.provenance"
+   },
+   {
+    "do": "expect",
+    "that": "app.readoutSpace",
+    "exists": true,
+    "note": "5d: app.readoutSpace"
+   },
+   {
+    "do": "expect",
+    "that": "app.clippingOverlay",
+    "exists": true,
+    "note": "5d: app.clippingOverlay"
+   },
+   {
+    "do": "expect",
+    "that": "render.longEdge",
+    "exists": true,
+    "note": "5d: render.longEdge"
+   },
+   {
+    "do": "expect",
+    "that": "render.current",
+    "exists": true,
+    "note": "5d: render.current"
+   },
+   {
+    "do": "expect",
+    "that": "recipe.develop.tone.exposure",
+    "exists": true,
+    "note": "5d: recipe.develop.tone.exposure"
+   },
+   {
+    "do": "key",
+    "key": "h",
+    "modifiers": [
+     "shift"
+    ]
+   },
+   {
+    "do": "waitFor",
+    "that": "app.rawTruth",
+    "exists": true,
+    "timeout": 90
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "expect",
+    "that": "app.rawTruth.clippedHighPercent",
+    "exists": true,
+    "note": "raw truth high %"
+   },
+   {
+    "do": "expect",
+    "that": "app.rawTruth.clippedLowPercent",
+    "exists": true,
+    "note": "raw truth low %"
+   },
+   {
+    "do": "expect",
+    "that": "app.rawTruth.provenance",
+    "exists": true,
+    "note": "provenance"
+   },
+   {
+    "do": "expect",
+    "that": "app.rawTruth.sampleCount",
+    "exists": true,
+    "note": "samples"
+   },
+   {
+    "do": "shot",
+    "name": "5d-rawtruth"
+   },
+   {
+    "do": "key",
+    "key": "s"
+   },
+   {
+    "do": "wait",
+    "seconds": 4
+   },
+   {
+    "do": "shot",
+    "name": "5d-scopes"
+   },
+   {
+    "do": "state",
+    "name": "end"
+   }
+  ]
+ }
+]

@@ -121,7 +121,8 @@ final class GrainPlateTests: XCTestCase {
                 // The raw generator, reached around the plan: the plan is what carries
                 // the persistence, the seed base and — the point of this test — the
                 // render scale.
-                if code.contains("FilmGrainProfile.plate(") {
+                if code.contains("FilmGrainProfile.plate(")
+                    || code.contains("FilmGrainProfile.field(") {
                     buildsRawPlates.append("\(name):\(offset + 1): \(code.trimmingCharacters(in: .whitespaces))")
                 }
             }
@@ -193,21 +194,58 @@ final class GrainPlateTests: XCTestCase {
                                  + "whether the headroom is needed")
     }
 
-    /// The plate is exactly unit variance and zero mean, at every roughness, because it
-    /// is rescaled by measurement rather than by trusting the octave arithmetic — which
-    /// is what lets Roughness change the character without touching the Amount.
+    /// The field is unit variance and zero mean at every roughness, which is what lets
+    /// Roughness change the character without touching the Amount. The field has no tile
+    /// to renormalise by measurement, so the normalisation is analytic: exact in
+    /// expectation (first assertion), and measured over a 1024² block (second).
     func testThePlateIsUnitVarianceAtEveryRoughness() {
         for roughness in stride(from: 0.0, through: 100.0, by: 20.0) {
-            let plate = FilmGrainProfile.plate(
-                size: 128, seed: 7, sigma: 1,
-                persistence: FilmGrainProfile.creativePersistence(roughness: roughness))
-            let values = plate.map(Double.init)
+            let persistence = FilmGrainProfile.creativePersistence(roughness: roughness)
+            let field = FilmGrainProfile.field(seed: 7, persistence: persistence)
+            let expected = field.weights.map { $0 * $0 }.reduce(0, +)
+                * GrainField.unitOctaveSigma * GrainField.unitOctaveSigma
+            XCTAssertEqual(expected, 1, accuracy: 1e-12,
+                           "expected variance at roughness \(roughness)")
+            let values = FilmGrainProfile.plate(size: 1024, seed: 7, sigma: 1,
+                                                persistence: persistence).map(Double.init)
             let mean = values.reduce(0, +) / Double(values.count)
             let variance = values.map { ($0 - mean) * ($0 - mean) }.reduce(0, +)
                 / Double(values.count)
-            XCTAssertEqual(mean, 0, accuracy: 1e-6, "mean at roughness \(roughness)")
-            XCTAssertEqual(variance.squareRoot(), 1, accuracy: 1e-6,
+            XCTAssertEqual(mean, 0, accuracy: 0.03, "mean at roughness \(roughness)")
+            XCTAssertEqual(variance.squareRoot(), 1, accuracy: 0.03,
                            "sigma at roughness \(roughness)")
+        }
+    }
+
+    /// NOTHING REPEATS. The field used to be a 128-texel tile repeated over the frame —
+    /// visibly, every `128 × plateScale` pixels — and the GPU's tiled copy had a seam at
+    /// every tile edge. A block shifted by one old tile period is unrelated noise now.
+    func testTheFieldDoesNotRepeatAtTheOldTilePeriod() {
+        let field = FilmGrainProfile.field(seed: FilmGrainProfile.defaultPlateSeed)
+        let n = 512
+        let block = field.raster(width: n, height: n, texelsPerPixel: 1)
+        func correlation(shiftX: Int, shiftY: Int) -> Double {
+            var sab = 0.0, saa = 0.0, sbb = 0.0
+            for y in 0..<(n - shiftY) {
+                for x in 0..<(n - shiftX) {
+                    let a = block[y * n + x], b = block[(y + shiftY) * n + x + shiftX]
+                    sab += a * b; saa += a * a; sbb += b * b
+                }
+            }
+            return sab / (saa * sbb).squareRoot()
+        }
+        for (dx, dy) in [(128, 0), (0, 128), (128, 128), (256, 0), (289 * 2, 0)]
+        where dx < n && dy < n {
+            XCTAssertLessThan(abs(correlation(shiftX: dx, shiftY: dy)), 0.08,
+                              "the field correlates with itself at (\(dx), \(dy)) texels")
+        }
+        XCTAssertGreaterThan(correlation(shiftX: 1, shiftY: 0), 0.5,
+                             "neighbouring texels should be correlated; this is not grain")
+        // The pixel-at-a-time evaluation is the raster, so the GPU twin of either agrees.
+        for (x, y) in [(0, 0), (17, 300), (511, 511), (128, 5)] {
+            XCTAssertEqual(field.value(x: Double(x) + 0.5, y: Double(y) + 0.5,
+                                       texelsPerPixel: 1),
+                           block[y * n + x], accuracy: 1e-12)
         }
     }
 

@@ -1,0 +1,39 @@
+{
+ "name": "profile-test",
+ "defaults": {
+  "longEdge": 1200,
+  "tile": 400,
+  "base": "blank"
+ },
+ "jobs": [
+  {
+   "id": "profile",
+   "photos": [
+    "niso12800-crop40-40",
+    "niso51200-crop40-40"
+   ],
+   "variants": [
+    {
+     "label": "off",
+     "recipe": {
+      "develop.denoise.mode": "off"
+     }
+    },
+    {
+     "label": "luma25 chroma25 (ISO6400-like)",
+     "recipe": {
+      "develop.denoise.classic.luma": 32.5,
+      "develop.denoise.classic.chroma": 27.5
+     }
+    },
+    {
+     "label": "100/100",
+     "recipe": {
+      "develop.denoise.classic.luma": 100,
+      "develop.denoise.classic.chroma": 100
+     }
+    }
+   ]
+  }
+ ]
+}

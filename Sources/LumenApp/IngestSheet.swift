@@ -51,6 +51,8 @@ struct IngestRequest: Sendable {
     /// matching re-read marks a frame verified, per destination.
     var verify: Bool
     var ejectWhenDone: Bool
+    var sourceRoot: URL? = nil
+    var leftOnCard: [URL] = []
 }
 
 enum IngestRunOutcome: Sendable {
@@ -110,7 +112,9 @@ struct VerifiedCopyIngestDriver: IngestDriver {
                                       renameTemplate: request.renameEnabled
                                           ? request.renameTemplate : nil,
                                       job: request.jobName.isEmpty ? nil : request.jobName,
-                                      calendar: Calendar.current)
+                                      calendar: Calendar.current,
+                                      sourceRoot: request.sourceRoot,
+                                      leftOnCard: request.leftOnCard)
         guard !plan.copies.isEmpty else {
             return .refused("Nothing was copied: "
                             + (plan.refusals.first ?? "the plan named no file to write."))
@@ -145,6 +149,7 @@ struct IngestSheet: View {
     @State private var volumes: [URL] = []
     @State private var sourceURL: URL? = nil
     @State private var files: [IngestPlanFile] = []
+    @State private var leftOnCard: [URL] = []
     @State private var isScanning: Bool = false
 
     // Destinations
@@ -579,6 +584,13 @@ struct IngestSheet: View {
             && primaryDestination != nil
             && (!backupEnabled || backupDestination != nil)
             && templateProblems.isEmpty
+            && !destinationOnSource
+    }
+
+    private var destinationOnSource: Bool {
+        guard let sourceURL else { return false }
+        return [primaryDestination, backupEnabled ? backupDestination : nil]
+            .compactMap { $0 }.contains { IngestLocation.isInside($0, sourceURL) }
     }
 
     private var readinessSummary: String {
@@ -587,10 +599,12 @@ struct IngestSheet: View {
         if primaryDestination == nil { return "Choose a primary destination." }
         if backupEnabled && backupDestination == nil { return "Choose a backup destination." }
         if !templateProblems.isEmpty { return "Fix the template errors above." }
+        if destinationOnSource { return "A destination is on the source card. Choose another disk." }
         let count = files.count
         return "\(count) frame\(count == 1 ? "" : "s") → "
             + (backupEnabled ? "2 destinations" : "1 destination")
             + (verify ? ", verified" : ", UNVERIFIED")
+            + (IngestCardScan.notCopiedSentence(leftOnCard).map { " · " + $0 } ?? "")
     }
 
     // MARK: Template validation and preview
@@ -704,14 +718,17 @@ struct IngestSheet: View {
     private func chooseSource(_ url: URL) {
         sourceURL = url
         files = []
+        leftOnCard = []
         isScanning = true
         statusLine = nil
         let extensions = AppState.browsableExtensions
         Task {
             let found = await Task.detached(priority: .userInitiated) {
-                ingestScan(root: url, extensions: extensions)
+                (ingestScan(root: url, extensions: extensions),
+                 IngestCardScan.filesNotCopied(under: url, copying: extensions))
             }.value
-            self.files = found
+            self.files = found.0
+            self.leftOnCard = found.1
             self.isScanning = false
         }
     }
@@ -745,7 +762,9 @@ struct IngestSheet: View {
             renameEnabled: renameEnabled,
             jobName: jobName.trimmingCharacters(in: .whitespaces),
             verify: verify,
-            ejectWhenDone: ejectWhenDone)
+            ejectWhenDone: ejectWhenDone,
+            sourceRoot: sourceURL,
+            leftOnCard: leftOnCard)
 
         let token = IngestCancellation()
         cancellation = token
@@ -878,6 +897,9 @@ private func ingestByteString(_ bytes: Int64) -> String {
 private func ingestEjectNote(_ report: IngestReport, wanted: Bool, source: URL?) -> String {
     guard wanted else { return "" }
     guard report.allVerified else {
+        if report.photosVerified && !report.leftOnCard.isEmpty {
+            return " The card was NOT ejected: it still holds files this ingest did not copy."
+        }
         return " The card was NOT ejected: not every frame verified on every destination."
     }
     guard let source,

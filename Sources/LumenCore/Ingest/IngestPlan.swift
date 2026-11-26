@@ -86,10 +86,18 @@ public struct IngestPlan: Sendable {
     public var copies: [IngestPlannedCopy]
     /// Files that will not be copied, each with the sentence the sheet shows verbatim.
     public var refusals: [String]
+    /// Files on the card this plan does not copy (video, audio, sidecars). Non-empty
+    /// keeps `IngestReport.allVerified` false: the card is not safe to format.
+    public var leftOnCard: [URL]
+    /// True when primary and backup sit on one volume: verified, but not two disks.
+    public var backupSharesVolume: Bool
 
-    public init(copies: [IngestPlannedCopy], refusals: [String] = []) {
+    public init(copies: [IngestPlannedCopy], refusals: [String] = [],
+                leftOnCard: [URL] = [], backupSharesVolume: Bool = false) {
         self.copies = copies
         self.refusals = refusals
+        self.leftOnCard = leftOnCard
+        self.backupSharesVolume = backupSharesVolume
     }
 
     /// The card's payload, not the payload times the number of destinations: this is
@@ -145,7 +153,22 @@ public enum IngestPlanner {
                             folderTemplate: String,
                             renameTemplate: String?,
                             job: String?,
-                            calendar: Calendar = Calendar(identifier: .gregorian)) -> IngestPlan {
+                            calendar: Calendar = Calendar(identifier: .gregorian),
+                            sourceRoot: URL? = nil,
+                            leftOnCard: [URL] = []) -> IngestPlan {
+        if let sourceRoot,
+           let inside = destinations.first(where: { IngestLocation.isInside($0.url, sourceRoot) }) {
+            return IngestPlan(copies: [], refusals: [
+                "Nothing was copied: the \(inside.role.rawValue) destination is on the source "
+                + "card itself. A copy on the card is lost when the card is formatted, and the "
+                + "next ingest would import it again. Choose a folder on another disk."],
+                leftOnCard: leftOnCard)
+        }
+        let primaries = destinations.filter { $0.role == .primary }
+        let backupSharesVolume = destinations.contains { backup in
+            backup.role == .backup
+                && primaries.contains { IngestLocation.sameVolume($0.url, backup.url) }
+        }
         var copies: [IngestPlannedCopy] = []
         var refusals: [String] = []
         let fields: Set<Calendar.Component> = [.year, .month, .day, .hour, .minute, .second]
@@ -199,7 +222,57 @@ public enum IngestPlanner {
                                             destinations: planned))
         }
 
-        return IngestPlan(copies: copies, refusals: refusals)
+        return IngestPlan(copies: copies, refusals: refusals,
+                          leftOnCard: leftOnCard, backupSharesVolume: backupSharesVolume)
+    }
+}
+
+/// What a card scan leaves behind.
+public enum IngestCardScan {
+
+    /// Regular files under `root` whose extension is not in `copying`, enumerated with
+    /// the same options as the sheet's photo scan, sorted by path.
+    public static func filesNotCopied(under root: URL, copying extensions: Set<String>) -> [URL] {
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(
+            at: root, includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return [] }
+        var left: [URL] = []
+        for case let file as URL in enumerator {
+            guard !extensions.contains(file.pathExtension.lowercased()) else { continue }
+            var isDirectory: ObjCBool = false
+            guard fm.fileExists(atPath: file.path, isDirectory: &isDirectory),
+                  !isDirectory.boolValue else { continue }
+            left.append(file)
+        }
+        return left.sorted { $0.path < $1.path }
+    }
+
+    /// "2 videos, 1 audio file, 1 other file" for the files `filesNotCopied` found.
+    public static func describe(_ files: [URL]) -> String {
+        let video: Set<String> = ["mov", "mp4", "m4v", "avi", "mts", "m2ts", "mxf", "3gp", "insv", "lrv"]
+        let audio: Set<String> = ["wav", "mp3", "m4a", "aac", "aif", "aiff", "bwf"]
+        var videos = 0, audios = 0, others = 0
+        for file in files {
+            let ext = file.pathExtension.lowercased()
+            if video.contains(ext) { videos += 1 } else if audio.contains(ext) { audios += 1 } else { others += 1 }
+        }
+        var parts: [String] = []
+        if videos > 0 { parts.append("\(videos) video\(videos == 1 ? "" : "s")") }
+        if audios > 0 { parts.append("\(audios) audio file\(audios == 1 ? "" : "s")") }
+        if others > 0 { parts.append("\(others) other file\(others == 1 ? "" : "s")") }
+        return parts.joined(separator: ", ")
+    }
+
+    /// The sentence the report and the sheet show, or nil when nothing is left.
+    public static func notCopiedSentence(_ files: [URL]) -> String? {
+        guard !files.isEmpty else { return nil }
+        let names = files.prefix(3).map(\.lastPathComponent).joined(separator: ", ")
+            + (files.count > 3 ? ", …" : "")
+        let noun = files.count == 1 ? "file" : "files"
+        return "\(files.count) \(noun) on the card that \(files.count == 1 ? "is" : "are") not "
+            + "photos (\(describe(files))) will NOT be copied: \(names). Copy them separately "
+            + "before formatting the card."
     }
 }
 
@@ -251,6 +324,50 @@ public enum IngestLocation {
             return "file:\(device):\(inode)"
         }
         return directoryIdentity(of: url.deletingLastPathComponent()) + "//" + url.lastPathComponent
+    }
+
+    /// True when `url` is `root` or lies below it, compared by directory identity so a
+    /// symlinked or differently spelled path to the card still counts.
+    public static func isInside(_ url: URL, _ root: URL) -> Bool {
+        let rootKey = directoryIdentity(of: root)
+        // Resolve symlinks before walking up: the lexical parent of an alias is not the
+        // parent of the directory it points at.
+        let fm = FileManager.default
+        var existing = url.standardizedFileURL
+        var remainder: [String] = []
+        while !fm.fileExists(atPath: existing.path) {
+            let parent = existing.deletingLastPathComponent().standardizedFileURL
+            if parent.path == existing.path { break }
+            remainder.insert(existing.lastPathComponent, at: 0)
+            existing = parent
+        }
+        var current = existing.resolvingSymlinksInPath()
+        for component in remainder { current.appendPathComponent(component) }
+        while true {
+            if directoryIdentity(of: current) == rootKey { return true }
+            let parent = current.deletingLastPathComponent().standardizedFileURL
+            if parent.path == current.path { return false }
+            current = parent
+        }
+    }
+
+    /// True when both URLs resolve, through their nearest existing ancestors, to one
+    /// device. Says nothing about physical disks behind a RAID or share.
+    public static func sameVolume(_ a: URL, _ b: URL) -> Bool {
+        guard let da = device(of: a), let db = device(of: b) else { return false }
+        return da == db
+    }
+
+    private static func device(of url: URL) -> UInt64? {
+        let fm = FileManager.default
+        var existing = url.standardizedFileURL
+        while !fm.fileExists(atPath: existing.path) {
+            let parent = existing.deletingLastPathComponent().standardizedFileURL
+            if parent.path == existing.path { return nil }
+            existing = parent
+        }
+        let resolved = existing.resolvingSymlinksInPath()
+        return unsigned((try? fm.attributesOfItem(atPath: resolved.path))?[.systemNumber])
     }
 
     /// True when the two URLs are one directory under two spellings.

@@ -1053,53 +1053,50 @@ public struct FilmGrainProfile: Sendable {
 
     // MARK: Plate generation
 
-    /// A deterministic, tileable, unit-variance noise plate — `size × size` values, row
-    /// major, standard deviation `sigma`, mean 0.
-    ///
-    /// Value noise (a hashed integer lattice with C¹ Hermite interpolation) summed over
-    /// four octaves at the given persistence, then rescaled to exact zero mean and the
-    /// requested standard deviation. Every lattice index is taken modulo its octave's
-    /// frequency, so the plate wraps seamlessly and can be tiled across an image of any
-    /// size. The generator is a pure function of `(size, seed, sigma, persistence)` — no
-    /// `arc4random`, no `Double.random`, no global state — so a render is reproducible
-    /// bit-for-bit on any machine, which is what makes grain part of the recipe rather
-    /// than part of the weather.
-    ///
-    /// `persistence` is the amplitude ratio between successive octaves, and it is the
-    /// creative grain's Roughness. It DEFAULTS to the 0.5 that was hard-coded here for
-    /// the plate's whole life, so every existing caller — the reference renderer's film
-    /// path, the GPU plate builder, every golden that compares them — produces the same
-    /// bytes it always did. That is the point of adding a parameter rather than a second
-    /// generator: one plate, one set of goldens, and a new control that cannot drift from
-    /// the old one because there is nothing for it to drift from.
-    ///
-    /// The renormalization at the end is what makes Roughness a character control rather
-    /// than a second strength: the summed octaves are rescaled to the requested standard
-    /// deviation whatever the persistence was, so moving Roughness redistributes the
-    /// energy across scales and leaves the amplitude alone.
+    /// The plate's octave persistence when nothing else is said: every film stock's, and
+    /// the creative grain's at Roughness 50.
     public static let defaultPersistence: Double = 0.5
 
-    /// - Parameter renderPixelsPerCell: how many RENDER pixels one plate texel spans,
-    ///   or nil to build every octave regardless.
+    /// The grain field for one layer: four octaves of value noise at `persistence`,
+    /// band-limited to `renderPixelsPerCell`, keyed by `seed`. See `GrainField`.
     ///
-    ///   BAND-LIMITING, and it is the difference between a preview that is the
-    ///   low-pass of the export and one that is a different pattern (C2-01b).
-    ///
-    ///   The plate is four octaves of value noise on a 128 texel field: octave `k` has
-    ///   features spanning `128 / (8 << k)` texels, so 16, 8, 4 and 2. Multiplied by
-    ///   this scale they become render pixels, and an octave whose features fall below
-    ///   two render pixels is past Nyquist — it cannot be sampled, so what reaches the
-    ///   screen is aliasing rather than grain.
-    ///
-    ///   That is not a hypothetical. Velvia 50's green record is 0.5 render pixels per
-    ///   texel at the 2560 px working resolution, so its finest octave has ONE-pixel
-    ///   features in the fit view; at 8000 the same octave is 2.67 pixels and resolves
-    ///   cleanly. The preview was showing false high-frequency detail the delivered file
-    ///   does not contain, which is most of the parity loss the grain audit measured.
-    ///
-    ///   Dropping an octave costs no amplitude: the plate is renormalised to unit
-    ///   variance by measurement at the end, so the surviving octaves are scaled back up
-    ///   to the same energy. The texture gets coarser and correct rather than quieter.
+    /// - Parameter renderPixelsPerCell: render pixels per texel, or nil for every octave.
+    ///   An octave whose lattice cell is under two render pixels is past Nyquist and is
+    ///   dropped; the field is renormalised, so dropping costs no amplitude.
+    public static func field(seed: UInt64, sigma: Double = 1,
+                             persistence: Double = FilmGrainProfile.defaultPersistence,
+                             renderPixelsPerCell: Double? = nil) -> GrainField {
+        let p: Double = Num.clamp(persistence.isFinite ? persistence : 0.5, 0.05, 0.95)
+        var weights = [Double](repeating: 0, count: GrainField.octaveCount)
+        var energy: Double = 0
+        for k in 0..<GrainField.octaveCount {
+            if let perCell = renderPixelsPerCell, perCell.isFinite, perCell > 0,
+               GrainField.cellTexels(octave: k) * perCell < 2 {
+                continue
+            }
+            weights[k] = pow(p, Double(k))
+            energy += weights[k] * weights[k]
+        }
+        let s: Double = sigma.isFinite && sigma > 0 ? sigma : 0
+        let gain: Double = energy > 0 ? s / (GrainField.unitOctaveSigma * energy.squareRoot()) : 0
+        var ox = [Double](), oy = [Double](), salt = [Double]()
+        for k in 0..<GrainField.octaveCount {
+            weights[k] *= gain
+            var z: UInt64 = seed &+ UInt64(k + 1) &* 0x8CB92BA72F3D8DD7
+            z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
+            z = (z ^ (z >> 27)) &* 0x94D049BB133111EB
+            z = z ^ (z >> 31)
+            let period = UInt64(GrainField.modulus)
+            ox.append(Double(z % period))
+            oy.append(Double((z >> 21) % period))
+            salt.append(Double((z >> 42) % period))
+        }
+        return GrainField(weights: weights, offsetX: ox, offsetY: oy, salt: salt)
+    }
+
+    /// The field sampled at the centres of a `size × size` block of texels at the frame
+    /// origin, row major, one render pixel per texel — for inspecting the field. Nothing
+    /// tiles it: the renderers evaluate the field itself at every pixel.
     public static func plate(size: Int, seed: UInt64, sigma: Double,
                              persistence: Double = FilmGrainProfile.defaultPersistence,
                              renderPixelsPerCell: Double? = nil)
@@ -1107,145 +1104,155 @@ public struct FilmGrainProfile: Sendable {
         let n: Int = Swift.max(size, 2)
         let count: Int = n * n
         guard sigma.isFinite, sigma > 0 else { return [Float](repeating: 0, count: count) }
-        // Every preview graph build bakes this plate again — three channels, up to four
-        // octaves of 128² lattice hashes — for arguments that do not move during a drag:
-        // the seed and persistence are the profile's, sigma is 1 and the cell size only
-        // changes with the ladder rung. The bake is a pure function of exactly these
-        // arguments, so a remembered one is the same Floats. Keyed on the RAW arguments,
-        // before the clamps below, which is at least as fine as the output.
         let memoKey = GrainPlateMemo.Key(size: size, seed: seed, sigma: sigma.bitPattern,
                                          persistence: persistence.bitPattern,
                                          perCell: renderPixelsPerCell?.bitPattern)
         if let remembered = FilmGrainProfile.plateMemo.lookup(memoKey) { return remembered }
-        var acc: [Double] = [Double](repeating: 0, count: count)
-
-        let octaves: Int = 4
-        // Clamped, not trusted: this is a recipe-derived number, and a persistence of 0
-        // would leave one octave standing while a negative one would alternate the sign
-        // of every other octave — neither is a grain, and a hand-edited sidecar can say
-        // either. The bounds are the Roughness slider's own ends.
-        let p: Double = Num.clamp(persistence.isFinite ? persistence : 0.5, 0.05, 0.95)
-        let baseFrequency: Int = Swift.max(1, n / 16)
-        var octave: Int = 0
-        while octave < octaves {
-            var freq: Int = baseFrequency << octave
-            if freq > n { freq = n }
-            if freq < 1 { freq = 1 }
-            // Past Nyquist for the resolution this plate will be sampled at? Then it is
-            // aliasing, not grain. See `renderPixelsPerCell`.
-            if let perCell = renderPixelsPerCell, perCell.isFinite, perCell > 0,
-               Double(n) / Double(freq) * perCell < 2 {
-                octave += 1
-                continue
-            }
-            let amp: Double = pow(p, Double(octave))
-            let step: Double = Double(freq) / Double(n)
-
-            var y: Int = 0
-            while y < n {
-                let py: Double = Double(y) * step
-                let yi: Int = Int(py)
-                let ty: Double = py - Double(yi)
-                let y0: Int = yi % freq
-                let y1: Int = (y0 + 1) % freq
-                let sy: Double = ty * ty * (3.0 - 2.0 * ty)
-
-                var x: Int = 0
-                while x < n {
-                    let px: Double = Double(x) * step
-                    let xi: Int = Int(px)
-                    let tx: Double = px - Double(xi)
-                    let x0: Int = xi % freq
-                    let x1: Int = (x0 + 1) % freq
-                    let sx: Double = tx * tx * (3.0 - 2.0 * tx)
-
-                    let v00: Double = FilmGrainProfile.latticeValue(x0, y0, seed, octave)
-                    let v10: Double = FilmGrainProfile.latticeValue(x1, y0, seed, octave)
-                    let v01: Double = FilmGrainProfile.latticeValue(x0, y1, seed, octave)
-                    let v11: Double = FilmGrainProfile.latticeValue(x1, y1, seed, octave)
-                    let a: Double = v00 + (v10 - v00) * sx
-                    let b: Double = v01 + (v11 - v01) * sx
-                    acc[y * n + x] += amp * (a + (b - a) * sy)
-                    x += 1
-                }
-                y += 1
-            }
-            octave += 1
-        }
-
-        // Exact unit variance by measurement, not by trusting the octave arithmetic.
-        var mean: Double = 0
-        for v in acc { mean += v }
-        mean /= Double(count)
-        var variance: Double = 0
-        for v in acc {
-            let d: Double = v - mean
-            variance += d * d
-        }
-        variance /= Double(count)
-        let sd: Double = variance.squareRoot()
-        let gain: Double = sd > 1e-12 ? sigma / sd : 0
-
-        var out: [Float] = [Float](repeating: 0, count: count)
-        for i in 0..<count { out[i] = Float((acc[i] - mean) * gain) }
+        let f = field(seed: seed, sigma: sigma, persistence: persistence,
+                      renderPixelsPerCell: renderPixelsPerCell)
+        let out: [Float] = f.raster(width: n, height: n, texelsPerPixel: 1).map { Float($0) }
         FilmGrainProfile.plateMemo.store(out, for: memoKey)
         return out
     }
 
-    /// The baked plates `plate(size:seed:sigma:persistence:renderPixelsPerCell:)` has
+    /// The sampled blocks `plate(size:seed:sigma:persistence:renderPixelsPerCell:)` has
     /// handed out recently. See `GrainPlateMemo`.
     static let plateMemo = GrainPlateMemo()
+}
 
-    /// Bilinear, wrapping sample of a plate produced by `plate(size:seed:sigma:)`.
-    /// Coordinates are in plate cells and may be any finite value.
-    public static func sample(_ values: [Float], size: Int, x: Double, y: Double) -> Double {
-        let n: Int = Swift.max(size, 1)
-        guard values.count >= n * n, x.isFinite, y.isFinite else { return 0 }
-        // Clamp in Double before converting: past 2^53 the modulo loses all precision
-        // and leaves `fx` outside [0, n), which `Int()` would take before the clamp.
-        let fx: Double = Num.clamp(x - (x / Double(n)).rounded(.down) * Double(n),
-                                   0, Double(n) - 1e-9)
-        let fy: Double = Num.clamp(y - (y / Double(n)).rounded(.down) * Double(n),
-                                   0, Double(n) - 1e-9)
-        let x0: Int = Swift.min(Swift.max(Int(fx), 0), n - 1)
-        let y0: Int = Swift.min(Swift.max(Int(fy), 0), n - 1)
-        let x1: Int = (x0 + 1) % n
-        let y1: Int = (y0 + 1) % n
-        let tx: Double = fx - Double(x0)
-        let ty: Double = fy - Double(y0)
-        let v00: Double = Double(values[y0 * n + x0])
-        let v10: Double = Double(values[y0 * n + x1])
-        let v01: Double = Double(values[y1 * n + x0])
-        let v11: Double = Double(values[y1 * n + x1])
-        let a: Double = v00 + (v10 - v00) * tx
-        let b: Double = v01 + (v11 - v01) * tx
-        return a + (b - a) * ty
+/// Frame-anchored grain noise: four octaves of C¹ value noise on integer lattices of
+/// 16, 8, 4 and 2 texels, summed and normalised to unit variance.
+///
+/// It replaces a 128-texel tile that both renderers repeated over the frame. A tile has
+/// a period — the grain visibly repeated every `128 × plateScale` pixels — and the GPU's
+/// scaled, tiled copy left a seam of transparent texels at every tile edge, which the
+/// grain kernel decoded as −4σ of density: a bright line every period. A field has no
+/// tile edge and no period inside any frame (`modulus` lattice cells per octave).
+///
+/// The lattice hash is integer arithmetic whose every intermediate is below 2^24, so the
+/// float32 GPU kernel (`lumenGrainField`) computes the same lattice values bit for bit;
+/// only the interpolation differs in rounding.
+///
+/// Coordinates are positions on the uncropped frame in render pixels (top-down, pixel
+/// centre at `col + 0.5`), times the layer's texels per pixel. Anchoring to the frame
+/// rather than to the delivered crop is what makes the 1:1 viewer and a native-size
+/// export show the same grains in the same places.
+public struct GrainField: Sendable, Equatable {
+    public static let octaveCount: Int = 4
+    /// The hash modulus, and the period of every octave in lattice cells. Prime, with
+    /// 4090 not divisible by 3, so v ↦ v³ is a permutation; 4090² is exact in float32.
+    /// (289 = 17², the usual shader choice, is linear mod 17 and correlated at lags.)
+    public static let modulus: Double = 4091
+
+    /// σ of one octave before normalisation: lattice values are uniform on 4091 levels in
+    /// (−1, 1), variance (p² − 1)/(3p²); Hermite interpolation keeps (26/35)² of it
+    /// on average over a cell.
+    public static let unitOctaveSigma: Double =
+        ((modulus * modulus - 1) / (3 * modulus * modulus)).squareRoot() * 26.0 / 35.0
+
+    public static func cellTexels(octave: Int) -> Double {
+        Double(16 >> Swift.min(Swift.max(octave, 0), 3))
     }
 
-    /// SplitMix64-style avalanche of the lattice coordinate, seed and octave into
-    /// [−1, 1]. Pure integer arithmetic; identical on every platform.
-    private static func latticeValue(_ x: Int, _ y: Int, _ seed: UInt64, _ octave: Int) -> Double {
-        var z: UInt64 = seed &+ 0x9E3779B97F4A7C15
-        z = z &+ (UInt64(bitPattern: Int64(x)) &* 0xD1B54A32D192ED03)
-        z = z &+ (UInt64(bitPattern: Int64(y)) &* 0xABC98388FB8FAC03)
-        z = z &+ (UInt64(octave + 1) &* 0x8CB92BA72F3D8DD7)
-        z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
-        z = (z ^ (z >> 27)) &* 0x94D049BB133111EB
-        z = z ^ (z >> 31)
-        let unit: Double = Double(z >> 11) * (1.0 / 9007199254740992.0)
-        return unit * 2.0 - 1.0
+    /// Per octave: amplitude with the normalisation folded in (0 = dropped), lattice
+    /// offset in cells, and hash salt.
+    public let weights: [Double]
+    public let offsetX: [Double]
+    public let offsetY: [Double]
+    public let salt: [Double]
+
+    /// The field at a frame position in render pixels.
+    public func value(x: Double, y: Double, texelsPerPixel: Double) -> Double {
+        var acc: Double = 0
+        for k in 0..<GrainField.octaveCount where weights[k] != 0 {
+            let inv: Double = texelsPerPixel / GrainField.cellTexels(octave: k)
+            let fx: Double = x * inv, fy: Double = y * inv
+            let xi: Double = fx.rounded(.down), yi: Double = fy.rounded(.down)
+            let tx: Double = fx - xi, ty: Double = fy - yi
+            let sx: Double = tx * tx * (3 - 2 * tx)
+            let sy: Double = ty * ty * (3 - 2 * ty)
+            let cx: Double = xi + offsetX[k], cy: Double = yi + offsetY[k]
+            let s: Double = salt[k]
+            let v00 = GrainField.lattice(cx, cy, s), v10 = GrainField.lattice(cx + 1, cy, s)
+            let v01 = GrainField.lattice(cx, cy + 1, s)
+            let v11 = GrainField.lattice(cx + 1, cy + 1, s)
+            let a: Double = v00 + (v10 - v00) * sx
+            let b: Double = v01 + (v11 - v01) * sx
+            acc += weights[k] * (a + (b - a) * sy)
+        }
+        return acc
+    }
+
+    /// `value` at every pixel centre of a `width × height` frame, row major, top-down —
+    /// the same arithmetic, with each lattice value hashed once rather than per pixel.
+    public func raster(width: Int, height: Int, texelsPerPixel: Double) -> [Double] {
+        let w = Swift.max(width, 0), h = Swift.max(height, 0)
+        var out = [Double](repeating: 0, count: w * h)
+        guard w > 0, h > 0, texelsPerPixel.isFinite, texelsPerPixel > 0 else { return out }
+        for k in 0..<GrainField.octaveCount where weights[k] != 0 {
+            let inv: Double = texelsPerPixel / GrainField.cellTexels(octave: k)
+            func axis(_ n: Int) -> (origin: Double, index: [Int], s: [Double], count: Int) {
+                let first: Double = (0.5 * inv).rounded(.down)
+                var index = [Int](repeating: 0, count: n)
+                var s = [Double](repeating: 0, count: n)
+                var last = 0
+                for i in 0..<n {
+                    let f: Double = (Double(i) + 0.5) * inv
+                    let fi: Double = f.rounded(.down)
+                    let t: Double = f - fi
+                    index[i] = Int(fi - first)
+                    s[i] = t * t * (3 - 2 * t)
+                    last = Swift.max(last, index[i])
+                }
+                return (first, index, s, last + 2)
+            }
+            let ax = axis(w), ay = axis(h)
+            var lat = [Double](repeating: 0, count: ax.count * ay.count)
+            for j in 0..<ay.count {
+                let cy: Double = ay.origin + Double(j) + offsetY[k]
+                for i in 0..<ax.count {
+                    lat[j * ax.count + i] = GrainField.lattice(
+                        ax.origin + Double(i) + offsetX[k], cy, salt[k])
+                }
+            }
+            let weight = weights[k]
+            for y in 0..<h {
+                let row0 = ay.index[y] * ax.count, row1 = row0 + ax.count
+                let sy = ay.s[y]
+                for x in 0..<w {
+                    let i = ax.index[x], sx = ax.s[x]
+                    let v00 = lat[row0 + i], v10 = lat[row0 + i + 1]
+                    let v01 = lat[row1 + i], v11 = lat[row1 + i + 1]
+                    let a: Double = v00 + (v10 - v00) * sx
+                    let b: Double = v01 + (v11 - v01) * sx
+                    out[y * w + x] += weight * (a + (b - a) * sy)
+                }
+            }
+        }
+        return out
+    }
+
+    @inline(__always)
+    static func cube(_ v: Double) -> Double {
+        let p = Int(modulus)
+        var r = Int(v) % p
+        if r < 0 { r += p }
+        return Double((r * r % p) * r % p)
+    }
+
+    /// Lattice value in (−1, 1) at integer cell `(x, y)`: four cubes mod 4091, with x
+    /// injected twice — measured |r| ≤ 0.003 at every lag up to 40 cells and at the old
+    /// tile periods, the sampling floor of the check.
+    static func lattice(_ x: Double, _ y: Double, _ salt: Double) -> Double {
+        let h = cube(cube(cube(cube(x) + y) + x + salt))
+        return (h + 0.5) * (2 / modulus) - 1
     }
 }
 
-/// A small, locked memo of baked grain plates, keyed on the exact bits of every argument
-/// the bake reads. Both renderers and every thread share it: `PipelineRenderer` builds
-/// graphs from the preview, EDR and export paths at once, which is why it is locked the
-/// way `PlanKeyMemo` is. The bake runs OUTSIDE the lock, so two threads missing on the
-/// same key both bake and the second store is a no-op — the same bytes either way.
-///
-/// Sixteen entries, first in first out: three channels times a few ladder rungs is what
-/// a session revisits, and a 128² plate is 64 KB, so the whole memo is about 1 MB. A
-/// returned `[Float]` is copy-on-write, so no caller can change what is remembered.
+/// A small, locked memo of sampled grain blocks, keyed on the exact bits of every
+/// argument the sampling reads. The bake runs outside the lock, so two threads missing
+/// on the same key both bake and the second store is a no-op. Sixteen entries, first in
+/// first out.
 final class GrainPlateMemo: @unchecked Sendable {
     struct Key: Hashable {
         let size: Int
@@ -1340,24 +1347,24 @@ public struct GrainPlan: Sendable, Equatable {
     /// The stage does nothing, so the plan can drop it before a plate is built.
     public var isIdentity: Bool { !(amount > 0) }
 
-    /// One emulsion layer's plate, at this plan's own persistence and seed.
-    ///
-    /// Both renderers call THIS rather than `FilmGrainProfile.plate` directly, which is
-    /// what makes Roughness reach the GPU: the persistence lives on the profile, and a
-    /// caller that assembled the arguments itself would have had to remember it. The GPU
-    /// builder in `PipelineRenderer` predates this and still assembles its own; it
-    /// produces the same bytes for a film profile by construction (persistence 0.5,
-    /// `defaultPlateSeed`) and `GrainPlateTests` pins that it does.
-    /// - Parameter renderPixelsPerCell: this layer's own `plateScale` at the resolution
-    ///   being rendered, or nil to build every octave. Both renderers must pass the SAME
-    ///   value or their plates differ and gpu-parity fails — which is the check that
-    ///   keeps them honest.
+    /// One emulsion layer's field sampled on a block of texels at the frame origin, at
+    /// this plan's own persistence and seed (`FilmGrainProfile.plate`).
     public func plate(channel: Int, size: Int = GrainPlan.plateSize,
                       seed: UInt64 = FilmGrainProfile.defaultPlateSeed,
                       renderPixelsPerCell: Double? = nil) -> [Float] {
         FilmGrainProfile.plate(size: size,
                                seed: profile.plateSeed(channel: channel, base: seed),
                                sigma: 1.0,
+                               persistence: profile.persistence,
+                               renderPixelsPerCell: renderPixelsPerCell)
+    }
+
+    /// One emulsion layer's field, band-limited to `renderPixelsPerCell` — what both
+    /// renderers evaluate. Both must pass this layer's `plateScale` at the render's long
+    /// edge.
+    public func field(channel: Int, seed: UInt64 = FilmGrainProfile.defaultPlateSeed,
+                      renderPixelsPerCell: Double) -> GrainField {
+        FilmGrainProfile.field(seed: profile.plateSeed(channel: channel, base: seed),
                                persistence: profile.persistence,
                                renderPixelsPerCell: renderPixelsPerCell)
     }
@@ -1376,9 +1383,7 @@ public struct GrainPlan: Sendable, Equatable {
                                      channel: channel), 0.5)
     }
 
-    /// 128, the plate edge both renderers have always used. Named because the GPU
-    /// builder and the reference renderer each had their own literal `128` and a plate
-    /// of a different size is a different grain.
+    /// The edge of the inspection block `plate` samples. The field itself has no edge.
     public static let plateSize: Int = 128
 
     /// The film path's plan: exactly the four values `ReferenceRenderer.applyGrain` and

@@ -1,0 +1,90 @@
+{
+ "name": "colour-skin",
+ "defaults": {
+  "longEdge": 960,
+  "paths": [
+   "export"
+  ],
+  "tile": 240
+ },
+ "jobs": [
+  {
+   "id": "skin-mixer",
+   "photo": "chart:skin",
+   "variants": [
+    {
+     "label": "red hue -50",
+     "recipe": {
+      "develop.mixer.bands.0.hue": -50
+     }
+    },
+    {
+     "label": "red hue +50",
+     "recipe": {
+      "develop.mixer.bands.0.hue": 50
+     }
+    },
+    {
+     "label": "red sat -50",
+     "recipe": {
+      "develop.mixer.bands.0.sat": -50
+     }
+    },
+    {
+     "label": "red sat +50",
+     "recipe": {
+      "develop.mixer.bands.0.sat": 50
+     }
+    },
+    {
+     "label": "red lum -50",
+     "recipe": {
+      "develop.mixer.bands.0.lum": -50
+     }
+    },
+    {
+     "label": "red lum +50",
+     "recipe": {
+      "develop.mixer.bands.0.lum": 50
+     }
+    },
+    {
+     "label": "orange hue -50",
+     "recipe": {
+      "develop.mixer.bands.1.hue": -50
+     }
+    },
+    {
+     "label": "orange hue +50",
+     "recipe": {
+      "develop.mixer.bands.1.hue": 50
+     }
+    },
+    {
+     "label": "orange sat -50",
+     "recipe": {
+      "develop.mixer.bands.1.sat": -50
+     }
+    },
+    {
+     "label": "orange sat +50",
+     "recipe": {
+      "develop.mixer.bands.1.sat": 50
+     }
+    },
+    {
+     "label": "orange lum -50",
+     "recipe": {
+      "develop.mixer.bands.1.lum": -50
+     }
+    },
+    {
+     "label": "orange lum +50",
+     "recipe": {
+      "develop.mixer.bands.1.lum": 50
+     }
+    }
+   ]
+  }
+ ]
+}

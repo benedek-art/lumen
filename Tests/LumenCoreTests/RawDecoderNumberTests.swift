@@ -59,7 +59,7 @@ final class RawDecoderNumberTests: XCTestCase {
             .joined(separator: "\n")
         XCTAssertTrue(code.contains(
             "guard RawParams.selectsRawDecoder(filter.decoderVersion.rawValue) else {\n"
-            + "            throw RawSourceError.undecodable(url)"),
+            + "            throw RawSourceError.noRawDecoder(url)"),
             "AppleRawSource.init must refuse a file for which CIRAWFilter selected no decoder")
     }
 

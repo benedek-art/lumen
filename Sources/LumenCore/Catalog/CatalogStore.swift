@@ -1801,10 +1801,15 @@ public final class CatalogStore {
                   prepareBackupPayloads(path: candidate, liveCatalogPath: path) else { continue }
             let stamp = String(CatalogStore.now())
             let setAside = path + ".damaged-" + stamp
+            let staged = path + ".restoring-" + stamp
             do {
+                try? manager.removeItem(atPath: staged)
+                try manager.copyItem(atPath: candidate, toPath: staged)
+                try clearSidecarDebt(at: staged)
                 try setAsideCatalog(at: path, to: setAside)
-                try manager.copyItem(atPath: candidate, toPath: path)
+                try manager.moveItem(atPath: staged, toPath: path)
             } catch {
+                try? manager.removeItem(atPath: staged)
                 // A restore that cannot complete must not leave the catalog half
                 // replaced. Put the original back if it is still where we moved it,
                 // and report the damage rather than a restore that did not happen.
@@ -1925,6 +1930,15 @@ public final class CatalogStore {
         } catch {
             return .unavailable(String(describing: error))
         }
+    }
+
+    /// A backup's `sidecar_unsaved` predates every sidecar saved since it was taken;
+    /// paying it from the restored catalog writes backup-era state over them.
+    private static func clearSidecarDebt(at path: String) throws {
+        let database = try SQLiteDatabase(path: path)
+        defer { database.close() }
+        try database.execute("PRAGMA journal_mode=DELETE;")
+        try database.run("DELETE FROM meta WHERE key = ?;", [.text(UnsavedSidecarRecord.metaKey)])
     }
 
     /// Move a catalog and its WAL companions aside, together.
@@ -2221,12 +2235,27 @@ public final class CatalogStore {
             let previews = try self.previews(photoID: id)
             try self.db.run("DELETE FROM album_photo   WHERE photo_id = ?;", [.integer(id)])
             try self.db.run("DELETE FROM photo_keyword WHERE photo_id = ?;", [.integer(id)])
+            let stackID = try self.db.scalarInt(
+                "SELECT stack_id FROM stack_member WHERE photo_id = ?;", [.integer(id)])
             try self.db.run("DELETE FROM stack_member  WHERE photo_id = ?;", [.integer(id)])
             try self.db.run("DELETE FROM history       WHERE photo_id = ?;", [.integer(id)])
             try self.db.run("DELETE FROM export_log    WHERE photo_id = ?;", [.integer(id)])
             try self.db.run("DELETE FROM edit          WHERE photo_id = ?;", [.integer(id)])
             try self.db.run("UPDATE stack SET pick_photo_id = NULL WHERE pick_photo_id = ?;",
                             [.integer(id)])
+            // A collapsed stack shows only its pick: losing it must re-pick from the
+            // survivors, or every one of them leaves the collapsed grid.
+            if let stackID {
+                if let survivor = try self.db.scalarInt(
+                    "SELECT photo_id FROM stack_member WHERE stack_id = ? "
+                    + "ORDER BY position ASC LIMIT 1;", [.integer(stackID)]) {
+                    try self.db.run("UPDATE stack SET pick_photo_id = ? "
+                                    + "WHERE id = ? AND pick_photo_id IS NULL;",
+                                    [.integer(survivor), .integer(stackID)])
+                } else {
+                    try self.db.run("DELETE FROM stack WHERE id = ?;", [.integer(stackID)])
+                }
+            }
             try self.db.run("DELETE FROM cache.preview      WHERE photo_id = ?;", [.integer(id)])
             try self.db.run("DELETE FROM cache.artifact     WHERE photo_id = ?;", [.integer(id)])
             try self.db.run("DELETE FROM cache.raw_stats    WHERE photo_id = ?;", [.integer(id)])
@@ -2399,7 +2428,35 @@ public final class CatalogStore {
         while try missing.step() {
             probe.candidateSizes.insert(missing.int(0))
         }
+        // A folder renamed or moved in Finder: its rows are never rescanned, so never
+        // `missing`, and only a signature can carry them to the new path.
+        for vanished in try vanishedFolderIDs() where vanished != folderID {
+            let sizes = try db.prepare(
+                "SELECT DISTINCT file_size FROM photo WHERE folder_id = ? "
+                + "AND quick_sig IS NOT NULL AND quick_sig <> '';")
+            try sizes.bind(1, SQLiteValue.integer(vanished))
+            while try sizes.step() { probe.candidateSizes.insert(sizes.int(0)) }
+        }
         return probe
+    }
+
+    /// Registered folders gone from a disk that is still present. The nearest existing
+    /// ancestor must not be `/` or `/Volumes`, so an unmounted volume's folder does not
+    /// count: a copy of its files elsewhere is a second photograph.
+    private func vanishedFolderIDs() throws -> [Int64] {
+        try folders().filter { CatalogStore.hasVanished($0.path) }.map(\.id)
+    }
+
+    static func hasVanished(_ path: String) -> Bool {
+        let manager = FileManager.default
+        var ancestor = URL(fileURLWithPath: path).standardizedFileURL
+        guard !manager.fileExists(atPath: ancestor.path) else { return false }
+        repeat {
+            let parent = ancestor.deletingLastPathComponent()
+            if parent.path == ancestor.path { return false }
+            ancestor = parent
+        } while !manager.fileExists(atPath: ancestor.path)
+        return ancestor.path != "/" && ancestor.path != "/Volumes"
     }
 
     /// Reconciles one folder against a directory listing (docs/15 §15.9, the cold-start
@@ -2559,6 +2616,8 @@ public final class CatalogStore {
                 if let sig = row.sig, !sig.isEmpty { goneBySignature[sig] = row.id }
             }
             var consumed: Set<Int64> = []
+            let vanished = Set(newFiles.contains { $0.quickSig?.isEmpty == false }
+                ? try self.vanishedFolderIDs().filter { $0 != folderID } : [])
 
             for file in newFiles {
                 var relocatedID: Int64? = nil
@@ -2570,6 +2629,15 @@ public final class CatalogStore {
                         + "ORDER BY id LIMIT 1;", [.text(sig)]),
                         !consumed.contains(candidate) {
                         relocatedID = candidate
+                    } else if !vanished.isEmpty {
+                        let rows = try self.db.prepare(
+                            "SELECT id, folder_id FROM photo WHERE quick_sig = ? ORDER BY id;")
+                        try rows.bind(1, sig)
+                        while relocatedID == nil, try rows.step() {
+                            if vanished.contains(rows.int(1)), !consumed.contains(rows.int(0)) {
+                                relocatedID = rows.int(0)
+                            }
+                        }
                     }
                 }
                 if let id = relocatedID {
@@ -4788,27 +4856,29 @@ public final class CatalogStore {
                 // frame number is the most common filename search there is, and the
                 // LIKE fallback finds it; the filename substring keeps the two agreeing.
                 criteria.append("(photo.id IN (SELECT rowid FROM cache.photo_fts "
-                                + "WHERE photo_fts MATCH ?) OR photo.filename LIKE ?)")
+                                + "WHERE photo_fts MATCH ?) OR photo.filename LIKE ? ESCAPE '\\')")
                 parameters.append(.text(match))
-                parameters.append(.text("%" + text.trimmingCharacters(in: .whitespaces) + "%"))
+                parameters.append(.text(CatalogStore.likeContains(
+                    text.trimmingCharacters(in: .whitespaces))))
             } else {
-                // Fallback when FTS5 is not compiled in. Still fully parameterized:
-                // any % or _ the user typed simply widens their own match.
+                // Fallback when FTS5 is not compiled in. Still fully parameterized, and
+                // literal: `_` and `%` are characters of the search, not wildcards.
                 criteria.append("""
-                (photo.filename LIKE ? OR photo.ext LIKE ? OR photo.camera LIKE ?
-                 OR photo.lens LIKE ? OR photo.job LIKE ?
+                (photo.filename LIKE ? ESCAPE '\\' OR photo.ext LIKE ? ESCAPE '\\'
+                 OR photo.camera LIKE ? ESCAPE '\\'
+                 OR photo.lens LIKE ? ESCAPE '\\' OR photo.job LIKE ? ESCAPE '\\'
                  OR EXISTS (SELECT 1 FROM photo_keyword pk
                              WHERE pk.photo_id = photo.id AND pk.keyword_id IN (
                                WITH RECURSIVE hit(id) AS (
-                                 SELECT id FROM keyword WHERE name LIKE ?
+                                 SELECT id FROM keyword WHERE name LIKE ? ESCAPE '\\'
                                  UNION SELECT keyword_id FROM keyword_synonym
-                                        WHERE synonym LIKE ?
+                                        WHERE synonym LIKE ? ESCAPE '\\'
                                  UNION SELECT k.id FROM keyword k
                                          JOIN hit ON k.parent_id = hit.id
                                )
                                SELECT id FROM hit)))
                 """)
-                let pattern = "%" + text + "%"
+                let pattern = CatalogStore.likeContains(text)
                 // Five columns, then a keyword's name and its synonyms — the same
                 // words, ancestors included, that the FTS row indexes.
                 for _ in 0..<7 { parameters.append(.text(pattern)) }
@@ -4895,6 +4965,14 @@ public final class CatalogStore {
         }
         return "ORDER BY (\(expression) IS NULL), \(expression) \(direction), "
             + "photo.id \(direction)"
+    }
+
+    /// A LIKE pattern matching `text` as a literal substring, for `ESCAPE '\'`.
+    private static func likeContains(_ text: String) -> String {
+        let escaped = text.replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "%", with: "\\%")
+            .replacingOccurrences(of: "_", with: "\\_")
+        return "%" + escaped + "%"
     }
 
     private static func placeholders(_ count: Int) -> String {

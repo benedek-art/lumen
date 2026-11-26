@@ -1,0 +1,182 @@
+name: Driver
+
+# Runs the real app on a macOS runner under the in-app automation driver: synthesized
+# user input, screenshots, state dumps and a frame timeline per scenario.
+# How to write and run a scenario: driver/README.md.
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "Sources/LumenApp/Driver/**"
+      - "driver/**"
+      - ".github/workflows/driver.yml"
+      # A run request: see driver/README.md. A docs-only push starts no other lane.
+      - "docs/driver-requests/**"
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: "Scenario files or globs under driver/scenarios, space-separated. Empty with an inline scenario runs only that."
+        required: false
+        default: "smoke.json"
+      scenario:
+        description: "Inline scenario JSON: one object, or an array of them. Runs without a commit."
+        required: false
+        default: ""
+      ref:
+        description: "Branch, tag or SHA of the app to test. Empty: the commit this run was started on. The driver and its scenarios always come from that commit."
+        required: false
+        default: ""
+      runs_on:
+        description: "Runner label. macos-15 is a GitHub VM (paravirtual GPU); a self-hosted Mac gives real-GPU numbers."
+        required: false
+        default: "macos-15"
+      config:
+        description: "Build configuration. Timing numbers mean something only in release."
+        type: choice
+        options: [release, debug]
+        default: release
+      strict:
+        description: "Fail the job when an expectation fails (default: only on a driver error, hang or crash)"
+        type: boolean
+        default: false
+
+# Every run is its own group: dispatches never cancel or queue behind one another.
+concurrency:
+  group: driver-${{ github.run_id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ${{ inputs.runs_on || 'macos-15' }}
+    timeout-minutes: 45
+    env:
+      RAW_DIR: ${{ github.workspace }}/.driver-raw
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Runner facts
+        shell: bash
+        run: |
+          sw_vers
+          swift --version 2>&1 | head -2
+          system_profiler SPDisplaysDataType 2>/dev/null | grep -E "Resolution|Chipset|Metal|Displays|UI Looks" || true
+
+      - name: What this run does
+        id: plan
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          SUITE: ${{ inputs.suite }}
+          INLINE: ${{ inputs.scenario }}
+          CONFIG_INPUT: ${{ inputs.config }}
+          REF_INPUT: ${{ inputs.ref }}
+          STRICT_INPUT: ${{ inputs.strict }}
+        run: python3 driver/tools/plan.py | tee -a "$GITHUB_OUTPUT"
+
+      # Testing another ref: keep this commit's driver and lay it over that ref, so a
+      # branch that predates the driver, or carries an older one, is driven by this one.
+      - name: Check out the app under test and install the driver
+        if: steps.plan.outputs.skip != '1'
+        shell: bash
+        env:
+          REF: ${{ steps.plan.outputs.ref }}
+        run: |
+          if [ -n "$REF" ]; then
+            keep="$RUNNER_TEMP/driver-src"
+            rm -rf "$keep" && mkdir -p "$keep"
+            cp -R driver "$keep/driver"
+            cp -R Sources/LumenApp/Driver "$keep/Driver"
+            git fetch --depth 1 origin "$REF"
+            git checkout --force --detach FETCH_HEAD
+            rm -rf driver Sources/LumenApp/Driver
+            cp -R "$keep/driver" driver
+            cp -R "$keep/Driver" Sources/LumenApp/Driver
+          fi
+          git log -1 --format='testing %H %s'
+          python3 driver/tools/install-hooks.py
+
+      # Both caches are restored and saved by hand: a job that ends red (a scenario hit
+      # a driver error) must still leave its build behind for the next run.
+      - name: Restore the RAW fixtures
+        if: steps.plan.outputs.skip != '1'
+        id: rawcache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.RAW_DIR }}
+          key: driver-raw-v1-${{ hashFiles('driver/fixtures/raw.tsv') }}
+
+      # The app binary for exactly these sources: a run against an already-built tree
+      # starts its scenarios without rebuilding.
+      - name: Key the build by its sources
+        if: steps.plan.outputs.skip != '1'
+        id: sources
+        shell: bash
+        run: |
+          digest=$( (find Sources Package.swift -type f -print0 | sort -z | xargs -0 shasum -a 256; swift --version 2>&1) | shasum -a 256 | cut -d' ' -f1)
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the built app
+        if: steps.plan.outputs.skip != '1'
+        id: appcache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ github.workspace }}/.driver-app
+          key: driver-app-${{ steps.plan.outputs.config }}-${{ steps.sources.outputs.digest }}
+
+      - name: Build
+        if: steps.plan.outputs.skip != '1'
+        shell: bash
+        env:
+          CONFIG: ${{ steps.plan.outputs.config }}
+          OUT: ${{ github.workspace }}/driver-out
+          APP_CACHE: ${{ github.workspace }}/.driver-app
+          PHASE: build
+        run: driver/tools/run-suite.sh
+
+      - name: Save the built app
+        if: steps.plan.outputs.skip != '1' && steps.appcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/.driver-app
+          key: driver-app-${{ steps.plan.outputs.config }}-${{ steps.sources.outputs.digest }}
+
+      - name: Python imaging for the pixel witness
+        if: steps.plan.outputs.skip != '1'
+        shell: bash
+        run: python3 -c "import numpy, PIL" 2>/dev/null || python3 -m pip install --quiet --break-system-packages numpy pillow || true
+
+      - name: Run
+        if: steps.plan.outputs.skip != '1'
+        shell: bash
+        env:
+          CONFIG: ${{ steps.plan.outputs.config }}
+          STRICT: ${{ steps.plan.outputs.strict }}
+          OUT: ${{ github.workspace }}/driver-out
+          APP_CACHE: ${{ github.workspace }}/.driver-app
+          PHASE: run
+          LIST: ${{ steps.plan.outputs.list }}
+        run: |
+          set -f
+          driver/tools/run-suite.sh $LIST
+
+      - name: Save the RAW fixtures
+        if: always() && steps.plan.outputs.skip != '1' && steps.rawcache.outputs.cache-hit != 'true' && hashFiles('.driver-raw/*.ARW') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.RAW_DIR }}
+          key: driver-raw-v1-${{ hashFiles('driver/fixtures/raw.tsv') }}
+
+      - name: Upload results
+        if: always() && steps.plan.outputs.skip != '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: driver-${{ github.run_id }}
+          path: driver-out
+          retention-days: 14
+          if-no-files-found: warn

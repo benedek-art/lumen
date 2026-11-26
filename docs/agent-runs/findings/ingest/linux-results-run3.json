@@ -1,0 +1,166 @@
+{
+ "card-A": {
+  "allVerified": true,
+  "filesAttempted": 4,
+  "filesPlanned": 4,
+  "framesVerified": 4,
+  "plan": [
+   {
+    "bytes": 49184768,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/primary/2026/20261126 Wedding/0001-DSC00001.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/CARD-A/DCIM/101MSDCF/DSC00001.ARW"
+   },
+   {
+    "bytes": 14712832,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/primary/2026/20261126 Wedding/0002-DSC00002.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/CARD-A/DCIM/101MSDCF/DSC00002.ARW"
+   },
+   {
+    "bytes": 14712832,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/primary/2026/20261126 Wedding/0003-DSC09998.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/CARD-A/DCIM/100MSDCF/DSC09998.ARW"
+   },
+   {
+    "bytes": 25272320,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/primary/2026/20261126 Wedding/0004-DSC09999.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/CARD-A/DCIM/100MSDCF/DSC09999.ARW"
+   }
+  ],
+  "planRefusals": [],
+  "preview": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/primary/2026/20261126 Wedding/0001-DSC00001.ARW",
+  "progressEvents": 35,
+  "results": [
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/primary/2026/20261126 Wedding/0001-DSC00001.ARW",
+    "outcome": "verified xxh64:aad864a82666f96f (49184768 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/primary/2026/20261126 Wedding/0001-DSC00001.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/CARD-A/DCIM/101MSDCF/DSC00001.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/primary/2026/20261126 Wedding/0002-DSC00002.ARW",
+    "outcome": "verified xxh64:2962a2c30158308c (14712832 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/primary/2026/20261126 Wedding/0002-DSC00002.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/CARD-A/DCIM/101MSDCF/DSC00002.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/primary/2026/20261126 Wedding/0003-DSC09998.ARW",
+    "outcome": "verified xxh64:2962a2c30158308c (14712832 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/primary/2026/20261126 Wedding/0003-DSC09998.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/CARD-A/DCIM/100MSDCF/DSC09998.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/primary/2026/20261126 Wedding/0004-DSC09999.ARW",
+    "outcome": "verified xxh64:d55d6ab33af74b54 (25272320 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/primary/2026/20261126 Wedding/0004-DSC09999.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/CARD-A/DCIM/100MSDCF/DSC09999.ARW"
+   }
+  ],
+  "scanned": [
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/CARD-A/DCIM/101MSDCF/DSC00001.ARW",
+    "size": 49184768
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/CARD-A/DCIM/101MSDCF/DSC00002.ARW",
+    "size": 14712832
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/CARD-A/DCIM/100MSDCF/DSC09998.ARW",
+    "size": 14712832
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/CARD-A/DCIM/100MSDCF/DSC09999.ARW",
+    "size": 25272320
+   }
+  ],
+  "seconds": 1.3459280729293823,
+  "summary": "Ingested 4 frames, every copy verified.",
+  "templateProblems": [],
+  "wasCancelled": false
+ },
+ "card-B": {
+  "allVerified": true,
+  "filesAttempted": 2,
+  "filesPlanned": 2,
+  "framesVerified": 2,
+  "plan": [
+   {
+    "bytes": 12841893,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/primary/2026/20261126 Wedding/0001-DSC00001.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/CARD-B/DCIM/100MSDCF/DSC00001.ARW"
+   },
+   {
+    "bytes": 5805950,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/primary/2026/20261126 Wedding/0002-DSC00002.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/CARD-B/DCIM/100MSDCF/DSC00002.ARW"
+   }
+  ],
+  "planRefusals": [],
+  "preview": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/primary/2026/20261126 Wedding/0001-DSC00001.ARW",
+  "progressEvents": 10,
+  "results": [
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/primary/2026/20261126 Wedding/0001-DSC00001-1.ARW",
+    "outcome": "verified xxh64:02f3e69e9ac1275b (12841893 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/primary/2026/20261126 Wedding/0001-DSC00001.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/CARD-B/DCIM/100MSDCF/DSC00001.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/primary/2026/20261126 Wedding/0002-DSC00002-1.ARW",
+    "outcome": "verified xxh64:8ea595d456e8ec44 (5805950 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/primary/2026/20261126 Wedding/0002-DSC00002.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/CARD-B/DCIM/100MSDCF/DSC00002.ARW"
+   }
+  ],
+  "scanned": [
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/CARD-B/DCIM/100MSDCF/DSC00001.ARW",
+    "size": 12841893
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work3/CARD-B/DCIM/100MSDCF/DSC00002.ARW",
+    "size": 5805950
+   }
+  ],
+  "seconds": 0.3777714967727661,
+  "summary": "Ingested 2 frames, every copy verified. \u00b7 2 renamed to avoid overwriting",
+  "templateProblems": [],
+  "wasCancelled": false
+ }
+}

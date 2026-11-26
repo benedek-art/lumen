@@ -1,0 +1,170 @@
+{
+ "name": "colour-bw",
+ "defaults": {
+  "longEdge": 1440,
+  "paths": [
+   "export"
+  ],
+  "tile": 360
+ },
+ "jobs": [
+  {
+   "id": "bw-bands",
+   "photos": [
+    "sweep"
+   ],
+   "base": "blank",
+   "variants": [
+    {
+     "label": "bw flat",
+     "recipe": {
+      "look.bw.enabled": true
+     }
+    },
+    {
+     "label": "bw red +100",
+     "recipe": {
+      "look.bw.enabled": true,
+      "look.bw.bands.0": 100
+     }
+    },
+    {
+     "label": "bw red -100",
+     "recipe": {
+      "look.bw.enabled": true,
+      "look.bw.bands.0": -100
+     }
+    },
+    {
+     "label": "bw orange +100",
+     "recipe": {
+      "look.bw.enabled": true,
+      "look.bw.bands.1": 100
+     }
+    },
+    {
+     "label": "bw orange -100",
+     "recipe": {
+      "look.bw.enabled": true,
+      "look.bw.bands.1": -100
+     }
+    },
+    {
+     "label": "bw yellow +100",
+     "recipe": {
+      "look.bw.enabled": true,
+      "look.bw.bands.2": 100
+     }
+    },
+    {
+     "label": "bw yellow -100",
+     "recipe": {
+      "look.bw.enabled": true,
+      "look.bw.bands.2": -100
+     }
+    },
+    {
+     "label": "bw mint +100",
+     "recipe": {
+      "look.bw.enabled": true,
+      "look.bw.bands.3": 100
+     }
+    },
+    {
+     "label": "bw mint -100",
+     "recipe": {
+      "look.bw.enabled": true,
+      "look.bw.bands.3": -100
+     }
+    },
+    {
+     "label": "bw aqua +100",
+     "recipe": {
+      "look.bw.enabled": true,
+      "look.bw.bands.4": 100
+     }
+    },
+    {
+     "label": "bw aqua -100",
+     "recipe": {
+      "look.bw.enabled": true,
+      "look.bw.bands.4": -100
+     }
+    },
+    {
+     "label": "bw azure +100",
+     "recipe": {
+      "look.bw.enabled": true,
+      "look.bw.bands.5": 100
+     }
+    },
+    {
+     "label": "bw azure -100",
+     "recipe": {
+      "look.bw.enabled": true,
+      "look.bw.bands.5": -100
+     }
+    },
+    {
+     "label": "bw purple +100",
+     "recipe": {
+      "look.bw.enabled": true,
+      "look.bw.bands.6": 100
+     }
+    },
+    {
+     "label": "bw purple -100",
+     "recipe": {
+      "look.bw.enabled": true,
+      "look.bw.bands.6": -100
+     }
+    },
+    {
+     "label": "bw magenta +100",
+     "recipe": {
+      "look.bw.enabled": true,
+      "look.bw.bands.7": 100
+     }
+    },
+    {
+     "label": "bw magenta -100",
+     "recipe": {
+      "look.bw.enabled": true,
+      "look.bw.bands.7": -100
+     }
+    }
+   ]
+  },
+  {
+   "id": "bw-gradient",
+   "photos": [
+    "chart:gradient",
+    "chart:hueRing"
+   ],
+   "variants": [
+    {
+     "label": "bw flat",
+     "recipe": {
+      "look.bw.enabled": true
+     }
+    },
+    {
+     "label": "bw azure-100 red+100",
+     "recipe": {
+      "look.bw.enabled": true,
+      "look.bw.bands.5": -100,
+      "look.bw.bands.0": 100
+     }
+    },
+    {
+     "label": "bw azure+100 yellow-100",
+     "recipe": {
+      "look.bw.enabled": true,
+      "look.bw.bands.5": 100,
+      "look.bw.bands.2": -100
+     }
+    }
+   ]
+  }
+ ]
+}

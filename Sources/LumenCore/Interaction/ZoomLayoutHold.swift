@@ -41,7 +41,7 @@ public enum ZoomLayoutHold {
     /// delivers pinch events far faster than this, and even a hesitant wheel turn
     /// stays inside it — and short enough that lifting your fingers and looking at the
     /// result feels like one motion rather than two. A pinch does not wait for it at
-    /// all: `MagnifyGesture` has a real end, and that ends the hold immediately.
+    /// all: it has a real end, and that ends the hold immediately.
     public static let quietNanoseconds: UInt64 = 140_000_000
 
     /// The visual scale that turns the frame laid out at the held zoom into the frame

@@ -519,7 +519,9 @@ curve (this placement is why digital "glow" sliders look wrong), driven by recon
 per-channel strengths defaulting to the physically measured (0.05, 0.015, 0.0) RGB — red-dominant because
 red penetrates to the film base and reflects; the anti-halation layer kills the rest. That constant set is
 the exact recipe for the CineStill-style red halo when raised. **Grain** applies in the density domain
-during "development": pre-baked tileable unit-variance plates per channel generated offline by a particle
+during "development": unit-variance noise per channel (as built: a frame-anchored, non-repeating field,
+not a tiled plate — docs/14 §5.7; the same grains at the same place on the negative in the 1:1 viewer and
+a native-size export) originally specified as pre-baked plates generated offline by a particle
 model (particle area 0.2 µm²; per-channel size scale 0.8/1.0/2.0 RGB — the blue-record layer is coarsest,
 so grain is chromatically structured, never gray), modulated at apply time by amplitude ∝ √(p(1−p)) where
 p = D/Dmax — grain peaks at mid densities and vanishes at Dmin/Dmax, matching real film and nothing like a

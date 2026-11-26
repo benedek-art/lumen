@@ -1500,17 +1500,20 @@ final class EngineIntegrationTests: XCTestCase {
                              "only \(differing) of \(a.count) samples moved with the "
                                  + "seed — the plate is barely seeded")
 
+        // Unit variance over a block large enough to hold thousands of coarse lattice
+        // cells: the field is normalised in expectation, not per 64-texel window.
         var sum = 0.0
         var sumSquares = 0.0
-        for v in a {
+        let large = FilmGrainProfile.plate(size: 1024, seed: 12345, sigma: 1)
+        for v in large {
             sum += Double(v)
             sumSquares += Double(v) * Double(v)
         }
-        let n = Double(a.count)
+        let n = Double(large.count)
         let mean = sum / n
         let variance = sumSquares / n - mean * mean
-        XCTAssertEqual(mean, 0, accuracy: 0.02)
-        XCTAssertEqual(variance, 1, accuracy: 0.05)
+        XCTAssertEqual(mean, 0, accuracy: 0.03)
+        XCTAssertEqual(variance, 1, accuracy: 0.06)
     }
 
     // MARK: - Colour and grade

@@ -1,0 +1,385 @@
+{
+ "lane": "macos",
+ "drift": "none",
+ "label": "tone-fix",
+ "manifest": {
+  "name": "tone-fix",
+  "defaults": {
+   "longEdge": 1024,
+   "paths": [
+    "export"
+   ],
+   "tile": 260
+  },
+  "jobs": [
+   {
+    "id": "zones-plateau",
+    "photos": [
+     "chart:greyRamp",
+     "1346"
+    ],
+    "longEdge": 1024,
+    "variants": [
+     {
+      "label": "shadow+1",
+      "recipe": {
+       "develop.zones.shadow.ev": 1
+      }
+     },
+     {
+      "label": "shadow+1.5",
+      "recipe": {
+       "develop.zones.shadow.ev": 1.5
+      }
+     },
+     {
+      "label": "shadow+2",
+      "recipe": {
+       "develop.zones.shadow.ev": 2
+      }
+     },
+     {
+      "label": "shadow+3",
+      "recipe": {
+       "develop.zones.shadow.ev": 3
+      }
+     },
+     {
+      "label": "mid+2",
+      "recipe": {
+       "develop.zones.mid.ev": 2
+      }
+     },
+     {
+      "label": "mid-2",
+      "recipe": {
+       "develop.zones.mid.ev": -2
+      }
+     },
+     {
+      "label": "light-1.5",
+      "recipe": {
+       "develop.zones.light.ev": -1.5
+      }
+     },
+     {
+      "label": "light-2",
+      "recipe": {
+       "develop.zones.light.ev": -2
+      }
+     },
+     {
+      "label": "dark+3",
+      "recipe": {
+       "develop.zones.dark.ev": 3
+      }
+     }
+    ]
+   },
+   {
+    "id": "tint",
+    "photos": [
+     "chart:colorChecker",
+     "1346"
+    ],
+    "longEdge": 1024,
+    "variants": [
+     {
+      "label": "as shot",
+      "recipe": {}
+     },
+     {
+      "label": "tint -150",
+      "recipe": {
+       "develop.raw.tint": -150
+      }
+     },
+     {
+      "label": "tint -50",
+      "recipe": {
+       "develop.raw.tint": -50
+      }
+     },
+     {
+      "label": "tint +50",
+      "recipe": {
+       "develop.raw.tint": 50
+      }
+     },
+     {
+      "label": "tint +150",
+      "recipe": {
+       "develop.raw.tint": 150
+      }
+     }
+    ]
+   },
+   {
+    "id": "tint-5500",
+    "photo": "chart:colorChecker",
+    "recipe": {
+     "develop.raw.temp": 5500
+    },
+    "sweep": {
+     "path": "develop.raw.tint",
+     "values": [
+      -150,
+      -100,
+      -50,
+      50,
+      100,
+      150
+     ],
+     "neutral": 0
+    }
+   },
+   {
+    "id": "protect-skin",
+    "photo": "chart:skin",
+    "variants": [
+     {
+      "label": "vib+100 ps0",
+      "recipe": {
+       "develop.color.vibrance": 100,
+       "develop.color.protectSkin": 0
+      }
+     },
+     {
+      "label": "vib+100 ps70",
+      "recipe": {
+       "develop.color.vibrance": 100
+      }
+     },
+     {
+      "label": "vib+100 ps100",
+      "recipe": {
+       "develop.color.vibrance": 100,
+       "develop.color.protectSkin": 100
+      }
+     },
+     {
+      "label": "sat+100 ps100",
+      "recipe": {
+       "develop.color.saturation": 100,
+       "develop.color.protectSkin": 100
+      }
+     }
+    ]
+   },
+   {
+    "id": "protect-skin-ring",
+    "photo": "chart:hueRing",
+    "variants": [
+     {
+      "label": "vib+100 ps0",
+      "recipe": {
+       "develop.color.vibrance": 100,
+       "develop.color.protectSkin": 0
+      }
+     },
+     {
+      "label": "vib+100 ps70",
+      "recipe": {
+       "develop.color.vibrance": 100
+      }
+     },
+     {
+      "label": "vib+100 ps100",
+      "recipe": {
+       "develop.color.vibrance": 100,
+       "develop.color.protectSkin": 100
+      }
+     }
+    ]
+   },
+   {
+    "id": "temp-check",
+    "photos": [
+     "chart:colorChecker",
+     "1346"
+    ],
+    "variants": [
+     {
+      "label": "as shot",
+      "recipe": {}
+     },
+     {
+      "label": "3000 K",
+      "recipe": {
+       "develop.raw.temp": 3000
+      }
+     },
+     {
+      "label": "7500 K",
+      "recipe": {
+       "develop.raw.temp": 7500
+      }
+     },
+     {
+      "label": "Daylight 5500/+10",
+      "recipe": {
+       "develop.raw.temp": 5500,
+       "develop.raw.tint": 10
+      }
+     }
+    ]
+   },
+   {
+    "id": "autotone-6929",
+    "photo": "6929",
+    "longEdge": 1024,
+    "variants": [
+     {
+      "label": "neutral",
+      "recipe": {}
+     },
+     {
+      "label": "auto before",
+      "recipe": {
+       "develop.tone": {
+        "exposure": 0.25039370078740186,
+        "blacks": -14.566929133858263,
+        "whites": 17.48031496062992,
+        "highlights": 0,
+        "contrastPivot": 0,
+        "shadows": 0,
+        "contrast": 12.204724409448797
+       }
+      }
+     },
+     {
+      "label": "auto after",
+      "recipe": {
+       "develop.tone": {
+        "whites": 17.48031496062992,
+        "blacks": -14.566929133858263,
+        "contrast": 12.204724409448797,
+        "highlights": 0,
+        "exposure": 0.25039370078740186,
+        "contrastPivot": 0,
+        "shadows": 0
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "autotone-5812",
+    "photo": "5812",
+    "longEdge": 1024,
+    "variants": [
+     {
+      "label": "neutral",
+      "recipe": {}
+     },
+     {
+      "label": "auto before",
+      "recipe": {
+       "develop.tone": {
+        "contrast": 0,
+        "whites": 1.8897637795275557,
+        "highlights": -100,
+        "exposure": 3.274015748031496,
+        "shadows": 0,
+        "contrastPivot": 0,
+        "blacks": -1.5748031496062964
+       }
+      }
+     },
+     {
+      "label": "auto after",
+      "recipe": {
+       "develop.tone": {
+        "exposure": 0.05339333513312683,
+        "contrast": 0,
+        "blacks": -1.5748031496062964,
+        "highlights": 0,
+        "shadows": 0,
+        "contrastPivot": 0,
+        "whites": 1.8897637795275557
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "autotone-2607",
+    "photo": "2607",
+    "longEdge": 1024,
+    "variants": [
+     {
+      "label": "neutral",
+      "recipe": {}
+     },
+     {
+      "label": "auto before",
+      "recipe": {
+       "develop.tone": {
+        "highlights": -27.87401574803148,
+        "shadows": 0,
+        "blacks": -2.75590551181103,
+        "contrastPivot": 0,
+        "exposure": 0.06141732283464629,
+        "contrast": 12.204724409448797,
+        "whites": 3.307086614173236
+       }
+      }
+     },
+     {
+      "label": "auto after",
+      "recipe": {
+       "develop.tone": {
+        "blacks": -2.75590551181103,
+        "exposure": 0.003937007874016629,
+        "shadows": 0,
+        "contrastPivot": 0,
+        "contrast": 12.204724409448797,
+        "whites": 3.307086614173236,
+        "highlights": -25
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "autotone-1346",
+    "photo": "1346",
+    "longEdge": 1024,
+    "variants": [
+     {
+      "label": "neutral",
+      "recipe": {}
+     },
+     {
+      "label": "auto before",
+      "recipe": {
+       "develop.tone": {
+        "blacks": 0,
+        "contrastPivot": 0,
+        "contrast": 0,
+        "shadows": 0,
+        "whites": 0,
+        "highlights": -27.874015748031567,
+        "exposure": 1.1952755905511814
+       }
+      }
+     },
+     {
+      "label": "auto after",
+      "recipe": {
+       "develop.tone": {
+        "exposure": 1.13779527559055,
+        "contrast": 0,
+        "highlights": -25,
+        "blacks": 0,
+        "whites": 0,
+        "shadows": 0,
+        "contrastPivot": 0
+       }
+      }
+     }
+    ]
+   }
+  ]
+ }
+}

@@ -230,6 +230,11 @@ final class RawCorpusTests: XCTestCase {
         var minChroma: Double?
         var medianChroma: Double?
         var chromaNote = "-"
+        /// R-7: the camera preview's most neutral flat mid-tone block, and how far
+        /// Lumen's render of that block is from the camera's, both brought to mid-grey.
+        var anchorBlock: String?
+        var anchorCameraChroma: Double?
+        var anchorDeltaE: Double?
 
         // R-8
         var exportError: String?
@@ -544,6 +549,7 @@ final class RawCorpusTests: XCTestCase {
             "hl_rg", "hl_bg", "hl_px", "shadow_p01_p50", "nonpositive",
             "export_bytes", "export_px", "export_claimed",
             "camera", "iso", "capture_at", "decoder_pin", "decoder_pin_2",
+            "anchor_block", "anchor_camera_chroma", "anchor_dE",
             "hung", "note",
         ]
         rows.append(header.joined(separator: "\t"))
@@ -590,6 +596,9 @@ final class RawCorpusTests: XCTestCase {
             else { cells.append("-") }
             cells.append(fmt(p.pin))
             cells.append(fmt(p.pinSecond))
+            cells.append(p.anchorBlock ?? "-")
+            cells.append(fmt(p.anchorCameraChroma, 3))
+            cells.append(fmt(p.anchorDeltaE, 3))
             cells.append(p.hung.isEmpty ? "-" : p.hung.joined(separator: ","))
             var notes: [String] = [p.previewNote, p.chromaNote, p.floatReadbackNote]
             if let failure = p.renderFailure { notes.append(failure) }
@@ -611,14 +620,14 @@ final class RawCorpusTests: XCTestCase {
         for row in rows { emit("corpus-evidence: " + row) }
         emit("=== RAW corpus · thresholds ship LOOSE; set them from the numbers above ===")
         let correlations = entries.compactMap { probes[$0.id]?.previewCorrelation }
-        let chromas = entries.compactMap { probes[$0.id]?.minChroma }
+        let chromas = entries.compactMap { probes[$0.id]?.anchorDeltaE }
         if let worst = correlations.min() {
             emit("corpus-threshold: R-5 preview correlation floor is 0.60 by guess; "
                 + "\(correlations.count) files measured, worst r = \(fmt(worst))")
         }
         if let worst = chromas.max() {
-            emit("corpus-threshold: R-7 neutral-patch chroma ceiling is 20 by guess; "
-                + "\(chromas.count) files measured, worst chroma = \(fmt(worst, 3))")
+            emit("corpus-threshold: R-7 ceiling is 20; \(chromas.count) files anchored "
+                + "on their camera preview, worst distance = \(fmt(worst, 3))")
         }
         try? FileManager.default.removeItem(at: exportDir)
     }
@@ -1130,17 +1139,40 @@ final class RawCorpusTests: XCTestCase {
     /// of those; report the least chromatic (R-7) and the median (R-7b).
     private static func readNeutralPatch(_ frame: (w: Int, h: Int, px: [UInt8]),
                                          into p: Probe) {
-        let grid = 16
-        guard frame.w >= grid, frame.h >= grid else {
+        guard let blocks = neutralBlocks(frame) else {
             p.chromaNote = "frame smaller than the 16x16 block grid"
             return
         }
-        struct Block {
-            let luma: Double
-            let variance: Double
-            let chroma: Double
+        let pick = flatMidtones(blocks)
+        if pick.wholeFrame {
+            p.chromaNote = "no block fell in the 0.20-0.60 midtone window; measured "
+                + "over the whole frame instead"
         }
-        var blocks: [Block] = []
+        let chromas = pick.flat.map { $0.chroma }.sorted()
+        guard !chromas.isEmpty else { return }
+        p.minChroma = chromas.first
+        p.medianChroma = chromas[chromas.count / 2]
+    }
+
+    struct NeutralBlock {
+        let index: Int
+        let luma: Double
+        let variance: Double
+        let chroma: Double
+        /// CIELAB a*, b* of the block's mean scaled to Y = 0.18: its colour with its
+        /// lightness taken out, so a dark block cannot hide a cast.
+        let midA: Double
+        let midB: Double
+    }
+
+    private static let neutralGrid = 16
+
+    /// A 16×16 grid of block means, row-major from the top.
+    private static func neutralBlocks(_ frame: (w: Int, h: Int, px: [UInt8]))
+        -> [NeutralBlock]? {
+        let grid = neutralGrid
+        guard frame.w >= grid, frame.h >= grid else { return nil }
+        var blocks: [NeutralBlock] = []
         blocks.reserveCapacity(grid * grid)
         for by in 0..<grid {
             let y0 = by * frame.h / grid
@@ -1164,27 +1196,64 @@ final class RawCorpusTests: XCTestCase {
                 guard n > 0 else { continue }
                 let denominator = Double(n)
                 let meanLuma = sl / denominator
-                let lab = labFromSRGB(sr / denominator, sg / denominator, sb / denominator)
-                blocks.append(Block(
+                let r = sr / denominator, g = sg / denominator, b = sb / denominator
+                let lab = labFromSRGB(r, g, b)
+                let mid = labAtMidGrey(r, g, b)
+                blocks.append(NeutralBlock(
+                    index: by * grid + bx,
                     luma: meanLuma,
                     variance: Swift.max(0, sl2 / denominator - meanLuma * meanLuma),
-                    chroma: (lab.a * lab.a + lab.b * lab.b).squareRoot()))
+                    chroma: (lab.a * lab.a + lab.b * lab.b).squareRoot(),
+                    midA: mid.a, midB: mid.b))
             }
         }
-        guard !blocks.isEmpty else { return }
+        return blocks.count == grid * grid ? blocks : nil
+    }
 
+    /// Mid-luminance blocks (the whole frame if none), flattest quartile.
+    private static func flatMidtones(_ blocks: [NeutralBlock])
+        -> (flat: [NeutralBlock], wholeFrame: Bool) {
         var midtones = blocks.filter { $0.luma >= 0.20 && $0.luma <= 0.60 }
-        if midtones.isEmpty {
-            midtones = blocks
-            p.chromaNote = "no block fell in the 0.20-0.60 midtone window; measured "
-                + "over the whole frame instead"
-        }
+        let wholeFrame = midtones.isEmpty
+        if wholeFrame { midtones = blocks }
         midtones.sort { $0.variance < $1.variance }
-        let flatCount = Swift.max(1, midtones.count / 4)
-        let flat = Array(midtones.prefix(flatCount))
-        let chromas = flat.map { $0.chroma }.sorted()
-        p.minChroma = chromas.first
-        p.medianChroma = chromas[chromas.count / 2]
+        return (Array(midtones.prefix(Swift.max(1, midtones.count / 4))), wholeFrame)
+    }
+
+    /// R-7's anchor: the block the CAMERA rendered most neutral, by R-7's own rule on
+    /// its embedded preview, and Lumen's colour there against the camera's.
+    private static func readAnchoredNeutral(preview: CGImage, delivered: CGImage,
+                                            into p: Probe) {
+        guard let previewFrame = rgbaBytes(preview),
+              let deliveredFrame = rgbaBytes(delivered),
+              let cameraBlocks = neutralBlocks(previewFrame),
+              let lumenBlocks = neutralBlocks(deliveredFrame),
+              let anchor = flatMidtones(cameraBlocks).flat.min(by: { $0.chroma < $1.chroma })
+        else { return }
+        let lumen = lumenBlocks[anchor.index]
+        p.anchorBlock = "\(anchor.index % neutralGrid)/\(anchor.index / neutralGrid)"
+        p.anchorCameraChroma = anchor.chroma
+        let da = lumen.midA - anchor.midA
+        let db = lumen.midB - anchor.midB
+        p.anchorDeltaE = (da * da + db * db).squareRoot()
+    }
+
+    /// `labFromSRGB` of the colour scaled in linear light to luminance 0.18.
+    private static func labAtMidGrey(_ r: Double, _ g: Double,
+                                     _ b: Double) -> (a: Double, b: Double) {
+        func linear(_ c: Double) -> Double {
+            c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+        }
+        func encode(_ c: Double) -> Double {
+            let v = Swift.max(0, c)
+            return v <= 0.0031308 ? 12.92 * v : 1.055 * pow(v, 1 / 2.4) - 0.055
+        }
+        let lr = linear(r), lg = linear(g), lb = linear(b)
+        let y = 0.2126729 * lr + 0.7151522 * lg + 0.0721750 * lb
+        guard y > 0 else { return (a: 0, b: 0) }
+        let k = 0.18 / y
+        let lab = labFromSRGB(encode(lr * k), encode(lg * k), encode(lb * k))
+        return (a: lab.a, b: lab.b)
     }
 
     /// sRGB (display-referred, 0…1) to CIELAB under D65. Hand-rolled on purpose: the
@@ -1278,6 +1347,7 @@ final class RawCorpusTests: XCTestCase {
         }
         p.previewSource = source
         p.previewSize = "\(compared.width)x\(compared.height)"
+        readAnchoredNeutral(preview: compared, delivered: delivered, into: p)
         guard let a = lumaGrid(compared, side: 32), let b = lumaGrid(delivered, side: 32)
         else {
             p.previewNote = "could not reduce one of the two frames to a 32x32 grid"
@@ -1438,6 +1508,7 @@ final class RawCorpusTests: XCTestCase {
             // R-2: exactly one of the two states.
             if p.openFailure != nil || p.decodeReturnedNil {
                 refused.append(entry.id)
+                RawCorpusTests.emit(RawCorpusTests.refusalLine(entry, p))
                 continue
             }
             decoded += 1
@@ -1454,6 +1525,33 @@ final class RawCorpusTests: XCTestCase {
             : refused.joined(separator: RawCorpusTests.commaSpace)
         RawCorpusTests.emit("corpus-summary: \(decoded) of \(entries.count) files "
             + "decoded; refused: \(refusedList)")
+    }
+
+    /// What a refused file costs the photographer: the reason the app shows, the OS
+    /// that refused it, the embedded preview the viewer falls back to (the app's own
+    /// options), and whether Apple's camera list names the body.
+    private static func refusalLine(_ entry: CorpusEntry, _ p: Probe) -> String {
+        let os = ProcessInfo.processInfo.operatingSystemVersionString
+        var preview = dash
+        if let container = CGImageSourceCreateWithURL(entry.url as CFURL, nil) {
+            let options: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: false,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: 2048,
+            ]
+            if let thumb = CGImageSourceCreateThumbnailAtIndex(container, 0,
+                                                               options as CFDictionary) {
+                preview = "\(thumb.width)x\(thumb.height)"
+            }
+        }
+        let wanted = ["X-H2", "Monochrom"]
+        let listed = CIRAWFilter.supportedCameraModels.filter { model in
+            wanted.contains { model.localizedCaseInsensitiveContains($0) }
+        }
+        let models = listed.isEmpty ? dash : listed.joined(separator: comma)
+        let failure = p.openFailure ?? p.verdict
+        return "corpus-refusal: \(entry.id) error=\(failure) os=\(os) "
+            + "embedded-preview=\(preview) apple-lists=\(models) · \(entry.label)"
     }
 
     // MARK: - Tier 1 — geometry
@@ -1760,28 +1858,43 @@ final class RawCorpusTests: XCTestCase {
         }
     }
 
-    /// R-7. The patch is FOUND, not addressed: raw.pixls.us explicitly refuses colour
-    /// targets, so there is no grey card and no coordinate worth trusting. 16×16 blocks;
-    /// keep mid-luminance ones; keep the flattest quartile; take the least chromatic;
-    /// require CIELAB chroma < 20.
+    /// R-7. A cast alarm, not a colour-accuracy claim. The patch is FOUND, not
+    /// addressed: raw.pixls.us refuses colour targets, so there is no grey card.
     ///
-    /// Twenty is enormous, and that is the point — this is a CAST ALARM, not a colour
-    /// accuracy claim. A swapped red/blue (this corpus carries RGGB, GRBG and BGGR), a
-    /// missing camera matrix, or a white balance applied twice moves the frame's most
-    /// neutral block far past 20. A warm sunset does not, because we take the minimum
-    /// over the whole frame.
+    /// The camera's own embedded preview picks the patch: 16×16 blocks, mid-luminance,
+    /// flattest quartile, least chromatic. Lumen's render of that block, and the
+    /// camera's, are each scaled to luminance 0.18, and their CIELAB a*b* distance must
+    /// be under 20.
     ///
-    /// This is the assertion most likely to fail for an uninteresting reason, so it gets
-    /// R-5's discipline: the measured chroma for every file is emitted on every run,
-    /// passes included, and the real ceiling gets set from data after the first green
-    /// run. Shipping it loose and tightening from evidence is the only version of this
-    /// that neither misses the defect nor cries wolf.
+    /// Not the least chromatic block of Lumen's own frame (still logged as
+    /// frame-min-chroma, and the fallback without a preview): on 5812 and 2607 every
+    /// neutral surface is outside the mid-tone window, so that read 38 and 22 on renders
+    /// with no cast, and a doubled or halved white balance simulated on four reference
+    /// renders slipped under it 6 times in 8 (this statistic: 15.6-28.0, clean 2.0-4.1).
     func testTheMostNeutralPatchInEachFrameIsNeutral() throws {
         let entries = try corpus()
         var measured: [Double] = []
         for entry in entries where !entry.isNegative && !entry.isMono {
             let p = probe(for: entry)
             guard p.decodedCleanly else { continue }
+            RawCorpusTests.emit("corpus-neutral: \(entry.id) "
+                + "anchor=\(p.anchorBlock ?? RawCorpusTests.dash) "
+                + "camera-chroma=\(RawCorpusTests.fmt(p.anchorCameraChroma, 2)) "
+                + "dE-vs-camera=\(RawCorpusTests.fmt(p.anchorDeltaE, 2)) "
+                + "frame-min-chroma=\(RawCorpusTests.fmt(p.minChroma, 2)) · \(entry.label)")
+            if let distance = p.anchorDeltaE {
+                measured.append(distance)
+                XCTAssertLessThan(
+                    distance, 20.0,
+                    "\(entry.id) · \(entry.label): the block the camera's own preview "
+                        + "renders most neutral (\(p.anchorBlock ?? RawCorpusTests.dash), "
+                        + "chroma \(RawCorpusTests.fmt(p.anchorCameraChroma, 2))) is "
+                        + "\(RawCorpusTests.fmt(distance, 2)) CIELAB a*b* away from it in "
+                        + "Lumen's render, both at mid-grey. That is a cast: a swapped "
+                        + "red/blue, a missing camera matrix or a doubly-applied white "
+                        + "balance.")
+                continue
+            }
             guard let chroma = p.minChroma else {
                 RawCorpusTests.emit("corpus-note: \(entry.id) · R-7 skipped — "
                     + "\(p.chromaNote)")
@@ -1790,16 +1903,13 @@ final class RawCorpusTests: XCTestCase {
             measured.append(chroma)
             XCTAssertLessThan(
                 chroma, 20.0,
-                "\(entry.id) · \(entry.label): the most neutral flat mid-tone block in "
-                    + "the frame has CIELAB chroma \(RawCorpusTests.fmt(chroma, 2)). "
-                    + "Twenty is a cast alarm, not an accuracy claim — a swapped "
-                    + "red/blue, a missing camera matrix or a doubly-applied white "
-                    + "balance is what gets past it. NOTE: 20 is a first guess; read "
-                    + "the corpus-evidence rows before calling this a defect.")
+                "\(entry.id) · \(entry.label): no camera preview to anchor on, and the "
+                    + "most neutral flat mid-tone block in the frame has CIELAB chroma "
+                    + "\(RawCorpusTests.fmt(chroma, 2)).")
         }
-        RawCorpusTests.emit("corpus-summary: R-7 measured \(measured.count) neutral-patch "
-            + "chromas; min \(RawCorpusTests.fmt(measured.min(), 3)), "
-            + "max \(RawCorpusTests.fmt(measured.max(), 3)). The ceiling is 20 BY GUESS.")
+        RawCorpusTests.emit("corpus-summary: R-7 measured \(measured.count) files; "
+            + "min \(RawCorpusTests.fmt(measured.min(), 3)), "
+            + "max \(RawCorpusTests.fmt(measured.max(), 3)). Ceiling 20.")
     }
 
     /// R-7b. The Leica M Monochrom has no colour filter array — exiv2 confirms no
@@ -1819,8 +1929,14 @@ final class RawCorpusTests: XCTestCase {
         for entry in mono {
             let p = probe(for: entry)
             guard p.decodedCleanly else {
+                // macOS 15 decodes 1087 to all zeros (corpus-mono-sweep); the only
+                // acceptable refusal is the one that says so.
+                let failure = p.openFailure ?? p.verdict
+                XCTAssertTrue(failure.contains("blankDecode"),
+                              "\(entry.id) · \(entry.label): refused as \(failure), not as "
+                                  + "a blank decode")
                 RawCorpusTests.emit("corpus-note: \(entry.id) · R-7b skipped — the "
-                    + "monochrome file did not decode (\(p.verdict))")
+                    + "monochrome file did not decode (\(failure))")
                 continue
             }
             guard let median = p.medianChroma else {
@@ -2183,6 +2299,12 @@ final class RawCorpusTests: XCTestCase {
                 filter.baselineExposure = 0
             }
             RawCorpusTests.emit(Self.imageIOYardstick(entry))
+            for version in opened.supportedDecoderVersions {
+                _ = Self.monoDecode(entry, variant: "apple-default-decoder-"
+                                        + version.rawValue) { filter in
+                    filter.decoderVersion = version
+                }
+            }
         }
     }
 

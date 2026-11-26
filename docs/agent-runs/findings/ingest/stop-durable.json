@@ -1,0 +1,297 @@
+{
+  "allVerified" : false,
+  "durableRecords" : [
+    {
+      "actual" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work4\/p\/2026\/20261126\/20261126-0001-DSC00001.ARW",
+      "detail" : "",
+      "outcome" : "verified",
+      "role" : "primary",
+      "source" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/100MSDCF\/DSC00001.ARW"
+    },
+    {
+      "actual" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work4\/b\/2026\/20261126\/20261126-0001-DSC00001.ARW",
+      "detail" : "",
+      "outcome" : "verified",
+      "role" : "backup",
+      "source" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/100MSDCF\/DSC00001.ARW"
+    },
+    {
+      "actual" : "",
+      "detail" : "No concluded result was produced for this destination role.",
+      "outcome" : "notAttempted",
+      "role" : "primary",
+      "source" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/101MSDCF\/DSC00001.ARW"
+    },
+    {
+      "actual" : "",
+      "detail" : "No concluded result was produced for this destination role.",
+      "outcome" : "notAttempted",
+      "role" : "backup",
+      "source" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/101MSDCF\/DSC00001.ARW"
+    },
+    {
+      "actual" : "",
+      "detail" : "No concluded result was produced for this destination role.",
+      "outcome" : "notAttempted",
+      "role" : "primary",
+      "source" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/100MSDCF\/DSC00001.JPG"
+    },
+    {
+      "actual" : "",
+      "detail" : "No concluded result was produced for this destination role.",
+      "outcome" : "notAttempted",
+      "role" : "backup",
+      "source" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/100MSDCF\/DSC00001.JPG"
+    },
+    {
+      "actual" : "",
+      "detail" : "No concluded result was produced for this destination role.",
+      "outcome" : "notAttempted",
+      "role" : "primary",
+      "source" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/100MSDCF\/DSC00002.CR2"
+    },
+    {
+      "actual" : "",
+      "detail" : "No concluded result was produced for this destination role.",
+      "outcome" : "notAttempted",
+      "role" : "backup",
+      "source" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/100MSDCF\/DSC00002.CR2"
+    },
+    {
+      "actual" : "",
+      "detail" : "No concluded result was produced for this destination role.",
+      "outcome" : "notAttempted",
+      "role" : "primary",
+      "source" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/101MSDCF\/DSC00002.DNG"
+    },
+    {
+      "actual" : "",
+      "detail" : "No concluded result was produced for this destination role.",
+      "outcome" : "notAttempted",
+      "role" : "backup",
+      "source" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/101MSDCF\/DSC00002.DNG"
+    },
+    {
+      "actual" : "",
+      "detail" : "No concluded result was produced for this destination role.",
+      "outcome" : "notAttempted",
+      "role" : "primary",
+      "source" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/100MSDCF\/DSC00003.NEF"
+    },
+    {
+      "actual" : "",
+      "detail" : "No concluded result was produced for this destination role.",
+      "outcome" : "notAttempted",
+      "role" : "backup",
+      "source" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/100MSDCF\/DSC00003.NEF"
+    },
+    {
+      "actual" : "",
+      "detail" : "No concluded result was produced for this destination role.",
+      "outcome" : "notAttempted",
+      "role" : "primary",
+      "source" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/100MSDCF\/DSC00004.ARW"
+    },
+    {
+      "actual" : "",
+      "detail" : "No concluded result was produced for this destination role.",
+      "outcome" : "notAttempted",
+      "role" : "backup",
+      "source" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/100MSDCF\/DSC00004.ARW"
+    },
+    {
+      "actual" : "",
+      "detail" : "No concluded result was produced for this destination role.",
+      "outcome" : "notAttempted",
+      "role" : "primary",
+      "source" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/100MSDCF\/DSC00004.JPG"
+    },
+    {
+      "actual" : "",
+      "detail" : "No concluded result was produced for this destination role.",
+      "outcome" : "notAttempted",
+      "role" : "backup",
+      "source" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/100MSDCF\/DSC00004.JPG"
+    }
+  ],
+  "durableState" : "cancelled",
+  "durableSummary" : "Ingest — Cancelled: 2 verified, 14 not attempted",
+  "filesAttempted" : 1,
+  "filesPlanned" : 8,
+  "framesVerified" : 1,
+  "plan" : [
+    {
+      "bytes" : 14712832,
+      "destinations" : [
+        {
+          "role" : "primary",
+          "url" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work4\/p\/2026\/20261126\/20261126-0001-DSC00001.ARW"
+        },
+        {
+          "role" : "backup",
+          "url" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work4\/b\/2026\/20261126\/20261126-0001-DSC00001.ARW"
+        }
+      ],
+      "source" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/100MSDCF\/DSC00001.ARW"
+    },
+    {
+      "bytes" : 49184768,
+      "destinations" : [
+        {
+          "role" : "primary",
+          "url" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work4\/p\/2026\/20261126\/20261126-0002-DSC00001.ARW"
+        },
+        {
+          "role" : "backup",
+          "url" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work4\/b\/2026\/20261126\/20261126-0002-DSC00001.ARW"
+        }
+      ],
+      "source" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/101MSDCF\/DSC00001.ARW"
+    },
+    {
+      "bytes" : 5977173,
+      "destinations" : [
+        {
+          "role" : "primary",
+          "url" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work4\/p\/2026\/20261126\/20261126-0001-DSC00001.JPG"
+        },
+        {
+          "role" : "backup",
+          "url" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work4\/b\/2026\/20261126\/20261126-0001-DSC00001.JPG"
+        }
+      ],
+      "source" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/100MSDCF\/DSC00001.JPG"
+    },
+    {
+      "bytes" : 5805950,
+      "destinations" : [
+        {
+          "role" : "primary",
+          "url" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work4\/p\/2026\/20261126\/20261126-0003-DSC00002.CR2"
+        },
+        {
+          "role" : "backup",
+          "url" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work4\/b\/2026\/20261126\/20261126-0003-DSC00002.CR2"
+        }
+      ],
+      "source" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/100MSDCF\/DSC00002.CR2"
+    },
+    {
+      "bytes" : 21700096,
+      "destinations" : [
+        {
+          "role" : "primary",
+          "url" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work4\/p\/2026\/20261126\/20261126-0004-DSC00002.DNG"
+        },
+        {
+          "role" : "backup",
+          "url" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work4\/b\/2026\/20261126\/20261126-0004-DSC00002.DNG"
+        }
+      ],
+      "source" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/101MSDCF\/DSC00002.DNG"
+    },
+    {
+      "bytes" : 16106536,
+      "destinations" : [
+        {
+          "role" : "primary",
+          "url" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work4\/p\/2026\/20261126\/20261126-0005-DSC00003.NEF"
+        },
+        {
+          "role" : "backup",
+          "url" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work4\/b\/2026\/20261126\/20261126-0005-DSC00003.NEF"
+        }
+      ],
+      "source" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/100MSDCF\/DSC00003.NEF"
+    },
+    {
+      "bytes" : 25272320,
+      "destinations" : [
+        {
+          "role" : "primary",
+          "url" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work4\/p\/2026\/20261126\/20261126-0006-DSC00004.ARW"
+        },
+        {
+          "role" : "backup",
+          "url" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work4\/b\/2026\/20261126\/20261126-0006-DSC00004.ARW"
+        }
+      ],
+      "source" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/100MSDCF\/DSC00004.ARW"
+    },
+    {
+      "bytes" : 1251128,
+      "destinations" : [
+        {
+          "role" : "primary",
+          "url" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work4\/p\/2026\/20261126\/20261126-0006-DSC00004.JPG"
+        },
+        {
+          "role" : "backup",
+          "url" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work4\/b\/2026\/20261126\/20261126-0006-DSC00004.JPG"
+        }
+      ],
+      "source" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/100MSDCF\/DSC00004.JPG"
+    }
+  ],
+  "planRefusals" : [
+
+  ],
+  "preview" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work4\/p\/2026\/20261126\/20261126-0001-DSC00001.ARW",
+  "progressEvents" : 11,
+  "results" : [
+    {
+      "landed" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work4\/p\/2026\/20261126\/20261126-0001-DSC00001.ARW",
+      "outcome" : "verified xxh64:2962a2c30158308c (14712832 bytes)",
+      "planned" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work4\/p\/2026\/20261126\/20261126-0001-DSC00001.ARW",
+      "role" : "primary",
+      "source" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/100MSDCF\/DSC00001.ARW"
+    },
+    {
+      "landed" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work4\/b\/2026\/20261126\/20261126-0001-DSC00001.ARW",
+      "outcome" : "verified xxh64:2962a2c30158308c (14712832 bytes)",
+      "planned" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work4\/b\/2026\/20261126\/20261126-0001-DSC00001.ARW",
+      "role" : "backup",
+      "source" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/100MSDCF\/DSC00001.ARW"
+    }
+  ],
+  "scanned" : [
+    {
+      "path" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/100MSDCF\/DSC00001.ARW",
+      "size" : 14712832
+    },
+    {
+      "path" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/101MSDCF\/DSC00001.ARW",
+      "size" : 49184768
+    },
+    {
+      "path" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/100MSDCF\/DSC00001.JPG",
+      "size" : 5977173
+    },
+    {
+      "path" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/100MSDCF\/DSC00002.CR2",
+      "size" : 5805950
+    },
+    {
+      "path" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/101MSDCF\/DSC00002.DNG",
+      "size" : 21700096
+    },
+    {
+      "path" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/100MSDCF\/DSC00003.NEF",
+      "size" : 16106536
+    },
+    {
+      "path" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/100MSDCF\/DSC00004.ARW",
+      "size" : 25272320
+    },
+    {
+      "path" : "\/tmp\/claude-0\/-home-user-lumen\/7b419a8a-9f16-5bc3-bbad-d84e24161d81\/scratchpad\/ingest-work2\/CARD\/DCIM\/100MSDCF\/DSC00004.JPG",
+      "size" : 1251128
+    }
+  ],
+  "seconds" : 0.5125168561935425,
+  "summary" : "Stopped after 1 of 8 frames — nothing was left half-written.",
+  "templateProblems" : [
+
+  ],
+  "wasCancelled" : true
+}

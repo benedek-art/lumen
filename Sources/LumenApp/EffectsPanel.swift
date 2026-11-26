@@ -61,7 +61,7 @@ struct EffectsPanel: View {
     @EnvironmentObject var state: AppState
     /// This surface shows the edit, so it observes the edit signal —
     /// `AppState.recipes` is deliberately not published (see `EditRevision`).
-    @EnvironmentObject var edits: EditRevision
+    @EnvironmentObject var edits: PanelEditRevision
 
     private var binder: RecipeBinder { RecipeBinder(state: state) }
 

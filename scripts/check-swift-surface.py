@@ -198,6 +198,27 @@ GENERIC_NAME = re.compile(r"\b([A-Z]\w*)\s*(?::|,|$)")
 # not declared in-tree gets reported, so adding a genuinely new platform type means
 # adding it here — which is the point. Single capital letters are generic parameters.
 KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
+    # The automation driver (`Sources/LumenApp/Driver`): synthesized Quartz events, the
+    # run-loop observer behind its timeline, and its permission probes.
+    "CGEvent", "CGEventType", "CGEventField", "CGEventFlags", "CGEventSource",
+    "CGMouseButton", "CGKeyCode", "CGWarpMouseCursorPosition",
+    "CGAssociateMouseAndMouseCursorPosition", "CGPreflightPostEventAccess",
+    "CGPreflightScreenCaptureAccess", "AXIsProcessTrusted", "ApplicationServices",
+    "NSAccessibilityProtocol", "CFRunLoopActivity", "CFRunLoopObserverCreateWithHandler",
+    "CFRunLoopAddObserver", "CFRunLoopGetMain", "CFGetTypeID", "CFBooleanGetTypeID",
+    "Unmanaged", "UnicodeScalar", "CGDisplayMode", "CGMainDisplayID",
+    "CGDisplayCopyAllDisplayModes", "CGDisplayCopyDisplayMode", "CGDisplaySetDisplayMode",
+    "VNRecognizeTextRequest", "VNRecognizedTextObservation", "VNRequestTextRecognitionLevel",
+    "THREAD_TIME_CONSTRAINT_POLICY",
+    # Its accessibility client and window list (sheets, popovers, panels).
+    "AXUIElement", "AXUIElementCopyAttributeValue", "CFTypeRef", "CFEqual", "AXValueGetTypeID", "AXUIElementGetTypeID", "AXValue", "AXValueGetType",
+    "AXValueGetValue", "CFArray", "AXError", "AXUIElementCreateApplication",
+    "AXUIElementSetMessagingTimeout", "AXUIElementCopyMultipleAttributeValues",
+    "AXCopyMultipleAttributeOptions", "AXUIElementPerformAction", "NSTemporaryDirectory",
+    "CGWindowLevelForKey", "NSColorPanel", "NSPanel", "CGWindowListOption",
+    "CGWindowListCopyWindowInfo", "NSDictionary",
+    # The driver's main-thread stall sampler: Mach thread state, dyld, dlsym.
+    "KERN_SUCCESS", "MachO", "ARM_THREAD_STATE64", "Dl_info", "RTLD_NOW",
     # Native APIs used by the audited persistence/export safety regressions.
     "SQLITE_OPEN_READONLY", "RENAME_EXCL", "NSBitmapImageRep",
     # POSIX errno values and open(2) flags: the export's no-overwrite fallback

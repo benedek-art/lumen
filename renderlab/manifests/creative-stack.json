@@ -1,0 +1,82 @@
+{
+  "name": "creative-stack",
+  "defaults": {"longEdge": 1280, "tile": 280},
+  "luts": {"lab:warm-teal": "../luts/lab-warm-teal.cube", "lab:identity": "../luts/lab-identity.cube"},
+  "jobs": [
+    {"id": "denoise-modes-1to1", "photos": ["2607", "6929"], "crop": [0.4, 0.4, 0.12, 0.12],
+     "compare": ["settled", "export"], "tile": 360,
+     "description": "Noise reduction modes at 1:1 (AI = Apple decoder NR stand-in, not a model)",
+     "variants": [
+       {"label": "off", "recipe": {"develop.denoise.mode": "off"}},
+       {"label": "classic luma 30", "recipe": {"develop.denoise.mode": "classic", "develop.denoise.classic.luma": 30}},
+       {"label": "classic luma 70 chroma 60", "recipe": {"develop.denoise.mode": "classic", "develop.denoise.classic.luma": 70, "develop.denoise.classic.chroma": 60}},
+       {"label": "ai 50 (stand-in)", "recipe": {"develop.denoise.mode": "ai", "develop.denoise.amount": 50}},
+       {"label": "ai 100 (stand-in)", "recipe": {"develop.denoise.mode": "ai", "develop.denoise.amount": 100}}
+     ]},
+    {"id": "capture-sharpen-1to1", "photo": "6929", "crop": [0.45, 0.45, 0.1, 0.1], "compare": ["settled", "export"],
+     "tile": 360, "recipe": {"develop.detail.capture.auto": false},
+     "sweep": {"path": "develop.detail.capture.amount", "values": [25, 50, 100], "neutral": 0}},
+    {"id": "sharpen-1to1", "photos": ["6929", "5812"], "crop": [0.45, 0.45, 0.1, 0.1], "compare": ["settled", "export"],
+     "tile": 360, "sweep": {"path": "develop.detail.sharpen.amount", "values": [40, 80, 150], "neutral": 0}},
+    {"id": "sharpen-chart", "photo": "chart:detail",
+     "sweep": {"path": "develop.detail.sharpen.amount", "values": [40, 80, 150], "neutral": 0}},
+    {"id": "grain-1to1", "photos": ["6929", "chart:flatGrey"], "crop": [0.4, 0.4, 0.1, 0.1], "compare": ["settled", "export"],
+     "tile": 360, "sweep": {"path": "look.grain.amount", "label": "grain", "values": [25, 50, 100], "neutral": 0}},
+    {"id": "grain-banding", "photos": ["chart:gradient", "chart:flatGrey"], "compare": ["settled", "export"],
+     "grid": {"x": {"path": "look.grain.amount", "label": "grain", "values": [0, 30, 80]},
+              "y": {"path": "look.grain.size", "label": "size", "values": [10, 50, 90]}}},
+    {"id": "film-stocks", "photos": ["6929", "5812", "chart:skin", "chart:colorChecker", "chart:hueRing"],
+     "sweep": {"path": "look.filmLab.stock", "label": "stock",
+               "values": ["lumen/portra400", "lumen/gold200", "lumen/ektar100", "lumen/velvia50", "lumen/cine250d", "lumen/trix400"]}},
+    {"id": "film-halation", "photos": ["6929", "chart:pointLights"], "compare": ["settled", "export"],
+     "recipe": {"look.filmLab.stock": "lumen/cine250d"},
+     "sweep": {"path": "look.filmLab.halation", "label": "halation", "values": [25, 50, 100], "neutral": 0}},
+    {"id": "film-exposure", "photos": ["6929", "chart:greyRamp"], "recipe": {"look.filmLab.stock": "lumen/portra400"},
+     "sweep": {"path": "look.filmLab.exposure", "label": "film exp", "values": [-2, -1, 1, 2, 3], "neutral": 0}},
+    {"id": "film-pushpull", "photos": ["6929", "chart:flatGrey"], "recipe": {"look.filmLab.stock": "lumen/trix400", "look.filmLab.grain.amount": 50},
+     "sweep": {"path": "look.filmLab.pushPull", "label": "push", "values": [-1, 1, 2], "neutral": 0}},
+    {"id": "creative-lut", "photos": ["6929", "chart:skin", "chart:hueRing"], "compare": ["settled", "export"],
+     "variants": [
+       {"label": "identity cube", "recipe": {"look.lut": {"ref": "lab:identity", "name": "identity", "tap": "display", "amount": 100}}},
+       {"label": "warm-teal display 50", "recipe": {"look.lut": {"ref": "lab:warm-teal", "name": "warm-teal", "tap": "display", "amount": 50}}},
+       {"label": "warm-teal display 100", "recipe": {"look.lut": {"ref": "lab:warm-teal", "name": "warm-teal", "tap": "display", "amount": 100}}},
+       {"label": "warm-teal log 100", "recipe": {"look.lut": {"ref": "lab:warm-teal", "name": "warm-teal", "tap": "log", "amount": 100}}}
+     ]},
+    {"id": "display-transform", "photos": ["6929", "5812", "chart:greyRamp", "chart:hueRing"],
+     "sweep": {"path": "look.render.preset", "label": "preset", "values": ["Neutral", "Soft", "Punchy", "Film Base", "Linear"]}},
+    {"id": "bw-mix", "photos": ["6929", "chart:hueRing"],
+     "variants": [
+       {"label": "bw flat", "recipe": {"look.bw.enabled": true}},
+       {"label": "red +60 blue -60", "recipe": {"look.bw.bands.0": 60, "look.bw.bands.5": -60}},
+       {"label": "red -60 blue +60", "recipe": {"look.bw.bands.0": -60, "look.bw.bands.5": 60}},
+       {"label": "green +80", "recipe": {"look.bw.bands.3": 80}}
+     ]},
+    {"id": "grade-wheels", "photos": ["6929", "chart:greyRamp", "chart:skin"], "recipe": {"look.wheels.shadows.sat": 0.5},
+     "sweep": {"path": "look.wheels.shadows.hue", "label": "shadow hue", "values": [30, 120, 210, 300], "neutral": 0}},
+    {"id": "grade-highlights-lum", "photos": ["6929", "chart:greyRamp"],
+     "sweep": {"path": "look.wheels.high.lum", "label": "high lum", "values": [-1, -0.5, 0.5, 1], "neutral": 0}},
+    {"id": "colour-balance", "photos": ["6929", "chart:hueRing"],
+     "sweep": {"path": "look.wheels.colorBalance.hueShift", "label": "hue shift", "values": [-90, -30, 30, 90], "neutral": 0}},
+    {"id": "printer-lights", "photos": ["6929", "chart:colorChecker"],
+     "grid": {"x": {"path": "look.printerLights.r", "label": "R", "values": [-12, 0, 12]},
+              "y": {"path": "look.printerLights.master", "label": "master", "values": [-24, 0, 24]}}},
+    {"id": "curve-parametric", "photos": ["6929", "chart:greyRamp"],
+     "variants": [
+       {"label": "S curve", "recipe": {"develop.curve.parametric.shadows": -40, "develop.curve.parametric.highlights": 40}},
+       {"label": "fade", "recipe": {"develop.curve.parametric.shadows": 60, "develop.curve.parametric.highlights": -60}},
+       {"label": "lights +60", "recipe": {"develop.curve.parametric.lights": 60}},
+       {"label": "point curve lift", "recipe": {"develop.curve.point": [[0, 0.08], [0.5, 0.55], [1, 1]]}}
+     ]},
+    {"id": "vignette", "photos": ["6929", "chart:flatGrey"], "compare": ["settled", "export"],
+     "grid": {"x": {"path": "look.vignette", "label": "vig", "values": [-3, -1, 1]},
+              "y": {"path": "look.vignetteFeather", "label": "feather", "values": [0, 50, 100]}}},
+    {"id": "presence", "photos": ["6929", "chart:detail"],
+     "variants": [
+       {"label": "texture +80", "recipe": {"develop.detail.texture": 80}},
+       {"label": "clarity +80", "recipe": {"develop.detail.clarity": 80}},
+       {"label": "clarity -80", "recipe": {"develop.detail.clarity": -80}},
+       {"label": "dehaze +60", "recipe": {"develop.detail.dehaze": 60}},
+       {"label": "dehaze -60", "recipe": {"develop.detail.dehaze": -60}}
+     ]}
+  ]
+}

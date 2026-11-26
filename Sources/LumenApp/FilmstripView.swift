@@ -145,7 +145,7 @@ struct FilmstripView: View {
                                       isSelected: state.selection.contains(photo.id),
                                       isPrimary: state.primarySelection?.id == photo.id,
                                       showsCaption: false,
-                                      loader: state.thumbnails)
+                                      loader: state.thumbnails).driverAnchor("filmstrip-cell/" + photo.filename)
                                 // ONE tap handler, exactly as in the grid — see
                                 // `handleCellClick` for the double-click trace.
                                 .onTapGesture {

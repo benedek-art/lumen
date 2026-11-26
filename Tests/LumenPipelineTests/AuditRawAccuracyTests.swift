@@ -168,6 +168,7 @@ final class AuditRawAccuracyTests: XCTestCase {
                 return "refused-at-open"
             }
             if let refused = Self.refusedWithoutDecoder(apple, fixture) { return refused }
+            if let refused = try refusedAsBlank(apple, fixture) { return refused }
             let decoders = Self.describe(apple)
             let expected = RawParams.decoderNumber(apple.decoderVersion.rawValue)
             let source = try AppleRawSource(url: fixture.url)
@@ -195,6 +196,7 @@ final class AuditRawAccuracyTests: XCTestCase {
                 return "refused-at-open"
             }
             if let refused = Self.refusedWithoutDecoder(apple, fixture) { return refused }
+            if let refused = try refusedAsBlank(apple, fixture) { return refused }
             var versions = [apple.decoderVersion]
             if let raw9 = apple.supportedDecoderVersions.first(where: AppleRawSource.needsRaw9Boundary),
                raw9 != apple.decoderVersion { versions.append(raw9) }
@@ -327,6 +329,7 @@ final class AuditRawAccuracyTests: XCTestCase {
                 return "refused-at-open"
             }
             if let refused = Self.refusedWithoutDecoder(apple, fixture) { return refused }
+            if let refused = try refusedAsBlank(apple, fixture) { return refused }
             let fallback = RawParams.decoderNumber(apple.decoderVersion.rawValue)
             var others: [Int] = []
             for version in apple.supportedDecoderVersions {
@@ -380,6 +383,7 @@ final class AuditRawAccuracyTests: XCTestCase {
                 return "refused-at-open"
             }
             if let refused = Self.refusedWithoutDecoder(apple, fixture) { return refused }
+            if let refused = try refusedAsBlank(apple, fixture) { return refused }
             let defaultBias = apple.shadowBias
             let source = try AppleRawSource(url: fixture.url)
             let actual = source.decode(recipe: quietRecipe, draft: false, scaleFactor: 0.08)
@@ -411,6 +415,27 @@ final class AuditRawAccuracyTests: XCTestCase {
             }
             return "decoded default-shadowBias=\(defaultBias) "
                 + "baselineExposure=\(apple.baselineExposure) default-bias-maxAbsolute=" + effect
+        }
+    }
+
+    /// A file whose Apple decode is all black (corpus 1087 on macOS 15) is refused at
+    /// open with `.blankDecode`. Honest only if Apple's own default decode of it is
+    /// blank too, which is checked here with no Lumen code in the way.
+    private func refusedAsBlank(_ apple: CIRAWFilter, _ fixture: Fixture) throws -> String? {
+        do {
+            _ = try AppleRawSource(url: fixture.url)
+            return nil
+        } catch RawSourceError.blankDecode {
+            apple.scaleFactor = 0.08
+            let image = try XCTUnwrap(apple.outputImage,
+                                      "\(fixture.name): refused as blank, but Apple's "
+                                          + "default decode forms no image at all")
+            let rect = image.extent.integral
+            let samples = pixels(image, context: consumer, bounds: rect)
+            XCTAssertFalse(RawDecodeAcceptance.carriesSignal(rgba: samples),
+                           "\(fixture.name): Lumen refused this file as a blank decode, "
+                               + "and Apple's default decode of it has signal")
+            return "refused-blank-decode"
         }
     }
 

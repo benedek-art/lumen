@@ -27,8 +27,8 @@
 //     attached to it. An absent entry teaches nothing false; a present one that
 //     apologises teaches that the app is unfinished.
 //
-// Every slider is a `LumenSlider`, every edit goes through
-// `updateRecipe(coalescingKey:)` so one drag is one undo step, and every index into
+// Every slider is a `LumenSlider`, every edit goes through `updateMasks(coalescingKey:)`
+// (the active photograph only; one drag is one undo step), and every index into
 // `components` is bounds-checked at read and at write.
 //
 // AND EVERY STACK OF ROWS IS `Lumen.rowGap`, which it was not. This file held the last
@@ -54,7 +54,7 @@ struct MaskPanel: View {
     @EnvironmentObject var state: AppState
     /// This surface shows the edit, so it observes the edit signal —
     /// `AppState.recipes` is deliberately not published (see `EditRevision`).
-    @EnvironmentObject var edits: EditRevision
+    @EnvironmentObject var edits: PanelEditRevision
 
     /// Brush parameters are session state, not recipe state: each stroke records its own
     /// size/feather/flow/density/flags into the blob as it is drawn, so the panel and the
@@ -478,13 +478,13 @@ struct MaskPanel: View {
             refineSection(mask)
                 .environment(\.sliderGestureChanged) { active in
                     state.sliderGestureSink(active)
-                    state.setMaskEdgeGesture(active, mask: mask.id)
+                    state.setMaskSelectionGesture(active, mask: mask.id)
                 }
                 // ⌥-scroll here forces the overlay on too; the state's wheel closer
                 // releases it when the burst ends.
                 .environment(\.sliderWheelTick) { owner in
                     state.sliderWheelSink(owner)
-                    state.setMaskEdgeGesture(true, mask: mask.id)
+                    state.setMaskSelectionGesture(true, mask: mask.id)
                 }
         }
         .padding(.leading, MaskPanel.detailIndent)
@@ -697,7 +697,7 @@ struct MaskPanel: View {
                 .flatMap { state.recipe(for: $0).maskGroups.first { $0.id == id } }?.name
                 ?? ""
         }, set: { v in
-            state.updateRecipe(coalescingKey: "maskgroup.name." + id) { recipe in
+            state.updateMasks(coalescingKey: "maskgroup.name." + id) { recipe in
                 guard let i = recipe.maskGroups.firstIndex(where: { $0.id == id })
                 else { return }
                 recipe.maskGroups[i].name = v
@@ -712,7 +712,7 @@ struct MaskPanel: View {
     /// away from an hour of someone's work, and the masks can still be deleted one at a
     /// time by whoever actually meant to.
     private func dissolveGroup(_ id: String) {
-        state.updateRecipe(coalescingKey: nil) { recipe in
+        state.updateMasks(coalescingKey: nil) { recipe in
             recipe.maskGroups.removeAll { $0.id == id }
             for i in recipe.masks.indices where recipe.masks[i].group == id {
                 recipe.masks[i].group = nil
@@ -722,7 +722,7 @@ struct MaskPanel: View {
 
     /// Put a mask in a folder, making one if it is not there yet.
     private func moveMask(_ maskID: String, toGroup id: String?) {
-        state.updateRecipe(coalescingKey: nil) { recipe in
+        state.updateMasks(coalescingKey: nil) { recipe in
             guard let i = recipe.masks.firstIndex(where: { $0.id == maskID })
             else { return }
             recipe.masks[i].group = id
@@ -731,7 +731,7 @@ struct MaskPanel: View {
 
     private func groupMask(_ maskID: String) {
         let group = MaskGroup(id: UUID().uuidString, name: "")
-        state.updateRecipe(coalescingKey: nil) { recipe in
+        state.updateMasks(coalescingKey: nil) { recipe in
             guard let i = recipe.masks.firstIndex(where: { $0.id == maskID })
             else { return }
             recipe.maskGroups.append(group)
@@ -740,7 +740,7 @@ struct MaskPanel: View {
     }
 
     private func editGroup(_ id: String, _ body: @escaping (inout MaskGroup) -> Void) {
-        state.updateRecipe(coalescingKey: nil) { recipe in
+        state.updateMasks(coalescingKey: nil) { recipe in
             guard let i = recipe.maskGroups.firstIndex(where: { $0.id == id })
             else { return }
             body(&recipe.maskGroups[i])
@@ -879,7 +879,8 @@ struct MaskPanel: View {
         // Hovering a row shows what it selects. `hoverMaskOverlay` holds the 120 ms
         // intent that keeps a pointer crossing the list on its way somewhere else from
         // strobing ten overlays across the photograph (docs/36 §1.4).
-        .onHover { inside in state.hoverMaskOverlay(inside ? mask.id : nil) }
+        .onHover { inside in state.hoverMaskOverlay(mask.id, inside: inside) }
+        .onDisappear { state.hoverMaskOverlay(mask.id, inside: false) }.driverAnchor("mask-row")
     }
 
     /// The row's ground: selected, or about to receive a drop, or neither.
@@ -1072,7 +1073,7 @@ struct MaskPanel: View {
         guard dragged != target, mask(dragged) != nil, mask(target) != nil else {
             return false
         }
-        state.updateRecipe(coalescingKey: nil) { recipe in
+        state.updateMasks(coalescingKey: nil) { recipe in
             recipe.masks = MaskPanel.reordered(recipe.masks, moving: dragged, onto: target)
         }
         return true
@@ -1245,7 +1246,7 @@ struct MaskPanel: View {
     /// It is drawn under the mask list now, which is where Lightroom puts the same three
     /// controls, and the `⋯` menu's twelve overlay items are gone: one home each.
     private func overlayControls(_ mask: Mask) -> some View {
-        let showing = state.soloMaskOverlay == mask.id
+        let choice = state.maskOverlay.choice
         // ONE BUTTON AND ONE MENU, because three controls did not fit and did not
         // admit it.
         //
@@ -1272,28 +1273,28 @@ struct MaskPanel: View {
         // row was rebuilt in the first place. The card's content is 244 points wide and
         // the toggle beside it needs about 65, so the 20 points cost nothing.
         return HStack(spacing: 6) {
+            // Cycles Auto → Shown → Hidden, so Auto is always one click away.
             Button {
-                // Through the pin in both directions. The raw `soloMaskOverlay`
-                // write this used to carry is the same one that made "Keep it
-                // hidden" a trap: a solo cleared without its pin leaves every
-                // ambient path guarded off.
-                if showing { state.unpinMaskOverlay() } else { state.pinMaskOverlay(mask.id) }
+                state.cycleMaskOverlayChoice()
             } label: {
                 HStack(spacing: 4) {
-                    Image(systemName: showing ? "eye.fill" : "eye")
+                    Image(systemName: MaskPanel.overlayChoiceSymbol(choice))
                         .font(.lumenGlyphCaption)
-                    Text("Overlay").font(.lumenCaption)
+                    Text(MaskPanel.overlayChoiceLabel(choice)).font(.lumenCaption)
                 }
                 .padding(.horizontal, 7).padding(.vertical, 3)
                 .frame(maxWidth: .infinity)
-                .background(showing ? Lumen.fillColor.opacity(0.35) : Lumen.controlSurface)
+                .background(choice == .automatic ? Lumen.controlSurface
+                                                 : Lumen.fillColor.opacity(0.35))
                 .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip))
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .foregroundStyle(showing ? Lumen.primaryText : Lumen.secondaryText)
+            .foregroundStyle(choice == .automatic ? Lumen.secondaryText : Lumen.primaryText)
             .lumenClickCursor()
-            .help("Keep this mask's overlay up. O does the same from the keyboard.")
+            .help("Overlay. Auto: shown while you make or refine a mask and while the "
+                  + "pointer is on its row, gone once you adjust it. Shown and Hidden "
+                  + "hold until you click back to Auto. O switches Shown and Hidden.")
 
             // NO GLYPHS ON THE TINTS, and they are why the rule exists. The four
             // colours are the one list in this panel whose meaning IS a colour, and
@@ -1305,6 +1306,13 @@ struct MaskPanel: View {
             LumenMenu(title: state.maskOverlayMode.label,
                       help: "How the overlay draws, and in what colour. "
                           + "⌥O cycles the six modes, ⇧O the four colours.") {
+                LumenMenuHeader(title: "When it shows")
+                ForEach(MaskOverlayRule.Choice.allCases, id: \.self) { c in
+                    LumenMenuItem(title: MaskPanel.overlayChoiceLabel(c),
+                                  isSelected: choice == c) {
+                        state.setMaskOverlayChoice(c)
+                    }
+                }
                 LumenMenuHeader(title: "How it draws")
                 ForEach(MaskOverlay.Mode.allCases, id: \.self) { m in
                     LumenMenuItem(title: m.label,
@@ -1324,6 +1332,22 @@ struct MaskPanel: View {
         }
         .frame(height: Lumen.rowHeight)
         .padding(.horizontal, 4)
+    }
+
+    static func overlayChoiceLabel(_ choice: MaskOverlayRule.Choice) -> String {
+        switch choice {
+        case .automatic: return "Auto"
+        case .show: return "Shown"
+        case .hide: return "Hidden"
+        }
+    }
+
+    static func overlayChoiceSymbol(_ choice: MaskOverlayRule.Choice) -> String {
+        switch choice {
+        case .automatic: return "eye.circle"
+        case .show: return "eye.fill"
+        case .hide: return "eye.slash"
+        }
     }
 
     // MARK: - Component stack
@@ -1457,6 +1481,12 @@ struct MaskPanel: View {
         .onTapGesture {
             selectedMaskID = mask.id
             selectedComponent = index
+        }
+        .onHover { inside in
+            state.hoverMaskOverlay(mask.id, inside: inside, region: "\(mask.id)#\(index)")
+        }
+        .onDisappear {
+            state.hoverMaskOverlay(mask.id, inside: false, region: "\(mask.id)#\(index)")
         }
     }
 
@@ -2461,7 +2491,7 @@ struct MaskPanel: View {
         // needs the edge-aware snap to hold at 100% zoom, and a drawn shape does not.
         if MaskPanel.aiKinds.contains(kind) { mask.refine.feather = 10 }
         let id = mask.id
-        state.updateRecipe(coalescingKey: nil) { $0.masks.append(mask) }
+        state.updateMasks(coalescingKey: nil) { $0.masks.append(mask) }
         selectedMaskID = id
         selectedComponent = 0
         // AND IT STAYS UP UNTIL THE FIRST ADJUSTMENT, rather than flashing for 1400 ms.
@@ -2476,7 +2506,7 @@ struct MaskPanel: View {
         //
         // Persistent, it costs nothing while the mask is empty and appears with the
         // first stroke, which is the moment it means something. `O` still overrides.
-        state.beginPersistentMaskOverlay(id)
+        state.noteMaskCreated(id)
         armIfItNeedsAColour(kind: kind, maskID: id, component: 0)
     }
 
@@ -2493,7 +2523,10 @@ struct MaskPanel: View {
             if MaskPanel.aiKinds.contains(kind), m.refine == MaskRefine() { m.refine.feather = 10 }
         }
         let index = Swift.max((mask(id)?.components.count ?? 1) - 1, 0)
+        // The board can be open under a mask that is disclosed but not selected.
+        selectedMaskID = id
         selectedComponent = index
+        state.noteMaskComponentAdded(id)
         armIfItNeedsAColour(kind: kind, maskID: id, component: index)
     }
 
@@ -2523,7 +2556,10 @@ struct MaskPanel: View {
                   m.components.indices.contains(target) else { return }
             m.components.swapAt(index, target)
         }
-        if mask(id)?.components.indices.contains(target) == true { selectedComponent = target }
+        if mask(id)?.components.indices.contains(target) == true {
+            selectedMaskID = id
+            selectedComponent = target
+        }
     }
 
     /// Move a mask one place, WITHIN ITS FOLDER.
@@ -2539,7 +2575,7 @@ struct MaskPanel: View {
     /// swapped in the array. Order across the whole list still means what it always
     /// meant; what changed is which pair the arrow picks.
     private func moveMask(_ id: String, by delta: Int) {
-        state.updateRecipe(coalescingKey: nil) { recipe in
+        state.updateMasks(coalescingKey: nil) { recipe in
             guard let i = recipe.masks.firstIndex(where: { $0.id == id }) else { return }
             let group = recipe.masks[i].group
             let siblings = recipe.masks.indices.filter { recipe.masks[$0].group == group }
@@ -2565,6 +2601,7 @@ struct MaskPanel: View {
             guard m.components.indices.contains(index) else { return }
             m.components.remove(at: index)
         }
+        guard activeMask?.id == id else { return }
         selectedComponent = Swift.max(Swift.min(index, (mask(id)?.components.count ?? 0) - 1), 0)
     }
 
@@ -2595,14 +2632,14 @@ struct MaskPanel: View {
     /// that cannot drift apart, because the second is defined as the first's complement.
     private func duplicateMask(_ id: String, inverting: Bool = false) {
         guard let source = mask(id) else { return }
-        var copy = source
+        // Inverse: a reference, not a toggled invert, which would run before Refine.
+        var copy = inverting ? Mask.invertedReference(to: source) : source
         copy.id = UUID().uuidString
-        if inverting { copy.invert.toggle() }
         copy.name = source.name.isEmpty
             ? (inverting ? "Inverted" : "Copy")
             : source.name + (inverting ? " inverted" : " copy")
         let newID = copy.id
-        state.updateRecipe(coalescingKey: nil) { recipe in
+        state.updateMasks(coalescingKey: nil) { recipe in
             guard let i = recipe.masks.firstIndex(where: { $0.id == id }) else {
                 recipe.masks.append(copy)
                 return
@@ -2613,12 +2650,9 @@ struct MaskPanel: View {
     }
 
     private func deleteMask(_ id: String) {
-        state.updateRecipe(coalescingKey: nil) { recipe in
+        state.updateMasks(coalescingKey: nil) { recipe in
             recipe.masks.removeAll { $0.id == id }
         }
-        // Through the pin, so deleting the mask whose overlay was pinned does not leave
-        // the pin standing over nothing — which would silently disable flash and hover.
-        if state.soloMaskOverlay == id { state.unpinMaskOverlay() }
         selectedMaskID = masks.first?.id
         selectedComponent = 0
     }
@@ -2648,7 +2682,7 @@ struct MaskPanel: View {
     }
 
     private func editMask(_ id: String, key: String?, _ body: (inout Mask) -> Void) {
-        state.updateRecipe(coalescingKey: key) { recipe in
+        state.updateMasks(coalescingKey: key) { recipe in
             guard let i = recipe.masks.firstIndex(where: { $0.id == id }) else { return }
             body(&recipe.masks[i])
         }
@@ -2656,7 +2690,7 @@ struct MaskPanel: View {
 
     private func editComponent(_ id: String, _ index: Int, key: String?,
                                _ body: (inout MaskComponent) -> Void) {
-        state.updateRecipe(coalescingKey: key) { recipe in
+        state.updateMasks(coalescingKey: key) { recipe in
             guard let m = recipe.masks.firstIndex(where: { $0.id == id }),
                   recipe.masks[m].components.indices.contains(index) else { return }
             body(&recipe.masks[m].components[index])
@@ -3210,7 +3244,7 @@ struct MaskPanel: View {
                       fill: Lumen.controlSurface)
         .lumenHoverable(radius: Lumen.radiusChip)
         .lumenClickCursor()
-        .help(MaskPanel.kindPurpose(kind))
+        .help(MaskPanel.kindPurpose(kind)).driverAnchor("mask-kind/" + MaskPanel.kindName(kind))
     }
 
     /// The tint target, as a swatch that opens the system colour panel.

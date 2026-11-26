@@ -1,0 +1,17 @@
+{
+  "name": "drift-sample",
+  "defaults": {"longEdge": 1024},
+  "jobs": [
+    {"id": "drift", "photos": ["6929", "5812", "chart:colorChecker", "chart:greyRamp", "chart:detail"],
+     "variants": [
+       {"label": "imported", "recipe": {}},
+       {"label": "exposure +1", "recipe": {"develop.tone.exposure": 1}},
+       {"label": "contrast +50 highlights -50 shadows +50", "recipe": {"develop.tone.contrast": 50, "develop.tone.highlights": -50, "develop.tone.shadows": 50}},
+       {"label": "saturation +50 vibrance +30", "recipe": {"develop.color.saturation": 50, "develop.color.vibrance": 30}},
+       {"label": "temp 4000", "recipe": {"develop.raw.temp": 4000}},
+       {"label": "clarity +50 sharpen 80", "recipe": {"develop.detail.clarity": 50, "develop.detail.sharpen.amount": 80}},
+       {"label": "portra400", "recipe": {"look.filmLab.stock": "lumen/portra400"}},
+       {"label": "vignette -1", "recipe": {"look.vignette": -1}}
+     ]}
+  ]
+}

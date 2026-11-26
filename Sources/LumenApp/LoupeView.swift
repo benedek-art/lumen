@@ -1,8 +1,8 @@
 // LoupeView.swift
 // The loupe: Lumen's main image viewer. It draws the CGImage the render coordinator
 // returns, at an explicit zoom ratio — fit, the 1:1/2:1 rungs, or any continuous
-// ratio from the pinch and scrubby-drag gestures — with drag-to-pan when the drawn
-// image is larger than the viewport. Click-to-zoom is deliberately GONE (session C,
+// ratio from the pinch and the wheel — with drag-to-pan while zoomed. The viewport's
+// geometry is `ViewerViewport` (LumenCore). Click-to-zoom is deliberately GONE (session C,
 // owner: "this strange zoom … I'd like to honestly remove it"); a click does nothing,
 // Space and Z still toggle from the keymap, and the continuous gestures are the
 // pointer's way in.
@@ -65,35 +65,32 @@ final class LoupeViewport: ObservableObject {
 
     static let shared = LoupeViewport()
 
-    /// The zoom ratio. 0 means fit; otherwise a ratio like 1.0 for 1:1.
+    /// Zoom, pan, the layout hold and the frame they are measured against — the
+    /// whole viewport in one value, so one input event is one publish and every
+    /// zoom or pan source runs the same arithmetic (`ViewerViewport`, LumenCore).
+    /// Written only through the verbs below.
     ///
-    /// IT LIVED ON `AppState` AND THAT WAS THE WHOLE OF "the zoom is slow and glitchy".
-    ///
-    /// `AppState` is an `@EnvironmentObject` in twenty-two view files and a `@StateObject`
-    /// on `LumenApp`, so a `@Published` write there invalidates the entire window AND the
-    /// `Scene` — all seven menus, rebuilt. `setZoom` wrote it once per gesture event,
-    /// unguarded. A pinch emits a high-rate stream, and this application has already
-    /// diagnosed and paid for that exact failure twice: `CommandState` was extracted for
-    /// it and `PanelLayout` was kept off `AppState` for it, both with the mechanism
-    /// written down. `CommandState`'s own words are the diagnosis of the owner's report:
-    ///
-    ///   "Once the main actor cannot finish two whole-window passes inside the gap
-    ///    between two mouse events, AppKit coalesces the events it has not delivered —
-    ///    and from that point the app stops SEEING positions rather than merely rendering
-    ///    fewer of them."
-    ///
-    /// That is why it felt like treacle rather than like a low frame rate, and it is why
-    /// it got worse the faster you moved. Filed as K-030, S2, open since the audit.
-    ///
-    /// Here, it invalidates `LoupeView` and nothing else — this object is `@ObservedObject`
-    /// in exactly one place. Zoom and pan are also one fact about one viewport and always
-    /// were; the split across two objects is what made an anchored zoom take two writes to
-    /// two owners.
-    @Published var zoom: Double = 0
+    /// Not on `AppState`: a publish there invalidates the whole window and the Scene
+    /// per gesture event (K-030). Only the loupe and the crop panel observe this.
+    @Published private(set) var geometry = ViewerViewport()
 
-    /// Pan offset in points, from the centred position. Clamped by the view against
-    /// the drawn size, so it can never carry the image off screen.
-    @Published var pan: CGSize = .zero
+    /// The zoom ratio. 0 means fit; otherwise device pixels per frame pixel.
+    var zoom: Double { geometry.zoom }
+
+    /// The picture centre's offset from the viewport centre, in points.
+    var pan: CGSize { geometry.pan }
+
+    /// True between a trackpad pinch's first increment and its end.
+    private(set) var pinchInFlight: Bool = false
+
+    /// How many magnify events arrived by each route, for the automation driver:
+    /// AppKit's `magnify(with:)`, and the SwiftUI gesture kept as its fallback.
+    private(set) var nativeMagnifyEvents: Int = 0
+    private(set) var fallbackMagnifyEvents: Int = 0
+
+    /// Loupe render requests begun and not yet finished or abandoned. 0 means the
+    /// frame on screen answers the current zoom, region and edit (automation driver).
+    var rendersInFlight: Int = 0
 
     /// Before/after presentation. `AppState.showBefore` is the `\` flip; this is the
     /// `Y` / `⌥Y` / `⇧Y` family (docs/12 §B8).
@@ -146,13 +143,31 @@ final class LoupeViewport: ObservableObject {
     /// it so a keymap-driven zoom lands under the cursor, exactly like a click does.
     var lastCursor: CGPoint?
 
-    /// True when the next zoom change should keep `lastCursor` pinned.
-    var anchorNextZoomAtCursor: Bool = true
-
     /// Internal rather than private so `ZoomBroadcastTests` can count publishes on a
     /// fresh viewport instead of on `shared`, whose state one test would otherwise carry
     /// into the next. `PanelLayout` opened the same door for the same reason.
     init() {}
+
+    // MARK: Geometry
+
+    /// One publish per event that changed something, none for one that did not —
+    /// a pinch past the 16× ceiling or a pan into the limit keeps arriving.
+    @MainActor
+    private func commit(_ next: ViewerViewport) {
+        guard next != geometry else { return }
+        LatencyHUD.shared.noteInput()
+        geometry = next
+    }
+
+    /// The loupe reports its container and the frame on screen. Not input, so the
+    /// latency HUD is not stamped.
+    @MainActor
+    func setWorld(_ world: ViewerViewport.World) {
+        var next = geometry
+        next.setWorld(world)
+        guard next != geometry else { return }
+        geometry = next
+    }
 
     // MARK: Zoom verbs (the keymap's entry points)
 
@@ -160,40 +175,75 @@ final class LoupeViewport: ObservableObject {
     /// Pass `nil` to zoom about the centre of the viewport.
     @MainActor
     func setZoom(_ ratio: Double, at point: CGPoint?) {
-        if let point {
-            lastCursor = point
-            anchorNextZoomAtCursor = true
-        } else {
-            anchorNextZoomAtCursor = false
-        }
-        let clamped: Double = ZoomLadder.clamp(ratio)
-        // GUARDED, because the unguarded write was half the cost. `ZoomLadder.clamp`
-        // saturates at 16, so pinching past the ceiling re-published 16.0 for every
-        // event of the rest of the gesture — and pinching out below fit re-published 0
-        // AND `pan = .zero` — with nothing on screen moving either time. A gesture that
-        // has run out of room is exactly when the hand keeps going.
-        guard clamped != zoom else { return }
-        // THE HUD COULD NOT SEE A ZOOM, which is why "the zoom is slow" has been an
-        // adjective for three rounds. `noteInput` was called from exactly one place —
-        // the recipe-edit path's `touchedPixels` — so the instrument built to answer
-        // "is the app receiving my events or failing to draw them" was blind to the two
-        // gestures the owner reports as worst.
-        //
-        // With this, the HUD's `in/out` line finally means something during a pinch, and
-        // its own comment says how to read it: "the two being close and low is dropped
-        // input; `in` high and `out` low is the render." Those are different defects with
-        // different fixes, and no amount of reading this file distinguishes them.
-        //
-        // Free when the HUD is off — `noteInput` returns on `enabled` before it touches
-        // a clock.
-        LatencyHUD.shared.noteInput()
-        if ZoomLadder.isFit(clamped) { pan = .zero }
-        zoom = clamped
+        if let point { lastCursor = point }
+        var next = geometry
+        next.setZoom(ratio, anchor: point)
+        commit(next)
     }
 
     @MainActor
     func setZoom(_ ratio: Double) {
         setZoom(ratio, at: lastCursor)
+    }
+
+    /// One increment of a continuous zoom — pinch, wheel, ⌥-scroll — about `point`.
+    /// `holdingLayout` pins the canvas layout and the render ask until the zoom ends.
+    @MainActor
+    func magnify(by factor: Double, at point: CGPoint?, holdingLayout: Bool) {
+        if let point { lastCursor = point }
+        var next = geometry
+        next.magnify(by: factor, anchor: point ?? lastCursor, hold: holdingLayout)
+        commit(next)
+    }
+
+    /// One trackpad magnify step from AppKit (`native`) or the SwiftUI fallback.
+    @MainActor
+    func pinch(_ step: ViewerMagnify.Step, at point: CGPoint, holdingLayout: Bool,
+               native: Bool) {
+        if native {
+            nativeMagnifyEvents += 1
+        } else {
+            fallbackMagnifyEvents += 1
+        }
+        switch step {
+        case .zoom(let factor):
+            pinchInFlight = true
+            magnify(by: factor, at: point, holdingLayout: holdingLayout)
+        case .ended:
+            pinchInFlight = false
+            endContinuousZoom()
+        case .smartZoom:
+            toggleZoom(at: point)
+        }
+    }
+
+    /// The hand has left a continuous zoom: the layout catches up, and a picture
+    /// left a hair above fit becomes fit (`ContinuousZoom.fitSnapSlack`).
+    @MainActor
+    func endContinuousZoom() {
+        var next = geometry
+        next.endContinuousZoom()
+        commit(next)
+    }
+
+    /// The zoom has been still for `ZoomLayoutHold.quietNanoseconds`. A wheel has no
+    /// other end; a pinch still in flight only lets the layout catch up.
+    @MainActor
+    func zoomWentQuiet() {
+        if pinchInFlight {
+            releaseHold()
+        } else {
+            endContinuousZoom()
+        }
+    }
+
+    /// Ends the layout hold without touching the picture.
+    @MainActor
+    func releaseHold() {
+        var next = geometry
+        next.releaseHold()
+        guard next != geometry else { return }
+        geometry = next
     }
 
     /// `Space` and `Z`: fit ↔ 1:1, centred on the cursor (docs/12 §B15 defaults).
@@ -244,35 +294,23 @@ final class LoupeViewport: ObservableObject {
 
     // MARK: Pan verbs
 
-    // `panBy` is gone. It was the delta-shaped verb, it wrote `pan` UNCLAMPED, and both
-    // of its callers immediately wrote `pan` again to clamp it — so the shape of the API
-    // was the reason every pan cost two publishes. Deleting it is what stops the pattern
-    // coming back: with only `panTo`, clamping is not something a caller can forget.
-
-    /// Move to an absolute offset, clamped, in ONE published write.
-    ///
-    /// Every scroll and arrow pan used to be two: `panBy` assigned `pan`, then the caller
-    /// assigned it again with the clamp applied. Two writes to a `@Published` in one
-    /// synchronous block is two invalidations, and the first one shows an unclamped value
-    /// — briefly, but it is drawn. The clamp belongs on the same side of the publish as
-    /// the arithmetic.
-    ///
-    /// It takes `x`/`y` rather than a `CGSize` so a caller cannot accidentally pass a
-    /// delta where an absolute offset is meant, which is the mistake `panBy` sitting
-    /// beside it would otherwise invite.
-    /// `@MainActor` because it stamps `LatencyHUD`, which is main-actor isolated. Every
-    /// caller is a gesture handler on the main actor already, so this costs nothing and
-    /// makes an isolation the type had been getting away with implicitly explicit.
+    /// Move the picture by a delta, limited (`ViewerViewport.overscrollKeepFraction`),
+    /// in one published write. Fit does not pan.
     @MainActor
-    func panTo(x: CGFloat, y: CGFloat, container: CGSize, drawn: CGSize) {
-        let clamped = LoupeGeometry.clampPan(CGSize(width: x, height: y),
-                                             container: container, drawn: drawn)
-        guard clamped != pan else { return }
-        LatencyHUD.shared.noteInput()
-        pan = clamped
+    func panBy(x dx: CGFloat, y dy: CGFloat) {
+        var next = geometry
+        next.pan(by: CGSize(width: dx, height: dy))
+        commit(next)
     }
 
-    func resetPan() { pan = .zero }
+    /// Move to an absolute offset, limited the same way. Takes `x`/`y` so a delta
+    /// cannot be passed where an offset is meant.
+    @MainActor
+    func panTo(x: CGFloat, y: CGFloat) {
+        var next = geometry
+        next.pan(to: CGSize(width: x, height: y))
+        commit(next)
+    }
 
     /// Called when the photo changes: a new frame starts at fit, centred.
     ///
@@ -303,10 +341,10 @@ final class LoupeViewport: ObservableObject {
     /// That is a change worth measuring on a Mac; this one is worth making now.
     @MainActor
     func resetForNewPhoto() {
-        // Through the verb, not by assignment: `setZoom` is where fit clears the pan
-        // and where every other zoom source in the app already goes. `ZoomLadder`'s own
-        // header is the story of what two ladders cost this project.
-        setZoom(LoupeZoom.fit, at: nil)
+        var next = geometry
+        next.reset()
+        if next != geometry { geometry = next }
+        pinchInFlight = false
         lastCursor = nil
     }
 }
@@ -367,6 +405,8 @@ enum LoupeGeometry {
     /// Pan clamped so ANY POINT OF THE PICTURE CAN BE BROUGHT TO THE CENTRE OF THE
     /// VIEWPORT, and no further. An axis with nothing hidden stays centred.
     ///
+    /// The compare panes' bound. The loupe's is `ViewerViewport`'s.
+    ///
     /// IT USED TO STOP EXACTLY HALF A VIEWPORT SHORT OF THAT, and the owner found it:
     /// "I can only pan to the side of the image … sometimes I want to get really close to
     /// the corners and I want to see things really up close to the corners."
@@ -420,21 +460,6 @@ enum LoupeGeometry {
         guard ux >= 0, ux <= 1, uy >= 0, uy <= 1 else { return nil }
         return CGPoint(x: ux, y: uy)
     }
-
-    /// The pan that keeps whatever sat under `point` at `oldDrawn` sitting under it at
-    /// `newDrawn` — this is what makes click-to-zoom land where the user clicked.
-    static func panKeeping(_ point: CGPoint, container: CGSize,
-                           oldDrawn: CGSize, newDrawn: CGSize, pan: CGSize) -> CGSize {
-        guard oldDrawn.width > 0, oldDrawn.height > 0 else { return .zero }
-        let ux = (point.x - container.width / 2 - pan.width) / oldDrawn.width + 0.5
-        let uy = (point.y - container.height / 2 - pan.height) / oldDrawn.height + 0.5
-        guard ux.isFinite, uy.isFinite else { return .zero }
-        let cx = Swift.min(Swift.max(ux, 0), 1)
-        let cy = Swift.min(Swift.max(uy, 0), 1)
-        let px = point.x - container.width / 2 - (cx - 0.5) * newDrawn.width
-        let py = point.y - container.height / 2 - (cy - 0.5) * newDrawn.height
-        return CGSize(width: px.isFinite ? px : 0, height: py.isFinite ? py : 0)
-    }
 }
 
 // MARK: - Progressive refine
@@ -443,14 +468,12 @@ enum LoupeGeometry {
 /// honest facts about it. Shared by the loupe and by every compare pane, because a
 /// second preview system is how the two drift apart.
 ///
-/// Generation numbers order everything: every request takes the next number, and the
-/// two rules of `FrameDelivery` (LumenCore) are applied against them — a request that
-/// is already superseded is dropped BEFORE it renders, but a frame that has finished
-/// rendering is delivered whatever happened to its task, guarded only by identity
-/// (still the photograph on screen) and order (newer than what is showing). The
-/// second rule is why a drag reads as a slope: its events cancel the running task
-/// faster than any render finishes, and the discipline that discarded those finished
-/// frames froze the picture until the hand paused.
+/// Drafts go through a `LatestWinsPump`: one renders, the newest request waits, and
+/// neither depends on the view task that asked — a drag cancels that task on every
+/// event. A finished frame is delivered guarded only by identity (still the photograph
+/// on screen) and order (a newer generation than what is showing); `FrameDelivery`
+/// (LumenCore) holds those two guards. Settles still run on the view's task and are
+/// dropped when it is cancelled.
 final class PhotoRenderModel: ObservableObject {
 
     @Published private(set) var image: CGImage?
@@ -471,7 +494,9 @@ final class PhotoRenderModel: ObservableObject {
     /// a compare pane's small frames never teach the loupe's ladder anything.
     private var draftLadder = DraftLadder()
 
-    /// What the zoomed draw normalizes against (`LoupeGeometry.zoomedRatio`): the
+    /// What a frame on screen is measured against to tell a proxy from the settle
+    /// (the resampling rule, the PROXY badge) — not the drawn size, which is
+    /// `ViewerViewport`'s and does not move when a frame lands: the
     /// settle's ACTUAL pixel long edge once one has landed for the current request,
     /// and the request's target until then. Reset when the request changes — a fit
     /// settle is a proxy for the zoomed target, not the authority on it; the estimate
@@ -496,6 +521,12 @@ final class PhotoRenderModel: ObservableObject {
     /// they change only when `image` does, and `revision` publishes that.
     private(set) var regionUnit: CGRect?
     private(set) var regionFullPixel: CGSize?
+    /// The last WHOLE-frame image of the recipe on screen, kept while a region image
+    /// shows so that zooming out or panning past the region's margin uncovers a soft
+    /// picture rather than the surround. Dropped when a region of another recipe or
+    /// photograph lands, so it is never a different edit. Changes only in `apply`.
+    private(set) var backdrop: CGImage?
+    private var backdropRecipe: Recipe?
     @Published private(set) var isDraft: Bool = false
     @Published private(set) var usedEmbeddedPreview: Bool = false
     /// Whatever the coordinator wants said out loud — "kernel library unavailable",
@@ -534,6 +565,30 @@ final class PhotoRenderModel: ObservableObject {
 
     private var latestGeneration: UInt64 = 0
 
+    /// Everything that decides a draft's pixels — the pump's notion of "the same
+    /// frame", so a release re-asking for the value in flight shares its render.
+    private struct DraftRequest: Equatable {
+        let url: URL
+        let recipe: Recipe
+        let longEdge: Int
+        let strokeRefs: Set<String>
+        let showingUncropped: Bool
+        let softProof: SoftProof?
+        let region: CGRect?
+        let edrWhiteTarget: Double?
+        /// The surface's key less its tick: what arrives beside the recipe.
+        let inputs: ViewerRenderKey?
+    }
+
+    /// Draft renders: one in flight, the newest waiting (`FramePump`, LumenCore).
+    private let drafts = LatestWinsPump<DraftRequest>()
+
+    /// Draft sizing while a gesture moves a control the RAW decoder reads.
+    private var decodeDrag = DecodeDrag()
+
+    /// The edit revision of the frame on screen, where the surface reports one.
+    private(set) var shownEditRevision: Int?
+
     /// The url of the most recent `load` call — the user's current intent, whatever
     /// state its task is in. `FrameDelivery.shouldShow`'s identity input: a completed
     /// frame for any other photograph must never be applied, however fresh.
@@ -568,22 +623,10 @@ final class PhotoRenderModel: ObservableObject {
     /// `DraftLadder.costSample`. Cleared on a photo change: a new photograph's first
     /// frame continues nothing.
     private var lastDraftAt: UInt64?
-    /// WHETHER THE PREVIOUS DRAFT HAD WORK QUEUED BEHIND IT, which is the other half of
-    /// the saturation test and was missing.
-    ///
-    /// The interval the ladder is costed by runs from the PREVIOUS frame's landing to
-    /// this one's, and `Task.isCancelled` is read at the END of it. That answers "was
-    /// the loop busy when this frame landed" and says nothing about whether it was busy
-    /// when the interval opened. A hand that pauses mid-gesture with the button still
-    /// down and then resumes hard produces exactly the false positive: the interval is
-    /// mostly the pause, the first frame after the resume is cancelled by the event
-    /// behind it, and the whole pause is charged to the machine as render cost. The
-    /// owner's 285/378/399 ms samples all sit under `continuityCeilingMilliseconds`
-    /// (500) — the band a human hesitation occupies, not the band a stall does.
-    ///
-    /// Saturation has to hold at BOTH ends: if the previous frame was itself cancelled,
-    /// a newer request already existed when it landed, so this frame's render should
-    /// have started immediately and any gap before it is genuinely the machine's.
+    /// Whether the previous draft had a newer request waiting behind it when it
+    /// landed. The ladder is costed by the interval between two landings only when
+    /// that held at BOTH ends: a hand that pauses and resumes leaves the lane idle at
+    /// the start of the interval, and the pause is not the machine's cost.
     private var lastDraftWasSaturated = false
     /// The size the previous draft was RENDERED at, so the ladder can tell a
     /// steady-state frame from the one that paid for a fresh decode at a new size —
@@ -620,6 +663,9 @@ final class PhotoRenderModel: ObservableObject {
               /// The surface's render key, when it has one. Nil (the default) never
               /// skips a settle.
               requestKey: ViewerRenderKey? = nil,
+              /// `EditRevision.value` as the request was made, for the timeline. Nil
+              /// keeps a surface out of it.
+              editRevision: Int? = nil,
               gestureInFlight: () -> Bool = { false }) async {
 
         currentRequestURL = url
@@ -636,7 +682,10 @@ final class PhotoRenderModel: ObservableObject {
         // The hand came up: let the ladder spend any headroom the gesture banked. It
         // is held during the drag because a rung earned back under a moving hand is a
         // visible change of sharpness; here it is one change, at rest, invisible.
-        if isSettleAsk { draftLadder.gestureEnded() }
+        if isSettleAsk {
+            draftLadder.gestureEnded()
+            decodeDrag.gestureEnded()
+        }
 
         // New photo: drop the previous photo's pixels rather than showing them under a
         // new filename, and give this one the instant embedded-preview path (Law 11).
@@ -658,6 +707,8 @@ final class PhotoRenderModel: ObservableObject {
             lastDraftAt = nil
             lastDraftWasSaturated = false
             lastDraftLongEdge = nil
+            decodeDrag.reset()
+            shownEditRevision = nil
             nativeLongEdge = nil
             regionUnit = nil
             regionFullPixel = nil
@@ -752,21 +803,8 @@ final class PhotoRenderModel: ObservableObject {
         let draftGeneration: UInt64 = PhotoRenderModel.nextGeneration()
         latestGeneration = draftGeneration
         if needsDraft {
-            // Half the settled request, floored at the old fixed size: enough that the
-            // draft reads as the same photograph at fit, cheap enough to stay ahead of
-            // the cursor. The colour is now identical to the settle by construction, so
-            // what remains between draft and settle is sharpness alone — which reads as
-            // the picture resolving rather than as the picture changing.
-            // ASK FOR THE SETTLE'S OWN RESOLUTION, and let the ladder take back what
-            // this machine cannot afford.
-            //
-            // This used to be `max(draftLongEdge, fullLongEdge / 2)` — a draft capped
-            // at half the settle on every machine, forever. That is a guess from before
-            // anything measured a frame, and it is what put a soft picture under the
-            // hand and a sharp one on release however fast the Mac was. `DraftLadder`
-            // measures every frame and steps down within one hot frame now, so the
-            // honest request is the whole thing; a machine with headroom keeps it and
-            // the drag is simply sharp.
+            // The settle's own resolution; the ladder takes back what this machine has
+            // measured it cannot afford.
             let draftRequested = draftLongEdge
             // A REGION draft does not consult the ladder: the rungs price a WHOLE
             // frame against the drag budget, and a region render's cost is the
@@ -779,151 +817,38 @@ final class PhotoRenderModel: ObservableObject {
                 ? draftRequested
                 : draftLadder.longEdge(
                     requested: draftRequested,
-                    // …and the ladder may not descend past a 2× magnification of what
-                    // is on screen. `DraftLadder.maxUpscale` argues it; the short
-                    // version is that the low rungs' justification — a moving image
-                    // cannot show detail — is the assumption the owner keeps refuting.
+                    // Never below what the panel draws, in the ask's own buckets, so
+                    // at fit a stepped-down draft still shares the settle's decode.
                     notBelow: DraftLadder.sharpnessFloor(
                         drawnDeviceLongEdge: drawnDeviceLongEdge))
-            let draftStarted = DispatchTime.now().uptimeNanoseconds
-            let draft = await coordinator.render(url: url, recipe: recipe,
-                                                 maxLongEdge: Swift.max(draftTarget, 64),
-                                                 draft: true, generation: draftGeneration,
-                                                 strokeSets: strokeSets,
-                                                 showingUncropped: showingUncropped,
-                                                 softProof: softProof,
-                                                 region: region,
-                                                 edrWhiteTarget: edrWhiteTarget)
-            // Delivery BEFORE the cancellation check, deliberately — FrameDelivery in
-            // LumenCore is the law and holds the arithmetic. During a drag every event
-            // cancels this task and starts the next one, so "apply only if still
-            // current" meant every completed draft of the gesture was rendered and then
-            // discarded, and the picture moved only at pauses in the hand — the owner's
-            // "goes by notches ... changes in one frame instead of a slope". A finished
-            // frame is the freshest completed picture of the user's intent that exists;
-            // the only questions are identity and order, and `shouldShow` asks those.
-            if let draft {
-                // Wall time around the await, actor queueing included — queueing is
-                // what a hand feels. The ladder learns from the same number the HUD
-                // shows, and it learns from every completed draft, delivered or not:
-                // the cost was real either way.
-                let landedAt = DispatchTime.now().uptimeNanoseconds
-                let draftMs = Double(landedAt - draftStarted) / 1e6
-                // WHAT THE INTERVAL BETWEEN TWO FRAMES ACTUALLY CONTAINS, stated
-                // correctly here for the first time — the previous version of this
-                // comment claimed it was "the SwiftUI handoff, the body pass and the
-                // texture upload", and three rounds of investigation reasoned from
-                // that. The arithmetic says otherwise and is worth writing out, since
-                // it is not obvious from any single line:
-                //
-                //     period   = landedAt(N)    - landedAt(N-1)
-                //     draftMs  = landedAt(N)    - draftStarted(N)
-                //     period - draftMs = draftStarted(N) - landedAt(N-1)
-                //
-                // `draftStarted` is stamped BEFORE the await, so everything the
-                // coordinator does — queueing included — is inside `draftMs` and none
-                // of it is in the remainder. The remainder is the gap between one frame
-                // landing and the next render being REQUESTED. It is an input and
-                // scheduling measure, not a display-path one, and it is usually zero
-                // or negative because `.task(id:)` starts frame N+1 without waiting for
-                // frame N.
-                //
-                // That makes it a measure of the request stream STOPPING, which during
-                // a gesture with the button still down means the hand paused. Costing
-                // the ladder for that is costing it for the photographer's hesitation.
-                // `handWasWaiting` is the guard, and it has to hold at both ends of the
-                // interval — see `lastDraftWasSaturated`.
-                let period = lastDraftAt.map { Double(landedAt - $0) / 1e6 }
-                let saturated = Task.isCancelled
-                let handWasWaiting = DraftLadder.loopWasSaturated(
-                    thisFrameCancelled: saturated,
-                    previousFrameCancelled: lastDraftWasSaturated)
-                let cost = DraftLadder.costSample(renderMilliseconds: draftMs,
-                                                  sincePreviousFrameMilliseconds: period,
-                                                  handWasWaiting: handWasWaiting)
-                lastDraftAt = landedAt
-                lastDraftWasSaturated = saturated
-                // ONLY A FRAME THAT MEASURES THE STEADY STATE TEACHES THE LADDER.
-                //
-                // The decode is keyed by the scale factor this size implies, so the
-                // first frame at any new size pays a fresh RAW decode no later frame at
-                // that size pays. Believing it makes every step down look like it did
-                // not help, and the ladder walks itself to the floor — a drag that gets
-                // blurrier the longer it is held. `DraftLadder.isRepresentative` holds
-                // the rule and the argument; `DraftLadderTests` shows the cascade it
-                // prevents, eight rungs of it.
-                //
-                // THE SIZE DELIVERED, not the size asked for — the same correction the
-                // HUD line below already carried, now applied where it is load-bearing
-                // (docs/31 §23). This used to pass `draftTarget`, the ask, so the
-                // ladder's own-answer guard compared the ask with itself — a check that
-                // could never fire — and every sample was filed under a size the
-                // picture did not have. On a cropped photograph the delivered edge is
-                // the crop's, and feeding the ask instead is what made the ladder's
-                // climb and the settle recovery misfire exactly there: the owner's
-                // "I get the blurry effect until I let go", on the photographs he had
-                // cropped.
-                let renderedLongEdge =
-                    Swift.max(Swift.max(draft.image.width, draft.image.height), 64)
-                // A region draft's delivered edge is the REGION's pixels — a size in
-                // a different denomination from the whole-frame rungs. The ladder
-                // learns nothing from it (same reason `learnsFromSettle` refuses the
-                // native settle: evidence in the wrong denominator reads as heat).
-                if region == nil, DraftLadder.isRepresentative(
-                    renderedLongEdge: renderedLongEdge,
-                    previousRenderedLongEdge: lastDraftLongEdge) {
-                    draftLadder.record(draftMilliseconds: cost,
-                                       // BOTH numbers, because the two directions ask
-                                       // different questions. `cost` is what the hand
-                                       // felt and decides the descent; `draftMs` is what
-                                       // the render actually cost and decides the climb,
-                                       // since it is the only part of `cost` that fewer
-                                       // pixels can change. Passing only `cost` pinned
-                                       // the ladder at its floor: a stall in delivery
-                                       // dropped rungs the render never earned back.
-                                       renderMilliseconds: draftMs,
-                                       renderedLongEdge: renderedLongEdge,
-                                       requested: draftRequested,
-                                       // Monotone downward while the hand is down: a
-                                       // rung earned back mid-drag is a visible change
-                                       // of sharpness, and at a rung boundary it
-                                       // oscillates.
-                                       allowStepUp: !gestureInFlight())
-                }
-                lastDraftLongEdge = renderedLongEdge
-                // THE SIZE DELIVERED, not the size asked for.
-                //
-                // This line used to report `draftTarget` — the request — so the HUD
-                // could only ever confirm the viewer's own intention. Three rounds of
-                // "the picture is blurry while I drag" were investigated against a
-                // number that was incapable of disagreeing with the code that set it.
-                // The render path has several places where a frame can come back
-                // shorter than asked (`applyGeometry` clamps to `min(1, wanted)` and
-                // never upscales, so a crop or a decoder that declines a scale factor
-                // both land here), and none of them were visible from inside.
-                //
-                // So: measure the pixels, print the ask beside them. A shortfall on a
-                // cropped photograph is honest rather than a fault — the crop really
-                // is smaller than the frame — but on an uncropped one it is a lead.
-                LatencyHUD.shared.noteDecode(milliseconds: draft.decodeMilliseconds)
-                LatencyHUD.shared.noteDraft(
-                    milliseconds: draftMs,
-                    longEdge: Swift.max(draft.image.width, draft.image.height),
-                    requestedLongEdge: Swift.max(draftTarget, 64),
-                    // The same interval `costSample` folds into the ladder, reported
-                    // separately: the ladder needs one number to act on, a person needs
-                    // to know which half of the frame is large, because the two halves
-                    // have opposite fixes.
-                    afterRenderMilliseconds: DraftLadder.afterRenderMilliseconds(
-                        renderMilliseconds: draftMs,
-                        sincePreviousFrameMilliseconds: period,
-                        handWasWaiting: handWasWaiting))
-                if FrameDelivery.shouldShow(frameFor: url,
-                                            currentRequest: currentRequestURL,
-                                            generation: draft.generation,
-                                            newestShown: appliedGeneration) {
-                    apply(draft, url: url, recipe: recipe)
-                }
+            let midGesture = lastRequestWasMidGesture
+            // A gesture moving a control the RAW decoder reads pays a demosaic per
+            // value. Once that has been measured too slow, its drafts are rendered at
+            // half the long edge (`DecodeDrag`); a settle never is.
+            let fullEdge = Swift.max(draftTarget, 64)
+            let sizedEdge = decodeDrag.longEdge(for: fullEdge, inputs: recipe.decodeInputs,
+                                                midGesture: midGesture)
+            let decodeDivisor = sizedEdge < fullEdge ? decodeDrag.divisor : 1
+            func draftRequest(longEdge: Int) -> DraftRequest {
+                DraftRequest(url: url, recipe: recipe, longEdge: longEdge,
+                             strokeRefs: Set(strokeSets.keys),
+                             showingUncropped: showingUncropped,
+                             softProof: softProof, region: region,
+                             edrWhiteTarget: edrWhiteTarget,
+                             inputs: requestInputs)
+            }
+            let request = draftRequest(longEdge: sizedEdge)
+            LatencyHUD.shared.noteTimeline(.request, revision: editRevision)
+            // Through the pump, never awaited on the coordinator from this task: a drag
+            // cancels this task on every event, and the coordinator drops a cancelled
+            // task's request before rendering it. The pump renders and lands the frame
+            // on its own task; this only waits to learn that its request is done with.
+            _ = await drafts.submit(request) { [self] successorWaiting in
+                await self.renderDraft(request, draftRequested: draftRequested,
+                                       coordinator: coordinator, strokeSets: strokeSets,
+                                       midGesture: midGesture, editRevision: editRevision,
+                                       decodeDivisor: decodeDivisor,
+                                       successorWaiting: successorWaiting)
             }
             guard !Task.isCancelled else { return }
 
@@ -941,6 +866,23 @@ final class PhotoRenderModel: ObservableObject {
             let elapsed = DispatchTime.now().uptimeNanoseconds &- requestStarted
             try? await Task.sleep(nanoseconds: RefineBudget.loupe.debounceNanoseconds(
                 discreteEdit: discreteEdit, elapsed: elapsed))
+
+            // The button is still down but the hand has rested on this value for the
+            // whole debounce: a draft that was reduced is redone at its full size, so
+            // a pause shows the value sharp without waiting for the release.
+            if sizedEdge < fullEdge, !Task.isCancelled,
+               latestGeneration == draftGeneration, gestureInFlight() {
+                let sharp = draftRequest(longEdge: fullEdge)
+                _ = await drafts.submit(sharp) { [self] successorWaiting in
+                    await self.renderDraft(sharp, draftRequested: draftRequested,
+                                           coordinator: coordinator,
+                                           strokeSets: strokeSets,
+                                           midGesture: midGesture,
+                                           editRevision: editRevision,
+                                           decodeDivisor: 1,
+                                           successorWaiting: successorWaiting)
+                }
+            }
         }
         guard !Task.isCancelled, latestGeneration == draftGeneration else { return }
 
@@ -983,10 +925,11 @@ final class PhotoRenderModel: ObservableObject {
                                                   edrWhiteTarget: edrWhiteTarget)
             guard !Task.isCancelled else { return }
             if let result, result.generation == generation, latestGeneration == generation {
-                apply(result, url: url, recipe: recipe)
-                settledRequest = result.isDraft ? nil : requestInputs
                 let settleMs =
                     Double(DispatchTime.now().uptimeNanoseconds - settleStarted) / 1e6
+                apply(result, url: url, recipe: recipe,
+                      editRevision: editRevision, renderMilliseconds: settleMs)
+                settledRequest = result.isDraft ? nil : requestInputs
                 // THE MEASUREMENT THE LADDER WAS THROWING AWAY. A settle is a render at
                 // the full requested size, timed by this same clock, and it pays EXACT
                 // table bakes where a draft serves them stale — so a settle inside the
@@ -1005,7 +948,8 @@ final class PhotoRenderModel: ObservableObject {
                 // the drafts' cost model reads as "nothing is affordable" — the
                 // rungs would crash and take the FIT drag with them. The rule is
                 // `DraftLadder.learnsFromSettle`, tested in LumenCore.
-                if DraftLadder.learnsFromSettle(
+                // A region's cost is not denominated in whole-frame rungs.
+                if region == nil, DraftLadder.learnsFromSettle(
                         requestedLongEdge: Swift.max(fullLongEdge, 64)) {
                     draftLadder.recordSettle(milliseconds: settleMs,
                                              renderedLongEdge: Swift.max(
@@ -1067,8 +1011,97 @@ final class PhotoRenderModel: ObservableObject {
         // Nothing came back and nothing honest is on screen: say so instead of spinning.
         if image == nil {
             isUnreadable = true
-            note = "Can't render \(url.lastPathComponent) — no RAW decode and no embedded preview"
+            note = "Can't render \(url.lastPathComponent) — "
+                + (RenderCoordinator.unrenderableReason(url: url)
+                    ?? "no RAW decode and no embedded preview")
         }
+    }
+
+    /// One draft, from the render lane to the screen. Runs on the pump's task, which
+    /// nothing cancels: a frame that has been rendered lands, subject only to
+    /// `FrameDelivery.shouldShow` (still this photograph, newer than what is up).
+    @MainActor
+    private func renderDraft(_ request: DraftRequest, draftRequested: Int,
+                             coordinator: RenderCoordinator,
+                             strokeSets: [String: BrushStrokeSet],
+                             midGesture: Bool, editRevision: Int?,
+                             decodeDivisor: Int,
+                             successorWaiting: @MainActor () -> Bool) async -> Bool {
+        // A photograph the viewer has left would be refused by `shouldShow` anyway.
+        guard request.url == currentRequestURL else { return false }
+        // Stamped when the render is handed to the coordinator, not when the request
+        // was made: time spent waiting behind the frame in flight is not this frame's
+        // cost, and the ladder must not be charged for it.
+        let draftStarted = DispatchTime.now().uptimeNanoseconds
+        LatencyHUD.shared.noteTimeline(.start, revision: editRevision)
+        // The ticket is taken here, at the start, so tickets reach the coordinator in
+        // order whatever was submitted while the previous frame rendered.
+        let draft = await coordinator.render(url: request.url, recipe: request.recipe,
+                                             maxLongEdge: request.longEdge,
+                                             draft: true,
+                                             generation: PhotoRenderModel.nextGeneration(),
+                                             strokeSets: strokeSets,
+                                             showingUncropped: request.showingUncropped,
+                                             softProof: request.softProof,
+                                             region: request.region,
+                                             edrWhiteTarget: request.edrWhiteTarget)
+        guard let draft else { return false }
+        let landedAt = DispatchTime.now().uptimeNanoseconds
+        let draftMs = Double(landedAt - draftStarted) / 1e6
+        let period = lastDraftAt.map { Double(landedAt - $0) / 1e6 }
+        // The loop is saturated when a newer request was already waiting as this frame
+        // landed — and, for the interval to be the machine's, as the previous one did.
+        let saturated = successorWaiting()
+        let handWasWaiting = DraftLadder.loopWasSaturated(
+            thisFrameCancelled: saturated,
+            previousFrameCancelled: lastDraftWasSaturated)
+        let cost = DraftLadder.costSample(renderMilliseconds: draftMs,
+                                          sincePreviousFrameMilliseconds: period,
+                                          handWasWaiting: handWasWaiting)
+        lastDraftAt = landedAt
+        lastDraftWasSaturated = saturated
+        // The size DELIVERED, never the ask (docs/31 §23): a crop or a declined decode
+        // scale comes back shorter, and the ladder and the HUD must see that.
+        let renderedLongEdge =
+            Swift.max(Swift.max(draft.image.width, draft.image.height), 64)
+        // A frame that paid a decode is the decode drag's evidence and not the
+        // ladder's: fewer graph pixels are not what would have made it cheaper.
+        let paidDecode = DecodeDrag.paidDecode(decodeMilliseconds: draft.decodeMilliseconds)
+        decodeDrag.record(
+            milliseconds: draft.laneMilliseconds > 0 ? draft.laneMilliseconds : draftMs,
+            paidDecode: paidDecode, divisor: decodeDivisor)
+        // Only a steady-state whole-frame draft teaches the ladder: the first frame at
+        // a new size pays a RAW decode no later one does (`isRepresentative`), and a
+        // region's pixels are not denominated in rungs.
+        if request.region == nil, !paidDecode, DraftLadder.isRepresentative(
+            renderedLongEdge: renderedLongEdge,
+            previousRenderedLongEdge: lastDraftLongEdge) {
+            // `cost` is what the hand felt and decides the descent; `draftMs` is what
+            // the render cost and decides the climb.
+            draftLadder.record(draftMilliseconds: cost,
+                               renderMilliseconds: draftMs,
+                               renderedLongEdge: renderedLongEdge,
+                               requested: draftRequested,
+                               // Monotone downward while a hand is down.
+                               allowStepUp: !midGesture)
+        }
+        lastDraftLongEdge = renderedLongEdge
+        LatencyHUD.shared.noteDecode(milliseconds: draft.decodeMilliseconds)
+        LatencyHUD.shared.noteDraft(
+            milliseconds: draftMs,
+            longEdge: Swift.max(draft.image.width, draft.image.height),
+            requestedLongEdge: request.longEdge,
+            afterRenderMilliseconds: DraftLadder.afterRenderMilliseconds(
+                renderMilliseconds: draftMs,
+                sincePreviousFrameMilliseconds: period,
+                handWasWaiting: handWasWaiting))
+        guard FrameDelivery.shouldShow(frameFor: request.url,
+                                       currentRequest: currentRequestURL,
+                                       generation: draft.generation,
+                                       newestShown: appliedGeneration) else { return false }
+        apply(draft, url: request.url, recipe: request.recipe,
+              editRevision: editRevision, renderMilliseconds: draftMs)
+        return true
     }
 
     /// The EDR frame to draw in place of `cg`, when `cg` is the frame this model is
@@ -1080,14 +1113,28 @@ final class PhotoRenderModel: ObservableObject {
     }
 
     @MainActor
-    private func apply(_ result: RenderResult, url: URL, recipe: Recipe) {
+    private func apply(_ result: RenderResult, url: URL, recipe: Recipe,
+                       editRevision: Int? = nil, renderMilliseconds: Double? = nil) {
         appliedGeneration = Swift.max(appliedGeneration, result.generation)
+        shownEditRevision = editRevision
+        LatencyHUD.shared.noteTimeline(
+            .frame, revision: editRevision, draft: result.isDraft,
+            longEdge: Swift.max(result.image.width, result.image.height),
+            renderMilliseconds: renderMilliseconds,
+            laneMilliseconds: result.laneMilliseconds)
         // Only the settle loop knows which request it answered; it sets this after.
         settledRequest = nil
         // A result that could not stat its file keeps the identity this photo already
         // has: `load` reads a nil here as a replaced file and clears the frame.
         let sourceIdentity = result.sourceIdentity
             ?? (imageURL == url ? imageSourceIdentity : nil)
+        if result.regionUnit == nil {
+            backdrop = result.image
+            backdropRecipe = recipe
+        } else if imageURL != url || backdropRecipe != recipe {
+            backdrop = nil
+            backdropRecipe = nil
+        }
         image = result.image
         edrImage = result.edrImage
         imageURL = url
@@ -1119,6 +1166,7 @@ final class PhotoRenderModel: ObservableObject {
             settledRecipe = recipe
         }
         revision &+= 1
+        LumenDriver.frameApplied(result, recipe: recipe, model: self)
     }
 }
 
@@ -1211,35 +1259,12 @@ struct LoupeView: View {
     @State private var containerSize: CGSize = .zero
     @State private var cursor: CGPoint?
     @State private var panStart: CGSize?
-    /// The zoom value whose anchor `zoomAnchored` has already applied, so the `.onChange`
-    /// fallback does not apply it a second time. `panKeeping` is not idempotent — it
-    /// moves the pan by the difference between two drawn sizes — so running it twice for
-    /// one zoom change would double the correction and pull the picture off the anchor.
-    @State private var anchoredZoom: Double?
-    /// The zoom the current pinch began at, so the gesture's total magnification
-    /// multiplies one start value instead of compounding per event. Nil between
-    /// gestures.
-    @State private var pinchStartZoom: Double?
-    /// The zoom the canvas's LAYOUT and the render ask are pinned to while a
-    /// continuous zoom is in flight; nil means the layout is at the live zoom.
-    ///
-    /// While it holds, a zoom event moves `viewport.zoom` and NOTHING else: the plate
-    /// keeps the frame it already has, every overlay keeps its layout, the render key
-    /// does not move, and the difference between the held frame and the one the live
-    /// zoom asks for is a `scaleEffect` — one matrix, on the GPU. `ZoomLayoutHold`
-    /// (LumenCore, tested) has the reasoning and the scale arithmetic.
-    ///
-    /// Without it the first event of a pinch out of fit re-keys the render from the
-    /// container's bucket to the sensor's own long edge and starts a full demosaic of
-    /// a 33 MP file while the fingers are still moving.
-    @State private var zoomHoldBase: Double?
-    /// The region ask captured when the hold began, and held with it — nil is a REAL
-    /// value here (a hold begun at fit holds whole-frame), which is why it is read
-    /// only while `zoomHoldBase` is non-nil. Without the hold a continuous zoom
-    /// re-quantizes the region per event and mints a render key per grid line — the
-    /// request storm `ZoomRegion.grid` exists to prevent.
-    @State private var zoomHoldRegion: CGRect?
+    /// The total magnification the SwiftUI fallback pinch last reported, so each
+    /// event becomes an increment. Nil between gestures.
+    @State private var fallbackMagnification: CGFloat?
     @State private var sampler: PixelSampler?
+    /// Sampler builds: one at a time, the newest waiting, each finished one kept.
+    @State private var samplerBuilds = LatestWinsPump<SamplerKey>()
 
     @Environment(\.displayScale) private var displayScale: CGFloat
     @FocusState private var focused: Bool
@@ -1321,16 +1346,10 @@ struct LoupeView: View {
     var body: some View {
         GeometryReader { geometry in
             let container: CGSize = geometry.size
-            // The zoomed region ask — held STILL through a continuous zoom, which
-            // reads the rectangle captured when the hold began. Panning is
-            // deliberately NOT held: a pan past the margin is exactly the moment a new
-            // region must be rendered, and `ZoomRegion.grid` keeps that from being
-            // every pan point.
-            //
-            // (The scrub clause that was here went with the scrub. A drag pans now.)
-            let region: CGRect? = zoomHoldBase != nil
-                ? zoomHoldRegion
-                : requestedRegion(container: container)
+            // The zoomed region ask. Still through a continuous zoom, because it is
+            // sized from the held layout; a pan with nothing held moves it, and
+            // `ZoomRegion.grid` keeps that from being every pan point.
+            let region: CGRect? = requestedRegion(container: container)
             // WHAT THE PANEL ACTUALLY DRAWS, in device pixels, computed ONCE and given
             // to both passes. It used to be computed here for the draft and not at all
             // for the settle, and the two consequences were both expensive:
@@ -1449,18 +1468,16 @@ struct LoupeView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipped()
             .contentShape(Rectangle())
-            // The wheel and the two-finger scroll, which the picture answered not at
-            // all before — the second half of the owner's fifth round, "both with the
-            // mouse and with the trackpad are pretty broken". `ViewerScroll` (LumenCore,
-            // tested) decides what a scroll means; this passes it the state and applies
-            // the verb. Above the gestures in the modifier order and below them in
-            // routing: `hitTest` claims scroll events only, so the drag, the pinch and
-            // the double-click reach SwiftUI exactly as they do today.
-            .lumenViewerScroll(zoomed: { viewport.zoom > 0 }) { verb in
-                applyScroll(verb, container: container)
-            }
-            .gesture(dragGesture(container: container))
-            .simultaneousGesture(magnifyGesture(container: container))
+            // Scroll, pinch and the two-finger double-tap arrive as AppKit events
+            // (`LumenViewerInput.swift`): its `hitTest` claims those and nothing else,
+            // so the drag, the double-click and the hover reach SwiftUI as before.
+            .lumenViewerInput(zoomed: { viewport.zoom > 0 },
+                              onScroll: { verb, point in applyScroll(verb, at: point) },
+                              onMagnify: { step, point in
+                                  applyMagnify(step, at: point, native: true)
+                              })
+            .gesture(dragGesture())
+            .simultaneousGesture(magnifyFallbackGesture())
             // FIT ↔ 1:1, BOTH WAYS, WHERE YOU CLICKED — the owner's choice, and the
             // inherited grammar from every viewer that has one.
             //
@@ -1502,32 +1519,30 @@ struct LoupeView: View {
             .onChange(of: container) { _, newValue in
                 containerSize = newValue
             }
-            .onChange(of: viewport.zoom) { oldValue, newValue in
-                // Already anchored inside the gesture's own event, in the same block as
-                // the zoom write. Applying it again would double the correction.
-                if anchoredZoom == newValue {
-                    anchoredZoom = nil
-                    return
-                }
-                applyZoomChange(from: oldValue, to: newValue, container: container)
+            // The viewport learns its surroundings here; the body itself draws from
+            // `viewportGeometry`, which has them already, so this is never a frame late.
+            // Dormant under the crop tool, whose canvas honours neither zoom nor pan.
+            .onChange(of: ViewportWorldKey(world: viewportWorld(container: container),
+                                           dormant: cropArmed),
+                      initial: true) { _, key in
+                guard !key.dormant else { return }
+                viewport.setWorld(key.world)
             }
             // THE HOLD'S RELEASE, and the reason the hold can never stick. `.task(id:)`
             // cancels and restarts whenever the zoom moves, so the sleep only ever
-            // COMPLETES after the zoom has been still for the quiet window — which is
-            // longer than any gap inside a gesture and shorter than a pause. A pinch
-            // does not wait for it (`magnifyGesture`'s `onEnded`); the wheel, which has
-            // no end, does.
+            // COMPLETES after the zoom has been still for the quiet window. A pinch's
+            // end does not wait for it; the wheel, which has no end, does.
             //
             // `try?` would be wrong here: a cancelled sleep throws, and swallowing that
             // would end the hold on the very event that extended it.
             .task(id: viewport.zoom) {
-                guard zoomHoldBase != nil else { return }
+                guard viewport.geometry.held != nil else { return }
                 do {
                     try await Task.sleep(nanoseconds: ZoomLayoutHold.quietNanoseconds)
                 } catch {
                     return
                 }
-                endZoomHold()
+                viewport.zoomWentQuiet()
             }
             // `.task`'s action is `@Sendable`, so it touches no main-actor state
             // directly: everything goes through the `@MainActor` methods below.
@@ -1617,25 +1632,14 @@ struct LoupeView: View {
         .focusEffectDisabled()
         .onMoveCommand { direction in handleMove(direction) }
         .onChange(of: photo.id) { _, _ in
+            // Ends any layout hold too: a hold describes one photograph's frame.
             viewport.resetForNewPhoto()
             sampler = nil
-            // A hold describes ONE photograph's frame — `zoomHoldRegion` is a rectangle
-            // of it — so it cannot survive the photograph changing. `resetForNewPhoto`
-            // usually moves the zoom and the quiet task would collect it anyway; this is
-            // for the case where the new photograph opens at the same zoom and the task
-            // is therefore never restarted.
-            endZoomHold()
             warmNeighbours()
         }
-        // THE HOLD CANNOT OUTLIVE THE VIEW, and without this it could. The release is a
-        // `.task` sleep, and a task is cancelled when its view goes away — so leaving the
-        // loupe for the grid or the compare panes mid-gesture threw the sleep, caught the
-        // cancellation, and returned WITHOUT clearing the hold. Coming back to a
-        // still-standing hold would freeze `layoutZoom` at a stale value: the canvas laid
-        // out at one zoom and permanently scaled to another, the render ask frozen, and
-        // the region ask stuck on a rectangle of a frame no longer on screen. Nothing
-        // would release it, because releasing it is what did not happen.
-        .onDisappear { endZoomHold() }
+        // The hold cannot outlive the view: its release is a `.task` sleep, which is
+        // cancelled without releasing anything when the view goes away mid-gesture.
+        .onDisappear { viewport.releaseHold() }
     }
 
     /// Decode the photograph the owner is most likely to open next, while he is still
@@ -1686,6 +1690,12 @@ struct LoupeView: View {
                                   surface: .loupe)
     }
 
+    private struct ViewportWorldKey: Equatable {
+        let world: ViewerViewport.World
+        /// The crop tool is live: the viewport is not told.
+        let dormant: Bool
+    }
+
     private struct BeforeKey: Equatable {
         let url: URL
         let recipe: Recipe
@@ -1701,6 +1711,8 @@ struct LoupeView: View {
     @MainActor
     private func renderCurrent(longEdge: Int, region: CGRect?,
                                drawnDevice: Double?) async {
+        viewport.rendersInFlight += 1
+        defer { viewport.rendersInFlight -= 1 }
         // The same framing-stripped recipe the task key carries — see `renderRecipe`.
         let wanted = renderRecipe
         // `drawnDevice` arrives from `body` rather than being recomputed here: it read
@@ -1752,6 +1764,9 @@ struct LoupeView: View {
                              url: photo.id, recipe: wanted, longEdge: longEdge,
                              state: state, showingUncropped: cropArmed,
                              regionUnit: region, edrWhiteTarget: edrWhiteTarget),
+                         // Read beside `renderRecipe` above, so the timeline's frames
+                         // name the revision their recipe was.
+                         editRevision: edits.value,
                          // Asked at the moment the settle would start rather than at
                          // load time, so a release landing mid-draft settles at once
                          // instead of waiting for the tick's fresh task.
@@ -1935,26 +1950,16 @@ struct LoupeView: View {
         let region: CGRect? = model.regionUnit
         let ratio: Double = effectiveRatio(image: cg, container: container)
         // `drawn` is the extent the canvas is LAID OUT at — the held zoom's, which is
-        // the live zoom's whenever nothing is held. `live` is where the photograph
-        // actually is; `stretch` is the difference, worn as a `scaleEffect`.
-        //
-        // A `scaleEffect` about the centre of a centred frame is geometrically
-        // IDENTICAL to laying the frame out at the scaled size: both put the plate's
-        // centre at the container's centre plus `offset`, and both scale about it. So
-        // this is the same picture in the same place — drawn by transforming a layer
-        // instead of by re-laying-out and re-rasterizing a 33 MP plate per event.
-        let drawn: CGSize = drawnFull(forZoom: layoutZoom, image: cg,
+        // the live zoom's whenever nothing is held. `stretch` turns it into where the
+        // photograph actually is, worn as a `scaleEffect`: a scale about the centre of
+        // a centred frame is the same picture in the same place as laying it out at
+        // the scaled size (`ViewerViewportTests` pins that), without re-laying-out a
+        // 33 MP plate per event.
+        let vp: ViewerViewport = viewportGeometry(container: container)
+        let drawn: CGSize = drawnFull(forZoom: vp.layout.zoom, image: cg,
                                       container: container)
-        let live: CGSize = zoomHoldBase == nil
-            ? drawn
-            : drawnFull(forZoom: viewport.zoom, image: cg, container: container)
-        // The pan is clamped against where the photograph IS, never against the held
-        // frame: holding must not shrink how far you may pan.
-        let offset: CGSize = LoupeGeometry.clampPan(viewport.pan,
-                                                    container: container, drawn: live)
-        let stretch = CGFloat(ZoomLayoutHold.stretch(
-            base: Double(Swift.max(drawn.width, drawn.height)),
-            live: Double(Swift.max(live.width, live.height))))
+        let offset: CGSize = vp.pan
+        let stretch = CGFloat(vp.stretch)
 
         // The HDR preview's frame, when it replaces the edit's plate (`edrPlateImage`).
         // The plate becomes a transparent stand-in of the same size, and the EDR layer
@@ -1981,7 +1986,8 @@ struct LoupeView: View {
                                 sourceSize: sourceFrameSize
                                     ?? CGSize(width: cg.width, height: cg.height),
                                 mode: state.maskOverlayMode, tint: state.maskOverlayTint,
-                                strength: LoupeViewport.maskOverlayOpacity)
+                                strength: LoupeViewport.maskOverlayOpacity,
+                                revision: state.maskOverlayRevision)
                     .frame(width: drawn.width, height: drawn.height)
             }
 
@@ -2047,8 +2053,11 @@ struct LoupeView: View {
                            selectMask: { id in
                                state.activeMaskID = id
                                state.activeComponentIndex = 0
-                               state.flashMaskOverlay(id)
-                           }) { edit in
+                           },
+                           selectionGesture: { active in
+                               state.setMaskSelectionGesture(active, mask: target.maskID)
+                           },
+                           hoverPin: { id in state.hoverMaskPin(id) }) { edit in
                     MaskCanvas.apply(edit, in: state)
                 }
                 .frame(width: drawn.width, height: drawn.height)
@@ -2106,9 +2115,15 @@ struct LoupeView: View {
             }
         }
         .frame(width: drawn.width, height: drawn.height)
+        .driverAnchor("viewer.image")
         .scaleEffect(stretch)
-        .offset(offset)
-        .frame(width: container.width, height: container.height)
+        // Placed by a render transform, not by centring and `.offset`: layout snaps
+        // those to device pixels, so the picture sat up to half a pixel from where
+        // `ViewerViewport` anchors the cursor, which 1:1 magnifies to several pixels.
+        .transformEffect(CGAffineTransform(
+            translationX: (container.width - drawn.width) / 2 + offset.width,
+            y: (container.height - drawn.height) / 2 + offset.height))
+        .frame(width: container.width, height: container.height, alignment: .topLeading)
         .background {
             // Container-sized, and placed by arithmetic rather than by the transforms
             // above: `EDRPreview.plateRect` is `.scaleEffect(stretch).offset(offset)`
@@ -2337,16 +2352,23 @@ struct LoupeView: View {
     private func afterPlate(_ cg: CGImage, ratio: Double, drawn: CGSize,
                             region: CGRect?) -> some View {
         if let region {
-            plate(cg,
-                  ratio: Double(Swift.max(drawn.width * region.width,
-                                          drawn.height * region.height))
-                      * Double(Swift.max(displayScale, 1))
-                      / Double(Swift.max(Swift.max(cg.width, cg.height), 1)),
-                  drawn: CGSize(width: drawn.width * region.width,
-                                height: drawn.height * region.height),
-                  resamplingLongEdge: effectiveRenderedLongEdge(cg))
-                .offset(x: (region.midX - 0.5) * drawn.width,
-                        y: (region.midY - 0.5) * drawn.height)
+            ZStack {
+                if let under = model.backdrop {
+                    plate(under, ratio: effectiveRatio(image: under, drawn: drawn),
+                          drawn: drawn)
+                }
+                plate(cg,
+                      ratio: Double(Swift.max(drawn.width * region.width,
+                                              drawn.height * region.height))
+                          * Double(Swift.max(displayScale, 1))
+                          / Double(Swift.max(Swift.max(cg.width, cg.height), 1)),
+                      drawn: CGSize(width: drawn.width * region.width,
+                                    height: drawn.height * region.height),
+                      resamplingLongEdge: effectiveRenderedLongEdge(cg))
+                    .offset(x: (region.midX - 0.5) * drawn.width,
+                            y: (region.midY - 0.5) * drawn.height)
+            }
+            .frame(width: drawn.width, height: drawn.height)
         } else {
             plate(cg, ratio: ratio, drawn: drawn)
         }
@@ -2429,7 +2451,8 @@ struct LoupeView: View {
                 LumenBadge(text: "BEFORE")
             }
             if let maskName = soloMaskName {
-                LumenBadge(text: "MASK · \(maskName)")
+                LumenBadge(text: state.maskOverlay.choice == .show
+                           ? "MASK · \(maskName) · SHOWN" : "MASK · \(maskName)")
             }
             if let mode = state.clippingOverlay {
                 LumenBadge(text: "CLIPPING · \(mode.rawValue.uppercased())")
@@ -2500,25 +2523,49 @@ struct LoupeView: View {
 
     // MARK: Zoom / pan
 
-    /// One ratio rule for every caller: at fit, the rendered image's own pixel count
-    /// sets the ratio (so any proxy fills the container); zoomed, the bare zoom level
-    /// is normalized by full/rendered (`LoupeGeometry.zoomedRatio`) so any proxy
-    /// occupies the settle's extent. Both branches are size-stable across the
-    /// draft/settle handoff by construction.
-    private func ratio(forZoom zoom: Double, image: CGImage,
-                       container: CGSize) -> Double {
-        if zoom > 0 {
-            return LoupeGeometry.zoomedRatio(
-                zoomLevel: zoom,
-                fullLongEdge: model.displayFullLongEdge ?? 0,
-                renderedLongEdge: Swift.max(image.width, image.height))
+    /// What the viewport is measured against on this pass: the pane, and the frame
+    /// the zoom is denominated in. That frame is predicted from the SOURCE's size and
+    /// the crop — what a zoomed settle will deliver — and never read back from
+    /// whichever draft, settle or region happens to be on screen, so one of those
+    /// landing cannot resize the picture (`ViewerViewport.resolveFrame`).
+    private func viewportWorld(container: CGSize) -> ViewerViewport.World {
+        let shown: CGImage? = LoupeAsk.sizingFrame(model.image, shownFor: model.imageURL,
+                                                  photo: photo.id)
+        let delivered: CGSize = shown.map { cg in
+            model.regionFullPixel ?? CGSize(width: cg.width, height: cg.height)
+        } ?? .zero
+        let basis: Int = zoomedFullBasis
+        let native: CGSize? = state.sourceFrameSize.flatMap { source in
+            ViewerViewport.nativeFrame(source: source,
+                                       decoderLongEdge: model.nativeLongEdge,
+                                       geometry: renderRecipe.develop.geometry,
+                                       askLongEdge: basis)
         }
-        return LoupeGeometry.fitRatio(imageWidth: image.width, imageHeight: image.height,
-                                      container: container, displayScale: displayScale)
+        return ViewerViewport.World(container: container,
+                                    displayScale: Double(Swift.max(displayScale, 1)),
+                                    delivered: delivered,
+                                    native: native,
+                                    fallbackLongEdge: Double(basis))
     }
 
+    /// The viewport as this pass must draw it: the committed state, in this pass's
+    /// world. Equal to `viewport.geometry` once `setWorld` has caught up.
+    private func viewportGeometry(container: CGSize) -> ViewerViewport {
+        viewport.geometry.inWorld(viewportWorld(container: container))
+    }
+
+    /// The whole-frame plate's draw ratio — device pixels per pixel of `image` — for
+    /// the resampling rule.
     private func effectiveRatio(image: CGImage, container: CGSize) -> Double {
-        ratio(forZoom: layoutZoom, image: image, container: container)
+        effectiveRatio(image: image,
+                       drawn: drawnFull(forZoom: layoutZoom, image: image,
+                                        container: container))
+    }
+
+    private func effectiveRatio(image: CGImage, drawn: CGSize) -> Double {
+        Double(Swift.max(drawn.width, drawn.height))
+            * Double(Swift.max(displayScale, 1))
+            / Double(Swift.max(Swift.max(image.width, image.height), 1))
     }
 
     // MARK: The zoom hold
@@ -2526,11 +2573,10 @@ struct LoupeView: View {
     /// The zoom every LAYOUT and every RENDER ASK is denominated in: the held value
     /// while a continuous zoom is in flight, the live one otherwise. Read by the
     /// canvas's frame, the drawn-extent ask, the region ask and the resampling rule,
-    /// so all five agree on which frame is on screen.
-    ///
-    /// Pans, clamps and the anchor arithmetic read `viewport.zoom` directly instead:
-    /// they describe where the photograph actually IS, which the hold does not change.
-    private var layoutZoom: Double { zoomHoldBase ?? viewport.zoom }
+    /// so all of them agree on which frame is on screen.
+    private var layoutZoom: Double {
+        viewportGeometry(container: containerSize).layout.zoom
+    }
 
     /// Whether the canvas may hold its layout right now. Not while an overlay takes
     /// gestures in the canvas's own coordinates — the mask handles, a neutral pick —
@@ -2548,90 +2594,10 @@ struct LoupeView: View {
                           picking: state.pickTarget != nil)
     }
 
-    /// Ends the hold: the canvas re-states itself at the live zoom and one render is
-    /// asked for at the size now on screen. Called the instant a pinch ends, and
-    /// `ZoomLayoutHold.quietNanoseconds` after the last change of any other zoom.
-    @MainActor
-    private func endZoomHold() {
-        zoomHoldBase = nil
-        zoomHoldRegion = nil
-    }
-
-    /// Keeps the anchor point pinned across a zoom change, then re-clamps the pan.
-    /// Zoom AND re-anchor in one synchronous block, so one gesture event costs one
-    /// body pass instead of two.
-    ///
-    /// `setZoom` publishes `zoom`; `applyZoomChange` publishes `pan`. Routed through
-    /// `.onChange`, those land in two different turns: SwiftUI runs the body with the new
-    /// zoom and the OLD pan, THEN fires `onChange`, which corrects the pan and runs the
-    /// body again. Every pinch event therefore drew one visibly unanchored frame and paid
-    /// for two full layouts of the canvas and its five overlays — at trackpad event
-    /// rates, on a high-refresh display, that is the difference between tracking the hand
-    /// and lagging it.
-    ///
-    /// Two `@Published` writes on the SAME object inside one synchronous block coalesce
-    /// into a single invalidation, which is why this works and why zoom and pan being on
-    /// one object was the precondition for it.
-    ///
-    /// `anchoredZoom` tells the surviving `.onChange` that this value has already been
-    /// handled. The `.onChange` stays because the KEYMAP's zoom verbs (Z, Space, +, −)
-    /// come through `LoupeViewport` with no container to anchor against, and a keyboard
-    /// zoom is one event where a second pass costs nothing.
-    private func zoomAnchored(to ratio: Double, at point: CGPoint?, container: CGSize) {
-        let before = viewport.zoom
-        // Captured BEFORE the write, so a hold beginning here pins the ask that is
-        // already on screen and the gesture's first event re-renders nothing at all.
-        let beforeRegion: CGRect? = zoomHoldBase == nil
-            ? requestedRegion(container: container)
-            : nil
-        viewport.setZoom(ratio, at: point)
-        let after = viewport.zoom
-        // Nothing moved — pinching past the 16× cap, or a wheel notch inside the
-        // ladder's dead band. The hold is deliberately NOT begun on this path: it is
-        // released by the zoom changing again (see `body`'s quiet task), so one begun
-        // without a change would never be released.
-        guard after != before else { return }
-        if zoomHoldBase == nil, zoomHoldAllowed {
-            zoomHoldBase = before
-            zoomHoldRegion = beforeRegion
-        }
-        applyZoomChange(from: before, to: after, container: container)
-        anchoredZoom = after
-    }
-
-    private func applyZoomChange(from oldValue: Double, to newValue: Double,
-                                 container: CGSize) {
-        guard let cg = model.image else {
-            viewport.pan = .zero
-            return
-        }
-        // Full-frame drawn extents (`drawnFull`), not the delivered image's: while a
-        // REGION is on screen the image's own dims describe the patch, and clamping
-        // the kept pan against the patch's short edge would yank the picture toward
-        // centre on every pinch event.
-        let oldDrawn = drawnFull(forZoom: oldValue, image: cg, container: container)
-        let newDrawn = drawnFull(forZoom: newValue, image: cg, container: container)
-        let anchor: CGPoint? = viewport.anchorNextZoomAtCursor ? viewport.lastCursor : nil
-        let target: CGPoint = anchor
-            ?? CGPoint(x: container.width / 2, y: container.height / 2)
-        let kept = LoupeGeometry.panKeeping(target, container: container,
-                                            oldDrawn: oldDrawn, newDrawn: newDrawn,
-                                            pan: viewport.pan)
-        viewport.pan = LoupeGeometry.clampPan(kept, container: container, drawn: newDrawn)
-        viewport.anchorNextZoomAtCursor = true
-    }
-
-    /// What a zoomed render will actually deliver — the basis `zoomLevel` is
-    /// denominated against once a gesture has left fit, AND the zoomed ask itself
-    /// (`requestedLongEdge`). Read from the SOURCE frame rather than from the current
-    /// request, which is what makes the fit zoom continuous across the boundary.
-    ///
-    /// The cap moved from the interactive ceiling (4096) to the inspection ceiling:
-    /// a 7008 px ARW at 1142% was a 4096 proxy blown up into mush, with "1:1"
-    /// meaning proxy pixels — the owner's fourth-round screenshots. The basis is the
-    /// sensor's own size now, so 1:1 is the photograph's pixels; the metadata frame
-    /// size answers first, the first render's own report backs it up, and only a
-    /// photo NOBODY knows the size of yet falls back to the fit cap for one pass.
+    /// The long edge a zoomed render asks for: the sensor's own, capped by the
+    /// inspection ceiling. The metadata frame size answers first, the first render's
+    /// own report backs it up, and a photo nobody knows the size of yet falls back to
+    /// the fit cap for one pass.
     private var zoomedFullBasis: Int {
         let native = state.primaryFrameSize.map { Int(Swift.max($0.width, $0.height)) }
             ?? model.nativeLongEdge
@@ -2641,139 +2607,69 @@ struct LoupeView: View {
             renderCap: DraftLadder.inspectionLongEdgeCeiling)
     }
 
-    /// The zoom level at which the picture exactly fills the viewport — the floor the
-    /// continuous gestures snap to, expressed in the zoomed denomination.
-    ///
-    /// Residual, deliberately accepted: on a CROPPED frame the settle delivers fewer
-    /// pixels than `zoomedFullBasis` predicts from the source extent, so the drawn
-    /// size corrects by that shortfall when the first zoomed settle lands. The
-    /// uncropped case — every photograph until someone crops it — is exact.
-    private func trueFitZoom(image cg: CGImage, container: CGSize) -> Double {
-        // The FULL frame's extent, not the delivered image's: a region image's own
-        // dims would compute the zoom at which the PATCH fills the viewport, and the
-        // pinch-out snap would land there instead of at fit.
-        let fullPx: CGSize = model.regionFullPixel
-            ?? CGSize(width: cg.width, height: cg.height)
-        let w = Int(fullPx.width.rounded())
-        let h = Int(fullPx.height.rounded())
-        return ContinuousZoom.fitZoom(
-            proxyFitRatio: LoupeGeometry.fitRatio(imageWidth: w,
-                                                  imageHeight: h,
-                                                  container: container,
-                                                  displayScale: displayScale),
-            proxyLongEdge: Swift.max(w, h),
-            zoomedFullLongEdge: zoomedFullBasis)
-    }
-
-    /// One drag gesture, two jobs decided by where it BEGAN: begun at fit it is the
-    /// scrubby zoom (press and drag right to zoom in, left to come back — the
-    /// Lightroom grammar the owner asked for), begun zoomed it pans. A click — no
-    /// travel — does nothing at all: click-to-zoom is deliberately gone, and Space/Z
-    /// still toggle from the keymap.
-    private func dragGesture(container: CGSize) -> some Gesture {
+    /// A drag pans, at every zoom above fit; fit has nowhere to go. A click — no
+    /// travel — does nothing.
+    private func dragGesture() -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
                 viewport.lastCursor = value.location
                 if viewport.showReadout { cursor = value.location }
                 // The crop canvas ignores zoom and pan, so a drag that fell past the
-                // overlay must not scrub `zoomLevel` invisibly — the number would sit
-                // there, unseen, until the tool was put away and the picture jumped.
+                // overlay must not move either invisibly.
                 guard gestureGate.continuous else { return }
-                guard let cg = model.image else { return }
-                // A DRAG PANS. Always, at every zoom, with no mode to be in.
-                //
-                // It used to decide once, on the first event, from whether the picture
-                // was at fit: a drag begun at fit was a scrubby ZOOM and could never
-                // become a pan, and a drag begun zoomed was a pan and could never zoom.
-                // Nothing on screen said which you would get — this viewer sets no
-                // cursor at all (`LumenHover.swift`: "zero NSCursor changes anywhere in
-                // the application") — so the same press did two unrelated things
-                // depending on state the photographer had to remember.
-                //
-                // The owner chose "wheel zooms, drag pans" against the alternatives, and
-                // that is also the Lightroom and Capture One reflex. The scrub is not
-                // replaced by anything: the wheel and the pinch both zoom continuously
-                // and both are discoverable, so it was a third way to do a thing that
-                // already had two, and the only one with no affordance.
-                //
-                // At fit the guard below stops the drag, because a picture with nothing
-                // hidden has nowhere to go — `clampPan` pins an axis that fits.
-                let drawn = drawnFull(forZoom: viewport.zoom, image: cg,
-                                      container: container)
-                guard drawn.width > container.width || drawn.height > container.height else {
-                    return
-                }
                 if panStart == nil { panStart = viewport.pan }
                 let base: CGSize = panStart ?? .zero
-                // Through `panTo`, like the wheel and the arrows: pressed against the
-                // bound, a direct write re-published the same pan on every event, and
-                // the HUD never saw drag pans as input.
                 viewport.panTo(x: base.width + value.translation.width,
-                               y: base.height + value.translation.height,
-                               container: container, drawn: drawn)
+                               y: base.height + value.translation.height)
             }
             .onEnded { _ in
                 panStart = nil
             }
     }
 
-    /// The trackpad pinch: continuous zoom about the gesture's start point, through
-    /// the same `setZoom` verb as every other zoom source. `ContinuousZoom` (LumenCore,
-    /// tested) holds the arithmetic — including the snap back to fit, so pinching out
-    /// always lands ON fit rather than a hair above it.
-    private func magnifyGesture(container: CGSize) -> some Gesture {
-        MagnifyGesture()
+    /// One trackpad magnify step, by either route.
+    @MainActor
+    private func applyMagnify(_ step: ViewerMagnify.Step, at point: CGPoint,
+                              native: Bool) {
+        // The end is let through the gate: a tool armed mid-pinch must not strand
+        // the layout hold.
+        if step != .ended {
+            guard gestureGate.continuous else { return }
+        }
+        viewport.pinch(step, at: point, holdingLayout: zoomHoldAllowed, native: native)
+    }
+
+    /// The SwiftUI pinch, kept only in case AppKit's `magnify(with:)` does not reach
+    /// `LumenViewerInputView` on some configuration. Inert once one native event has
+    /// arrived; delete it when the automation driver has shown the native route live.
+    private func magnifyFallbackGesture() -> some Gesture {
+        MagnifyGesture(minimumScaleDelta: 0)
             .onChanged { value in
-                // Same guard as the scrub above: the armed canvas is fit-only.
-                guard gestureGate.continuous else { return }
-                guard let cg = model.image else { return }
-                let start = pinchStartZoom ?? viewport.zoom
-                if pinchStartZoom == nil { pinchStartZoom = start }
-                let target = ContinuousZoom.pinched(
-                    startZoom: start,
-                    fitRatio: trueFitZoom(image: cg, container: container),
-                    magnification: Double(value.magnification))
-                zoomAnchored(to: target, at: value.startLocation, container: container)
+                let last: CGFloat = fallbackMagnification ?? 1
+                fallbackMagnification = value.magnification
+                guard viewport.nativeMagnifyEvents == 0, last > 0 else { return }
+                applyMagnify(.zoom(factor: Double(value.magnification / last)),
+                             at: value.startLocation, native: false)
             }
             .onEnded { _ in
-                pinchStartZoom = nil
-                // A pinch has a real end, so it does not wait out the quiet window the
-                // wheel has to: lift your fingers and the sharp render is already on
-                // its way.
-                endZoomHold()
+                fallbackMagnification = nil
+                guard viewport.nativeMagnifyEvents == 0 else { return }
+                applyMagnify(.ended, at: .zero, native: false)
             }
     }
 
-    /// One scroll event, applied. The arithmetic is `ViewerScroll`'s; what is left
-    /// here is the same two verbs every other zoom and pan source in this file goes
-    /// through, so a wheel cannot acquire a private ladder — the two-ladders defect
-    /// `ZoomLadder`'s own header says this project has shipped twice.
+    /// One scroll event, applied through the same viewport verbs as every other
+    /// zoom and pan source, so a wheel cannot acquire a private ladder.
     @MainActor
-    private func applyScroll(_ verb: ViewerScroll.Verb, container: CGSize) {
+    private func applyScroll(_ verb: ViewerScroll.Verb, at point: CGPoint) {
         // The crop canvas ignores zoom and pan (`cropCanvas`), so a scroll over it
-        // must not move either invisibly — the same guard the scrub and the pinch use.
+        // must not move either invisibly.
         guard gestureGate.continuous else { return }
         switch verb {
         case .zoom(let factor):
-            guard let cg = model.image else { return }
-            let target = ContinuousZoom.scrolled(
-                currentZoom: viewport.zoom,
-                fitRatio: trueFitZoom(image: cg, container: container),
-                factor: factor)
-            // Under the pointer, like every other zoom this app has: the cursor is
-            // where the photographer is looking, and `onContinuousHover` already
-            // tracks it for exactly this.
-            zoomAnchored(to: target, at: viewport.lastCursor, container: container)
+            viewport.magnify(by: factor, at: point, holdingLayout: zoomHoldAllowed)
         case .pan(let dx, let dy):
-            // ONE WRITE, NOT TWO. `panBy` assigned `pan` and the clamp assigned it again,
-            // so every event of a trackpad flick published twice and re-bodied the view
-            // twice — the second time to correct a value the first had already shown.
-            // `panTo` does the arithmetic and the clamp before it publishes anything.
-            let drawn: CGSize = model.image.map {
-                drawnFull(forZoom: viewport.zoom, image: $0, container: container)
-            } ?? container
-            viewport.panTo(x: viewport.pan.width + dx, y: viewport.pan.height + dy,
-                           container: container, drawn: drawn)
+            viewport.panBy(x: CGFloat(dx), y: CGFloat(dy))
         case .ignore:
             break
         }
@@ -2796,11 +2692,7 @@ struct LoupeView: View {
             case .down: dy = -step
             @unknown default: return
             }
-            let drawn: CGSize = model.image.map {
-                drawnFull(forZoom: viewport.zoom, image: $0, container: containerSize)
-            } ?? containerSize
-            viewport.panTo(x: viewport.pan.width + dx, y: viewport.pan.height + dy,
-                           container: containerSize, drawn: drawn)
+            viewport.panBy(x: dx, y: dy)
             return
         }
         switch direction {
@@ -2815,8 +2707,8 @@ struct LoupeView: View {
     /// How many pixels to ask the coordinator for. At fit that is the viewport in
     /// device pixels, quantized to 256-px buckets so a window resize does not spam the
     /// render queue. Zoomed, the ask is the SOURCE'S OWN LONG EDGE — that is what
-    /// makes "1:1" mean the sensor's pixels: the drawn extent is `zoom × ask`
-    /// (`LoupeGeometry.zoomedRatio` normalizes every proxy to it), so an ask below
+    /// makes "1:1" mean the sensor's pixels: the drawn extent is `zoom ×` the frame
+    /// that ask delivers (`ViewerViewport.nativeFrame`), so an ask below
     /// native denominates the zoom in proxy pixels and draws mush at depth — the
     /// owner's 1142% screenshot of a 4096 proxy of a 7008 px ARW. Until the native
     /// size is known (the first result carries it) the fit cap stands in, and the
@@ -2826,9 +2718,13 @@ struct LoupeView: View {
                                    drawnDeviceLongEdge: Double? = nil) -> Int {
         if layoutZoom > 0 {
             // THE ASK IS THE DENOMINATION BASIS, one value — `zoomedFullBasis` also
-            // feeds the pinch math and the fit-snap, so asking for anything else
-            // would draw at one size and gesture at another.
-            return Swift.max(zoomedFullBasis, 64)
+            // sizes the frame the viewport measures the zoom in (`viewportWorld`), so
+            // asking for anything else would make 1:1 something other than one
+            // delivered pixel per device pixel.
+            // Below 1:1, no more than the panel draws: the frame stays denominated in
+            // the basis (`viewportWorld`), so only sharpness above need is given up.
+            return Swift.max(ContinuousZoom.zoomedAskLongEdge(fullLongEdge: zoomedFullBasis,
+                                                              zoom: layoutZoom), 64)
         }
         let scale = Double(Swift.max(displayScale, 1))
         let longEdge = Double(Swift.max(container.width, container.height)) * scale
@@ -2884,42 +2780,30 @@ struct LoupeView: View {
     }
 
     /// The zoomed region ask for the current viewport, or nil for whole-frame.
-    /// Pure arithmetic over the same drawn frame and clamped pan the canvas lays
-    /// out with — `ZoomRegion` (LumenCore, tested) holds the rectangle rule.
+    /// Sized from the viewport's LAYOUT — the held zoom and pan while a continuous
+    /// zoom is in flight — so the ask does not move mid-gesture. `ZoomRegion`
+    /// (LumenCore, tested) holds the rectangle rule.
     private func requestedRegion(container: CGSize) -> CGRect? {
-        guard regionActive, let cg = model.image, model.imageURL == photo.id else {
+        guard regionActive, model.image != nil, model.imageURL == photo.id else {
             return nil
         }
-        let drawn = drawnFull(forZoom: layoutZoom, image: cg, container: container)
-        let pan = LoupeGeometry.clampPan(viewport.pan, container: container, drawn: drawn)
-        return ZoomRegion.requestUnit(container: container, drawnFull: drawn, pan: pan)
+        let vp = viewportGeometry(container: container)
+        return ZoomRegion.requestUnit(container: container, drawnFull: vp.layoutDrawn,
+                                      pan: vp.layout.pan)
     }
 
-    /// The FULL delivered frame's drawn extent at `zoom` — what every layout
-    /// quantity (the canvas frame, the pan clamp, the region ask, the readout's
-    /// unit conversion) is denominated in, whether the pixels on screen cover the
-    /// whole frame or a region of it.
+    /// The FULL frame's drawn extent at `zoom` — what every layout quantity (the
+    /// canvas frame, the region ask, the readout's unit conversion) is denominated
+    /// in, whether the pixels on screen cover the whole frame or a region of it.
     ///
-    /// For a whole-frame image this is exactly the old `drawnSize(effectiveRatio)`
-    /// arithmetic — the delivery's `fullPixelSize` IS the image's extent there. For
-    /// a region image the full extent comes from the same delivery, normalized by
-    /// the same rule (`zoomedRatio`), so the drawn frame does not change size when
-    /// a region result replaces a whole-frame one or the other way round.
+    /// It is the viewport's own answer (`ViewerViewport.drawn(atZoom:)`): a function
+    /// of the zoom and the frame the zoom is denominated in, not of the image that
+    /// happens to be on screen — `cg` is taken only so call sites say which picture
+    /// they are laying out.
     private func drawnFull(forZoom zoom: Double, image cg: CGImage,
                            container: CGSize) -> CGSize {
-        let fullPx: CGSize = model.regionFullPixel
-            ?? CGSize(width: cg.width, height: cg.height)
-        let w = Int(fullPx.width.rounded())
-        let h = Int(fullPx.height.rounded())
-        let ratio: Double = zoom > 0
-            ? LoupeGeometry.zoomedRatio(zoomLevel: zoom,
-                                        fullLongEdge: model.displayFullLongEdge
-                                            ?? Swift.max(w, h),
-                                        renderedLongEdge: Swift.max(w, h))
-            : LoupeGeometry.fitRatio(imageWidth: w, imageHeight: h,
-                                     container: container, displayScale: displayScale)
-        return LoupeGeometry.drawnSize(imageWidth: w, imageHeight: h,
-                                       ratio: ratio, displayScale: displayScale)
+        let size = viewportGeometry(container: container).drawn(atZoom: zoom)
+        return CGSize(width: Swift.max(size.width, 1), height: Swift.max(size.height, 1))
     }
 
     /// The full-frame-EQUIVALENT long edge of the frame on screen — for a region
@@ -2981,15 +2865,30 @@ struct LoupeView: View {
 
     @MainActor
     private func rebuildSampler() async {
-        guard samplerNeeded, let cg = model.image else {
-            sampler = nil
-            return
+        let key = SamplerKey(revision: model.revision, needed: samplerNeeded)
+        let cg: CGImage? = key.needed ? model.image : nil
+        let url = photo.id
+        let depicted = model.shownEditRevision
+        let frames = model
+        // Through the pump rather than awaited here: under a drag the next frame
+        // restarts this task before the last frame's sampler is built, and a build
+        // discarded for that left every overlay on the picture from before the drag.
+        _ = await samplerBuilds.submit(key) { _ in
+            guard let cg else {
+                sampler = nil
+                return false
+            }
+            var built: PixelSampler? = await Task.detached(priority: .userInitiated) {
+                PixelSampler.make(from: cg)
+            }.value
+            // The viewer has moved to another photograph: these are not its pixels.
+            guard frames.imageURL == url else { return false }
+            built?.revision = depicted
+            sampler = built
+            guard built != nil else { return false }
+            LatencyHUD.shared.noteOverlay("sampler", revision: depicted)
+            return true
         }
-        let built: PixelSampler? = await Task.detached(priority: .utility) {
-            PixelSampler.make(from: cg)
-        }.value
-        guard !Task.isCancelled else { return }
-        sampler = built
     }
 
     private func readout(at point: CGPoint, container: CGSize) -> ReadoutSample? {
@@ -2997,13 +2896,12 @@ struct LoupeView: View {
         // arithmetic does not describe — and `samplerNeeded` has already declined to
         // build a sampler for it.
         guard !cropArmed else { return nil }
-        guard viewport.showReadout, let cg = model.image, let sampler else { return nil }
-        // The FULL frame's drawn extent — the same one the canvas laid out with —
-        // so the cursor's unit point is denominated in the photograph.
-        let drawn = drawnFull(forZoom: viewport.zoom, image: cg, container: container)
-        let pan = LoupeGeometry.clampPan(viewport.pan, container: container, drawn: drawn)
+        guard viewport.showReadout, model.image != nil, let sampler else { return nil }
+        // Where the photograph IS — live zoom and pan, not the held layout — so the
+        // cursor's unit point is denominated in the photograph.
+        let vp = viewportGeometry(container: container)
         guard let unit = LoupeGeometry.imageUnitPoint(point, container: container,
-                                                      drawn: drawn, pan: pan) else {
+                                                      drawn: vp.drawn, pan: vp.pan) else {
             return nil
         }
         var u = Double(unit.x)

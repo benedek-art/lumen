@@ -1,0 +1,2342 @@
+[
+ {
+  "name": "x1-default-collisions",
+  "fixture": "raw",
+  "timeoutSeconds": 900,
+  "hangSeconds": 90,
+  "steps": [
+   {
+    "do": "open",
+    "photo": "5D",
+    "workspace": "develop",
+    "timeout": 60
+   },
+   {
+    "do": "key",
+    "key": "e",
+    "modifiers": [
+     "cmd"
+    ]
+   },
+   {
+    "do": "waitFor",
+    "that": "windows.sheet",
+    "eq": true,
+    "timeout": 10
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "listTargets",
+    "name": "sheet1"
+   },
+   {
+    "do": "shot",
+    "name": "sheet1"
+   },
+   {
+    "do": "state",
+    "name": "sheet1",
+    "ax": true
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "section/Metadata",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "listTargets",
+    "name": "sheet2"
+   },
+   {
+    "do": "shot",
+    "name": "sheet2"
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "section/HDR gain map",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "listTargets",
+    "name": "sheet3"
+   },
+   {
+    "do": "shot",
+    "name": "sheet3"
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "button/Export\u2026",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "button/Export\u2026",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "filePanel",
+    "folder": "$OUT/x1",
+    "confirm": "direct"
+   },
+   {
+    "do": "wait",
+    "seconds": 3
+   },
+   {
+    "do": "waitFor",
+    "that": "export.running",
+    "eq": false,
+    "timeout": 240
+   },
+   {
+    "do": "wait",
+    "seconds": 2
+   },
+   {
+    "do": "files",
+    "id": "files-x1a",
+    "dir": "$OUT/x1"
+   },
+   {
+    "do": "shot",
+    "name": "after-x1a"
+   },
+   {
+    "do": "state",
+    "name": "x1a"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "button/Close",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "key",
+    "key": "e",
+    "modifiers": [
+     "cmd",
+     "option",
+     "shift"
+    ]
+   },
+   {
+    "do": "wait",
+    "seconds": 3
+   },
+   {
+    "do": "waitFor",
+    "that": "export.running",
+    "eq": false,
+    "timeout": 240
+   },
+   {
+    "do": "wait",
+    "seconds": 2
+   },
+   {
+    "do": "files",
+    "id": "files-x1b",
+    "dir": "$OUT/x1"
+   },
+   {
+    "do": "state",
+    "name": "x1b"
+   },
+   {
+    "do": "key",
+    "key": "e",
+    "modifiers": [
+     "cmd"
+    ]
+   },
+   {
+    "do": "waitFor",
+    "that": "windows.sheet",
+    "eq": true,
+    "timeout": 10
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "segment/Overwrite",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "segment/Overwrite",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "button/Close",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "key",
+    "key": "e",
+    "modifiers": [
+     "cmd",
+     "option",
+     "shift"
+    ]
+   },
+   {
+    "do": "wait",
+    "seconds": 3
+   },
+   {
+    "do": "waitFor",
+    "that": "export.running",
+    "eq": false,
+    "timeout": 240
+   },
+   {
+    "do": "wait",
+    "seconds": 2
+   },
+   {
+    "do": "files",
+    "id": "files-x1c",
+    "dir": "$OUT/x1"
+   },
+   {
+    "do": "state",
+    "name": "x1c"
+   },
+   {
+    "do": "key",
+    "key": "e",
+    "modifiers": [
+     "cmd"
+    ]
+   },
+   {
+    "do": "waitFor",
+    "that": "windows.sheet",
+    "eq": true,
+    "timeout": 10
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "segment/Skip",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "segment/Skip",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "button/Close",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "key",
+    "key": "e",
+    "modifiers": [
+     "cmd",
+     "option",
+     "shift"
+    ]
+   },
+   {
+    "do": "wait",
+    "seconds": 3
+   },
+   {
+    "do": "waitFor",
+    "that": "export.running",
+    "eq": false,
+    "timeout": 240
+   },
+   {
+    "do": "wait",
+    "seconds": 2
+   },
+   {
+    "do": "files",
+    "id": "files-x1d",
+    "dir": "$OUT/x1"
+   },
+   {
+    "do": "state",
+    "name": "x1d"
+   },
+   {
+    "do": "key",
+    "key": "e",
+    "modifiers": [
+     "cmd"
+    ]
+   },
+   {
+    "do": "waitFor",
+    "that": "windows.sheet",
+    "eq": true,
+    "timeout": 10
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "key",
+    "key": "x"
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "state",
+    "name": "x-in-sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "button/Close",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   }
+  ]
+ },
+ {
+  "name": "x2-png-parity",
+  "fixture": "raw",
+  "timeoutSeconds": 600,
+  "hangSeconds": 90,
+  "steps": [
+   {
+    "do": "open",
+    "photo": "5D",
+    "workspace": "develop",
+    "timeout": 60
+   },
+   {
+    "do": "key",
+    "key": "e",
+    "modifiers": [
+     "cmd"
+    ]
+   },
+   {
+    "do": "waitFor",
+    "that": "windows.sheet",
+    "eq": true,
+    "timeout": 10
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "segment/PNG",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "segment/PNG",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "segment/8-bit",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "segment/8-bit",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "segment/Off",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "segment/Off",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "shot",
+    "name": "x2-sheet"
+   },
+   {
+    "do": "state",
+    "name": "x2-sheet"
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "button/Export\u2026",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "button/Export\u2026",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "filePanel",
+    "folder": "$OUT/x2",
+    "confirm": "direct"
+   },
+   {
+    "do": "wait",
+    "seconds": 3
+   },
+   {
+    "do": "waitFor",
+    "that": "export.running",
+    "eq": false,
+    "timeout": 240
+   },
+   {
+    "do": "wait",
+    "seconds": 2
+   },
+   {
+    "do": "files",
+    "id": "files-x2",
+    "dir": "$OUT/x2"
+   },
+   {
+    "do": "shot",
+    "name": "after-x2"
+   }
+  ]
+ },
+ {
+  "name": "x2b-fiducial-roundtrip",
+  "fixture": "fiducial",
+  "timeoutSeconds": 600,
+  "hangSeconds": 90,
+  "steps": [
+   {
+    "do": "open",
+    "photo": "fiducial.png",
+    "workspace": "develop"
+   },
+   {
+    "do": "key",
+    "key": "e",
+    "modifiers": [
+     "cmd"
+    ]
+   },
+   {
+    "do": "waitFor",
+    "that": "windows.sheet",
+    "eq": true,
+    "timeout": 10
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "segment/PNG",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "segment/PNG",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "segment/8-bit",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "segment/8-bit",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "picker/Resize",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "picker/Resize",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "click",
+    "target": "menuitem/Don't resize"
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "segment/Off",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "segment/Off",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "shot",
+    "name": "x2b-sheet"
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "button/Export\u2026",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "button/Export\u2026",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "filePanel",
+    "folder": "$OUT/x2b",
+    "confirm": "direct"
+   },
+   {
+    "do": "wait",
+    "seconds": 3
+   },
+   {
+    "do": "waitFor",
+    "that": "export.running",
+    "eq": false,
+    "timeout": 240
+   },
+   {
+    "do": "wait",
+    "seconds": 2
+   },
+   {
+    "do": "files",
+    "id": "files-x2b",
+    "dir": "$OUT/x2b"
+   },
+   {
+    "do": "shot",
+    "name": "after-x2b"
+   }
+  ]
+ },
+ {
+  "name": "x3-formats",
+  "fixture": "raw",
+  "timeoutSeconds": 1200,
+  "hangSeconds": 90,
+  "steps": [
+   {
+    "do": "open",
+    "photo": "5D",
+    "workspace": "develop",
+    "timeout": 60
+   },
+   {
+    "do": "key",
+    "key": "e",
+    "modifiers": [
+     "cmd"
+    ]
+   },
+   {
+    "do": "waitFor",
+    "that": "windows.sheet",
+    "eq": true,
+    "timeout": 10
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "segment/TIFF",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "segment/TIFF",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "segment/16-bit",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "segment/16-bit",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "picker/Colour",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "picker/Colour",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "click",
+    "target": "menuitem/ProPhoto RGB"
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "picker/Resize",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "picker/Resize",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "click",
+    "target": "menuitem/Don't resize"
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "segment/Off",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "segment/Off",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "shot",
+    "name": "x3-tiff"
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "button/Export\u2026",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "button/Export\u2026",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "filePanel",
+    "folder": "$OUT/x3",
+    "confirm": "direct"
+   },
+   {
+    "do": "wait",
+    "seconds": 3
+   },
+   {
+    "do": "waitFor",
+    "that": "export.running",
+    "eq": false,
+    "timeout": 240
+   },
+   {
+    "do": "wait",
+    "seconds": 2
+   },
+   {
+    "do": "files",
+    "id": "files-x3tiff",
+    "dir": "$OUT/x3"
+   },
+   {
+    "do": "shot",
+    "name": "after-x3tiff"
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "segment/HEIC",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "segment/HEIC",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "segment/10-bit",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "segment/10-bit",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "picker/Colour",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "picker/Colour",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "click",
+    "target": "menuitem/Display P3"
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "picker/Resize",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "picker/Resize",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "click",
+    "target": "menuitem/Percentage"
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "shot",
+    "name": "x3-heic"
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "button/Export\u2026",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "button/Export\u2026",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "filePanel",
+    "folder": "$OUT/x3",
+    "confirm": "direct"
+   },
+   {
+    "do": "wait",
+    "seconds": 3
+   },
+   {
+    "do": "waitFor",
+    "that": "export.running",
+    "eq": false,
+    "timeout": 240
+   },
+   {
+    "do": "wait",
+    "seconds": 2
+   },
+   {
+    "do": "files",
+    "id": "files-x3heic",
+    "dir": "$OUT/x3"
+   },
+   {
+    "do": "shot",
+    "name": "after-x3heic"
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "segment/JPEG",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "segment/JPEG",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "picker/Colour",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "picker/Colour",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "click",
+    "target": "menuitem/Adobe RGB (1998)"
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "picker/Resize",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "picker/Resize",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "click",
+    "target": "menuitem/Short edge"
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "segment/Glossy",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "segment/Glossy",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "segment/High",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "segment/High",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "shot",
+    "name": "x3-jpeg"
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "button/Export\u2026",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "button/Export\u2026",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "filePanel",
+    "folder": "$OUT/x3",
+    "confirm": "direct"
+   },
+   {
+    "do": "wait",
+    "seconds": 3
+   },
+   {
+    "do": "waitFor",
+    "that": "export.running",
+    "eq": false,
+    "timeout": 240
+   },
+   {
+    "do": "wait",
+    "seconds": 2
+   },
+   {
+    "do": "files",
+    "id": "files-x3jpeg",
+    "dir": "$OUT/x3"
+   },
+   {
+    "do": "shot",
+    "name": "after-x3jpeg"
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "segment/PNG",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "segment/PNG",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "segment/16-bit",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "segment/16-bit",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "picker/Colour",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "picker/Colour",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "click",
+    "target": "menuitem/Rec. 2020"
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "picker/Resize",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "picker/Resize",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "click",
+    "target": "menuitem/Megapixels"
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "segment/Off",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "segment/Off",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "shot",
+    "name": "x3-png16"
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "button/Export\u2026",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "button/Export\u2026",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "filePanel",
+    "folder": "$OUT/x3",
+    "confirm": "direct"
+   },
+   {
+    "do": "wait",
+    "seconds": 3
+   },
+   {
+    "do": "waitFor",
+    "that": "export.running",
+    "eq": false,
+    "timeout": 240
+   },
+   {
+    "do": "wait",
+    "seconds": 2
+   },
+   {
+    "do": "files",
+    "id": "files-x3png16",
+    "dir": "$OUT/x3"
+   },
+   {
+    "do": "shot",
+    "name": "after-x3png16"
+   }
+  ]
+ },
+ {
+  "name": "x4-naming-metadata",
+  "fixture": "raw",
+  "timeoutSeconds": 700,
+  "hangSeconds": 90,
+  "steps": [
+   {
+    "do": "open",
+    "photo": "5D",
+    "workspace": "develop",
+    "timeout": 60
+   },
+   {
+    "do": "key",
+    "key": "e",
+    "modifiers": [
+     "cmd"
+    ]
+   },
+   {
+    "do": "waitFor",
+    "that": "windows.sheet",
+    "eq": true,
+    "timeout": 10
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "field/{name}",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "field/{name}",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.3
+   },
+   {
+    "do": "key",
+    "key": "delete",
+    "count": 40,
+    "interval": 0.01
+   },
+   {
+    "do": "type",
+    "text": "{date}_{seq:3}_{whatever}_{camera}"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "field/{custom}",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "field/{custom}",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.3
+   },
+   {
+    "do": "key",
+    "key": "delete",
+    "count": 40,
+    "interval": 0.01
+   },
+   {
+    "do": "type",
+    "text": "Client A"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "field/none",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "field/none",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.3
+   },
+   {
+    "do": "key",
+    "key": "delete",
+    "count": 40,
+    "interval": 0.01
+   },
+   {
+    "do": "type",
+    "text": "sub/../../escape"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "shot",
+    "name": "x4-naming"
+   },
+   {
+    "do": "state",
+    "name": "x4-naming"
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "toggle/Strip GPS",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "toggle/Strip GPS",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "toggle/EXIF",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "toggle/Keywords",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "field/\u00a9 \u2026",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "field/\u00a9 \u2026",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.3
+   },
+   {
+    "do": "key",
+    "key": "delete",
+    "count": 40,
+    "interval": 0.01
+   },
+   {
+    "do": "type",
+    "text": "(c) Test Owner 2026"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "toggle/Watermark",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "toggle/Watermark",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "field/\u00a9 Your Name",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "field/\u00a9 Your Name",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.3
+   },
+   {
+    "do": "key",
+    "key": "delete",
+    "count": 40,
+    "interval": 0.01
+   },
+   {
+    "do": "type",
+    "text": "WATERMARK TEST"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "segment/Mid",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "segment/Mid",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "shot",
+    "name": "x4-meta"
+   },
+   {
+    "do": "state",
+    "name": "x4-meta"
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "button/Export\u2026",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "button/Export\u2026",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "filePanel",
+    "folder": "$OUT/x4",
+    "confirm": "direct"
+   },
+   {
+    "do": "wait",
+    "seconds": 3
+   },
+   {
+    "do": "waitFor",
+    "that": "export.running",
+    "eq": false,
+    "timeout": 240
+   },
+   {
+    "do": "wait",
+    "seconds": 2
+   },
+   {
+    "do": "files",
+    "id": "files-x4",
+    "dir": "$OUT/x4"
+   },
+   {
+    "do": "shot",
+    "name": "after-x4"
+   }
+  ]
+ },
+ {
+  "name": "x5-multi-cancel",
+  "fixture": "raw",
+  "timeoutSeconds": 1500,
+  "hangSeconds": 120,
+  "steps": [
+   {
+    "do": "open",
+    "photo": "5D",
+    "workspace": "develop",
+    "timeout": 60
+   },
+   {
+    "do": "key",
+    "key": "g"
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "key",
+    "key": "a",
+    "modifiers": [
+     "cmd"
+    ]
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "grid-cell/XH2-40MP.RAF"
+    },
+    "modifiers": [
+     "cmd"
+    ]
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "state",
+    "name": "sel"
+   },
+   {
+    "do": "key",
+    "key": "e",
+    "modifiers": [
+     "cmd"
+    ]
+   },
+   {
+    "do": "waitFor",
+    "that": "windows.sheet",
+    "eq": true,
+    "timeout": 10
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "*/Include Print Adobe RGB full",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "*/Include HDR HEIC",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "*/Include Full-size JPEG",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "shot",
+    "name": "x5-sheet"
+   },
+   {
+    "do": "state",
+    "name": "x5-sheet"
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "button/Export\u2026",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "button/Export\u2026",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "filePanel",
+    "folder": "$OUT/x5",
+    "confirm": "direct"
+   },
+   {
+    "do": "wait",
+    "seconds": 3
+   },
+   {
+    "do": "waitFor",
+    "that": "export.running",
+    "eq": false,
+    "timeout": 240
+   },
+   {
+    "do": "wait",
+    "seconds": 2
+   },
+   {
+    "do": "files",
+    "id": "files-x5",
+    "dir": "$OUT/x5"
+   },
+   {
+    "do": "shot",
+    "name": "after-x5"
+   },
+   {
+    "do": "state",
+    "name": "x5-done"
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "button/Export\u2026",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "button/Export\u2026",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "filePanel",
+    "folder": "$OUT/x5c",
+    "confirm": "direct"
+   },
+   {
+    "do": "wait",
+    "seconds": 4
+   },
+   {
+    "do": "shot",
+    "name": "x5c-running"
+   },
+   {
+    "do": "state",
+    "name": "x5c-running"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "button/Cancel",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "shot",
+    "name": "x5c-cancelling"
+   },
+   {
+    "do": "waitFor",
+    "that": "export.running",
+    "eq": false,
+    "timeout": 240
+   },
+   {
+    "do": "wait",
+    "seconds": 2
+   },
+   {
+    "do": "files",
+    "id": "files-x5c",
+    "dir": "$OUT/x5c"
+   },
+   {
+    "do": "shot",
+    "name": "x5c-done"
+   },
+   {
+    "do": "state",
+    "name": "x5c-done"
+   }
+  ]
+ },
+ {
+  "name": "x6-proof-export",
+  "fixture": "raw",
+  "timeoutSeconds": 900,
+  "hangSeconds": 90,
+  "steps": [
+   {
+    "do": "open",
+    "photo": "5D",
+    "workspace": "develop",
+    "timeout": 60
+   },
+   {
+    "do": "scrollTo",
+    "target": "slider/Saturation#track"
+   },
+   {
+    "do": "drag",
+    "id": "sat",
+    "target": "slider/Saturation#track",
+    "from": [
+     0.5,
+     0.5
+    ],
+    "to": [
+     0.95,
+     0.5
+    ],
+    "duration": 0.6,
+    "settle": 20
+   },
+   {
+    "do": "key",
+    "key": "s",
+    "modifiers": [
+     "shift"
+    ]
+   },
+   {
+    "do": "wait",
+    "seconds": 3
+   },
+   {
+    "do": "state",
+    "name": "proof-on"
+   },
+   {
+    "do": "key",
+    "key": "e",
+    "modifiers": [
+     "cmd"
+    ]
+   },
+   {
+    "do": "waitFor",
+    "that": "windows.sheet",
+    "eq": true,
+    "timeout": 10
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "segment/TIFF",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "segment/TIFF",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "segment/16-bit",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "segment/16-bit",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "picker/Colour",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "picker/Colour",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "click",
+    "target": "menuitem/ProPhoto RGB"
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "segment/Off",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "segment/Off",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "field/{name}",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "field/{name}",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.3
+   },
+   {
+    "do": "key",
+    "key": "delete",
+    "count": 40,
+    "interval": 0.01
+   },
+   {
+    "do": "type",
+    "text": "{name}-proofON"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "button/Export\u2026",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "button/Export\u2026",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "filePanel",
+    "folder": "$OUT/x6",
+    "confirm": "direct"
+   },
+   {
+    "do": "wait",
+    "seconds": 3
+   },
+   {
+    "do": "waitFor",
+    "that": "export.running",
+    "eq": false,
+    "timeout": 240
+   },
+   {
+    "do": "wait",
+    "seconds": 2
+   },
+   {
+    "do": "files",
+    "id": "files-x6on",
+    "dir": "$OUT/x6"
+   },
+   {
+    "do": "shot",
+    "name": "after-x6on"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "button/Close",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "key",
+    "key": "s",
+    "modifiers": [
+     "shift"
+    ]
+   },
+   {
+    "do": "wait",
+    "seconds": 3
+   },
+   {
+    "do": "state",
+    "name": "proof-off"
+   },
+   {
+    "do": "key",
+    "key": "e",
+    "modifiers": [
+     "cmd"
+    ]
+   },
+   {
+    "do": "waitFor",
+    "that": "windows.sheet",
+    "eq": true,
+    "timeout": 10
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "field/{name}",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "field/{name}",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.3
+   },
+   {
+    "do": "key",
+    "key": "delete",
+    "count": 40,
+    "interval": 0.01
+   },
+   {
+    "do": "type",
+    "text": "{name}-proofOFF"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "scrollTo",
+    "target": {
+     "name": "button/Export\u2026",
+     "within": "sheet"
+    },
+    "in": "sheet"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "button/Export\u2026",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "filePanel",
+    "folder": "$OUT/x6",
+    "confirm": "direct"
+   },
+   {
+    "do": "wait",
+    "seconds": 3
+   },
+   {
+    "do": "waitFor",
+    "that": "export.running",
+    "eq": false,
+    "timeout": 240
+   },
+   {
+    "do": "wait",
+    "seconds": 2
+   },
+   {
+    "do": "files",
+    "id": "files-x6off",
+    "dir": "$OUT/x6"
+   },
+   {
+    "do": "shot",
+    "name": "after-x6off"
+   }
+  ]
+ },
+ {
+  "name": "x7-scale",
+  "fixture": "fiducial",
+  "timeoutSeconds": 400,
+  "hangSeconds": 60,
+  "steps": [
+   {
+    "do": "open",
+    "photo": "fiducial.png",
+    "workspace": "develop"
+   },
+   {
+    "do": "click",
+    "target": "viewer",
+    "at": [
+     0.5,
+     0.5
+    ],
+    "count": 2
+   },
+   {
+    "do": "wait",
+    "seconds": 10
+   },
+   {
+    "do": "shot",
+    "name": "loupe-1to1"
+   },
+   {
+    "do": "state",
+    "name": "loupe-1to1"
+   },
+   {
+    "do": "direct",
+    "call": "fit"
+   },
+   {
+    "do": "wait",
+    "seconds": 2
+   },
+   {
+    "do": "key",
+    "key": "y",
+    "modifiers": [
+     "shift"
+    ]
+   },
+   {
+    "do": "wait",
+    "seconds": 3
+   },
+   {
+    "do": "click",
+    "target": "viewer",
+    "at": [
+     0.3,
+     0.5
+    ],
+    "count": 2
+   },
+   {
+    "do": "wait",
+    "seconds": 10
+   },
+   {
+    "do": "shot",
+    "name": "split-1to1"
+   },
+   {
+    "do": "state",
+    "name": "split-1to1"
+   },
+   {
+    "do": "key",
+    "key": "y",
+    "modifiers": [
+     "shift"
+    ]
+   },
+   {
+    "do": "wait",
+    "seconds": 5
+   },
+   {
+    "do": "shot",
+    "name": "split-off-1to1"
+   },
+   {
+    "do": "state",
+    "name": "split-off-1to1"
+   },
+   {
+    "do": "direct",
+    "call": "fit"
+   },
+   {
+    "do": "wait",
+    "seconds": 2
+   },
+   {
+    "do": "key",
+    "key": "c"
+   },
+   {
+    "do": "wait",
+    "seconds": 4
+   },
+   {
+    "do": "shot",
+    "name": "c-fit"
+   },
+   {
+    "do": "click",
+    "target": "compare",
+    "at": [
+     0.25,
+     0.5
+    ]
+   },
+   {
+    "do": "wait",
+    "seconds": 12
+   },
+   {
+    "do": "shot",
+    "name": "c-1to1"
+   },
+   {
+    "do": "state",
+    "name": "c-1to1"
+   },
+   {
+    "do": "key",
+    "key": "y"
+   },
+   {
+    "do": "wait",
+    "seconds": 3
+   },
+   {
+    "do": "shot",
+    "name": "c-then-y"
+   },
+   {
+    "do": "state",
+    "name": "c-then-y"
+   }
+  ]
+ }
+]

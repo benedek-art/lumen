@@ -1,0 +1,49 @@
+{
+  "name": "smoke",
+  "description": "Opens the fiducial in Develop and uses every verb once. The lane's own health check: every expectation here should hold on a healthy build.",
+  "fixture": "fiducial",
+  "timeoutSeconds": 240,
+  "steps": [
+    {"do": "open", "photo": "fiducial.png", "workspace": "develop"},
+    {"do": "shot", "name": "01-develop-fit"},
+    {"do": "state", "name": "open", "texts": true},
+    {"do": "expect", "that": "viewMode", "eq": "loupe"},
+    {"do": "expect", "that": "photo.name", "eq": "fiducial.png"},
+    {"do": "expect", "that": "viewport.zoom", "eq": 0},
+    {"do": "expect", "that": "render.draft", "eq": false},
+    {"do": "expect", "that": "app.autoAdvance", "eq": true, "note": "reflected state is readable"},
+
+    {"do": "move", "target": "viewer", "at": [0.3, 0.4], "duration": 0.2},
+    {"do": "wait", "seconds": 0.2},
+    {"do": "expect", "that": "viewport.lastCursorX", "gt": 1, "note": "hover reaches the viewer"},
+
+    {"do": "scroll", "id": "wheel", "target": "viewer", "at": [0.5, 0.5], "lines": [0, 1], "count": 2},
+    {"do": "expect", "that": "viewport.zoom", "gt": 0, "note": "the wheel zooms"},
+    {"do": "direct", "call": "fit"},
+
+    {"do": "click", "id": "doubleclick", "target": "viewer", "at": [0.6, 0.5], "count": 2},
+    {"do": "wait", "seconds": 0.3},
+    {"do": "expect", "that": "viewport.zoom", "eq": 1, "note": "double-click goes to 1:1"},
+    {"do": "key", "key": "-", "modifiers": ["cmd"]},
+    {"do": "menu", "path": "View > Zoom In"},
+    {"do": "direct", "call": "fit"},
+    {"do": "waitSettled", "timeout": 15},
+
+    {"do": "scrollTo", "target": "slider/Exposure#track"},
+    {"do": "drag", "id": "exposure", "target": "slider/Exposure#track", "from": [0.5, 0.5], "to": [0.7, 0.5],
+     "duration": 0.8, "hz": 60, "settle": 15, "film": 30, "watch": "develop.tone.exposure"},
+    {"do": "expect", "that": "recipe.develop.tone.exposure", "gt": 0.1, "note": "dragging Exposure changes it"},
+    {"do": "shot", "name": "02-after-exposure"},
+    {"do": "compare", "name": "exposure", "a": "01-develop-fit", "b": "02-after-exposure"},
+    {"do": "expect", "that": "compare.exposure.meanAbs", "gt": 2, "note": "the picture got brighter on screen"},
+
+    {"do": "click", "target": "rail", "at": [0.5, 0.115], "note": "the Develop button, second in the rail"},
+    {"do": "expect", "that": "workspace", "eq": "develop"},
+    {"do": "key", "key": "m"},
+    {"do": "wait", "seconds": 0.5},
+    {"do": "expect", "that": "masking", "eq": true, "note": "M enters masking"},
+    {"do": "shot", "name": "03-masking"},
+    {"do": "key", "key": "escape"},
+    {"do": "state", "name": "end"}
+  ]
+}

@@ -148,6 +148,10 @@ struct MaskCanvas: View {
     /// Selecting a mask from its pin, which is how a photographer picks the mask under
     /// the thing they are looking at rather than by reading a list.
     var selectMask: (String) -> Void = { _ in }
+    /// A drag that edits this mask's selection began (true) or ended (false).
+    var selectionGesture: (Bool) -> Void = { _ in }
+    /// The pointer is on another mask's pin, or on none.
+    var hoverPin: (String?) -> Void = { _ in }
     let commit: (MaskCanvasEdit) -> Void
 
     @ObservedObject private var brush: MaskBrushStore = MaskBrushStore.shared
@@ -172,6 +176,7 @@ struct MaskCanvas: View {
     @State private var strokeSeed: CGPoint? = nil
     @State private var strokeStarted: Date? = nil
     @State private var hover: CGPoint? = nil
+    @State private var hoveredPin: String? = nil
     /// Whether Option was down when this stroke began. See `dragBrush`.
     @State private var eraseHeld: Bool = false
 
@@ -184,6 +189,8 @@ struct MaskCanvas: View {
          strokes: BrushStrokeSet = BrushStrokeSet(),
          allMasks: [Mask] = [],
          selectMask: @escaping (String) -> Void = { _ in },
+         selectionGesture: @escaping (Bool) -> Void = { _ in },
+         hoverPin: @escaping (String?) -> Void = { _ in },
          commit: @escaping (MaskCanvasEdit) -> Void) {
         self.imageRect = imageRect
         self.sourceSize = sourceSize
@@ -194,6 +201,8 @@ struct MaskCanvas: View {
         self.strokes = strokes
         self.allMasks = allMasks
         self.selectMask = selectMask
+        self.selectionGesture = selectionGesture
+        self.hoverPin = hoverPin
         self.commit = commit
     }
 
@@ -270,13 +279,26 @@ struct MaskCanvas: View {
         .onContinuousHover(coordinateSpace: .local) { phase in
             if case .active(let point) = phase {
                 hover = point
+                let pin = foreignPin(at: point)
+                if pin != hoveredPin {
+                    hoveredPin = pin
+                    hoverPin(pin)
+                }
                 // Cheap, and it is the only signal that arrives while a modifier is
                 // being held over a stationary picture.
                 let held = MaskCanvas.optionHeld()
                 if held != eraseHeld { eraseHeld = held }
             } else {
                 hover = nil
+                if hoveredPin != nil {
+                    hoveredPin = nil
+                    hoverPin(nil)
+                }
             }
+        }
+        .onDisappear {
+            if hoveredPin != nil { hoverPin(nil) }
+            selectionGesture(false)
         }
         // The crosshair, armed only while the shape being asked for does not exist yet.
         // This was six lines of hand-rolled push/pop discipline — correct ones — and the
@@ -532,6 +554,7 @@ struct MaskCanvas: View {
                 // already redrawing per event, and it touches no shared object.
                 hover = value.location
                 sliderGestureChanged(true)
+                selectionGesture(true)
                 switch component.kind {
                 case .linear, .similarityLine:
                     dragLine(value, component, ended: false)
@@ -565,7 +588,10 @@ struct MaskCanvas: View {
                         return
                     }
                 }
-                defer { sliderGestureChanged(false) }
+                defer {
+                    sliderGestureChanged(false)
+                    selectionGesture(false)
+                }
                 guard let component = component else { return }
                 switch component.kind {
                 case .linear, .similarityLine:
