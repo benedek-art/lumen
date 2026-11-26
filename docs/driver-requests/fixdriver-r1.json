@@ -1,0 +1,456 @@
+{
+ "suite": "smoke.json",
+ "scenarios": [
+  {
+   "name": "sheets-export",
+   "description": "Export sheet by name: open it with cmd-E, change Quality, Strip GPS and output sharpening by name, export through the real open panel, screenshot the sheet. Then the Copy Settings sheet: tick two boxes by name and confirm.",
+   "fixture": "fiducial",
+   "timeoutSeconds": 280,
+   "stallSampleMs": 0,
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop"
+    },
+    {
+     "do": "listTargets",
+     "name": "develop"
+    },
+    {
+     "do": "key",
+     "key": "e",
+     "modifiers": [
+      "cmd"
+     ],
+     "note": "Export\u2026 is cmd-E"
+    },
+    {
+     "do": "waitFor",
+     "that": "windows.sheet",
+     "eq": true,
+     "timeout": 8,
+     "note": "the export sheet is a window the driver sees"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "shot",
+     "name": "01-export-open",
+     "region": "window"
+    },
+    {
+     "do": "listTargets",
+     "name": "export"
+    },
+    {
+     "do": "drag",
+     "id": "quality",
+     "target": "slider/Quality#track",
+     "from": [
+      0.98,
+      0.5
+     ],
+     "to": [
+      0.5,
+      0.5
+     ],
+     "duration": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "export.recipes.items.0.quality",
+     "lt": 99,
+     "note": "dragging Quality in the sheet changes the recipe"
+    },
+    {
+     "do": "scrollTo",
+     "target": "toggle/Strip GPS",
+     "in": "sheet"
+    },
+    {
+     "do": "click",
+     "id": "gps",
+     "target": "toggle/Strip GPS"
+    },
+    {
+     "do": "expect",
+     "that": "export.recipes.items.0.metadata.includeGPS",
+     "eq": false,
+     "note": "Strip GPS by name"
+    },
+    {
+     "do": "scrollTo",
+     "target": "segment/Screen",
+     "in": "sheet"
+    },
+    {
+     "do": "click",
+     "id": "screen",
+     "target": "segment/Screen"
+    },
+    {
+     "do": "expect",
+     "that": "export.recipes.items.0.sharpen.medium",
+     "eq": "screen",
+     "note": "output sharpening Screen by name"
+    },
+    {
+     "do": "shot",
+     "name": "02-export-changed",
+     "region": "window"
+    },
+    {
+     "do": "click",
+     "id": "export",
+     "target": "button/Export\u2026",
+     "note": "accessibility name"
+    },
+    {
+     "do": "filePanel",
+     "folder": "$OUT/export"
+    },
+    {
+     "do": "shot",
+     "name": "03-file-panel",
+     "region": "window"
+    },
+    {
+     "do": "listTargets",
+     "name": "filepanel"
+    },
+    {
+     "do": "key",
+     "key": "return",
+     "note": "the panel's default button, Export Here"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "waitFor",
+     "that": "export.running",
+     "eq": false,
+     "timeout": 90
+    },
+    {
+     "do": "files",
+     "id": "exported",
+     "dir": "$OUT/export"
+    },
+    {
+     "do": "expect",
+     "that": "steps.exported.count",
+     "ge": 1,
+     "note": "the export wrote files"
+    },
+    {
+     "do": "shot",
+     "name": "04-export-done",
+     "region": "window"
+    },
+    {
+     "do": "state",
+     "name": "export-done"
+    },
+    {
+     "do": "click",
+     "target": "button/Close",
+     "note": "close the sheet by name"
+    },
+    {
+     "do": "waitFor",
+     "that": "windows.sheet",
+     "eq": false,
+     "timeout": 5
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ],
+     "note": "Copy Settings\u2026"
+    },
+    {
+     "do": "waitFor",
+     "that": "windows.sheet",
+     "eq": true,
+     "timeout": 8
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "shot",
+     "name": "05-subset-open",
+     "region": "window"
+    },
+    {
+     "do": "listTargets",
+     "name": "subset"
+    },
+    {
+     "do": "click",
+     "id": "tick-crop",
+     "target": "checkbox/Crop & Straighten"
+    },
+    {
+     "do": "click",
+     "id": "tick-spots",
+     "target": "checkbox/Spot Removal"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "shot",
+     "name": "06-subset-ticked",
+     "region": "window"
+    },
+    {
+     "do": "compare",
+     "name": "crop-box",
+     "a": "05-subset-open",
+     "b": "06-subset-ticked",
+     "region": "checkbox/Crop & Straighten"
+    },
+    {
+     "do": "compare",
+     "name": "spots-box",
+     "a": "05-subset-open",
+     "b": "06-subset-ticked",
+     "region": "checkbox/Spot Removal"
+    },
+    {
+     "do": "expect",
+     "that": "compare.crop-box.meanAbs",
+     "gt": 5,
+     "note": "Crop & Straighten box changed on screen"
+    },
+    {
+     "do": "expect",
+     "that": "compare.spots-box.meanAbs",
+     "gt": 5,
+     "note": "Spot Removal box changed on screen"
+    },
+    {
+     "do": "click",
+     "target": "button/Copy",
+     "note": "confirm by name"
+    },
+    {
+     "do": "waitFor",
+     "that": "windows.sheet",
+     "eq": false,
+     "timeout": 5
+    },
+    {
+     "do": "expect",
+     "that": "menu.Edit > Paste Settings.enabled",
+     "eq": true,
+     "note": "something was copied"
+    }
+   ]
+  },
+  {
+   "name": "names-buttons",
+   "description": "Five named non-slider buttons in different panels, and list-targets on Develop and Library.",
+   "fixture": "fiducial",
+   "timeoutSeconds": 240,
+   "stallSampleMs": 0,
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop"
+    },
+    {
+     "do": "listTargets",
+     "name": "develop"
+    },
+    {
+     "do": "click",
+     "id": "rail-grade",
+     "target": "rail/Grade"
+    },
+    {
+     "do": "expect",
+     "that": "workspace",
+     "eq": "grade",
+     "note": "rail button by name"
+    },
+    {
+     "do": "click",
+     "target": "rail/Develop"
+    },
+    {
+     "do": "expect",
+     "that": "workspace",
+     "eq": "develop"
+    },
+    {
+     "do": "shot",
+     "name": "01-develop"
+    },
+    {
+     "do": "click",
+     "id": "source-picked",
+     "target": "source/Picked"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "02-picked"
+    },
+    {
+     "do": "click",
+     "target": "source/All photos"
+    },
+    {
+     "do": "click",
+     "id": "rail-deliver",
+     "target": "rail/Deliver"
+    },
+    {
+     "do": "click",
+     "id": "open-export",
+     "target": "button/Open Export\u2026"
+    },
+    {
+     "do": "waitFor",
+     "that": "windows.sheet",
+     "eq": true,
+     "timeout": 5,
+     "note": "Deliver's Open Export\u2026 button by name"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "waitFor",
+     "that": "windows.sheet",
+     "eq": false,
+     "timeout": 5
+    },
+    {
+     "do": "click",
+     "id": "rail-crop",
+     "target": "rail/Crop"
+    },
+    {
+     "do": "listTargets",
+     "name": "crop"
+    },
+    {
+     "do": "click",
+     "id": "custom",
+     "target": "button/Custom\u2026"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "shot",
+     "name": "03-crop-custom"
+    },
+    {
+     "do": "state",
+     "name": "crop-custom"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "click",
+     "target": "rail/Develop"
+    },
+    {
+     "do": "click",
+     "id": "filter",
+     "target": {
+      "name": "*/Filter",
+      "within": "filterbar"
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "shot",
+     "name": "04-filter"
+    },
+    {
+     "do": "listTargets",
+     "name": "filter-popover"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "key",
+     "key": "g",
+     "note": "Library: the grid"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "listTargets",
+     "name": "library"
+    },
+    {
+     "do": "shot",
+     "name": "05-library"
+    },
+    {
+     "do": "state",
+     "name": "end",
+     "ax": true
+    },
+    {
+     "do": "click",
+     "id": "menubar-view",
+     "target": "menubar/View",
+     "via": "hid",
+     "note": "last: a menu's tracking loop is the riskiest thing here"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "shot",
+     "name": "06-view-menu"
+    },
+    {
+     "do": "listTargets",
+     "name": "view-menu"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    }
+   ]
+  }
+ ],
+ "ref": "",
+ "config": "release",
+ "strict": false,
+ "note": "sheets + names first run"
+}
