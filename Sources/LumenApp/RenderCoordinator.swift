@@ -384,6 +384,8 @@ actor RenderCoordinator {
             var decodeMilliseconds: Double = 0
             var edrImage: CGImage?
             if KernelLibrary.coreAvailable {
+                RenderLaneThread.enter()
+                defer { RenderLaneThread.exit() }
                 let delivery = try renderer.renderPreviewDelivery(
                     source: source, recipe: recipe,
                     maxLongEdge: maxLongEdge, draft: draft,
@@ -1056,6 +1058,37 @@ actor RenderCoordinator {
         }
         options[kCGImageSourceCreateThumbnailFromImageAlways] = true
         return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+    }
+}
+
+/// The thread inside a synchronous preview render, for the automation driver's
+/// sampler. Inert unless `LUMEN_DRIVER` is set.
+enum RenderLaneThread {
+    static let tracked = ProcessInfo.processInfo.environment["LUMEN_DRIVER"] != nil
+    private static let lock = NSLock()
+    private static var thread: thread_act_t = 0
+
+    static func enter() {
+        guard tracked else { return }
+        lock.lock()
+        thread = mach_thread_self()
+        lock.unlock()
+    }
+
+    static func exit() {
+        guard tracked else { return }
+        lock.lock()
+        if thread != 0 { mach_port_deallocate(mach_task_self_, thread) }
+        thread = 0
+        lock.unlock()
+    }
+
+    /// `body` runs with the lock held and the lane's thread, or not at all.
+    static func withCurrent<T>(_ body: (thread_act_t) -> T?) -> T? {
+        guard tracked else { return nil }
+        lock.lock()
+        defer { lock.unlock() }
+        return thread == 0 ? nil : body(thread)
     }
 }
 

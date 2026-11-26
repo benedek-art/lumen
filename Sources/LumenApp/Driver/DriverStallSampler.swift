@@ -199,6 +199,16 @@ final class DriverStallSampler: @unchecked Sendable {
                 continue
             }
             lock.unlock()
+            if let key = profiling, let lane = sampleLane() {
+                lock.lock()
+                let id = profileStackIDs[lane] ?? {
+                    profileStackIDs[lane] = profileStackList.count
+                    profileStackList.append(lane)
+                    return profileStackList.count - 1
+                }()
+                profileSamples["lane " + key, default: []].append((now, id, true))
+                lock.unlock()
+            }
             let depth = sampleMain()
             guard depth > 0 else { continue }
             let stack = Array(UnsafeBufferPointer(start: buffer, count: depth))
@@ -226,10 +236,14 @@ final class DriverStallSampler: @unchecked Sendable {
         }
     }
 
-    /// Suspends the main thread, copies its pc and frame-pointer chain into `buffer`,
-    /// resumes it. Returns the depth.
     private func sampleMain() -> Int {
-        guard thread_suspend(mainThread) == KERN_SUCCESS else { return 0 }
+        sample(mainThread, low: stackLow, high: stackHigh)
+    }
+
+    /// Suspends `thread`, copies its pc and frame-pointer chain into `buffer`, resumes
+    /// it. Returns the depth.
+    private func sample(_ thread: thread_act_t, low: UInt, high: UInt) -> Int {
+        guard thread_suspend(thread) == KERN_SUCCESS else { return 0 }
         var depth = 0
         #if arch(arm64)
         var state = arm_thread_state64_t()
@@ -237,14 +251,14 @@ final class DriverStallSampler: @unchecked Sendable {
             MemoryLayout<arm_thread_state64_t>.size / MemoryLayout<UInt32>.size)
         let read = withUnsafeMutablePointer(to: &state) {
             $0.withMemoryRebound(to: UInt32.self, capacity: Int(count)) {
-                thread_get_state(mainThread, thread_state_flavor_t(ARM_THREAD_STATE64),
+                thread_get_state(thread, thread_state_flavor_t(ARM_THREAD_STATE64),
                                  $0, &count)
             }
         }
         if read == KERN_SUCCESS {
             buffer[0] = Self.strip(UInt(state.__pc))
             depth = 1
-            depth = walk(from: UInt(state.__fp), depth: depth)
+            depth = walk(from: UInt(state.__fp), depth: depth, low: low, high: high)
         }
         #elseif arch(x86_64)
         var state = x86_thread_state64_t()
@@ -252,24 +266,37 @@ final class DriverStallSampler: @unchecked Sendable {
             MemoryLayout<x86_thread_state64_t>.size / MemoryLayout<UInt32>.size)
         let read = withUnsafeMutablePointer(to: &state) {
             $0.withMemoryRebound(to: UInt32.self, capacity: Int(count)) {
-                thread_get_state(mainThread, thread_state_flavor_t(x86_THREAD_STATE64),
+                thread_get_state(thread, thread_state_flavor_t(x86_THREAD_STATE64),
                                  $0, &count)
             }
         }
         if read == KERN_SUCCESS {
             buffer[0] = UInt(state.__rip)
             depth = 1
-            depth = walk(from: UInt(state.__rbp), depth: depth)
+            depth = walk(from: UInt(state.__rbp), depth: depth, low: low, high: high)
         }
         #endif
-        thread_resume(mainThread)
+        thread_resume(thread)
         return depth
     }
 
-    private func walk(from framePointer: UInt, depth start: Int) -> Int {
+    /// The render lane's thread, sampled with `RenderLaneThread`'s lock held so it
+    /// cannot be released mid-walk.
+    private func sampleLane() -> [UInt]? {
+        RenderLaneThread.withCurrent { thread -> [UInt]? in
+            guard let pthread = pthread_from_mach_thread_np(thread) else { return nil }
+            let top = UInt(bitPattern: pthread_get_stackaddr_np(pthread))
+            let low = top &- UInt(pthread_get_stacksize_np(pthread))
+            let depth = sample(thread, low: low, high: top)
+            guard depth > 0 else { return nil }
+            return Array(UnsafeBufferPointer(start: buffer, count: depth))
+        }
+    }
+
+    private func walk(from framePointer: UInt, depth start: Int, low: UInt, high: UInt) -> Int {
         var depth = start
         var fp = framePointer
-        while depth < capacity, fp >= stackLow, fp &+ 16 <= stackHigh, fp & 7 == 0 {
+        while depth < capacity, fp >= low, fp &+ 16 <= high, fp & 7 == 0 {
             guard let frame = UnsafePointer<UInt>(bitPattern: fp) else { break }
             let next = frame[0]
             let ret = Self.strip(frame[1])
