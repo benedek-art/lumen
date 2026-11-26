@@ -238,8 +238,8 @@ jobs:
           grep -q '"probe"' docs/renderlab-request.json || exit 0
           set +e
           LUMEN_PARITY_PROBE_PHOTOS="$PHOTOS" swift test -c release --skip-build \
-            --filter ExportParityProbe > probe.log 2>&1
-          grep -E "PROBE:|error:" probe.log | tee -a "$GITHUB_STEP_SUMMARY"
+            --filter "ExportParityProbe|TiledDeliveryTests" > probe.log 2>&1
+          grep -E "PROBE:|error:|Test Case .* (passed|failed)" probe.log | tee -a "$GITHUB_STEP_SUMMARY"
           exit 0
       - name: Reference against shipping drift
         if: always() && steps.build.outcome != 'failure' && needs.plan.outputs.drift != ''

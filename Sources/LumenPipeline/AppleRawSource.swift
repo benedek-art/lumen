@@ -245,8 +245,15 @@ public final class AppleRawSource: ImageSource {
     public func settledDecode(recipe: Recipe, scaleFactor: Double) -> CIImage? {
         let scale = Num.clamp(scaleFactor, 0.01, 1.0)
         guard scale < 1 else { return decode(recipe: recipe, draft: false, scaleFactor: 1.0) }
-        var key = decodeKey(recipe: recipe, draft: false, scale: scale).key
-        key.resampled = true
+        let inputs = recipe.decodeInputs
+        let key = DecodeKey(draft: false,
+                            scaleFactor: scale,
+                            captureStrength: inputs.captureStrength,
+                            luminanceNR: inputs.luminanceNR,
+                            colorNR: inputs.colorNR,
+                            lensProfile: inputs.lensProfile,
+                            decoderVersion: resolvedDecoderVersion(recipe).rawValue,
+                            resampled: true)
         if let hit = takeHit(key) { return hit }
         guard let native = decode(recipe: recipe, draft: false, scaleFactor: 1.0) else {
             return nil
@@ -303,9 +310,7 @@ public final class AppleRawSource: ImageSource {
         return stored.image
     }
 
-    /// The cache key for an ask, and the decoder version it resolved to.
-    private func decodeKey(recipe: Recipe, draft: Bool,
-                           scale: Double) -> (key: DecodeKey, version: CIRAWDecoderVersion) {
+    private func resolvedDecoderVersion(_ recipe: Recipe) -> CIRAWDecoderVersion {
         let dev = recipe.develop
 
         // D50's honouring half (docs/23 audit queue item 6). The recipe records the
@@ -326,25 +331,24 @@ public final class AppleRawSource: ImageSource {
         } else {
             resolvedVersion = pinnedVersion
         }
-
-        // `Recipe.decodeInputs` is the one list of what this decode reads from the
-        // recipe; the viewer sizes a drag's drafts by whether these moved.
-        let inputs = recipe.decodeInputs
-        return (DecodeKey(draft: draft,
-                          scaleFactor: scale,
-                          captureStrength: inputs.captureStrength,
-                          luminanceNR: inputs.luminanceNR,
-                          colorNR: inputs.colorNR,
-                          lensProfile: inputs.lensProfile,
-                          decoderVersion: resolvedVersion.rawValue),
-                resolvedVersion)
+        return resolvedVersion
     }
 
     public func decode(recipe: Recipe, draft: Bool, scaleFactor: Double = 1.0) -> CIImage? {
         let dev = recipe.develop
+        let resolvedVersion = resolvedDecoderVersion(recipe)
+
+        // `Recipe.decodeInputs` is the one list of what this decode reads from the
+        // recipe; the viewer sizes a drag's drafts by whether these moved.
+        let inputs = recipe.decodeInputs
         let clampedScale = Num.clamp(scaleFactor, 0.01, 1.0)
-        let (key, resolvedVersion) = decodeKey(recipe: recipe, draft: draft,
-                                               scale: clampedScale)
+        let key = DecodeKey(draft: draft,
+                            scaleFactor: clampedScale,
+                            captureStrength: inputs.captureStrength,
+                            luminanceNR: inputs.luminanceNR,
+                            colorNR: inputs.colorNR,
+                            lensProfile: inputs.lensProfile,
+                            decoderVersion: resolvedVersion.rawValue)
         if let served = resampledFromHeld(key) { return served }
         // What this call ASKED the decoder for, in pixels. Not read back from the
         // result: see `DecodeEntry.askedLongEdge` for why the delivered extent is the

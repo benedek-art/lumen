@@ -172,6 +172,33 @@ final class ExportParityProbe: XCTestCase {
                                                       format: .RGBA8, colorSpace: srgb) {
                     say("\(tag) createCGImage: \(Self.drawnZero(cg)) | \(Self.rawZero(cg))")
                 }
+                if let cg = Self.context.createCGImage(image, from: image.extent,
+                                                      format: .RGBA16, colorSpace: srgb) {
+                    say("\(tag) createCGImage RGBA16 drawn to 8: \(Self.drawnZero(cg))")
+                }
+                if let cg = Self.context.createCGImage(image, from: image.extent,
+                                                      format: .RGBAh, colorSpace: srgb) {
+                    say("\(tag) createCGImage RGBAh drawn to 8: \(Self.drawnZero(cg))")
+                }
+                // The ideal: sRGB-encoded floats, rounded to nearest here.
+                let w = Int(image.extent.width), h = Int(image.extent.height)
+                var floats = [Float](repeating: 0, count: w * h * 4)
+                floats.withUnsafeMutableBytes { raw in
+                    Self.context.render(image, toBitmap: raw.baseAddress!, rowBytes: w * 16,
+                                        bounds: image.extent, format: .RGBAf, colorSpace: srgb)
+                }
+                var zeros = 0, sum = 0.0
+                for i in 0..<(w * h) {
+                    var zero = false
+                    for c in 0..<3 {
+                        let q = (min(max(Double(floats[i * 4 + c]), 0), 1) * 255).rounded()
+                        if q == 0 { zero = true }
+                        sum += q
+                    }
+                    if zero { zeros += 1 }
+                }
+                say("\(tag) RGBAf rounded here: " + String(format: "zero %.4f mean %.3f",
+                    Double(zeros) / Double(w * h), sum / Double(3 * w * h)))
                 let file = FileManager.default.temporaryDirectory
                     .appendingPathComponent("probe-\(UUID().uuidString).png")
                 defer { try? FileManager.default.removeItem(at: file) }
@@ -197,7 +224,11 @@ final class ExportParityProbe: XCTestCase {
     // MARK: - Decode scale
 
     struct DecodeStats: CustomStringConvertible {
-        var mean: [Double], yP: [Double], neg: Double, w: Int, h: Int
+        var mean: [Double]
+        var yP: [Double]
+        var neg: Double
+        var w: Int
+        var h: Int
         var description: String {
             "\(w)x\(h) mean " + mean.map { String(format: "%.4f", $0) }.joined(separator: ",")
                 + " Y p0.1/p1/p50/p99/p99.9 "

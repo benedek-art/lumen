@@ -15,6 +15,7 @@ import CoreImage
 import os.signpost
 import CoreImage.CIFilterBuiltins
 import CoreText
+import CoreVideo
 import Foundation
 import Darwin
 import ImageIO
@@ -28,6 +29,8 @@ public enum RenderError: Error {
     /// The encoder refused. `reason` is the encoder's own error, never dropped: a bare
     /// "write failed" hid a GPU render failure behind a filesystem-sounding name.
     case writeFailed(URL, reason: String)
+    /// The GPU could not render a tile of a delivery; `reason` is Core Image's error.
+    case tileRenderFailed(reason: String)
     /// An export refused because the GPU path cannot form a picture. Carries the names
     /// of the kernels that failed to compile, so the caller can say which.
     case kernelsUnavailable([String])
@@ -41,6 +44,8 @@ extension RenderError: LocalizedError {
         case .unsupportedFormat(let what): return "Unsupported format: \(what)."
         case .writeFailed(let url, let reason):
             return "\(url.lastPathComponent) could not be written: \(reason)"
+        case .tileRenderFailed(let reason):
+            return "The GPU could not render the picture: \(reason)"
         case .kernelsUnavailable(let names):
             return "The GPU stages \(names.joined(separator: ", ")) are unavailable."
         }
@@ -1035,9 +1040,10 @@ public final class PipelineRenderer {
         if let sharedMasks, sharedMasks.images == nil {
             sharedMasks.images = graph.maskImages
         }
-        var image = graph.build(decoded, plan: plan,
-                                options: RenderGraph.Options(longEdge: longEdge,
-                                                             lutSize: LUT3D.exportSize))
+        var image = try Self.renderedInTiles(
+            graph.build(decoded, plan: plan,
+                        options: RenderGraph.Options(longEdge: longEdge,
+                                                     lutSize: LUT3D.exportSize)))
         // The resize is where a shared render WOULD fork, and today nothing forks here.
         //
         // This function is called once per (photo × checked recipe) by
@@ -1144,6 +1150,74 @@ public final class PipelineRenderer {
                                      bitDepth: exportRecipe.effectiveBitDepth)
         }
         return image
+    }
+
+    // MARK: - Tiled delivery
+
+    /// Frames above this many pixels render their develop stage tile by tile.
+    ///
+    /// Core Image tiles only past the GPU's texture limit, so a 20–33 MP frame was
+    /// evaluated whole, with every intermediate full size. With Tone, Clarity or Dehaze
+    /// on, that ran out of GPU memory on a 7 GB machine (render lab run 45747456235:
+    /// `kIOGPUCommandBufferCallbackErrorOutOfMemory`) and the export failed.
+    static let tiledDeliveryPixels = 12_000_000
+    static let deliveryTileSide: CGFloat = 1536
+
+    static let tileContext: CIContext = {
+        var options: [CIContextOption: Any] = [.workingFormat: CIFormat.RGBAh,
+                                               .cacheIntermediates: false]
+        if let working = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020) {
+            options[.workingColorSpace] = working
+            options[.outputColorSpace] = working
+        }
+        return CIContext(options: options)
+    }()
+
+    /// `image` rendered into one half-float buffer, `tile` by `tile`. Each tile pulls
+    /// only its own region of interest through the graph, so memory is bounded by the
+    /// tile and its kernels' reach rather than by the frame. Small frames pass through.
+    static func renderedInTiles(_ image: CIImage,
+                                minimumPixels: Int = tiledDeliveryPixels,
+                                tile: CGFloat = deliveryTileSide) throws -> CIImage {
+        let extent = image.extent
+        guard !extent.isInfinite, extent.width >= 1, extent.height >= 1,
+              extent.width * extent.height >= CGFloat(minimumPixels),
+              let working = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)
+        else { return image }
+        let frame = extent.integral
+        let width = Int(frame.width), height = Int(frame.height)
+        var created: CVPixelBuffer?
+        let attributes: [CFString: Any] = [
+            kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
+        ]
+        guard CVPixelBufferCreate(kCFAllocatorDefault, width, height,
+                                  kCVPixelFormatType_64RGBAHalf,
+                                  attributes as CFDictionary, &created) == kCVReturnSuccess,
+              let buffer = created
+        else { throw RenderError.tileRenderFailed(reason: "no \(width)×\(height) buffer") }
+        let destination = CIRenderDestination(pixelBuffer: buffer)
+        destination.colorSpace = working
+        destination.isClamped = false
+        var y = frame.minY
+        while y < frame.maxY {
+            var x = frame.minX
+            while x < frame.maxX {
+                let rect = CGRect(x: x, y: y, width: Swift.min(tile, frame.maxX - x),
+                                  height: Swift.min(tile, frame.maxY - y))
+                do {
+                    let task = try tileContext.startTask(
+                        toRender: image, from: rect, to: destination,
+                        at: CGPoint(x: rect.minX - frame.minX, y: rect.minY - frame.minY))
+                    _ = try task.waitUntilCompleted()
+                } catch {
+                    throw RenderError.tileRenderFailed(reason: RenderError.describe(error))
+                }
+                x += tile
+            }
+            y += tile
+        }
+        return CIImage(cvPixelBuffer: buffer, options: [.colorSpace: working])
+            .transformed(by: CGAffineTransform(translationX: frame.minX, y: frame.minY))
     }
 
     // MARK: - Dither
