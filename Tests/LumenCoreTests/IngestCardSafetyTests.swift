@@ -147,4 +147,18 @@ final class IngestCardSafetyTests: XCTestCase {
         XCTAssertTrue(report.summary.contains("primary and backup are on the same volume"),
                       report.summary)
     }
+
+    // Review finding on PR #34: an alias outside the card that points into it.
+    func testAnAliasThatPointsIntoTheCardCountsAsOnTheCard() throws {
+        let dcim = card.appendingPathComponent("DCIM", isDirectory: true)
+        try FileManager.default.createDirectory(at: dcim, withIntermediateDirectories: true)
+        let alias = root.appendingPathComponent("alias", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: dcim)
+
+        XCTAssertTrue(IngestLocation.isInside(dcim, card))
+        XCTAssertTrue(IngestLocation.isInside(alias, card))
+        XCTAssertTrue(IngestLocation.isInside(alias.appendingPathComponent("not/yet/made"), card))
+        XCTAssertFalse(IngestLocation.isInside(primary, card))
+        XCTAssertFalse(IngestLocation.isInside(primary.appendingPathComponent("not/yet/made"), card))
+    }
 }

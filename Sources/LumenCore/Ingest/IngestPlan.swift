@@ -330,7 +330,19 @@ public enum IngestLocation {
     /// symlinked or differently spelled path to the card still counts.
     public static func isInside(_ url: URL, _ root: URL) -> Bool {
         let rootKey = directoryIdentity(of: root)
-        var current = url.standardizedFileURL
+        // Resolve symlinks before walking up: the lexical parent of an alias is not the
+        // parent of the directory it points at.
+        let fm = FileManager.default
+        var existing = url.standardizedFileURL
+        var remainder: [String] = []
+        while !fm.fileExists(atPath: existing.path) {
+            let parent = existing.deletingLastPathComponent().standardizedFileURL
+            if parent.path == existing.path { break }
+            remainder.insert(existing.lastPathComponent, at: 0)
+            existing = parent
+        }
+        var current = existing.resolvingSymlinksInPath()
+        for component in remainder { current.appendPathComponent(component) }
         while true {
             if directoryIdentity(of: current) == rootKey { return true }
             let parent = current.deletingLastPathComponent().standardizedFileURL
