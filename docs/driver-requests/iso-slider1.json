@@ -1,0 +1,8 @@
+{
+ "suite": "repro-slider-drag.json repro-pinch-zoom.json zoom-one-to-one.json",
+ "scenarios": [],
+ "ref": "7305e8a03bea896337dc6d4815620ab5bac4a73d",
+ "config": "release",
+ "strict": false,
+ "note": "isolate regressions: iso-slider1"
+}
