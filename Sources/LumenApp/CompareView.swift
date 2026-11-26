@@ -117,6 +117,11 @@ struct CompareView: View {
         // `AppState.surroundColor` builds the same `NSColor(white: 0.165, alpha: 1)`
         // that `Lumen.surroundCanvas` — hence `Lumen.viewerBackground` — is defined as.
         .background(state.surroundColor)
+        // Grid and Survey do not measure (`scheduleScopeRefresh`); the column Compare
+        // shows does.
+        .onChange(of: state.viewMode, initial: true) { _, mode in
+            if mode == .compare { state.scheduleScopeRefresh() }
+        }
     }
 
     /// What is being compared. The rule lives on `AppState` because the arrow keys move

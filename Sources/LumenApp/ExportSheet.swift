@@ -561,7 +561,7 @@ private struct ExportRecipeEditor: View {
         }
         // docs/30: every scroll view in the app is silent. A legacy scroller insets
         // its content, so an indicator appearing is a relayout of everything inside it.
-        .scrollIndicators(.never)
+        .scrollIndicators(.never).task(id: previewKey) { await loadFileNaming() }
     }
 
     // MARK: Menu option tables
@@ -930,9 +930,9 @@ private struct ExportRecipeEditor: View {
     }
 
     private var filenamePreview: String {
-        let naming = AppState.namingContext(
-            for: previewPhoto, source: previewSource, recipeName: recipe.name,
-            sequence: recipe.sequenceNumber(forPhotoAt: 0))
+        // `forRecipe` sets the recipe name and sequence; the file fields come from
+        // `fileNaming`, never from a read on this pass.
+        let naming = currentFileNaming
             .forRecipe(recipe, photoIndex: 0, batchCount: batchCount)
         let base = AppState.renderFilename(template: recipe.filenameTemplate, naming: naming)
         let file = base + "." + recipe.format.fileExtension
@@ -1115,6 +1115,48 @@ private struct ExportRecipeEditor: View {
                 let trimmed = value.trimmingCharacters(in: .whitespaces)
                 recipe.wrappedValue[keyPath: keyPath] = trimmed.isEmpty ? nil : value
             })
+    }
+
+    // MARK: Preview naming, read off the main actor
+
+    /// The preview's file-derived fields (capture date, body, lens, file date). Every
+    /// body pass — each keystroke, each slider event — used to open the original
+    /// twice through ImageIO on the main thread to get them.
+    @State fileprivate var fileNaming: FileNaming?
+
+    fileprivate struct FileNaming: Equatable {
+        let key: PreviewKey
+        let context: ExportNamingContext
+    }
+
+    fileprivate struct PreviewKey: Equatable {
+        let source: URL
+        let rating: Int?
+        let label: ColorLabel?
+        let iso: Int?
+    }
+
+    private var previewKey: PreviewKey {
+        PreviewKey(source: previewSource, rating: previewPhoto?.rating,
+                   label: previewPhoto?.label, iso: previewPhoto?.iso)
+    }
+
+    /// Until the read lands, the photo's own fields only: no date, body or lens.
+    private var currentFileNaming: ExportNamingContext {
+        if let fileNaming, fileNaming.key == previewKey { return fileNaming.context }
+        return ExportNamingContext(source: previewSource, recipeName: "",
+                                   iso: previewPhoto?.iso, rating: previewPhoto?.rating,
+                                   label: previewPhoto?.label?.displayName, sequence: 0)
+    }
+
+    private func loadFileNaming() async {
+        let key = previewKey
+        let photo = previewPhoto
+        let context = await Task.detached(priority: .userInitiated) {
+            AppState.namingContext(for: photo, source: key.source, recipeName: "", sequence: 0)
+        }.value
+        guard !Task.isCancelled else { return }
+        fileNaming = FileNaming(key: key, context: context)
     }
 }
 

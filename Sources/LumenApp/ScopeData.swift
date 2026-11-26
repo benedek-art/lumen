@@ -267,6 +267,14 @@ extension AppState {
         let scopesAskForWhatWeDoNotHave: Bool =
             showScopes && scopes != nil && scopes?.waveform == nil
         if viewMode == .loupe, !scopesAskForWhatWeDoNotHave { return }
+        // Grid and Survey draw no develop column, so nothing shows these numbers: a
+        // one-shot render per cursor stop there only occupied the render actor the
+        // loupe opens on. Compare asks again when it appears (`CompareView`).
+        if viewMode == .grid || viewMode == .survey {
+            scopeGeneration &+= 1
+            if scopes != nil { scopes = nil }
+            return
+        }
         scopeGeneration &+= 1
         let generation = scopeGeneration
         let recipe = recipe(for: photo)

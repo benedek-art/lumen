@@ -388,9 +388,13 @@ extension AppState {
                     continue
                 }
                 // Read once per PHOTO, not per recipe: every recipe of one frame shares
-                // its date, body and sequence number.
-                let naming = Self.namingContext(for: job.photo, source: job.url,
-                                                recipeName: "", sequence: job.index)
+                // its date, body and sequence number. Two ImageIO opens of the original:
+                // off the main actor, which this Task otherwise runs on.
+                let photo = job.photo, source = job.url, index = job.index
+                let naming = await Task.detached(priority: .userInitiated) {
+                    Self.namingContext(for: photo, source: source, recipeName: "",
+                                       sequence: index)
+                }.value
                 for (ordinal, exportRecipe) in active.enumerated() {
                     var record = OperationFileRecord(id: job.index * active.count + ordinal,
                         source: job.url, label: exportRecipe.name)
@@ -579,8 +583,9 @@ extension AppState {
     /// read the way it always was, so a file with no EXIF names exactly as before.
     /// Camera, lens and ISO come off the same metadata read; rating and label are the
     /// catalog's, through `PhotoItem`.
-    static func namingContext(for photo: PhotoItem?, source: URL, recipeName: String,
-                              sequence: Int) -> ExportNamingContext {
+    nonisolated static func namingContext(for photo: PhotoItem?, source: URL,
+                                          recipeName: String,
+                                          sequence: Int) -> ExportNamingContext {
         let attributes = try? FileManager.default.attributesOfItem(atPath: source.path)
         let created = (attributes?[.creationDate] as? Date) ?? Date()
         let fileDate = Calendar.current.dateComponents(
