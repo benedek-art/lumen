@@ -192,7 +192,12 @@ scaled by the decode factor squared and can fall below its threshold and do noth
 
 ## 6b. Cost (measured on hosted runners, Nov 2026)
 
-- macOS `shipping`: build 4–6 min cold (release, with tests); renders: a 33 MP ARW export at
+- Build cache is keyed by `Package.swift` + `Sources/**` + `Tests/**`, so any number of
+  request pushes or dispatches against the same code skip the build: warm, a macOS job
+  restores in ~6 s and starts rendering; a Linux shard is ~30–40 s end to end (run
+  45741396379). Cold: macOS 4–6 min, Linux 3–4 min.
+- A request push that changes only `docs/renderlab-request.json` fires no other workflow.
+- macOS `shipping`: renders: a 33 MP ARW export at
   1536 px ≈ 10 s (full-resolution decode each time), 24 MP NEF ≈ 3.5–5 s, charts ≈ 0.4–1 s,
   viewer `settled` frames 0.1–1.4 s; proof-core (200 renders) 18.7 min, creative-stack (360
   renders, many 1:1 crops) 18.7 min. Plates for 4 RAWs: 45 s after the build.
@@ -202,6 +207,13 @@ scaled by the decode factor squared and can fall below its threshold and do noth
   uses every core (`--lut 33` is ~8× cheaper and approximates the viewer's table).
 - `renderlab-out` artifacts are large (≈ 300 MB per 200 renders); per-render PNGs are kept
   so an agent can crop them at 1:1.
+
+Measured drift, reference vs shipping export at 1024 px (run 45739626987, `drift.tsv`):
+charts 0.2–0.4 code values mean |Δ| (p99 1–2) for tone, WB, saturation, film stock and
+vignette; clarity +50 with sharpening 80 is 1.1–3.9 (p99 up to 16): treat presence and
+sharpening numbers from the reference path as approximate. Real RAWs: 5812 ≈ 0.9; 6929
+≈ 3.4 (p99 ≈ 30), almost all of it fine detail, because the plate is a 2048 px decode and
+export decodes the full 33 MP.
 
 ## 7. Not reachable yet
 
