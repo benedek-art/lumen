@@ -242,7 +242,7 @@ final class DriverStallSampler: @unchecked Sendable {
 
     /// Suspends `thread`, copies its pc and frame-pointer chain into `buffer`, resumes
     /// it. Returns the depth.
-    private func sample(_ thread: thread_act_t, low: UInt, high: UInt) -> Int {
+    private func sample(_ thread: UInt32, low: UInt, high: UInt) -> Int {
         guard thread_suspend(thread) == KERN_SUCCESS else { return 0 }
         var depth = 0
         #if arch(arm64)

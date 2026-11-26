@@ -4236,6 +4236,14 @@ final class AppState: ObservableObject {
     /// the main thread.
     static let panelReleaseDelayNanoseconds: UInt64 = 150_000_000
 
+    /// The loupe's settle has landed: a pending panel release need not wait longer.
+    func settleLanded() {
+        guard panelRelease != nil else { return }
+        panelRelease?.cancel()
+        panelRelease = nil
+        panelEdits.hold(false)
+    }
+
     private func releasePanelsAfterSettle() {
         guard panelRelease == nil else { return }
         panelRelease = Task { @MainActor [weak self] in

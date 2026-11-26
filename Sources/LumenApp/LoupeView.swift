@@ -1588,6 +1588,7 @@ struct LoupeView: View {
                                               edrWhiteTarget: edrWhiteTarget)) {
                 await renderCurrent(longEdge: longEdge, region: region,
                                     drawnDevice: drawnDevice)
+                if !Task.isCancelled, !model.isDraft { state.settleLanded() }
                 // `load` returns when the settle has landed (or been deliberately
                 // skipped), so this line IS the "photographer has stopped to work"
                 // signal `DecodeWarming` is gated on — no timer guesses at it. A task

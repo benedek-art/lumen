@@ -412,7 +412,7 @@ actor RenderCoordinator {
             var edrImage: CGImage?
             if KernelLibrary.coreAvailable {
                 RenderLaneThread.enter()
-                defer { RenderLaneThread.exit() }
+                defer { RenderLaneThread.leave() }
                 let delivery = try renderer.renderPreviewDelivery(
                     source: source, recipe: recipe,
                     maxLongEdge: maxLongEdge, draft: draft,
@@ -1102,7 +1102,7 @@ enum RenderLaneThread {
         lock.unlock()
     }
 
-    static func exit() {
+    static func leave() {
         guard tracked else { return }
         lock.lock()
         if thread != 0 { mach_port_deallocate(mach_task_self_, thread) }
@@ -1111,7 +1111,7 @@ enum RenderLaneThread {
     }
 
     /// `body` runs with the lock held and the lane's thread, or not at all.
-    static func withCurrent<T>(_ body: (thread_act_t) -> T?) -> T? {
+    static func withCurrent<T>(_ body: (UInt32) -> T?) -> T? {
         guard tracked else { return nil }
         lock.lock()
         defer { lock.unlock() }
