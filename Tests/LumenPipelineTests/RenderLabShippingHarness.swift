@@ -140,7 +140,10 @@ final class RenderLabShippingHarness: XCTestCase {
                 guard let photos else {
                     throw RenderLabError.missingPhoto("\(photo): LUMEN_RENDERLAB_PHOTOS is not set")
                 }
-                s = try AppleRawSource(url: RenderLabShippingHarness.photoURL(photo, in: photos))
+                let raw = try AppleRawSource(url: RenderLabShippingHarness.photoURL(photo, in: photos))
+                print("renderlab: capture-diag \(photo) defaultSharpness=\(raw.defaultSharpness) "
+                      + "sharpnessSupported=\(raw.sharpnessSupported)")
+                s = raw
             }
             sources[key] = s
             return s

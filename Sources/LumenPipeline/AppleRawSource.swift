@@ -56,7 +56,8 @@ public final class AppleRawSource: ImageSource {
 
     private let defaultLuminanceNR: Float
     private let defaultColorNR: Float
-    private let defaultSharpness: Float
+    let defaultSharpness: Float
+    let sharpnessSupported: Bool
 
     /// This decoder runs Apple's picture-forming stages OFF (see `decode`), so what
     /// comes out is scene-referred and carries the headroom above display white. It is
@@ -100,6 +101,7 @@ public final class AppleRawSource: ImageSource {
         self.defaultLuminanceNR = filter.luminanceNoiseReductionAmount
         self.defaultColorNR = filter.colorNoiseReductionAmount
         self.defaultSharpness = filter.sharpnessAmount
+        self.sharpnessSupported = filter.isSharpnessSupported
         self.captureISO = CaptureMetadataReader.read(url: url)?.iso.map { Double($0) }
     }
 

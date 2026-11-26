@@ -223,6 +223,31 @@ public enum KernelLibrary {
     }
     """
 
+    /// Light a sharpening ratio adds (r) and removes (g), in scene-linear luminance:
+    /// the twin of the first pass of `DetailEngine.applyBalancedLumaRatio`.
+    static let sharpenEnergySource = """
+    kernel vec4 lumenSharpenEnergy(__sample image, __sample deltaEV, float limit, vec3 w) {
+        float k = exp2(clamp(deltaEV.r, -limit, limit));
+        float y = max(dot(image.rgb, w), 0.0);
+        return vec4(y * max(k - 1.0, 0.0), y * max(1.0 - k, 0.0), 0.0, 1.0);
+    }
+    """
+
+    /// The sharpening ratio with its larger half scaled to the smaller half's light over
+    /// the blurred `energy` neighbourhood: `DetailEngine.applyBalancedLumaRatio`.
+    static let sharpenBalanceSource = """
+    kernel vec4 lumenSharpenBalance(__sample image, __sample deltaEV, __sample energy,
+                                    float limit) {
+        float k = exp2(clamp(deltaEV.r, -limit, limit));
+        float up = energy.r;
+        float down = energy.g;
+        float sUp = up > down ? down / up : 1.0;
+        float sDown = down > up ? up / down : 1.0;
+        k = k > 1.0 ? 1.0 + (k - 1.0) * sUp : 1.0 - (1.0 - k) * sDown;
+        return vec4(image.rgb * k, image.a);
+    }
+    """
+
     /// The three products of a structure tensor, packed into one plane so a single box
     /// blur smooths all of them: (gx², gy², gx·gy).
     ///
@@ -1163,6 +1188,8 @@ public enum KernelLibrary {
     public static let coherence = make(coherenceSource)
     public static let detailGainGated = make(detailGainGatedSource)
     public static let lumaRatio = make(lumaRatioSource)
+    public static let sharpenEnergy = make(sharpenEnergySource)
+    public static let sharpenBalance = make(sharpenBalanceSource)
     public static let tensorMagnitude = make(tensorMagnitudeSource)
     public static let dehaze = make(dehazeSource)
     public static let addGlow = make(addGlowSource)
@@ -1236,6 +1263,7 @@ public enum KernelLibrary {
             ("grain", grain), ("vignette", vignette),
             ("detailGain", detailGain), ("dehaze", dehaze), ("addGlow", addGlow),
             ("sharpenDelta", sharpenDelta), ("lumaRatio", lumaRatio),
+            ("sharpenEnergy", sharpenEnergy), ("sharpenBalance", sharpenBalance),
             ("subtract", subtract), ("thresholdMask", thresholdMask), ("detailRemap", detailRemap),
             ("structureTensor", structureTensor),
             ("coherence", coherence), ("detailGainGated", detailGainGated),

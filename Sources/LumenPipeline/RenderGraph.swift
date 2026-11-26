@@ -1473,9 +1473,9 @@ public struct RenderGraph {
                 KernelLibrary.sharpenDelta, extent: image.extent,
                 [lum, blurred, fine, structure.magnitude, Float(amount), Float(detail),
                  Float(masking), Float(halo), Float(LumenLog.range)]),
-              let out = KernelLibrary.apply(KernelLibrary.lumaRatio,
-                                            extent: image.extent,
-                                            [image, delta, Float(2.0)])
+              let out = Self.balancedLumaRatio(
+                image, delta: delta,
+                sigma: DetailEngine.sharpenBalanceSigma(radius: radius, longEdge: longEdge))
         else {
             let filter = CIFilter.unsharpMask()
             filter.inputImage = image.clampedToExtent()
@@ -1484,6 +1484,21 @@ public struct RenderGraph {
             return filter.outputImage?.cropped(to: image.extent) ?? image
         }
         return out
+    }
+
+    /// `DetailEngine.applyBalancedLumaRatio`: the delta as a luminance ratio that keeps
+    /// the scene-linear mean over a `sigma` neighbourhood.
+    static func balancedLumaRatio(_ image: CIImage, delta: CIImage,
+                                  sigma: Double) -> CIImage? {
+        let limit = Float(DetailEngine.sharpenLimitEV)
+        let w = RGBColorSpace.rec2020.luminanceWeights
+        guard let energy = KernelLibrary.apply(
+                KernelLibrary.sharpenEnergy, extent: image.extent,
+                [image, delta, limit, CIVector(x: w.r, y: w.g, z: w.b)]),
+              let spread = Self.gaussianBlur(energy, sigma: sigma)
+        else { return nil }
+        return KernelLibrary.apply(KernelLibrary.sharpenBalance, extent: image.extent,
+                                   [image, delta, spread, limit])
     }
 
     /// The GPU twin of `SpatialOps.fineDetailBand`: the two-scale band a

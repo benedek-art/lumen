@@ -636,7 +636,68 @@ public struct DetailEngine: Sendable {
                 delta[x, y] = v
             }
         }
-        return applyLumaRatio(image, deltaEV: delta, limit: 2)
+        if ProcessInfo.processInfo.environment["LUMEN_SHARPEN_LEGACY"] != nil {
+            return applyLumaRatio(image, deltaEV: delta, limit: 2)
+        }
+        return applyBalancedLumaRatio(
+            image, deltaEV: delta, limit: sharpenLimitEV,
+            sigma: sharpenBalanceSigma(radius: radius, longEdge: Swift.max(w, h)),
+            space: d.space)
+    }
+
+    /// Largest per-pixel sharpening change, in EV.
+    public static let sharpenLimitEV: Double = 2
+
+    /// Width of the neighbourhood over which sharpening's added and removed light are
+    /// balanced: wider than the unsharp term and the fine band it balances.
+    public static func sharpenBalanceSigma(radius: Double, longEdge: Int) -> Double {
+        let usm = SpatialOps.frameDenominatedSigma(radius: Num.clamp(radius, 0.5, 3.0),
+                                                   longEdge: longEdge)
+        let band = pow(2.0, SpatialOps.fineBandLevel(longEdge: longEdge,
+                                                     levels: waveletLevels))
+        return Swift.max(3 * usm, 2 * band)
+    }
+
+    /// The per-pixel ratio `2^delta`, with the larger of its brightening and darkening
+    /// halves scaled down to the smaller one's light over a `sigma` neighbourhood, so
+    /// the sharpened picture keeps its scene-linear mean.
+    ///
+    /// A log-domain delta applied as a ratio is not light-conserving: across an edge
+    /// the bright side's ratio multiplies a large value and the dark side's a small one,
+    /// so a 10:1 edge gains ten times the light it loses. That is why Amount brightened
+    /// the frame. Scaling only the larger side keeps the smaller side's change as it was,
+    /// so the balance cannot deepen the dark side of an edge.
+    static func applyBalancedLumaRatio(_ image: ImageBuffer, deltaEV: Plane, limit: Double,
+                                       sigma: Double, space: RGBColorSpace) -> ImageBuffer {
+        let w = image.width
+        let h = image.height
+        let lum = image.luminancePlane(space: space)
+        var gain = Plane(width: w, height: h)
+        var loss = Plane(width: w, height: h)
+        for y in 0..<h {
+            for x in 0..<w {
+                let k = pow(2.0, Num.clamp(deltaEV[x, y], -limit, limit))
+                let l = Swift.max(lum[x, y], 0)
+                if k > 1 { gain[x, y] = l * (k - 1) } else { loss[x, y] = l * (1 - k) }
+            }
+        }
+        let g = SpatialOps.gaussianBlur(gain, sigma: sigma)
+        let l = SpatialOps.gaussianBlur(loss, sigma: sigma)
+        var out = image
+        for y in 0..<h {
+            for x in 0..<w {
+                var k = pow(2.0, Num.clamp(deltaEV[x, y], -limit, limit))
+                let up = g[x, y]
+                let down = l[x, y]
+                if k > 1 {
+                    if up > down { k = 1 + (k - 1) * (down / up) }
+                } else if down > up {
+                    k = 1 - (1 - k) * (up / down)
+                }
+                if k != 1 { out[x, y] = image[x, y] * k }
+            }
+        }
+        return out
     }
 
     // MARK: - Vignette (S13)
