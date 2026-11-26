@@ -1,0 +1,6 @@
+{"name":"tone-zone-threshold","defaults":{"longEdge":768,"tile":200},"jobs":[
+ {"id":"shadow","photo":"chart:greyRamp","sweep":{"path":"develop.zones.shadow.ev","values":[1,1.25,1.5,1.75,2,-1.25,-1.5,-1.75],"neutral":0}},
+ {"id":"mid","photo":"chart:greyRamp","sweep":{"path":"develop.zones.mid.ev","values":[1,1.25,1.5,1.75,-1.25,-1.5],"neutral":0}},
+ {"id":"light","photo":"chart:greyRamp","sweep":{"path":"develop.zones.light.ev","values":[-1,-1.25,-1.5,1.5],"neutral":0}},
+ {"id":"falloff","photo":"chart:greyRamp","recipe":{"develop.zones.shadow.ev":2},"sweep":{"path":"develop.zones.shadow.falloff","values":[0,1],"neutral":0.5}}
+]}

@@ -1,0 +1,803 @@
+[
+ {
+  "name": "m3-okey-adjust",
+  "description": "After O, does adjusting still hide the overlay? Does O ever return to Automatic?",
+  "fixture": "fiducial",
+  "timeoutSeconds": 420,
+  "steps": [
+   {
+    "do": "open",
+    "photo": "fiducial.png",
+    "workspace": "develop",
+    "timeout": 60
+   },
+   {
+    "do": "waitSettled",
+    "timeout": 40
+   },
+   {
+    "do": "move",
+    "target": "sidebar",
+    "at": [
+     0.5,
+     0.92
+    ],
+    "duration": 0.15
+   },
+   {
+    "do": "wait",
+    "seconds": 0.4
+   },
+   {
+    "do": "shot",
+    "name": "base"
+   },
+   {
+    "do": "key",
+    "key": "m"
+   },
+   {
+    "do": "waitFor",
+    "that": "masking",
+    "eq": true,
+    "timeout": 5
+   },
+   {
+    "do": "wait",
+    "seconds": 0.6
+   },
+   {
+    "do": "click",
+    "target": "mask-kind/Linear Gradient"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.6
+   },
+   {
+    "do": "drag",
+    "target": "viewer.image",
+    "from": [
+     0.5,
+     0.3
+    ],
+    "to": [
+     0.5,
+     0.6
+    ],
+    "duration": 0.6
+   },
+   {
+    "do": "wait",
+    "seconds": 1.0
+   },
+   {
+    "do": "scrollTo",
+    "target": "slider/Exposure#track"
+   },
+   {
+    "do": "drag",
+    "target": "slider/Exposure#track",
+    "from": [
+     0.5,
+     0.5
+    ],
+    "to": [
+     0.6,
+     0.5
+    ],
+    "duration": 0.6,
+    "id": "sl-Exposure",
+    "settle": 10
+   },
+   {
+    "do": "move",
+    "target": "sidebar",
+    "at": [
+     0.5,
+     0.92
+    ],
+    "duration": 0.15
+   },
+   {
+    "do": "wait",
+    "seconds": 0.4
+   },
+   {
+    "do": "shot",
+    "name": "auto-adjusted"
+   },
+   {
+    "do": "state",
+    "name": "auto-adjusted"
+   },
+   {
+    "do": "key",
+    "key": "o"
+   },
+   {
+    "do": "wait",
+    "seconds": 1.0
+   },
+   {
+    "do": "state",
+    "name": "o1"
+   },
+   {
+    "do": "drag",
+    "target": "slider/Exposure#track",
+    "from": [
+     0.6,
+     0.5
+    ],
+    "to": [
+     0.7,
+     0.5
+    ],
+    "duration": 1.0,
+    "capture": 6,
+    "id": "capexp"
+   },
+   {
+    "do": "move",
+    "target": "sidebar",
+    "at": [
+     0.5,
+     0.92
+    ],
+    "duration": 0.15
+   },
+   {
+    "do": "wait",
+    "seconds": 0.4
+   },
+   {
+    "do": "shot",
+    "name": "o1-adjusted"
+   },
+   {
+    "do": "state",
+    "name": "o1-adjusted"
+   },
+   {
+    "do": "key",
+    "key": "o"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.8
+   },
+   {
+    "do": "state",
+    "name": "o2"
+   },
+   {
+    "do": "key",
+    "key": "o"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.8
+   },
+   {
+    "do": "state",
+    "name": "o3"
+   },
+   {
+    "do": "key",
+    "key": "o"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.8
+   },
+   {
+    "do": "state",
+    "name": "o4"
+   },
+   {
+    "do": "scrollTo",
+    "target": "slider/Contrast#track"
+   },
+   {
+    "do": "drag",
+    "target": "slider/Contrast#track",
+    "from": [
+     0.5,
+     0.5
+    ],
+    "to": [
+     0.7,
+     0.5
+    ],
+    "duration": 0.6,
+    "id": "sl-Contrast",
+    "settle": 10
+   },
+   {
+    "do": "move",
+    "target": "sidebar",
+    "at": [
+     0.5,
+     0.92
+    ],
+    "duration": 0.15
+   },
+   {
+    "do": "wait",
+    "seconds": 0.4
+   },
+   {
+    "do": "shot",
+    "name": "o4-adjusted"
+   },
+   {
+    "do": "state",
+    "name": "o4-adjusted"
+   },
+   {
+    "do": "key",
+    "key": "m"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.8
+   },
+   {
+    "do": "key",
+    "key": "m"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.8
+   },
+   {
+    "do": "state",
+    "name": "reentered"
+   },
+   {
+    "do": "scrollTo",
+    "target": "slider/Contrast#track"
+   },
+   {
+    "do": "drag",
+    "target": "slider/Contrast#track",
+    "from": [
+     0.7,
+     0.5
+    ],
+    "to": [
+     0.8,
+     0.5
+    ],
+    "duration": 0.6,
+    "id": "sl-Contrast",
+    "settle": 10
+   },
+   {
+    "do": "move",
+    "target": "sidebar",
+    "at": [
+     0.5,
+     0.92
+    ],
+    "duration": 0.15
+   },
+   {
+    "do": "wait",
+    "seconds": 0.4
+   },
+   {
+    "do": "shot",
+    "name": "reentered-adjusted"
+   },
+   {
+    "do": "state",
+    "name": "reentered-adjusted"
+   }
+  ]
+ },
+ {
+  "name": "m3-kelvin-5d",
+  "description": "Local WB: Shift +, switch to Kelvin, back to Shift.",
+  "fixture": "raw",
+  "timeoutSeconds": 600,
+  "steps": [
+   {
+    "do": "open",
+    "index": 0,
+    "workspace": "develop",
+    "timeout": 90
+   },
+   {
+    "do": "waitSettled",
+    "timeout": 60
+   },
+   {
+    "do": "key",
+    "key": "m"
+   },
+   {
+    "do": "wait",
+    "seconds": 1.0
+   },
+   {
+    "do": "click",
+    "target": "mask-kind/Radial Gradient"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.6
+   },
+   {
+    "do": "drag",
+    "target": "viewer.image",
+    "from": [
+     0.1,
+     0.1
+    ],
+    "to": [
+     0.9,
+     0.95
+    ],
+    "duration": 0.6
+   },
+   {
+    "do": "wait",
+    "seconds": 1.5
+   },
+   {
+    "do": "scrollTo",
+    "target": "slider/Exposure#track"
+   },
+   {
+    "do": "drag",
+    "target": "slider/Exposure#track",
+    "from": [
+     0.5,
+     0.5
+    ],
+    "to": [
+     0.52,
+     0.5
+    ],
+    "duration": 0.6,
+    "id": "sl-Exposure",
+    "settle": 10
+   },
+   {
+    "do": "scrollTo",
+    "target": "slider/Exposure#track"
+   },
+   {
+    "do": "click",
+    "target": "slider/Exposure#track",
+    "at": [
+     0.5,
+     0.5
+    ],
+    "count": 2
+   },
+   {
+    "do": "wait",
+    "seconds": 1.0
+   },
+   {
+    "do": "move",
+    "target": "sidebar",
+    "at": [
+     0.5,
+     0.92
+    ],
+    "duration": 0.15
+   },
+   {
+    "do": "wait",
+    "seconds": 0.4
+   },
+   {
+    "do": "shot",
+    "name": "ref"
+   },
+   {
+    "do": "scrollTo",
+    "target": "slider/Temp#track"
+   },
+   {
+    "do": "drag",
+    "target": "slider/Temp#track",
+    "from": [
+     0.5,
+     0.5
+    ],
+    "to": [
+     0.8,
+     0.5
+    ],
+    "duration": 0.6,
+    "id": "sl-Temp",
+    "settle": 10
+   },
+   {
+    "do": "move",
+    "target": "sidebar",
+    "at": [
+     0.5,
+     0.92
+    ],
+    "duration": 0.15
+   },
+   {
+    "do": "wait",
+    "seconds": 0.4
+   },
+   {
+    "do": "shot",
+    "name": "shift"
+   },
+   {
+    "do": "state",
+    "name": "shift",
+    "texts": true
+   },
+   {
+    "do": "click",
+    "target": {
+     "text": "Kelvin",
+     "within": "develop.column"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 1.5
+   },
+   {
+    "do": "move",
+    "target": "sidebar",
+    "at": [
+     0.5,
+     0.92
+    ],
+    "duration": 0.15
+   },
+   {
+    "do": "wait",
+    "seconds": 0.4
+   },
+   {
+    "do": "shot",
+    "name": "kelvin"
+   },
+   {
+    "do": "state",
+    "name": "kelvin",
+    "texts": true
+   },
+   {
+    "do": "click",
+    "target": {
+     "text": "Shift",
+     "within": "develop.column"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 1.5
+   },
+   {
+    "do": "move",
+    "target": "sidebar",
+    "at": [
+     0.5,
+     0.92
+    ],
+    "duration": 0.15
+   },
+   {
+    "do": "wait",
+    "seconds": 0.4
+   },
+   {
+    "do": "shot",
+    "name": "shift-again"
+   },
+   {
+    "do": "state",
+    "name": "shift-again",
+    "texts": true
+   }
+  ]
+ },
+ {
+  "name": "m3-outline",
+  "description": "Outline: lasso drag, then 4-corner clicks on a second mask; Exposure.",
+  "fixture": "fiducial",
+  "timeoutSeconds": 420,
+  "steps": [
+   {
+    "do": "open",
+    "photo": "fiducial.png",
+    "workspace": "develop",
+    "timeout": 60
+   },
+   {
+    "do": "waitSettled",
+    "timeout": 40
+   },
+   {
+    "do": "move",
+    "target": "sidebar",
+    "at": [
+     0.5,
+     0.92
+    ],
+    "duration": 0.15
+   },
+   {
+    "do": "wait",
+    "seconds": 0.4
+   },
+   {
+    "do": "shot",
+    "name": "base"
+   },
+   {
+    "do": "key",
+    "key": "m"
+   },
+   {
+    "do": "waitFor",
+    "that": "masking",
+    "eq": true,
+    "timeout": 5
+   },
+   {
+    "do": "wait",
+    "seconds": 0.6
+   },
+   {
+    "do": "click",
+    "target": "mask-kind/Outline"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.6
+   },
+   {
+    "do": "drag",
+    "target": "viewer.image",
+    "from": [
+     0.1,
+     0.3
+    ],
+    "to": [
+     0.1,
+     0.3
+    ],
+    "duration": 1.5,
+    "path": [
+     [
+      0.4,
+      0.25
+     ],
+     [
+      0.5,
+      0.6
+     ],
+     [
+      0.3,
+      0.8
+     ],
+     [
+      0.1,
+      0.6
+     ]
+    ]
+   },
+   {
+    "do": "wait",
+    "seconds": 1.2
+   },
+   {
+    "do": "state",
+    "name": "lasso",
+    "texts": true
+   },
+   {
+    "do": "move",
+    "target": "sidebar",
+    "at": [
+     0.5,
+     0.92
+    ],
+    "duration": 0.15
+   },
+   {
+    "do": "wait",
+    "seconds": 0.4
+   },
+   {
+    "do": "shot",
+    "name": "lasso"
+   },
+   {
+    "do": "scrollTo",
+    "target": "slider/Exposure#track"
+   },
+   {
+    "do": "drag",
+    "target": "slider/Exposure#track",
+    "from": [
+     0.5,
+     0.5
+    ],
+    "to": [
+     0.6,
+     0.5
+    ],
+    "duration": 0.6,
+    "id": "sl-Exposure",
+    "settle": 10
+   },
+   {
+    "do": "move",
+    "target": "sidebar",
+    "at": [
+     0.5,
+     0.92
+    ],
+    "duration": 0.15
+   },
+   {
+    "do": "wait",
+    "seconds": 0.4
+   },
+   {
+    "do": "shot",
+    "name": "lasso-adj"
+   },
+   {
+    "do": "state",
+    "name": "lasso-adj"
+   },
+   {
+    "do": "click",
+    "target": "mask-create"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.6
+   },
+   {
+    "do": "click",
+    "target": "mask-kind/Outline"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.6
+   },
+   {
+    "do": "click",
+    "target": "viewer.image",
+    "at": [
+     0.15,
+     0.1
+    ]
+   },
+   {
+    "do": "wait",
+    "seconds": 0.4
+   },
+   {
+    "do": "click",
+    "target": "viewer.image",
+    "at": [
+     0.35,
+     0.1
+    ]
+   },
+   {
+    "do": "wait",
+    "seconds": 0.4
+   },
+   {
+    "do": "click",
+    "target": "viewer.image",
+    "at": [
+     0.35,
+     0.2
+    ]
+   },
+   {
+    "do": "wait",
+    "seconds": 0.4
+   },
+   {
+    "do": "click",
+    "target": "viewer.image",
+    "at": [
+     0.15,
+     0.2
+    ]
+   },
+   {
+    "do": "wait",
+    "seconds": 0.4
+   },
+   {
+    "do": "click",
+    "target": "viewer.image",
+    "at": [
+     0.15,
+     0.1
+    ]
+   },
+   {
+    "do": "wait",
+    "seconds": 1.0
+   },
+   {
+    "do": "state",
+    "name": "poly",
+    "texts": true
+   },
+   {
+    "do": "move",
+    "target": "sidebar",
+    "at": [
+     0.5,
+     0.92
+    ],
+    "duration": 0.15
+   },
+   {
+    "do": "wait",
+    "seconds": 0.4
+   },
+   {
+    "do": "shot",
+    "name": "poly"
+   },
+   {
+    "do": "scrollTo",
+    "target": "slider/Exposure#track"
+   },
+   {
+    "do": "drag",
+    "target": "slider/Exposure#track",
+    "from": [
+     0.5,
+     0.5
+    ],
+    "to": [
+     0.4,
+     0.5
+    ],
+    "duration": 0.6,
+    "id": "sl-Exposure",
+    "settle": 10
+   },
+   {
+    "do": "move",
+    "target": "sidebar",
+    "at": [
+     0.5,
+     0.92
+    ],
+    "duration": 0.15
+   },
+   {
+    "do": "wait",
+    "seconds": 0.4
+   },
+   {
+    "do": "shot",
+    "name": "poly-adj"
+   },
+   {
+    "do": "state",
+    "name": "poly-adj"
+   }
+  ]
+ }
+]

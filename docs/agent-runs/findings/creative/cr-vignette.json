@@ -1,0 +1,100 @@
+{
+ "name": "cr-vignette",
+ "defaults": {
+  "longEdge": 1024,
+  "tile": 240
+ },
+ "jobs": [
+  {
+   "id": "vig-flat",
+   "photo": "chart:flatGrey",
+   "grid": {
+    "x": {
+     "path": "look.vignette",
+     "label": "vig",
+     "values": [
+      -4,
+      -2,
+      -1,
+      1,
+      2
+     ]
+    },
+    "y": {
+     "path": "look.vignetteFeather",
+     "label": "feather",
+     "values": [
+      0,
+      25,
+      50,
+      75,
+      100
+     ]
+    }
+   }
+  },
+  {
+   "id": "vig-real",
+   "photos": [
+    "5812",
+    "6929",
+    "1346"
+   ],
+   "grid": {
+    "x": {
+     "path": "look.vignette",
+     "label": "vig",
+     "values": [
+      -4,
+      -2,
+      -1,
+      1,
+      2
+     ]
+    },
+    "y": {
+     "path": "look.vignetteFeather",
+     "label": "feather",
+     "values": [
+      0,
+      50,
+      100
+     ]
+    }
+   }
+  },
+  {
+   "id": "vig-lights",
+   "photos": [
+    "chart:pointLights",
+    "chart:gradient"
+   ],
+   "sweep": {
+    "path": "look.vignette",
+    "label": "vig",
+    "values": [
+     -4,
+     -2,
+     1,
+     2
+    ],
+    "neutral": 0
+   }
+  },
+  {
+   "id": "vig-amount-fine",
+   "photo": "chart:flatGrey",
+   "sweep": {
+    "path": "look.vignette",
+    "label": "vig",
+    "values": [
+     -0.25,
+     -0.1,
+     0.1,
+     0.25
+    ],
+    "neutral": 0
+   }
+  }
+ ]
+}

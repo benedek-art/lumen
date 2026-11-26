@@ -1,0 +1,1030 @@
+[
+ {
+  "name": "sb-albums",
+  "fixture": "raw",
+  "timeoutSeconds": 280,
+  "steps": [
+   {
+    "do": "open",
+    "index": 0,
+    "workspace": "develop",
+    "timeout": 25
+   },
+   {
+    "do": "key",
+    "key": "g"
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "state",
+    "name": "start",
+    "texts": true
+   },
+   {
+    "do": "shot",
+    "name": "start",
+    "region": "sidebar"
+   },
+   {
+    "do": "key",
+    "key": "b",
+    "note": "B with no album yet"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "state",
+    "name": "b-no-target"
+   },
+   {
+    "do": "click",
+    "id": "field",
+    "target": {
+     "text": "New album",
+     "within": "sidebar"
+    }
+   },
+   {
+    "do": "type",
+    "text": "Selects"
+   },
+   {
+    "do": "key",
+    "key": "return"
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "state",
+    "name": "created",
+    "texts": true
+   },
+   {
+    "do": "shot",
+    "name": "created",
+    "region": "sidebar"
+   },
+   {
+    "do": "expect",
+    "that": "app.collections.count",
+    "eq": 1,
+    "note": "one album exists"
+   },
+   {
+    "do": "click",
+    "target": "grid",
+    "at": [
+     0.12,
+     0.15
+    ],
+    "note": "focus the grid"
+   },
+   {
+    "do": "key",
+    "key": "a",
+    "modifiers": [
+     "cmd"
+    ]
+   },
+   {
+    "do": "key",
+    "key": "b"
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "state",
+    "name": "after-b"
+   },
+   {
+    "do": "click",
+    "target": {
+     "text": "New album",
+     "within": "sidebar"
+    }
+   },
+   {
+    "do": "type",
+    "text": "A very long album name for the wedding of Alexandra and Maximilian 2026"
+   },
+   {
+    "do": "key",
+    "key": "return"
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "state",
+    "name": "long-name",
+    "texts": true
+   },
+   {
+    "do": "shot",
+    "name": "long-name",
+    "region": "sidebar"
+   },
+   {
+    "do": "click",
+    "target": {
+     "text": "Selects",
+     "within": "sidebar"
+    },
+    "button": "right"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.6
+   },
+   {
+    "do": "key",
+    "key": "down"
+   },
+   {
+    "do": "key",
+    "key": "down"
+   },
+   {
+    "do": "key",
+    "key": "down"
+   },
+   {
+    "do": "key",
+    "key": "return"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.6
+   },
+   {
+    "do": "state",
+    "name": "rename-open",
+    "texts": true
+   },
+   {
+    "do": "shot",
+    "name": "rename-open",
+    "region": "sidebar"
+   },
+   {
+    "do": "type",
+    "text": "Keepers"
+   },
+   {
+    "do": "key",
+    "key": "return"
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "state",
+    "name": "rename-typed",
+    "texts": true
+   },
+   {
+    "do": "shot",
+    "name": "rename-typed",
+    "region": "sidebar"
+   },
+   {
+    "do": "expect",
+    "that": "viewMode",
+    "eq": "grid",
+    "note": "typing a name did not open the loupe (e)"
+   },
+   {
+    "do": "click",
+    "target": {
+     "text": "Selects",
+     "within": "sidebar"
+    },
+    "button": "right"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.6
+   },
+   {
+    "do": "key",
+    "key": "down"
+   },
+   {
+    "do": "key",
+    "key": "down"
+   },
+   {
+    "do": "key",
+    "key": "down"
+   },
+   {
+    "do": "key",
+    "key": "return"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.6
+   },
+   {
+    "do": "click",
+    "target": {
+     "text": "Selects",
+     "within": "sidebar"
+    }
+   },
+   {
+    "do": "key",
+    "key": "a",
+    "modifiers": [
+     "cmd"
+    ]
+   },
+   {
+    "do": "type",
+    "text": "Keepers"
+   },
+   {
+    "do": "key",
+    "key": "return"
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "state",
+    "name": "rename-clicked",
+    "texts": true
+   },
+   {
+    "do": "shot",
+    "name": "rename-clicked",
+    "region": "sidebar"
+   },
+   {
+    "do": "click",
+    "target": {
+     "text": "Keepers",
+     "within": "sidebar"
+    },
+    "button": "right"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.6
+   },
+   {
+    "do": "key",
+    "key": "down"
+   },
+   {
+    "do": "key",
+    "key": "down"
+   },
+   {
+    "do": "key",
+    "key": "down"
+   },
+   {
+    "do": "key",
+    "key": "down"
+   },
+   {
+    "do": "key",
+    "key": "return"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.6
+   },
+   {
+    "do": "state",
+    "name": "delete-confirm",
+    "texts": true
+   },
+   {
+    "do": "shot",
+    "name": "delete-confirm",
+    "region": "sidebar"
+   },
+   {
+    "do": "click",
+    "target": {
+     "text": "Keep",
+     "within": "sidebar"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "state",
+    "name": "delete-kept",
+    "texts": true
+   },
+   {
+    "do": "shot",
+    "name": "delete-kept",
+    "region": "sidebar"
+   },
+   {
+    "do": "expect",
+    "that": "photo.count",
+    "eq": 3
+   }
+  ]
+ },
+ {
+  "name": "sb-smart",
+  "fixture": "raw",
+  "timeoutSeconds": 280,
+  "steps": [
+   {
+    "do": "open",
+    "index": 0,
+    "workspace": "develop",
+    "timeout": 25
+   },
+   {
+    "do": "key",
+    "key": "g"
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "key",
+    "key": "a",
+    "note": "auto-advance off"
+   },
+   {
+    "do": "key",
+    "key": "p"
+   },
+   {
+    "do": "key",
+    "key": "3"
+   },
+   {
+    "do": "key",
+    "key": "right"
+   },
+   {
+    "do": "key",
+    "key": "p"
+   },
+   {
+    "do": "key",
+    "key": "right"
+   },
+   {
+    "do": "key",
+    "key": "x"
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "state",
+    "name": "flagged",
+    "texts": true
+   },
+   {
+    "do": "shot",
+    "name": "flagged",
+    "region": "sidebar"
+   },
+   {
+    "do": "click",
+    "target": {
+     "text": "Picked",
+     "within": "sidebar"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "state",
+    "name": "picked-row",
+    "texts": true
+   },
+   {
+    "do": "shot",
+    "name": "picked-row",
+    "region": "sidebar"
+   },
+   {
+    "do": "click",
+    "target": {
+     "text": "Rejected",
+     "within": "sidebar"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "state",
+    "name": "rejected-row",
+    "texts": true
+   },
+   {
+    "do": "shot",
+    "name": "rejected-row",
+    "region": "sidebar"
+   },
+   {
+    "do": "click",
+    "target": {
+     "text": "All photos",
+     "within": "sidebar"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "key",
+    "key": "p",
+    "modifiers": [
+     "cmd",
+     "option"
+    ]
+   },
+   {
+    "do": "key",
+    "key": "3",
+    "modifiers": [
+     "ctrl",
+     "cmd"
+    ]
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "state",
+    "name": "filtered",
+    "texts": true
+   },
+   {
+    "do": "shot",
+    "name": "filtered",
+    "region": "sidebar"
+   },
+   {
+    "do": "click",
+    "target": {
+     "text": "Save Filter as Smart Album",
+     "within": "sidebar"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 1.5
+   },
+   {
+    "do": "key",
+    "key": "return",
+    "note": "Save in the NSAlert"
+   },
+   {
+    "do": "wait",
+    "seconds": 1.5
+   },
+   {
+    "do": "state",
+    "name": "smart-saved",
+    "texts": true
+   },
+   {
+    "do": "shot",
+    "name": "smart-saved",
+    "region": "sidebar"
+   },
+   {
+    "do": "key",
+    "key": "\\",
+    "modifiers": [
+     "cmd"
+    ],
+    "note": "clear filter"
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "state",
+    "name": "cleared",
+    "texts": true
+   },
+   {
+    "do": "shot",
+    "name": "cleared",
+    "region": "sidebar"
+   },
+   {
+    "do": "click",
+    "target": {
+     "text": "Whole folder",
+     "within": "sidebar"
+    },
+    "offset": [
+     0,
+     28
+    ]
+   },
+   {
+    "do": "wait",
+    "seconds": 1.5
+   },
+   {
+    "do": "state",
+    "name": "smart-applied",
+    "texts": true
+   },
+   {
+    "do": "shot",
+    "name": "smart-applied",
+    "region": "sidebar"
+   },
+   {
+    "do": "click",
+    "target": {
+     "text": "Return to folder",
+     "within": "sidebar"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 1.5
+   },
+   {
+    "do": "key",
+    "key": "right"
+   },
+   {
+    "do": "key",
+    "key": "3"
+   },
+   {
+    "do": "wait",
+    "seconds": 1.5
+   },
+   {
+    "do": "state",
+    "name": "rated-second",
+    "texts": true
+   },
+   {
+    "do": "shot",
+    "name": "rated-second",
+    "region": "sidebar"
+   }
+  ]
+ },
+ {
+  "name": "sb-keywords",
+  "fixture": "raw",
+  "timeoutSeconds": 280,
+  "steps": [
+   {
+    "do": "open",
+    "index": 0,
+    "workspace": "develop",
+    "timeout": 25
+   },
+   {
+    "do": "key",
+    "key": "g"
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "key",
+    "key": "a",
+    "modifiers": [
+     "cmd"
+    ]
+   },
+   {
+    "do": "key",
+    "key": "s",
+    "modifiers": [
+     "cmd",
+     "option"
+    ],
+    "note": "hide sidebar"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.8
+   },
+   {
+    "do": "state",
+    "name": "hidden"
+   },
+   {
+    "do": "key",
+    "key": "k",
+    "modifiers": [
+     "cmd",
+     "shift"
+    ]
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "state",
+    "name": "k-shown",
+    "texts": true
+   },
+   {
+    "do": "shot",
+    "name": "k-shown",
+    "region": "sidebar"
+   },
+   {
+    "do": "type",
+    "text": "Travel > Japan > Kyoto"
+   },
+   {
+    "do": "key",
+    "key": "return"
+   },
+   {
+    "do": "wait",
+    "seconds": 1.5
+   },
+   {
+    "do": "state",
+    "name": "keyworded",
+    "texts": true
+   },
+   {
+    "do": "shot",
+    "name": "keyworded",
+    "region": "sidebar"
+   },
+   {
+    "do": "type",
+    "text": "pxu"
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "state",
+    "name": "typed-pxu",
+    "texts": true
+   },
+   {
+    "do": "shot",
+    "name": "typed-pxu",
+    "region": "sidebar"
+   },
+   {
+    "do": "key",
+    "key": "return"
+   },
+   {
+    "do": "wait",
+    "seconds": 1.5
+   },
+   {
+    "do": "state",
+    "name": "pxu-submitted",
+    "texts": true
+   },
+   {
+    "do": "shot",
+    "name": "pxu-submitted",
+    "region": "sidebar"
+   },
+   {
+    "do": "click",
+    "target": {
+     "text": "Kyoto",
+     "within": "sidebar"
+    },
+    "button": "right"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.6
+   },
+   {
+    "do": "key",
+    "key": "down"
+   },
+   {
+    "do": "key",
+    "key": "return"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.6
+   },
+   {
+    "do": "state",
+    "name": "synonym-open",
+    "texts": true
+   },
+   {
+    "do": "shot",
+    "name": "synonym-open",
+    "region": "sidebar"
+   },
+   {
+    "do": "type",
+    "text": "Kioto"
+   },
+   {
+    "do": "key",
+    "key": "return"
+   },
+   {
+    "do": "wait",
+    "seconds": 1.5
+   },
+   {
+    "do": "state",
+    "name": "synonym-added",
+    "texts": true
+   },
+   {
+    "do": "shot",
+    "name": "synonym-added",
+    "region": "sidebar"
+   },
+   {
+    "do": "click",
+    "target": {
+     "text": "Name, camera, keyword",
+     "within": "filterbar"
+    }
+   },
+   {
+    "do": "type",
+    "text": "Kioto"
+   },
+   {
+    "do": "wait",
+    "seconds": 2
+   },
+   {
+    "do": "state",
+    "name": "search-synonym",
+    "texts": true
+   },
+   {
+    "do": "shot",
+    "name": "search-synonym",
+    "region": "sidebar"
+   },
+   {
+    "do": "key",
+    "key": "a",
+    "modifiers": [
+     "cmd"
+    ]
+   },
+   {
+    "do": "type",
+    "text": "japan"
+   },
+   {
+    "do": "wait",
+    "seconds": 2
+   },
+   {
+    "do": "state",
+    "name": "search-parent",
+    "texts": true
+   },
+   {
+    "do": "shot",
+    "name": "search-parent",
+    "region": "sidebar"
+   }
+  ]
+ },
+ {
+  "name": "sb-stacks",
+  "fixture": "raw",
+  "timeoutSeconds": 280,
+  "steps": [
+   {
+    "do": "open",
+    "index": 0,
+    "workspace": "develop",
+    "timeout": 25
+   },
+   {
+    "do": "key",
+    "key": "g"
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "key",
+    "key": "a",
+    "modifiers": [
+     "cmd"
+    ]
+   },
+   {
+    "do": "key",
+    "key": "s",
+    "modifiers": [
+     "cmd",
+     "option"
+    ]
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "key",
+    "key": "g",
+    "modifiers": [
+     "cmd"
+    ]
+   },
+   {
+    "do": "wait",
+    "seconds": 1.5
+   },
+   {
+    "do": "state",
+    "name": "stacked-hidden"
+   },
+   {
+    "do": "shot",
+    "name": "stacked-hidden"
+   },
+   {
+    "do": "key",
+    "key": "s",
+    "modifiers": [
+     "cmd",
+     "option"
+    ]
+   },
+   {
+    "do": "wait",
+    "seconds": 0.8
+   },
+   {
+    "do": "click",
+    "target": {
+     "text": "Stack",
+     "within": "sidebar"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 0.8
+   },
+   {
+    "do": "state",
+    "name": "stack-open",
+    "texts": true
+   },
+   {
+    "do": "shot",
+    "name": "stack-open",
+    "region": "sidebar"
+   },
+   {
+    "do": "click",
+    "target": "grid",
+    "at": [
+     0.5,
+     0.15
+    ],
+    "note": "select one member"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.8
+   },
+   {
+    "do": "state",
+    "name": "member-selected",
+    "texts": true
+   },
+   {
+    "do": "shot",
+    "name": "member-selected",
+    "region": "sidebar"
+   },
+   {
+    "do": "click",
+    "target": {
+     "text": "Promote to Pick",
+     "within": "sidebar"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "state",
+    "name": "promoted",
+    "texts": true
+   },
+   {
+    "do": "shot",
+    "name": "promoted",
+    "region": "sidebar"
+   },
+   {
+    "do": "click",
+    "target": {
+     "text": "Collapse Stack",
+     "within": "sidebar"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 1
+   },
+   {
+    "do": "shot",
+    "name": "collapsed-window"
+   },
+   {
+    "do": "state",
+    "name": "collapsed",
+    "texts": true
+   },
+   {
+    "do": "shot",
+    "name": "collapsed",
+    "region": "sidebar"
+   },
+   {
+    "do": "key",
+    "key": "s",
+    "modifiers": [
+     "cmd",
+     "option"
+    ]
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "key",
+    "key": "g",
+    "modifiers": [
+     "cmd",
+     "shift"
+    ]
+   },
+   {
+    "do": "wait",
+    "seconds": 1.5
+   },
+   {
+    "do": "state",
+    "name": "unstacked"
+   },
+   {
+    "do": "shot",
+    "name": "unstacked"
+   }
+  ]
+ }
+]

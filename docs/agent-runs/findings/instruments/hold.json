@@ -1,0 +1,10 @@
+{
+  "name": "instr-hold",
+  "defaults": {"longEdge": 1536, "tile": 300},
+  "jobs": [
+    {"id": "hold", "photos": ["6929", "2607"], "variants": [
+      {"label": "ev0", "recipe": {}},
+      {"label": "ev-3", "recipe": {"develop.tone.exposure": -3}},
+      {"label": "ev+3", "recipe": {"develop.tone.exposure": 3}}]}
+  ]
+}

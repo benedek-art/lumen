@@ -1,0 +1,154 @@
+{
+ "name": "colour-raw",
+ "defaults": {
+  "paths": [
+   "export"
+  ],
+  "tile": 300
+ },
+ "jobs": [
+  {
+   "id": "raw-colour",
+   "photos": [
+    "5812",
+    "6929",
+    "1346"
+   ],
+   "variants": [
+    {
+     "label": "orange sat -60",
+     "recipe": {
+      "develop.mixer.bands.1.sat": -60
+     }
+    },
+    {
+     "label": "orange sat +60",
+     "recipe": {
+      "develop.mixer.bands.1.sat": 60
+     }
+    },
+    {
+     "label": "orange hue -60",
+     "recipe": {
+      "develop.mixer.bands.1.hue": -60
+     }
+    },
+    {
+     "label": "orange hue +60",
+     "recipe": {
+      "develop.mixer.bands.1.hue": 60
+     }
+    },
+    {
+     "label": "orange lum +60",
+     "recipe": {
+      "develop.mixer.bands.1.lum": 60
+     }
+    },
+    {
+     "label": "red sat +60",
+     "recipe": {
+      "develop.mixer.bands.0.sat": 60
+     }
+    },
+    {
+     "label": "red hue +60",
+     "recipe": {
+      "develop.mixer.bands.0.hue": 60
+     }
+    },
+    {
+     "label": "azure lum -60",
+     "recipe": {
+      "develop.mixer.bands.5.lum": -60
+     }
+    },
+    {
+     "label": "yellow+mint sat -100",
+     "recipe": {
+      "develop.mixer.bands.2.sat": -100,
+      "develop.mixer.bands.3.sat": -100
+     }
+    },
+    {
+     "label": "pc skin h+30",
+     "recipe": {
+      "develop.pointColors": [
+       {
+        "sample": [
+         0.2727275874528304,
+         0.14453662821053104,
+         0.05261085501943138
+        ],
+        "range": 50,
+        "variance": 0,
+        "shift": {
+         "h": 30,
+         "s": 0,
+         "l": 0
+        }
+       }
+      ]
+     }
+    },
+    {
+     "label": "pc skin s-100",
+     "recipe": {
+      "develop.pointColors": [
+       {
+        "sample": [
+         0.2727275874528304,
+         0.14453662821053104,
+         0.05261085501943138
+        ],
+        "range": 50,
+        "variance": 0,
+        "shift": {
+         "h": 0,
+         "s": -100,
+         "l": 0
+        }
+       }
+      ]
+     }
+    },
+    {
+     "label": "bw azure-60 red+40",
+     "recipe": {
+      "look.bw.enabled": true,
+      "look.bw.bands.5": -60,
+      "look.bw.bands.0": 40
+     }
+    },
+    {
+     "label": "split teal/orange",
+     "recipe": {
+      "look.wheels.shadows.sat": 0.5,
+      "look.wheels.shadows.hue": 200,
+      "look.wheels.high.sat": 0.5,
+      "look.wheels.high.hue": 40
+     }
+    },
+    {
+     "label": "cb hueShift +30",
+     "recipe": {
+      "look.wheels.colorBalance.hueShift": 30
+     }
+    },
+    {
+     "label": "primaries rHue+100",
+     "recipe": {
+      "look.primaries.rHue": 100
+     }
+    },
+    {
+     "label": "printer r+12",
+     "recipe": {
+      "look.printerLights.r": 12
+     }
+    }
+   ],
+   "longEdge": 1536
+  }
+ ]
+}

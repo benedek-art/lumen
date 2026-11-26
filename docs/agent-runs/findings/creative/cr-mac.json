@@ -1,0 +1,346 @@
+{
+ "name": "cr-mac",
+ "defaults": {
+  "longEdge": 1024,
+  "tile": 240,
+  "paths": [
+   "export"
+  ]
+ },
+ "luts": {
+  "cr:teal": "../renderlab/manifests/cr-luts/cr-teal-orange-33.cube"
+ },
+ "jobs": [
+  {
+   "id": "stocks",
+   "photos": [
+    "chart:colorChecker",
+    "chart:skin",
+    "5812",
+    "1346"
+   ],
+   "sweep": {
+    "path": "look.filmLab.stock",
+    "label": "stock",
+    "values": [
+     "lumen/portra400",
+     "lumen/gold200",
+     "lumen/ektar100",
+     "lumen/velvia50",
+     "lumen/cine250d",
+     "lumen/trix400"
+    ]
+   }
+  },
+  {
+   "id": "stock-preview",
+   "photo": "5812",
+   "compare": [
+    "settled",
+    "export"
+   ],
+   "variants": [
+    {
+     "label": "portra",
+     "recipe": {
+      "look.filmLab.stock": "lumen/portra400"
+     }
+    },
+    {
+     "label": "velvia",
+     "recipe": {
+      "look.filmLab.stock": "lumen/velvia50"
+     }
+    }
+   ]
+  },
+  {
+   "id": "strength0",
+   "photos": [
+    "chart:colorChecker"
+   ],
+   "variants": [
+    {
+     "label": "portra strength 0",
+     "recipe": {
+      "look.filmLab.stock": "lumen/portra400",
+      "look.filmLab.amount": 0
+     }
+    },
+    {
+     "label": "portra strength 50",
+     "recipe": {
+      "look.filmLab.stock": "lumen/portra400",
+      "look.filmLab.amount": 50
+     }
+    }
+   ]
+  },
+  {
+   "id": "trix-tone",
+   "photos": [
+    "chart:greyRamp",
+    "chart:skin"
+   ],
+   "variants": [
+    {
+     "label": "bw panel + grade",
+     "recipe": {
+      "look.bw.enabled": true,
+      "look.wheels.shadows.hue": 220,
+      "look.wheels.shadows.sat": 0.5,
+      "look.wheels.high.hue": 45,
+      "look.wheels.high.sat": 0.5
+     }
+    },
+    {
+     "label": "trix + grade",
+     "recipe": {
+      "look.filmLab.stock": "lumen/trix400",
+      "look.wheels.shadows.hue": 220,
+      "look.wheels.shadows.sat": 0.5,
+      "look.wheels.high.hue": 45,
+      "look.wheels.high.sat": 0.5
+     }
+    },
+    {
+     "label": "trix only",
+     "recipe": {
+      "look.filmLab.stock": "lumen/trix400"
+     }
+    },
+    {
+     "label": "trix + printer R+12 B-12",
+     "recipe": {
+      "look.filmLab.stock": "lumen/trix400",
+      "look.printerLights.r": 12,
+      "look.printerLights.b": -12
+     }
+    }
+   ]
+  },
+  {
+   "id": "halation",
+   "photo": "chart:pointLights",
+   "compare": [
+    "settled",
+    "export"
+   ],
+   "recipe": {
+    "look.filmLab.stock": "lumen/cine250d"
+   },
+   "variants": [
+    {
+     "label": "hal 100 size 1",
+     "recipe": {
+      "look.filmLab.halation": 100
+     }
+    },
+    {
+     "label": "hal 100 size 2",
+     "recipe": {
+      "look.filmLab.halation": 100,
+      "look.filmLab.halationSize": 2
+     }
+    }
+   ]
+  },
+  {
+   "id": "lut",
+   "photos": [
+    "chart:hueRing",
+    "6929"
+   ],
+   "compare": [
+    "settled",
+    "export"
+   ],
+   "variants": [
+    {
+     "label": "none",
+     "recipe": {}
+    },
+    {
+     "label": "teal display 0",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:teal",
+       "name": "teal",
+       "tap": "display",
+       "amount": 0
+      }
+     }
+    },
+    {
+     "label": "teal display 50",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:teal",
+       "name": "teal",
+       "tap": "display",
+       "amount": 50
+      }
+     }
+    },
+    {
+     "label": "teal display 100",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:teal",
+       "name": "teal",
+       "tap": "display",
+       "amount": 100
+      }
+     }
+    },
+    {
+     "label": "teal log 100",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:teal",
+       "name": "teal",
+       "tap": "log",
+       "amount": 100
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": "dt-shoulder",
+   "photo": "chart:hueRing",
+   "variants": [
+    {
+     "label": "Neutral +2",
+     "recipe": {
+      "develop.tone.exposure": 2
+     }
+    },
+    {
+     "label": "Neutral +3",
+     "recipe": {
+      "develop.tone.exposure": 3
+     }
+    },
+    {
+     "label": "Punchy +3",
+     "recipe": {
+      "develop.tone.exposure": 3,
+      "look.render.preset": "Punchy"
+     }
+    }
+   ]
+  },
+  {
+   "id": "skew",
+   "photos": [
+    "6929"
+   ],
+   "sweep": {
+    "path": "look.render.skew",
+    "label": "skew",
+    "values": [
+     -1,
+     -0.5,
+     1
+    ]
+   }
+  },
+  {
+   "id": "vignette",
+   "photos": [
+    "chart:flatGrey",
+    "6929"
+   ],
+   "variants": [
+    {
+     "label": "vig -3 f75",
+     "recipe": {
+      "look.vignette": -3,
+      "look.vignetteFeather": 75
+     }
+    },
+    {
+     "label": "vig -3 f0",
+     "recipe": {
+      "look.vignette": -3,
+      "look.vignetteFeather": 0
+     }
+    },
+    {
+     "label": "crop left half vig -3 f75",
+     "recipe": {
+      "look.vignette": -3,
+      "look.vignetteFeather": 75,
+      "develop.geometry.crop.x": 0,
+      "develop.geometry.crop.w": 0.5
+     }
+    },
+    {
+     "label": "crop portrait vig -3 f75",
+     "recipe": {
+      "look.vignette": -3,
+      "look.vignetteFeather": 75,
+      "develop.geometry.crop.x": 0.3,
+      "develop.geometry.crop.w": 0.4
+     }
+    }
+   ]
+  },
+  {
+   "id": "vignette-portrait",
+   "photo": "5812",
+   "variants": [
+    {
+     "label": "vig -3 f75",
+     "recipe": {
+      "look.vignette": -3,
+      "look.vignetteFeather": 75
+     }
+    },
+    {
+     "label": "crop top vig -3 f75",
+     "recipe": {
+      "look.vignette": -3,
+      "look.vignetteFeather": 75,
+      "develop.geometry.crop.y": 0,
+      "develop.geometry.crop.h": 0.5
+     }
+    }
+   ]
+  },
+  {
+   "id": "stack",
+   "photos": [
+    "5812",
+    "chart:skin",
+    "chart:colorChecker"
+   ],
+   "compare": [
+    "settled",
+    "export"
+   ],
+   "variants": [
+    {
+     "label": "portra+teal60+grade+vig+sat30",
+     "recipe": {
+      "look.filmLab.stock": "lumen/portra400",
+      "look.lut": {
+       "ref": "cr:teal",
+       "name": "teal",
+       "tap": "display",
+       "amount": 60
+      },
+      "look.wheels.shadows.hue": 200,
+      "look.wheels.shadows.sat": 0.35,
+      "look.wheels.high.hue": 40,
+      "look.wheels.high.sat": 0.3,
+      "look.vignette": -1.5,
+      "develop.color.saturation": 30,
+      "develop.tone.contrast": 30
+     }
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,2571 @@
+{
+  "anchors" : [
+    {
+      "h" : 695,
+      "id" : "develop.column",
+      "w" : 380,
+      "x" : 1003,
+      "y" : 86
+    },
+    {
+      "h" : 96,
+      "id" : "filmstrip",
+      "w" : 1209,
+      "x" : 231,
+      "y" : 782
+    },
+    {
+      "h" : 34,
+      "id" : "filterbar",
+      "w" : 1209,
+      "x" : 231,
+      "y" : 52
+    },
+    {
+      "h" : 695,
+      "id" : "rail",
+      "w" : 56,
+      "x" : 1384,
+      "y" : 86
+    },
+    {
+      "h" : 848,
+      "id" : "sidebar",
+      "w" : 230,
+      "x" : 0,
+      "y" : 52
+    },
+    {
+      "h" : 28,
+      "id" : "slider\/Blacks",
+      "w" : 352,
+      "x" : 1017,
+      "y" : 679
+    },
+    {
+      "h" : 24,
+      "id" : "slider\/Blacks#track",
+      "w" : 202,
+      "x" : 1109,
+      "y" : 681
+    },
+    {
+      "h" : 28,
+      "id" : "slider\/Clarity",
+      "w" : 352,
+      "x" : 1017,
+      "y" : 891
+    },
+    {
+      "h" : 24,
+      "id" : "slider\/Clarity#track",
+      "w" : 202,
+      "x" : 1109,
+      "y" : 893
+    },
+    {
+      "h" : 28,
+      "id" : "slider\/Contrast",
+      "w" : 352,
+      "x" : 1017,
+      "y" : 519
+    },
+    {
+      "h" : 24,
+      "id" : "slider\/Contrast#track",
+      "w" : 202,
+      "x" : 1109,
+      "y" : 521
+    },
+    {
+      "h" : 28,
+      "id" : "slider\/Dehaze",
+      "w" : 352,
+      "x" : 1017,
+      "y" : 923
+    },
+    {
+      "h" : 24,
+      "id" : "slider\/Dehaze#track",
+      "w" : 202,
+      "x" : 1109,
+      "y" : 925
+    },
+    {
+      "h" : 28,
+      "id" : "slider\/Exposure",
+      "w" : 352,
+      "x" : 1017,
+      "y" : 487
+    },
+    {
+      "h" : 24,
+      "id" : "slider\/Exposure#track",
+      "w" : 202,
+      "x" : 1109,
+      "y" : 489
+    },
+    {
+      "h" : 28,
+      "id" : "slider\/Highlights",
+      "w" : 352,
+      "x" : 1017,
+      "y" : 583
+    },
+    {
+      "h" : 24,
+      "id" : "slider\/Highlights#track",
+      "w" : 202,
+      "x" : 1109,
+      "y" : 585
+    },
+    {
+      "h" : 28,
+      "id" : "slider\/Pivot",
+      "w" : 352,
+      "x" : 1017,
+      "y" : 551
+    },
+    {
+      "h" : 24,
+      "id" : "slider\/Pivot#track",
+      "w" : 202,
+      "x" : 1109,
+      "y" : 553
+    },
+    {
+      "h" : 28,
+      "id" : "slider\/Protect Skin",
+      "w" : 352,
+      "x" : 1017,
+      "y" : 1068
+    },
+    {
+      "h" : 24,
+      "id" : "slider\/Protect Skin#track",
+      "w" : 202,
+      "x" : 1109,
+      "y" : 1070
+    },
+    {
+      "h" : 28,
+      "id" : "slider\/Saturation",
+      "w" : 352,
+      "x" : 1017,
+      "y" : 1036
+    },
+    {
+      "h" : 24,
+      "id" : "slider\/Saturation#track",
+      "w" : 202,
+      "x" : 1109,
+      "y" : 1038
+    },
+    {
+      "h" : 28,
+      "id" : "slider\/Shadows",
+      "w" : 352,
+      "x" : 1017,
+      "y" : 615
+    },
+    {
+      "h" : 24,
+      "id" : "slider\/Shadows#track",
+      "w" : 202,
+      "x" : 1109,
+      "y" : 617
+    },
+    {
+      "h" : 28,
+      "id" : "slider\/Temp",
+      "w" : 352,
+      "x" : 1017,
+      "y" : 369
+    },
+    {
+      "h" : 24,
+      "id" : "slider\/Temp#track",
+      "w" : 202,
+      "x" : 1109,
+      "y" : 371
+    },
+    {
+      "h" : 28,
+      "id" : "slider\/Texture",
+      "w" : 352,
+      "x" : 1017,
+      "y" : 859
+    },
+    {
+      "h" : 24,
+      "id" : "slider\/Texture#track",
+      "w" : 202,
+      "x" : 1109,
+      "y" : 861
+    },
+    {
+      "h" : 28,
+      "id" : "slider\/Tint",
+      "w" : 352,
+      "x" : 1017,
+      "y" : 401
+    },
+    {
+      "h" : 24,
+      "id" : "slider\/Tint#track",
+      "w" : 202,
+      "x" : 1109,
+      "y" : 403
+    },
+    {
+      "h" : 28,
+      "id" : "slider\/Vibrance",
+      "w" : 352,
+      "x" : 1017,
+      "y" : 1004
+    },
+    {
+      "h" : 24,
+      "id" : "slider\/Vibrance#track",
+      "w" : 202,
+      "x" : 1109,
+      "y" : 1006
+    },
+    {
+      "h" : 28,
+      "id" : "slider\/Whites",
+      "w" : 352,
+      "x" : 1017,
+      "y" : 647
+    },
+    {
+      "h" : 24,
+      "id" : "slider\/Whites#track",
+      "w" : 202,
+      "x" : 1109,
+      "y" : 649
+    },
+    {
+      "h" : 22,
+      "id" : "statusbar",
+      "w" : 1209,
+      "x" : 231,
+      "y" : 878
+    },
+    {
+      "h" : 695,
+      "id" : "viewer",
+      "w" : 771,
+      "x" : 231,
+      "y" : 86
+    },
+    {
+      "h" : 514,
+      "id" : "viewer.image",
+      "w" : 771,
+      "x" : 231,
+      "y" : 177
+    }
+  ],
+  "app" : {
+    "$__lazy_storage_$_ratingSink" : "(Function)",
+    "$__lazy_storage_$_sliderFocusSink" : "(Function)",
+    "$__lazy_storage_$_sliderGestureSink" : "(Function)",
+    "$__lazy_storage_$_sliderWheelSink" : "(Function)",
+    "activeComponentIndex" : 0,
+    "activeMaskID" : null,
+    "activeSheet" : null,
+    "activeSmartCollection" : null,
+    "allPhotos" : {
+      "count" : 3,
+      "items" : [
+        {
+          "attention" : "CullingAttention(sharpness: Optional(0.9999677666777612), softFocus: false, eyesClosed: false, burstSize: nil, burstRank: nil, burstID: nil)",
+          "catalogID" : 1,
+          "flag" : "unflagged",
+          "id" : "5D-12MP.CR2",
+          "iso" : 400,
+          "label" : null,
+          "rating" : 0,
+          "sourceIdentity" : "SourceFileIdentity(token: \"3568756:12841893:1795661770:423381916:1795668354:917426791\")"
+        },
+        {
+          "attention" : "CullingAttention(sharpness: Optional(0.9999949835981414), softFocus: false, eyesClosed: false, burstSize: nil, burstRank: nil, burstID: nil)",
+          "catalogID" : 2,
+          "flag" : "unflagged",
+          "id" : "A7IV-33MP.ARW",
+          "iso" : 250,
+          "label" : null,
+          "rating" : 0,
+          "sourceIdentity" : "SourceFileIdentity(token: \"3568757:49184768:1795661764:806396416:1795668354:917521041\")"
+        },
+        {
+          "attention" : "CullingAttention(sharpness: nil, softFocus: false, eyesClosed: false, burstSize: nil, burstRank: nil, burstID: nil)",
+          "catalogID" : 3,
+          "flag" : "unflagged",
+          "id" : "XH2-40MP.RAF",
+          "iso" : null,
+          "label" : null,
+          "rating" : 0,
+          "sourceIdentity" : "SourceFileIdentity(token: \"3568755:28948064:1795661768:28453374:1795668354:917342374\")"
+        }
+      ]
+    },
+    "assessmentMode" : false,
+    "attemptedMattes" : {
+      "count" : 0,
+      "entries" : {
+
+      }
+    },
+    "autoAdvance" : true,
+    "availableMattes" : {
+      "count" : 0,
+      "entries" : {
+
+      }
+    },
+    "cameraChoices" : {
+      "count" : 2,
+      "items" : [
+        {
+          "count" : 1,
+          "name" : "Canon EOS 5D"
+        },
+        {
+          "count" : 1,
+          "name" : "SONY ILCE-7M4"
+        }
+      ]
+    },
+    "catalog" : {
+      "backfillGeneration" : 1,
+      "backfillLock" : {
+
+      },
+      "backupInFlight" : false,
+      "backupLock" : {
+
+      },
+      "backupQueue" : {
+
+      },
+      "blobs" : {
+        "cache" : {
+          "count" : 0
+        },
+        "directory" : "blobs",
+        "lock" : "NSLock"
+      },
+      "cullingGeneration" : 2,
+      "cullingLane" : {
+
+      },
+      "directory" : "catalog",
+      "maintenance" : {
+
+      },
+      "onFailure" : "(Function)",
+      "onInvalidatedPreviews" : "(Function)",
+      "pendingSidecars" : {
+        "count" : 0,
+        "entries" : {
+
+        }
+      },
+      "queue" : {
+
+      },
+      "recovery" : {
+        "outcome" : "firstRun"
+      },
+      "relinkedSources" : {
+        "count" : 0,
+        "entries" : {
+
+        }
+      },
+      "reportedAmbiguousSidecars" : {
+        "count" : 0,
+        "items" : [
+
+        ]
+      },
+      "reportedSidecarFailures" : {
+        "count" : 0,
+        "items" : [
+
+        ]
+      },
+      "sidecarDataReader" : "(Function)",
+      "sidecarFlushScheduled" : false,
+      "sidecarLock" : {
+
+      },
+      "sidecarsClosed" : false,
+      "store" : {
+        "cachePath" : "\/var\/folders\/9d\/l02zfgrs7c16twd3wbpdmhkc0000gn\/T\/lumen-driver-9754D15F-67D4-42CE-A1CD-BD970518A6EF\/catalog\/cache.db",
+        "db" : "SQLiteDatabase",
+        "ftsEnabled" : true,
+        "path" : "\/var\/folders\/9d\/l02zfgrs7c16twd3wbpdmhkc0000gn\/T\/lumen-driver-9754D15F-67D4-42CE-A1CD-BD970518A6EF\/catalog\/lumen.db",
+        "textIndexWentStale" : false
+      },
+      "unsavedSidecarNotice" : null,
+      "unsavedSidecars" : {
+        "count" : 0,
+        "entries" : {
+
+        }
+      }
+    },
+    "catalogDirectory" : "(Function)",
+    "catalogIDCache" : {
+      "count" : 3,
+      "entries" : {
+        "5D-12MP.CR2" : 1,
+        "A7IV-33MP.ARW" : 2,
+        "XH2-40MP.RAF" : 3
+      }
+    },
+    "catalogStatus" : null,
+    "clippingOverlay" : null,
+    "collections" : {
+      "count" : 0,
+      "items" : [
+
+      ]
+    },
+    "commands" : {
+      "hasCatalog" : true,
+      "hasSelection" : true,
+      "pasteIncludesRetouch" : false,
+      "redoLabel" : "Edit",
+      "showLatencyHUD" : false,
+      "undoLabel" : "Add Spot"
+    },
+    "copiedGroups" : null,
+    "copiedLook" : null,
+    "copiedRecipe" : {
+      "develop" : {
+        "color" : "ColorAdjust(vibrance: 0.0, saturation: 0.0, density: 50.0, protectSkin: 70.0)",
+        "curve" : "CurveSet(parametric: LumenCore.ParametricCurve(highlights: 0.0, lights: 0.0, darks: 0.0, shadows: 0.0, splits: [0.25, 0.5, 0.75]), point: nil, r: nil, g: nil, b",
+        "denoise" : "Denoise(mode: LumenCore.Denoise.Mode.classic, amount: 50.0, model: nil, classic: LumenCore.ClassicNR(luma: 0.0, chroma: 13.304820237218406, hotPixels: 0.0, luma",
+        "detail" : "Detail(capture: LumenCore.CaptureSharpen(auto: true, radius: nil, amount: nil), texture: 0.0, clarity: 30.0, dehaze: 0.0, sharpen: LumenCore.ManualSharpen(amoun",
+        "geometry" : "Geometry(crop: LumenCore.Crop(x: 0.03871148732880003, y: 0.0, w: 0.9225770253423999, h: 1.0), angle: 5.0, flipH: false, upright: nil, lens: LumenCore.LensCorrec",
+        "heal" : "Heal(strokesRef: nil, count: 0, spots: [LumenCore.HealSpot(id: \"3306AAD6-E6D8-40A5-96B3-B046B166EE81\", mode: LumenCore.HealMode.heal, x: 0.31450018214960435, y:",
+        "mixer" : "Mixer(bands: [LumenCore.MixerBand(hue: 0.0, sat: 0.0, lum: 0.0, core: [22.5, 22.5], feather: [15.0, 15.0]), LumenCore.MixerBand(hue: 0.0, sat: 0.0, lum: 0.0, co",
+        "pointColors" : {
+          "count" : 0
+        },
+        "raw" : "RawParams(decoder: \"apple\", decoderVersion: nil, temp: Optional(4950.0), tint: nil)",
+        "tone" : "Tone(exposure: 1.25, contrast: 0.0, contrastPivot: 0.0, highlights: 0.0, shadows: 0.0, whites: 0.0, blacks: 0.0)",
+        "zones" : "Zones(pivots: [0.35714285714285715, 0.5, 0.6428571428571429, 0.7857142857142857, 0.9285714285714286], dark: LumenCore.ZoneAdjust(ev: 0.0, wheel: [0.0, 0.0], sat"
+      },
+      "look" : {
+        "bw" : null,
+        "filmLab" : null,
+        "grain" : null,
+        "lut" : null,
+        "primaries" : "Primaries(rHue: 0.0, rPurity: 0.0, gHue: 0.0, gPurity: 0.0, bHue: 0.0, bPurity: 0.0, tintHue: 0.0, tintPurity: 0.0)",
+        "printerLights" : "PrinterLights(master: 0, r: 0, g: 0, b: 0)",
+        "render" : "RenderParams(preset: \"Neutral\", contrast: nil, skew: nil, huePreservation: nil, blackTarget: nil, whiteTarget: nil)",
+        "vignette" : 0,
+        "vignetteFeather" : 50,
+        "wheels" : "GradingWheels(global: LumenCore.Wheel(hue: 0.0, sat: 0.0, lum: 0.0), shadows: LumenCore.Wheel(hue: 0.0, sat: 0.0, lum: 0.0), mid: LumenCore.Wheel(hue: 0.0, sat:"
+      },
+      "maskGroups" : {
+        "count" : 0,
+        "items" : [
+
+        ]
+      },
+      "masks" : {
+        "count" : 1,
+        "items" : [
+          "Mask(id: \"CAA39837-C4D1-47FB-8C78-FCB7098F2CD8\", name: \"Linear Gradient 1\", enabled: true, invert: false, amount: 100.0, components: [LumenCore.MaskComponent(op"
+        ]
+      },
+      "pipelineVersion" : 3
+    },
+    "cullCountsCache" : {
+      "flags" : {
+        "count" : 1,
+        "entries" : {
+          "unflagged" : 3
+        }
+      },
+      "labels" : {
+        "count" : 1,
+        "entries" : {
+          "<null>" : 3
+        }
+      },
+      "ratingAtLeast" : {
+        "count" : 6,
+        "items" : [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    "cullingAssistsEnabled" : true,
+    "developColumnHidden" : false,
+    "developPanelWidth" : 380,
+    "edits" : {
+      "value" : 62
+    },
+    "expansionRequests" : {
+      "latest" : 0
+    },
+    "exportCancelRequested" : false,
+    "exportProgress" : 0,
+    "exportRecipes" : {
+      "count" : 4,
+      "items" : [
+        {
+          "allowUpscale" : false,
+          "bitDepth" : 8,
+          "collision" : "rename",
+          "colorSpace" : "srgb",
+          "customText" : null,
+          "enabled" : true,
+          "filenameTemplate" : "{name}",
+          "format" : "jpeg",
+          "hdr" : null,
+          "id" : "9BB7F8FF-D10F-4FC9-B632-2BA80B8DF07E",
+          "metadata" : "MetadataPolicy(includeEXIF: true, includeCameraSerial: false, includeGPS: false, includeKeywords: true, copyright: nil, contact: nil)",
+          "name" : "Web sRGB 2048 q90",
+          "quality" : 90,
+          "resizeHeight" : 2048,
+          "resizeMode" : "longEdge",
+          "resizeValue" : 2048,
+          "resolutionPPI" : 300,
+          "sequenceStart" : 1,
+          "sharpen" : "OutputSharpen(medium: LumenCore.OutputSharpen.Medium.screen, amount: LumenCore.OutputSharpen.Amount.standard)",
+          "subfolder" : null,
+          "watermark" : null
+        },
+        {
+          "allowUpscale" : false,
+          "bitDepth" : 16,
+          "collision" : "rename",
+          "colorSpace" : "adobeRGB",
+          "customText" : null,
+          "enabled" : false,
+          "filenameTemplate" : "{name}-print",
+          "format" : "tiff",
+          "hdr" : null,
+          "id" : "D0BD6FD1-08FB-4653-AB5F-8032415D2C7E",
+          "metadata" : "MetadataPolicy(includeEXIF: true, includeCameraSerial: false, includeGPS: false, includeKeywords: true, copyright: nil, contact: nil)",
+          "name" : "Print Adobe RGB full",
+          "quality" : 100,
+          "resizeHeight" : 2048,
+          "resizeMode" : "none",
+          "resizeValue" : 2048,
+          "resolutionPPI" : 300,
+          "sequenceStart" : 1,
+          "sharpen" : "OutputSharpen(medium: LumenCore.OutputSharpen.Medium.glossy, amount: LumenCore.OutputSharpen.Amount.standard)",
+          "subfolder" : "print",
+          "watermark" : null
+        },
+        {
+          "allowUpscale" : false,
+          "bitDepth" : 8,
+          "collision" : "rename",
+          "colorSpace" : "displayP3",
+          "customText" : null,
+          "enabled" : false,
+          "filenameTemplate" : "{name}-hdr",
+          "format" : "heif",
+          "hdr" : "HDRSettings(headroomEV: 2.0, mapScale: 0.25, deliberateSDRBase: true)",
+          "id" : "F95AF953-CA9F-40DC-BC39-AA489A54BB3C",
+          "metadata" : "MetadataPolicy(includeEXIF: true, includeCameraSerial: false, includeGPS: false, includeKeywords: true, copyright: nil, contact: nil)",
+          "name" : "HDR HEIC",
+          "quality" : 100,
+          "resizeHeight" : 2048,
+          "resizeMode" : "none",
+          "resizeValue" : 2048,
+          "resolutionPPI" : 300,
+          "sequenceStart" : 1,
+          "sharpen" : "OutputSharpen(medium: LumenCore.OutputSharpen.Medium.none, amount: LumenCore.OutputSharpen.Amount.standard)",
+          "subfolder" : "hdr",
+          "watermark" : null
+        },
+        {
+          "allowUpscale" : false,
+          "bitDepth" : 8,
+          "collision" : "rename",
+          "colorSpace" : "displayP3",
+          "customText" : null,
+          "enabled" : false,
+          "filenameTemplate" : "{name}",
+          "format" : "jpeg",
+          "hdr" : null,
+          "id" : "A6624AE7-D642-4CB9-8576-BDB09EE465E6",
+          "metadata" : "MetadataPolicy(includeEXIF: true, includeCameraSerial: false, includeGPS: false, includeKeywords: true, copyright: nil, contact: nil)",
+          "name" : "Full-size JPEG",
+          "quality" : 100,
+          "resizeHeight" : 2048,
+          "resizeMode" : "none",
+          "resizeValue" : 2048,
+          "resolutionPPI" : 300,
+          "sequenceStart" : 1,
+          "sharpen" : "OutputSharpen(medium: LumenCore.OutputSharpen.Medium.none, amount: LumenCore.OutputSharpen.Amount.standard)",
+          "subfolder" : null,
+          "watermark" : null
+        }
+      ]
+    },
+    "filter" : {
+      "burst" : "any",
+      "cameras" : {
+        "count" : 0,
+        "items" : [
+
+        ]
+      },
+      "closedEyes" : false,
+      "edited" : null,
+      "flags" : {
+        "count" : 0,
+        "items" : [
+
+        ]
+      },
+      "includeUnlabeled" : false,
+      "isoBands" : {
+        "count" : 0,
+        "items" : [
+
+        ]
+      },
+      "keywords" : {
+        "count" : 0,
+        "items" : [
+
+        ]
+      },
+      "labels" : {
+        "count" : 0,
+        "items" : [
+
+        ]
+      },
+      "lenses" : {
+        "count" : 0,
+        "items" : [
+
+        ]
+      },
+      "matchAny" : false,
+      "minRating" : 0,
+      "rawOnly" : false,
+      "softFocus" : false,
+      "stackState" : "any",
+      "text" : ""
+    },
+    "focusPeaking" : {
+      "isOn" : false,
+      "sensitivity" : "normal",
+      "tint" : "green"
+    },
+    "folderURL" : "photos-ef-paste2",
+    "frameOrientations" : {
+      "answers" : {
+        "count" : 2,
+        "entries" : {
+          "5D-12MP.CR2" : "delivered(false)",
+          "A7IV-33MP.ARW" : "delivered(false)"
+        }
+      }
+    },
+    "gestureEpoch" : 6,
+    "gestureWatchdog" : null,
+    "gridColumns" : 6,
+    "gridThumbnailSize" : 160,
+    "history" : {
+      "lastEditTime" : -62135769600,
+      "onChange" : "(Function)",
+      "position" : 7,
+      "steps" : {
+        "count" : 8,
+        "items" : [
+          "Step(before: [file:\/\/\/Users\/runner\/work\/_temp\/lumen-driver-work\/photos-ef-paste2\/A7IV-33MP.ARW: LumenApp.HistoryStack.PhotoEdit(recipe: Optional(LumenCore.Recip",
+          "Step(before: [file:\/\/\/Users\/runner\/work\/_temp\/lumen-driver-work\/photos-ef-paste2\/A7IV-33MP.ARW: LumenApp.HistoryStack.PhotoEdit(recipe: Optional(LumenCore.Recip",
+          "Step(before: [file:\/\/\/Users\/runner\/work\/_temp\/lumen-driver-work\/photos-ef-paste2\/A7IV-33MP.ARW: LumenApp.HistoryStack.PhotoEdit(recipe: Optional(LumenCore.Recip",
+          "Step(before: [file:\/\/\/Users\/runner\/work\/_temp\/lumen-driver-work\/photos-ef-paste2\/A7IV-33MP.ARW: LumenApp.HistoryStack.PhotoEdit(recipe: Optional(LumenCore.Recip",
+          "Step(before: [file:\/\/\/Users\/runner\/work\/_temp\/lumen-driver-work\/photos-ef-paste2\/A7IV-33MP.ARW: LumenApp.HistoryStack.PhotoEdit(recipe: Optional(LumenCore.Recip",
+          "Step(before: [file:\/\/\/Users\/runner\/work\/_temp\/lumen-driver-work\/photos-ef-paste2\/A7IV-33MP.ARW: LumenApp.HistoryStack.PhotoEdit(recipe: Optional(LumenCore.Recip",
+          "Step(before: [file:\/\/\/Users\/runner\/work\/_temp\/lumen-driver-work\/photos-ef-paste2\/A7IV-33MP.ARW: LumenApp.HistoryStack.PhotoEdit(recipe: Optional(LumenCore.Recip",
+          "Step(before: [file:\/\/\/Users\/runner\/work\/_temp\/lumen-driver-work\/photos-ef-paste2\/A7IV-33MP.ARW: LumenApp.HistoryStack.PhotoEdit(recipe: Optional(LumenCore.Recip"
+        ]
+      },
+      "suppressedSignals" : 0
+    },
+    "inspectionHold" : null,
+    "isApplyingQuerySource" : false,
+    "isExporting" : false,
+    "isRelinkingOriginal" : false,
+    "isRestoringSourceState" : false,
+    "isScanning" : false,
+    "keywordVocabulary" : {
+      "count" : 0,
+      "items" : [
+
+      ]
+    },
+    "lastGestureEventAt" : 1795668494.5734701,
+    "lensChoices" : {
+      "count" : 2,
+      "items" : [
+        {
+          "count" : 1,
+          "name" : "Canon EF 50mm f\/1.4 USM"
+        },
+        {
+          "count" : 1,
+          "name" : "FE 50mm F2.5 G"
+        }
+      ]
+    },
+    "libraryOrder" : {
+      "count" : 3,
+      "items" : [
+        "5D-12MP.CR2",
+        "A7IV-33MP.ARW",
+        "XH2-40MP.RAF"
+      ]
+    },
+    "libraryQueryGeneration" : 2,
+    "lightsOut" : "normal",
+    "maskCreateBoardOpen" : false,
+    "maskOverlay" : {
+      "adjusting" : false,
+      "canvasHoverID" : null,
+      "choice" : "automatic",
+      "creatingID" : null,
+      "gestureID" : null,
+      "masking" : false,
+      "panelHoverID" : null,
+      "selectedID" : null
+    },
+    "maskOverlayAlpha" : null,
+    "maskOverlayDrafts" : {
+      "machine" : {
+        "inFlight" : null,
+        "minted" : 1,
+        "pending" : null
+      },
+      "queued" : {
+        "count" : 0,
+        "entries" : {
+
+        }
+      },
+      "waiters" : {
+        "count" : 0,
+        "entries" : {
+
+        }
+      }
+    },
+    "maskOverlayGeneration" : 73,
+    "maskOverlayHoverRegions" : {
+      "count" : 0,
+      "entries" : {
+
+      }
+    },
+    "maskOverlayHoverTask" : null,
+    "maskOverlayLastHoverRegion" : null,
+    "maskOverlayLastRefresh" : 1795668451.6663001,
+    "maskOverlayMode" : "colorOverlay",
+    "maskOverlayPendingHoverID" : null,
+    "maskOverlayRevision" : 50,
+    "maskOverlayShownGeneration" : 53,
+    "maskOverlaySource" : null,
+    "maskOverlayTask" : {
+      "task" : "(Opaque Value)"
+    },
+    "maskOverlayTint" : "red",
+    "maskPanelMinimized" : false,
+    "maskPanelOffset" : {
+      "height" : 0,
+      "width" : 0
+    },
+    "maskPanelVisible" : true,
+    "maskThumbnailKey" : null,
+    "maskThumbnails" : {
+      "count" : 0,
+      "entries" : {
+
+      }
+    },
+    "maskThumbnailTask" : {
+      "task" : "(Opaque Value)"
+    },
+    "mixerAllBands" : false,
+    "mixerBand" : 0,
+    "movingForward" : true,
+    "operationReportFiles" : {
+      "count" : 0,
+      "entries" : {
+
+      }
+    },
+    "operationReports" : {
+      "count" : 0,
+      "items" : [
+
+      ]
+    },
+    "operationReportSavedRevisions" : {
+      "count" : 0,
+      "entries" : {
+
+      }
+    },
+    "operationReportStore" : {
+      "$defaultActor" : "(Opaque Value)",
+      "checkpoints" : {
+        "count" : 0,
+        "entries" : {
+
+        }
+      },
+      "completedBytes" : 33554432,
+      "completedLimit" : 50,
+      "directory" : "reports",
+      "maximumFileBytes" : 16777216,
+      "retentionWarning" : null
+    },
+    "operationReportWarning" : null,
+    "pacedLibraryQuery" : null,
+    "pendingGesturePersist" : {
+      "count" : 0,
+      "entries" : {
+
+      }
+    },
+    "pendingGestureTouchedPixels" : false,
+    "pendingMattes" : {
+      "count" : 0,
+      "items" : [
+
+      ]
+    },
+    "photoCache" : {
+      "count" : 3,
+      "items" : [
+        {
+          "attention" : "CullingAttention(sharpness: Optional(0.9999677666777612), softFocus: false, eyesClosed: false, burstSize: nil, burstRank: nil, burstID: nil)",
+          "catalogID" : 1,
+          "flag" : "unflagged",
+          "id" : "5D-12MP.CR2",
+          "iso" : 400,
+          "label" : null,
+          "rating" : 0,
+          "sourceIdentity" : "SourceFileIdentity(token: \"3568756:12841893:1795661770:423381916:1795668354:917426791\")"
+        },
+        {
+          "attention" : "CullingAttention(sharpness: Optional(0.9999949835981414), softFocus: false, eyesClosed: false, burstSize: nil, burstRank: nil, burstID: nil)",
+          "catalogID" : 2,
+          "flag" : "unflagged",
+          "id" : "A7IV-33MP.ARW",
+          "iso" : 250,
+          "label" : null,
+          "rating" : 0,
+          "sourceIdentity" : "SourceFileIdentity(token: \"3568757:49184768:1795661764:806396416:1795668354:917521041\")"
+        },
+        {
+          "attention" : "CullingAttention(sharpness: nil, softFocus: false, eyesClosed: false, burstSize: nil, burstRank: nil, burstID: nil)",
+          "catalogID" : 3,
+          "flag" : "unflagged",
+          "id" : "XH2-40MP.RAF",
+          "iso" : null,
+          "label" : null,
+          "rating" : 0,
+          "sourceIdentity" : "SourceFileIdentity(token: \"3568755:28948064:1795661768:28453374:1795668354:917342374\")"
+        }
+      ]
+    },
+    "photoSnapshots" : {
+      "busy" : false,
+      "epoch" : 12,
+      "error" : null,
+      "rows" : {
+        "count" : 0,
+        "items" : [
+
+        ]
+      }
+    },
+    "pickTarget" : null,
+    "previewDirectory" : "(Function)",
+    "previews" : {
+      "catalog" : {
+        "backfillGeneration" : 1,
+        "backfillLock" : "NSLock",
+        "backupInFlight" : false,
+        "backupLock" : "NSLock",
+        "backupQueue" : "OS_dispatch_queue_serial",
+        "blobs" : "BlobStore",
+        "cullingGeneration" : 2,
+        "cullingLane" : "OS_dispatch_queue_serial",
+        "directory" : "catalog",
+        "maintenance" : "OS_dispatch_queue_serial",
+        "onFailure" : "(Function)",
+        "onInvalidatedPreviews" : "(Function)",
+        "pendingSidecars" : {
+          "count" : 0
+        },
+        "queue" : "OS_dispatch_queue_serial",
+        "recovery" : "CatalogRecovery(outcome: LumenCore.CatalogRecovery.Outcome.firstRun)",
+        "relinkedSources" : {
+          "count" : 0
+        },
+        "reportedAmbiguousSidecars" : {
+          "count" : 0
+        },
+        "reportedSidecarFailures" : {
+          "count" : 0
+        },
+        "sidecarDataReader" : "(Function)",
+        "sidecarFlushScheduled" : false,
+        "sidecarLock" : "NSLock",
+        "sidecarsClosed" : false,
+        "store" : "CatalogStore",
+        "unsavedSidecarNotice" : null,
+        "unsavedSidecars" : {
+          "count" : 0
+        }
+      },
+      "directory" : "previews",
+      "lock" : {
+
+      },
+      "pendingWriteBytes" : 0,
+      "photoIDs" : {
+        "count" : 3,
+        "entries" : {
+          "5D-12MP.CR2" : 1,
+          "A7IV-33MP.ARW" : 2,
+          "XH2-40MP.RAF" : 3
+        }
+      },
+      "writes" : {
+
+      }
+    },
+    "previousPhoto" : {
+      "current" : "5D-12MP.CR2",
+      "previous" : "A7IV-33MP.ARW"
+    },
+    "primaryAsShotNeutral" : {
+      "kelvin" : 5923.0263699999996,
+      "tint" : 12.044689999999999
+    },
+    "primaryDetailGeneration" : 15,
+    "primaryDetailPhotoID" : 1,
+    "primaryFrameSize" : {
+      "height" : 2912,
+      "width" : 4368
+    },
+    "primaryFrameTransposed" : false,
+    "primaryKeywords" : {
+      "count" : 0,
+      "items" : [
+
+      ]
+    },
+    "primarySelection" : {
+      "attention" : {
+        "burstID" : null,
+        "burstRank" : null,
+        "burstSize" : null,
+        "eyesClosed" : false,
+        "sharpness" : 0.99997000000000003,
+        "softFocus" : false
+      },
+      "catalogID" : 1,
+      "flag" : "unflagged",
+      "id" : "5D-12MP.CR2",
+      "iso" : 400,
+      "label" : null,
+      "rating" : 0,
+      "sourceIdentity" : {
+        "token" : "3568756:12841893:1795661770:423381916:1795668354:917426791"
+      }
+    },
+    "primaryStack" : null,
+    "querySourceLoader" : null,
+    "rawTruth" : null,
+    "rawTruthGeneration" : 0,
+    "rawTruthMeasuring" : false,
+    "rawTruthPlan" : null,
+    "rawTruthTask" : null,
+    "readoutSpace" : "srgb255",
+    "recentFolders" : {
+      "count" : 1,
+      "items" : [
+        "photos-ef-paste2"
+      ]
+    },
+    "recipes" : {
+      "count" : 3,
+      "entries" : {
+        "5D-12MP.CR2" : {
+          "develop" : "Develop(raw: LumenCore.RawParams(decoder: \"apple\", decoderVersion: nil, temp: nil, tint: nil), tone: LumenCore.Tone(exposure: 0.0, contrast: 0.0, contrastPivot:",
+          "look" : "Look(wheels: LumenCore.GradingWheels(global: LumenCore.Wheel(hue: 0.0, sat: 0.0, lum: 0.0), shadows: LumenCore.Wheel(hue: 0.0, sat: 0.0, lum: 0.0), mid: LumenCo",
+          "maskGroups" : {
+            "count" : 0
+          },
+          "masks" : {
+            "count" : 0
+          },
+          "pipelineVersion" : 2
+        },
+        "A7IV-33MP.ARW" : {
+          "develop" : "Develop(raw: LumenCore.RawParams(decoder: \"apple\", decoderVersion: nil, temp: Optional(4950.0), tint: nil), tone: LumenCore.Tone(exposure: 1.25, contrast: 0.0, ",
+          "look" : "Look(wheels: LumenCore.GradingWheels(global: LumenCore.Wheel(hue: 0.0, sat: 0.0, lum: 0.0), shadows: LumenCore.Wheel(hue: 0.0, sat: 0.0, lum: 0.0), mid: LumenCo",
+          "maskGroups" : {
+            "count" : 0
+          },
+          "masks" : {
+            "count" : 1
+          },
+          "pipelineVersion" : 3
+        },
+        "XH2-40MP.RAF" : {
+          "develop" : "Develop(raw: LumenCore.RawParams(decoder: \"apple\", decoderVersion: nil, temp: nil, tint: nil), tone: LumenCore.Tone(exposure: 0.0, contrast: 0.0, contrastPivot:",
+          "look" : "Look(wheels: LumenCore.GradingWheels(global: LumenCore.Wheel(hue: 0.0, sat: 0.0, lum: 0.0), shadows: LumenCore.Wheel(hue: 0.0, sat: 0.0, lum: 0.0), mid: LumenCo",
+          "maskGroups" : {
+            "count" : 0
+          },
+          "masks" : {
+            "count" : 0
+          },
+          "pipelineVersion" : 2
+        }
+      }
+    },
+    "renderCoordinator" : {
+      "$defaultActor" : "(Opaque Value)",
+      "clippingMeasurementsRun" : 0,
+      "evictedMattes" : {
+        "count" : 0,
+        "items" : [
+
+        ]
+      },
+      "knownIdentities" : {
+        "count" : 2,
+        "entries" : {
+          "5D-12MP.CR2" : "SourceFileIdentity(token: \"3568756:12841893:1795661770:423381916:1795668354:917426791\")",
+          "A7IV-33MP.ARW" : "SourceFileIdentity(token: \"3568757:49184768:1795661764:806396416:1795668354:917521041\")"
+        }
+      },
+      "latestGeneration" : 144,
+      "renderer" : {
+        "availability" : "KernelAvailability(coreAvailable: true, unavailable: [])",
+        "bandHueOrder" : {
+          "count" : 0
+        },
+        "bandHues" : {
+          "count" : 0
+        },
+        "brushPlanes" : "BrushPlaneCache",
+        "context" : "CIContext",
+        "maskImageMemo" : {
+          "count" : 1
+        },
+        "maskImageMemoLock" : "NSLock",
+        "maskRasters" : "MaskRasterCache",
+        "maskSourceGeneration" : 0,
+        "matteOrder" : {
+          "count" : 0
+        },
+        "mattes" : {
+          "count" : 0
+        },
+        "nextMatteGeneration" : 0
+      },
+      "sourceIdentities" : {
+        "count" : 2,
+        "entries" : {
+          "5D-12MP.CR2" : "SourceFileIdentity(token: \"3568756:12841893:1795661770:423381916:1795668354:917426791\")",
+          "A7IV-33MP.ARW" : "SourceFileIdentity(token: \"3568757:49184768:1795661764:806396416:1795668354:917521041\")"
+        }
+      },
+      "sourceOrder" : {
+        "count" : 2,
+        "items" : [
+          "5D-12MP.CR2",
+          "A7IV-33MP.ARW"
+        ]
+      },
+      "sourceReplacementsForgotten" : 0,
+      "sources" : {
+        "count" : 2,
+        "entries" : {
+          "5D-12MP.CR2" : "AppleRawSource",
+          "A7IV-33MP.ARW" : "AppleRawSource"
+        }
+      }
+    },
+    "rollCursor" : {
+      "builtCount" : 3,
+      "builtRevision" : 5,
+      "positions" : {
+        "count" : 3,
+        "entries" : {
+          "5D-12MP.CR2" : 0,
+          "A7IV-33MP.ARW" : 1,
+          "XH2-40MP.RAF" : 2
+        }
+      },
+      "rebuilds" : 2
+    },
+    "rollRevision" : 5,
+    "savedLooks" : {
+      "count" : 0,
+      "items" : [
+
+      ]
+    },
+    "scanGeneration" : 1,
+    "scanWindowEdits" : null,
+    "scopeGeneration" : 24,
+    "scopes" : {
+      "histogram" : {
+        "bins" : 256,
+        "clippedHighCounts" : {
+          "count" : 4
+        },
+        "clippedLowCounts" : {
+          "count" : 4
+        },
+        "counts" : {
+          "count" : 1024
+        },
+        "sampleCount" : 699392,
+        "transform" : "ReadoutTransform(space: LumenCore.ReadoutSpace.srgb255, working: LumenCore.RGBColorSpace(name: \"Rec.2020\", red: LumenCore.Chromaticity(x: 0.708, y: 0.292), gree"
+      },
+      "parade" : null,
+      "paradeImages" : null,
+      "provenance" : {
+        "coverage" : "wholeFrame",
+        "exactCounts" : true,
+        "frame" : "viewerFrame",
+        "instrumentPaint" : false,
+        "proofed" : false
+      },
+      "vectorscope" : null,
+      "vectorscopeImage" : null,
+      "waveform" : null,
+      "waveformImage" : null
+    },
+    "selectedCollectionID" : null,
+    "selectedPhotosCache" : {
+      "count" : 1,
+      "items" : [
+        {
+          "attention" : "CullingAttention(sharpness: Optional(0.9999677666777612), softFocus: false, eyesClosed: false, burstSize: nil, burstRank: nil, burstID: nil)",
+          "catalogID" : 1,
+          "flag" : "unflagged",
+          "id" : "5D-12MP.CR2",
+          "iso" : 400,
+          "label" : null,
+          "rating" : 0,
+          "sourceIdentity" : "SourceFileIdentity(token: \"3568756:12841893:1795661770:423381916:1795668354:917426791\")"
+        }
+      ]
+    },
+    "selection" : {
+      "count" : 1,
+      "items" : [
+        "5D-12MP.CR2"
+      ]
+    },
+    "selectionFrames" : {
+      "count" : 0,
+      "entries" : {
+
+      }
+    },
+    "selectionFramesGeneration" : 13,
+    "selectionMembershipIndex" : {
+      "count" : 3,
+      "hasDuplicates" : false,
+      "positionsByID" : {
+        "count" : 3,
+        "entries" : {
+          "5D-12MP.CR2" : 0,
+          "A7IV-33MP.ARW" : 1,
+          "XH2-40MP.RAF" : 2
+        }
+      }
+    },
+    "settleTick" : 6,
+    "showBefore" : false,
+    "showControlPalette" : false,
+    "showFilmstrip" : true,
+    "showHistogram" : true,
+    "showLatencyHUD" : false,
+    "showRawTruth" : false,
+    "showScopes" : false,
+    "sidebarVisible" : true,
+    "sliderFocusCount" : 0,
+    "sliderGestureActive" : false,
+    "softProof" : {
+      "enabled" : false,
+      "intent" : "relativeColorimetric",
+      "showGamutWarning" : true,
+      "simulatePaperWhite" : false,
+      "space" : "srgb"
+    },
+    "sortAscending" : true,
+    "sortOrder" : "captureTime",
+    "sourceMutationRevision" : 67,
+    "sourceRevision" : 1,
+    "sourceStateSaveTask" : null,
+    "statusMessage" : "Copied White Balance, Exposure & Tone and 7 more — ⌘V pastes them",
+    "strokeCache" : {
+      "count" : 0,
+      "entries" : {
+
+      }
+    },
+    "thumbnails" : {
+      "active" : 0,
+      "budgetBytes" : 536870912,
+      "cache" : {
+        "count" : 6,
+        "entries" : {
+          "Key(url: file:\/\/\/Users\/runner\/work\/_temp\/lumen-driver-work\/photos-ef-paste2\/5D-12MP.CR2, pixels: 256, sourceIdentity: Optional(LumenCore.SourceFileIdentity(toke" : "Entry(image: <CGImage 0x1350c6520> (DP)\n\t<<CGColorSpace 0x600000392220> (kCGColorSpaceICCBased; kCGColorSpaceModelRGB; sRGB IEC61966-2.1)>\n\t\theadroom = 1.000000",
+          "Key(url: file:\/\/\/Users\/runner\/work\/_temp\/lumen-driver-work\/photos-ef-paste2\/5D-12MP.CR2, pixels: 1024, sourceIdentity: Optional(LumenCore.SourceFileIdentity(tok" : "Entry(image: <CGImage 0x115bc0b60> (DP)\n\t<<CGColorSpace 0x600000392220> (kCGColorSpaceICCBased; kCGColorSpaceModelRGB; sRGB IEC61966-2.1)>\n\t\theadroom = 1.000000",
+          "Key(url: file:\/\/\/Users\/runner\/work\/_temp\/lumen-driver-work\/photos-ef-paste2\/5D-12MP.CR2, pixels: 2560, sourceIdentity: Optional(LumenCore.SourceFileIdentity(tok" : "Entry(image: <CGImage 0x115d458a0> (DP)\n\t<<CGColorSpace 0x600000392220> (kCGColorSpaceICCBased; kCGColorSpaceModelRGB; sRGB IEC61966-2.1)>\n\t\theadroom = 1.000000",
+          "Key(url: file:\/\/\/Users\/runner\/work\/_temp\/lumen-driver-work\/photos-ef-paste2\/A7IV-33MP.ARW, pixels: 256, sourceIdentity: Optional(LumenCore.SourceFileIdentity(to" : "Entry(image: <CGImage 0x1347cd760> (DP)\n\t<<CGColorSpace 0x600000392220> (kCGColorSpaceICCBased; kCGColorSpaceModelRGB; sRGB IEC61966-2.1)>\n\t\theadroom = 1.000000",
+          "Key(url: file:\/\/\/Users\/runner\/work\/_temp\/lumen-driver-work\/photos-ef-paste2\/A7IV-33MP.ARW, pixels: 1024, sourceIdentity: Optional(LumenCore.SourceFileIdentity(t" : "Entry(image: <CGImage 0x135055f90> (DP)\n\t<<CGColorSpace 0x600000392220> (kCGColorSpaceICCBased; kCGColorSpaceModelRGB; sRGB IEC61966-2.1)>\n\t\theadroom = 1.000000",
+          "Key(url: file:\/\/\/Users\/runner\/work\/_temp\/lumen-driver-work\/photos-ef-paste2\/A7IV-33MP.ARW, pixels: 2560, sourceIdentity: Optional(LumenCore.SourceFileIdentity(t" : "Entry(image: <CGImage 0x134734e80> (DP)\n\t<<CGColorSpace 0x600000392220> (kCGColorSpaceICCBased; kCGColorSpaceModelRGB; sRGB IEC61966-2.1)>\n\t\theadroom = 1.000000"
+        }
+      },
+      "cacheBytes" : 29543936,
+      "clock" : 16,
+      "failed" : {
+        "count" : 3,
+        "items" : [
+          "Key(url: file:\/\/\/Users\/runner\/work\/_temp\/lumen-driver-work\/photos-ef-paste2\/XH2-40MP.RAF, pixels: 1024, sourceIdentity: Optional(LumenCore.SourceFileIdentity(to",
+          "Key(url: file:\/\/\/Users\/runner\/work\/_temp\/lumen-driver-work\/photos-ef-paste2\/XH2-40MP.RAF, pixels: 2560, sourceIdentity: Optional(LumenCore.SourceFileIdentity(to",
+          "Key(url: file:\/\/\/Users\/runner\/work\/_temp\/lumen-driver-work\/photos-ef-paste2\/XH2-40MP.RAF, pixels: 256, sourceIdentity: Optional(LumenCore.SourceFileIdentity(tok"
+        ]
+      },
+      "inFlightCount" : 0,
+      "jobs" : {
+        "count" : 0,
+        "entries" : {
+
+        }
+      },
+      "lastAnchorIndex" : 0,
+      "maxConcurrent" : 8,
+      "previews" : {
+        "catalog" : "CatalogService",
+        "directory" : "previews",
+        "lock" : "NSLock",
+        "pendingWriteBytes" : 0,
+        "photoIDs" : {
+          "count" : 3
+        },
+        "writes" : "OS_dispatch_queue_serial"
+      },
+      "roll" : {
+        "builtCount" : 3,
+        "builtRevision" : 5,
+        "positions" : {
+          "count" : 3
+        },
+        "rebuilds" : 3
+      },
+      "stampCounter" : 13,
+      "ticketCounter" : 4,
+      "travelDirection" : -1
+    },
+    "unreadableMatteSources" : {
+      "count" : 0,
+      "items" : [
+
+      ]
+    },
+    "viewMode" : "loupe",
+    "wheelGestureOwner" : null,
+    "wheelSettleCloser" : null
+  },
+  "brush" : {
+    "automask" : false,
+    "density" : 100,
+    "erase" : false,
+    "feather" : 50,
+    "flow" : 100,
+    "size" : 0.050000000000000003,
+    "stabilize" : 0
+  },
+  "crop" : {
+    "activeLock" : null,
+    "baseline" : {
+      "geometry" : "Geometry(crop: LumenCore.Crop(x: 0.0, y: 0.0, w: 1.0, h: 1.0), angle: 0.0, flipH: false, upright: nil, lens: LumenCore.LensCorrections(profile: true, removeCA: ",
+      "photo" : "A7IV-33MP.ARW"
+    },
+    "lastArmingChange" : null,
+    "overlay" : "thirds",
+    "recentCustomAspects" : {
+      "count" : 0,
+      "items" : [
+
+      ]
+    }
+  },
+  "cursor" : {
+    "x" : 1360,
+    "y" : 501
+  },
+  "extra" : {
+
+  },
+  "heal" : {
+    "armed" : false,
+    "brush" : false,
+    "feather" : 50,
+    "mode" : "heal",
+    "opacity" : 100,
+    "radius" : 0.01,
+    "selectedSpotID" : "3306AAD6-E6D8-40A5-96B3-B046B166EE81",
+    "selectedStrokeIndex" : null,
+    "visualize" : false,
+    "visualizeThreshold" : 50
+  },
+  "history" : {
+    "lastEditTime" : -62135769600,
+    "onChange" : "(Function)",
+    "position" : 7,
+    "steps" : {
+      "count" : 8,
+      "items" : [
+        "Step(before: [file:\/\/\/Users\/runner\/work\/_temp\/lumen-driver-work\/photos-ef-paste2\/A7IV-33MP.ARW: LumenApp.HistoryStack.PhotoEdit(recipe: Optional(LumenCore.Recip",
+        "Step(before: [file:\/\/\/Users\/runner\/work\/_temp\/lumen-driver-work\/photos-ef-paste2\/A7IV-33MP.ARW: LumenApp.HistoryStack.PhotoEdit(recipe: Optional(LumenCore.Recip",
+        "Step(before: [file:\/\/\/Users\/runner\/work\/_temp\/lumen-driver-work\/photos-ef-paste2\/A7IV-33MP.ARW: LumenApp.HistoryStack.PhotoEdit(recipe: Optional(LumenCore.Recip",
+        "Step(before: [file:\/\/\/Users\/runner\/work\/_temp\/lumen-driver-work\/photos-ef-paste2\/A7IV-33MP.ARW: LumenApp.HistoryStack.PhotoEdit(recipe: Optional(LumenCore.Recip",
+        "Step(before: [file:\/\/\/Users\/runner\/work\/_temp\/lumen-driver-work\/photos-ef-paste2\/A7IV-33MP.ARW: LumenApp.HistoryStack.PhotoEdit(recipe: Optional(LumenCore.Recip",
+        "Step(before: [file:\/\/\/Users\/runner\/work\/_temp\/lumen-driver-work\/photos-ef-paste2\/A7IV-33MP.ARW: LumenApp.HistoryStack.PhotoEdit(recipe: Optional(LumenCore.Recip",
+        "Step(before: [file:\/\/\/Users\/runner\/work\/_temp\/lumen-driver-work\/photos-ef-paste2\/A7IV-33MP.ARW: LumenApp.HistoryStack.PhotoEdit(recipe: Optional(LumenCore.Recip",
+        "Step(before: [file:\/\/\/Users\/runner\/work\/_temp\/lumen-driver-work\/photos-ef-paste2\/A7IV-33MP.ARW: LumenApp.HistoryStack.PhotoEdit(recipe: Optional(LumenCore.Recip"
+      ]
+    },
+    "suppressedSignals" : 0
+  },
+  "info" : {
+    "mode" : "off"
+  },
+  "loupe" : {
+    "beforeMode" : "off",
+    "fallbackMagnifyEvents" : 0,
+    "geometry" : {
+      "container" : "(771.0, 695.0)",
+      "displayScale" : 1,
+      "frame" : "(4368.0, 2912.0)",
+      "held" : null,
+      "pan" : "(0.0, 0.0)",
+      "zoom" : 0
+    },
+    "hdrPreview" : false,
+    "lastCursor" : null,
+    "nativeMagnifyEvents" : 0,
+    "pinchInFlight" : false,
+    "showCrop" : false,
+    "showReadout" : true,
+    "showStraighten" : false,
+    "splitPosition" : 0.5
+  },
+  "masking" : false,
+  "masks" : {
+    "active" : "",
+    "count" : 0,
+    "createBoardOpen" : false,
+    "list" : [
+
+    ],
+    "overlay" : "",
+    "overlayRasterized" : false,
+    "overlayShown" : false,
+    "panelVisible" : true
+  },
+  "menus" : [
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Lumen > About Lumen"
+    },
+    {
+      "checked" : false,
+      "enabled" : false,
+      "key" : "",
+      "path" : "Lumen > Build f62aef2"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Lumen > Check for Updates…"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Lumen > Services > Add to Music as a Spoken Track"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Lumen > Services > Convert Text to Full Width"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Lumen > Services > Convert Text to Half Width"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "ctrl+opt+shift+cmd+c",
+      "path" : "Lumen > Services > Convert Text to Simplified Chinese"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "ctrl+shift+cmd+c",
+      "path" : "Lumen > Services > Convert Text to Traditional Chinese"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "cmd+Y",
+      "path" : "Lumen > Services > Make New Sticky Note"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Lumen > Services > Open"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Lumen > Services > Show in Finder"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Lumen > Services > Show Info in Finder"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "cmd+M",
+      "path" : "Lumen > Services > Open man Page in Terminal"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Lumen > Services > Search man Page Index in Terminal"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Lumen > Services > Show Map"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Lumen > Services > Set Desktop Picture"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Lumen > Services > Encode Selected Audio Files"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Lumen > Services > Encode Selected Video Files"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Lumen > Services > Folder Actions Setup…"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Lumen > Services > New Terminal at Folder"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Lumen > Services > New Terminal Tab at Folder"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Lumen > Services > Look Up in Dictionary"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "cmd+L",
+      "path" : "Lumen > Services > Search With Google"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Lumen > Services > New Email To Address"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Lumen > Services > New Email With Selection"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Lumen > Services > Add to Reading List"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Lumen > Services > Open URL"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Lumen > Services > Activity Monitor"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Lumen > Services > Allocations & Leaks"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Lumen > Services > File Activity"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Lumen > Services > System Trace"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Lumen > Services > Time Profile Active Application"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Lumen > Services > Time Profile App Under Mouse"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Lumen > Services > Time Profile Entire System"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Lumen > Services > Toggle Instruments Recording"
+    },
+    {
+      "checked" : false,
+      "enabled" : false,
+      "key" : "",
+      "path" : "Lumen > Services > No Services Apply"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Lumen > Services > Services Settings…"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "cmd+h",
+      "path" : "Lumen > Hide Lumen"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "opt+cmd+h",
+      "path" : "Lumen > Hide Others"
+    },
+    {
+      "checked" : false,
+      "enabled" : false,
+      "key" : "",
+      "path" : "Lumen > Show All"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "cmd+q",
+      "path" : "Lumen > Quit Lumen"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "cmd+o",
+      "path" : "File > Open…"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "shift+cmd+i",
+      "path" : "File > Ingest from Card…"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "File > Relink Missing Original…"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "File > Back Up Catalog"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "cmd+w",
+      "path" : "File > Close"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "opt+cmd+w",
+      "path" : "File > Close All"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "cmd+z",
+      "path" : "Edit > Undo Edit"
+    },
+    {
+      "checked" : false,
+      "enabled" : false,
+      "key" : "shift+cmd+z",
+      "path" : "Edit > Redo"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "cmd+x",
+      "path" : "Edit > Cut"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "cmd+c",
+      "path" : "Edit > Copy Settings"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "cmd+v",
+      "path" : "Edit > Paste Settings"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "shift+cmd+v",
+      "path" : "Edit > Paste Settings Without Masks"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Edit > Paste Masks"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Edit > Paste Includes Spot Removal"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "shift+cmd+c",
+      "path" : "Edit > Copy Settings…"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "shift+cmd+s",
+      "path" : "Edit > Sync Settings…"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "opt+shift+cmd+s",
+      "path" : "Edit > Sync Settings Without Dialog"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "ctrl+cmd+v",
+      "path" : "Edit > Paste from Previous"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "opt+cmd+c",
+      "path" : "Edit > Copy Look"
+    },
+    {
+      "checked" : false,
+      "enabled" : false,
+      "key" : "opt+cmd+v",
+      "path" : "Edit > Paste Look"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "shift+cmd+r",
+      "path" : "Edit > Reset Settings"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "cmd+a",
+      "path" : "Edit > Select All"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "cmd+d",
+      "path" : "Edit > Select None"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Edit > Invert Selection"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "opt+cmd+a",
+      "path" : "Edit > Select Picks"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Edit > Select Rejects"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Edit > Select Unflagged"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Edit > Select by Rating > 1★ or More"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Edit > Select by Rating > 2★ or More"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Edit > Select by Rating > 3★ or More"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Edit > Select by Rating > 4★ or More"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Edit > Select by Rating > 5★"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "opt+shift+cmd+d",
+      "path" : "Edit > Deselect Unpicked"
+    },
+    {
+      "checked" : false,
+      "enabled" : false,
+      "key" : "",
+      "path" : "Edit > AutoFill > Contact…"
+    },
+    {
+      "checked" : false,
+      "enabled" : false,
+      "key" : "",
+      "path" : "Edit > AutoFill > Passwords…"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "d",
+      "path" : "Edit > Start Dictation…"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "d",
+      "path" : "Edit > Start Dictation…"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "e",
+      "path" : "Edit > Emoji & Symbols"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "ctrl+cmd+ ",
+      "path" : "Edit > Emoji & Symbols"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "e",
+      "path" : "Edit > Emoji & Symbols"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "View > Show Tab Bar"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "shift+cmd+\\",
+      "path" : "View > Show All Tabs"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "f",
+      "path" : "View > Enter Full Screen"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "View > Grid — G"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "View > Loupe — E"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "View > Compare — C"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "View > Survey — N"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "cmd+1",
+      "path" : "View > Cull"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "cmd+2",
+      "path" : "View > Develop"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "cmd+3",
+      "path" : "View > Crop"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "cmd+4",
+      "path" : "View > Grade"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "cmd+5",
+      "path" : "View > Deliver"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "cmd+k",
+      "path" : "View > Go to a Control…"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "opt+cmd+s",
+      "path" : "View > Hide Sidebar"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "View > Filmstrip — F"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "View > Histogram — H"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "View > Scopes — S"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "View > Lights Out — L"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "cmd+b",
+      "path" : "View > Assessment Surround"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "View > HDR Preview"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "cmd+=",
+      "path" : "View > Zoom In"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "cmd+-",
+      "path" : "View > Zoom Out"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "View > Info Overlay — I"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "View > Clipping Overlay — J"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "View > White Balance Picker — W"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "View > Hide \/ Show Panels — Tab"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "View > Previous Photo — ⌘←"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "View > Next Photo — ⌘→"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "opt+cmd+l",
+      "path" : "Debug > Show Latency HUD"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Photo > Pick"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Photo > Reject"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Photo > Unflag"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Photo > Rating 1"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Photo > Rating 2"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Photo > Rating 3"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Photo > Rating 4"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Photo > Rating 5"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Photo > Clear Rating"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "shift+cmd+a",
+      "path" : "Photo > Auto Tone"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "opt+shift+cmd+m",
+      "path" : "Photo > Match Total Exposures"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "cmd+g",
+      "path" : "Photo > Stack Selection"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "shift+cmd+g",
+      "path" : "Photo > Unstack"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Photo > Stack Bursts in Folder"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "shift+cmd+k",
+      "path" : "Photo > Keyword the Selection…"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "cmd+\b",
+      "path" : "Photo > Move Rejected Photos…"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Photo > Remove Rejected from Catalog…"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "shift+cmd+n",
+      "path" : "Photo > New Develop Preset…"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Photo > Develop Presets > Manage Presets…"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Photo > Develop Presets > Import Presets…"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "cmd+e",
+      "path" : "Export > Export…"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "opt+shift+cmd+e",
+      "path" : "Export > Export with Previous"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Export > Show Last Export in Finder"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "cmd+l",
+      "path" : "Library > Filters On \/ Off"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "opt+cmd+p",
+      "path" : "Library > Show Picks Only"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "opt+cmd+u",
+      "path" : "Library > Show Unflagged Only"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "opt+cmd+x",
+      "path" : "Library > Show Rejected Only"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "ctrl+cmd+1",
+      "path" : "Library > Show Rated 1★ or More"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "ctrl+cmd+2",
+      "path" : "Library > Show Rated 2★ or More"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "ctrl+cmd+3",
+      "path" : "Library > Show Rated 3★ or More"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "ctrl+cmd+4",
+      "path" : "Library > Show Rated 4★ or More"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "ctrl+cmd+5",
+      "path" : "Library > Show Rated 5★"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Library > Pick Sharpest in Each Burst…"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "cmd+m",
+      "path" : "Window > Minimize"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "opt+cmd+m",
+      "path" : "Window > Minimize All"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Window > Zoom"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Window > Zoom All"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "ctrl+f",
+      "path" : "Window > Fill"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "ctrl+c",
+      "path" : "Window > Center"
+    },
+    {
+      "checked" : false,
+      "enabled" : false,
+      "key" : "",
+      "path" : "Window > Move & Resize > Halves"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Window > Move & Resize > Left"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Window > Move & Resize > Right"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Window > Move & Resize > Top"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Window > Move & Resize > Bottom"
+    },
+    {
+      "checked" : false,
+      "enabled" : false,
+      "key" : "",
+      "path" : "Window > Move & Resize > Quarters"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Window > Move & Resize > Top Left"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Window > Move & Resize > Top Right"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Window > Move & Resize > Bottom Left"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Window > Move & Resize > Bottom Right"
+    },
+    {
+      "checked" : false,
+      "enabled" : false,
+      "key" : "",
+      "path" : "Window > Move & Resize > Arrange"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Window > Move & Resize > Left & Right"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Window > Move & Resize > Left & Quarters"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Window > Move & Resize > Right & Left"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Window > Move & Resize > Right & Quarters"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Window > Move & Resize > Top & Bottom"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Window > Move & Resize > Top & Quarters"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Window > Move & Resize > Bottom & Top"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Window > Move & Resize > Bottom & Quarters"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Window > Move & Resize > Quarters"
+    },
+    {
+      "checked" : false,
+      "enabled" : false,
+      "key" : "ctrl+r",
+      "path" : "Window > Move & Resize > Return to Previous Size"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Window > Full Screen Tile > Left of Screen"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Window > Full Screen Tile > Right of Screen"
+    },
+    {
+      "checked" : false,
+      "enabled" : false,
+      "key" : "",
+      "path" : "Window > Remove Window from Set"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Window > Bring All to Front"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Window > Arrange in Front"
+    },
+    {
+      "checked" : false,
+      "enabled" : false,
+      "key" : "ctrl+shift+\t",
+      "path" : "Window > Show Previous Tab"
+    },
+    {
+      "checked" : false,
+      "enabled" : false,
+      "key" : "ctrl+\t",
+      "path" : "Window > Show Next Tab"
+    },
+    {
+      "checked" : false,
+      "enabled" : false,
+      "key" : "",
+      "path" : "Window > Move Tab to New Window"
+    },
+    {
+      "checked" : false,
+      "enabled" : false,
+      "key" : "",
+      "path" : "Window > Merge All Windows"
+    },
+    {
+      "checked" : true,
+      "enabled" : true,
+      "key" : "",
+      "path" : "Window > Lumen"
+    },
+    {
+      "checked" : false,
+      "enabled" : true,
+      "key" : "cmd+\/",
+      "path" : "Help > Lumen Keyboard Reference"
+    }
+  ],
+  "panel" : {
+    "expanded" : {
+      "count" : 4,
+      "items" : [
+        "frame",
+        "presence",
+        "tone",
+        "whiteBalance"
+      ]
+    },
+    "isMasking" : false,
+    "workspace" : "develop"
+  },
+  "photo" : {
+    "count" : 3,
+    "index" : 0,
+    "name" : "5D-12MP.CR2"
+  },
+  "recipe" : {
+    "develop.denoise.classic.chroma" : 15,
+    "pipelineVersion" : 2
+  },
+  "render" : {
+    "age" : 4.4907000000000004,
+    "current" : true,
+    "draft" : false,
+    "embedded" : false,
+    "frames" : 60,
+    "height" : 683,
+    "longEdge" : 1024,
+    "nativeLongEdge" : 4368,
+    "region" : false,
+    "width" : 1024
+  },
+  "scanning" : false,
+  "sidecar" : {
+    "bytes" : 790,
+    "exists" : true,
+    "name" : "5D-12MP.xmp",
+    "text" : "<?xpacket begin=\"﻿\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n<x:xmpmeta xmlns:x=\"adobe:ns:meta\/\" x:xmptk=\"Lumen\">\n <rdf:RDF xmlns:rdf=\"http:\/\/www.w3.org\/1999\/02\/22-rdf-syntax-ns#\">\n  <rdf:Description rdf:about=\"\"\n    xmlns:xmp=\"http:\/\/ns.adobe.com\/xap\/1.0\/\"\n    xmlns:lumen=\"http:\/\/lumenapp.dev\/xmp\/1.0\/\">\n   <xmp:Rating>0<\/xmp:Rating>\n   <lumen:pipelineVersion>2<\/lumen:pipelineVersion>\n   <lumen:recipeFingerprint>xxh64:800daaeca5c6e7d2<\/lumen:recipeFingerprint>\n   <lumen:writeStamp>2026-11-26T04:48:07Z<\/lumen:writeStamp>\n   <lumen:sourceExtension>cr2<\/lumen:sourceExtension>\n   <lumen:recipe>{&quot;develop&quot;:{&quot;denoise&quot;:{&quot;classic&quot;:{&quot;chroma&quot;:15}}},&quot;pipelineVersion&quot;:2}<\/lumen:recipe>\n  <\/rdf:Description>\n <\/rdf:RDF>\n<\/x:xmpmeta>\n<?xpacket end=\"w\"?>"
+  },
+  "status" : "Copied White Balance, Exposure & Tone and 7 more — ⌘V pastes them",
+  "t" : 138.06977000000001,
+  "viewMode" : "loupe",
+  "viewport" : {
+    "image" : {
+      "h" : 514,
+      "w" : 771,
+      "x" : 231,
+      "y" : 177
+    },
+    "insetBottom" : 90,
+    "insetLeft" : 0,
+    "insetRight" : 0,
+    "insetTop" : 91,
+    "panX" : 0,
+    "panY" : 0,
+    "scale" : 0.17651,
+    "viewer" : {
+      "h" : 695,
+      "w" : 771,
+      "x" : 231,
+      "y" : 86
+    },
+    "zoom" : 0
+  },
+  "window" : {
+    "active" : true,
+    "frame" : {
+      "h" : 900,
+      "w" : 1440,
+      "x" : 0,
+      "y" : 0
+    },
+    "key" : true
+  },
+  "workspace" : "develop"
+}

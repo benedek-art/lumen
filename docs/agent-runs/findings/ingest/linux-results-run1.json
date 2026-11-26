@@ -1,0 +1,3939 @@
+{
+ "s1-rename-off": {
+  "allVerified": true,
+  "filesAttempted": 8,
+  "filesPlanned": 8,
+  "framesVerified": 8,
+  "independent": {
+   "all_landed_sha256_match": true,
+   "card_files_changed_or_deleted": [],
+   "card_files_never_copied": [
+    "DCIM/100MSDCF/C0005.MP4",
+    "DCIM/100MSDCF/DSC00001.XMP",
+    "DCIM/100MSDCF/DSC00003.WAV",
+    "DCIM/100MSDCF/DSC00003.xmp"
+   ],
+   "checks": [
+    {
+     "landed": "s1-rename-off/primary/2026/20261126/DSC00001.ARW",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00001.ARW"
+    },
+    {
+     "landed": "s1-rename-off/backup/2026/20261126/DSC00001.ARW",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00001.ARW"
+    },
+    {
+     "landed": "s1-rename-off/primary/2026/20261126/DSC00001-1.ARW",
+     "outcome": "verified",
+     "renamed": true,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/101MSDCF/DSC00001.ARW"
+    },
+    {
+     "landed": "s1-rename-off/backup/2026/20261126/DSC00001-1.ARW",
+     "outcome": "verified",
+     "renamed": true,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/101MSDCF/DSC00001.ARW"
+    },
+    {
+     "landed": "s1-rename-off/primary/2026/20261126/DSC00001.JPG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00001.JPG"
+    },
+    {
+     "landed": "s1-rename-off/backup/2026/20261126/DSC00001.JPG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00001.JPG"
+    },
+    {
+     "landed": "s1-rename-off/primary/2026/20261126/DSC00002.CR2",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00002.CR2"
+    },
+    {
+     "landed": "s1-rename-off/backup/2026/20261126/DSC00002.CR2",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00002.CR2"
+    },
+    {
+     "landed": "s1-rename-off/primary/2026/20261126/DSC00002.DNG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/101MSDCF/DSC00002.DNG"
+    },
+    {
+     "landed": "s1-rename-off/backup/2026/20261126/DSC00002.DNG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/101MSDCF/DSC00002.DNG"
+    },
+    {
+     "landed": "s1-rename-off/primary/2026/20261126/DSC00003.NEF",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00003.NEF"
+    },
+    {
+     "landed": "s1-rename-off/backup/2026/20261126/DSC00003.NEF",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00003.NEF"
+    },
+    {
+     "landed": "s1-rename-off/primary/2026/20261126/DSC00004.ARW",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00004.ARW"
+    },
+    {
+     "landed": "s1-rename-off/backup/2026/20261126/DSC00004.ARW",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00004.ARW"
+    },
+    {
+     "landed": "s1-rename-off/primary/2026/20261126/DSC00004.JPG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00004.JPG"
+    },
+    {
+     "landed": "s1-rename-off/backup/2026/20261126/DSC00004.JPG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00004.JPG"
+    }
+   ],
+   "destination_trees": {
+    "s1-rename-off/backup": [
+     "2026/20261126/DSC00001-1.ARW",
+     "2026/20261126/DSC00001.ARW",
+     "2026/20261126/DSC00001.JPG",
+     "2026/20261126/DSC00002.CR2",
+     "2026/20261126/DSC00002.DNG",
+     "2026/20261126/DSC00003.NEF",
+     "2026/20261126/DSC00004.ARW",
+     "2026/20261126/DSC00004.JPG"
+    ],
+    "s1-rename-off/primary": [
+     "2026/20261126/DSC00001-1.ARW",
+     "2026/20261126/DSC00001.ARW",
+     "2026/20261126/DSC00001.JPG",
+     "2026/20261126/DSC00002.CR2",
+     "2026/20261126/DSC00002.DNG",
+     "2026/20261126/DSC00003.NEF",
+     "2026/20261126/DSC00004.ARW",
+     "2026/20261126/DSC00004.JPG"
+    ]
+   },
+   "leftover_part_files": [],
+   "pre_existing_files_changed": []
+  },
+  "plan": [
+   {
+    "bytes": 14712832,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/primary/2026/20261126/DSC00001.ARW"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/backup/2026/20261126/DSC00001.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW"
+   },
+   {
+    "bytes": 49184768,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/primary/2026/20261126/DSC00001.ARW"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/backup/2026/20261126/DSC00001.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW"
+   },
+   {
+    "bytes": 5977173,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/primary/2026/20261126/DSC00001.JPG"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/backup/2026/20261126/DSC00001.JPG"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG"
+   },
+   {
+    "bytes": 5805950,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/primary/2026/20261126/DSC00002.CR2"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/backup/2026/20261126/DSC00002.CR2"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2"
+   },
+   {
+    "bytes": 21700096,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/primary/2026/20261126/DSC00002.DNG"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/backup/2026/20261126/DSC00002.DNG"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG"
+   },
+   {
+    "bytes": 16106536,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/primary/2026/20261126/DSC00003.NEF"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/backup/2026/20261126/DSC00003.NEF"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF"
+   },
+   {
+    "bytes": 25272320,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/primary/2026/20261126/DSC00004.ARW"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/backup/2026/20261126/DSC00004.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW"
+   },
+   {
+    "bytes": 1251128,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/primary/2026/20261126/DSC00004.JPG"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/backup/2026/20261126/DSC00004.JPG"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG"
+   }
+  ],
+  "planRefusals": [],
+  "preview": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/primary/2026/20261126/DSC00001.ARW",
+  "progressEvents": 54,
+  "results": [
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/primary/2026/20261126/DSC00001.ARW",
+    "outcome": "verified xxh64:2962a2c30158308c (14712832 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/primary/2026/20261126/DSC00001.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/backup/2026/20261126/DSC00001.ARW",
+    "outcome": "verified xxh64:2962a2c30158308c (14712832 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/backup/2026/20261126/DSC00001.ARW",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/primary/2026/20261126/DSC00001-1.ARW",
+    "outcome": "verified xxh64:aad864a82666f96f (49184768 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/primary/2026/20261126/DSC00001.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/backup/2026/20261126/DSC00001-1.ARW",
+    "outcome": "verified xxh64:aad864a82666f96f (49184768 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/backup/2026/20261126/DSC00001.ARW",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/primary/2026/20261126/DSC00001.JPG",
+    "outcome": "verified xxh64:86c18c5701339cc4 (5977173 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/primary/2026/20261126/DSC00001.JPG",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/backup/2026/20261126/DSC00001.JPG",
+    "outcome": "verified xxh64:86c18c5701339cc4 (5977173 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/backup/2026/20261126/DSC00001.JPG",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/primary/2026/20261126/DSC00002.CR2",
+    "outcome": "verified xxh64:8ea595d456e8ec44 (5805950 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/primary/2026/20261126/DSC00002.CR2",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/backup/2026/20261126/DSC00002.CR2",
+    "outcome": "verified xxh64:8ea595d456e8ec44 (5805950 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/backup/2026/20261126/DSC00002.CR2",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/primary/2026/20261126/DSC00002.DNG",
+    "outcome": "verified xxh64:e44ec216bd2f9ecf (21700096 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/primary/2026/20261126/DSC00002.DNG",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/backup/2026/20261126/DSC00002.DNG",
+    "outcome": "verified xxh64:e44ec216bd2f9ecf (21700096 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/backup/2026/20261126/DSC00002.DNG",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/primary/2026/20261126/DSC00003.NEF",
+    "outcome": "verified xxh64:94f316dbf9964275 (16106536 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/primary/2026/20261126/DSC00003.NEF",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/backup/2026/20261126/DSC00003.NEF",
+    "outcome": "verified xxh64:94f316dbf9964275 (16106536 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/backup/2026/20261126/DSC00003.NEF",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/primary/2026/20261126/DSC00004.ARW",
+    "outcome": "verified xxh64:d55d6ab33af74b54 (25272320 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/primary/2026/20261126/DSC00004.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/backup/2026/20261126/DSC00004.ARW",
+    "outcome": "verified xxh64:d55d6ab33af74b54 (25272320 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/backup/2026/20261126/DSC00004.ARW",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/primary/2026/20261126/DSC00004.JPG",
+    "outcome": "verified xxh64:35b87a1d4774e0db (1251128 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/primary/2026/20261126/DSC00004.JPG",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/backup/2026/20261126/DSC00004.JPG",
+    "outcome": "verified xxh64:35b87a1d4774e0db (1251128 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s1-rename-off/backup/2026/20261126/DSC00004.JPG",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG"
+   }
+  ],
+  "scanned": [
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW",
+    "size": 14712832
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW",
+    "size": 49184768
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG",
+    "size": 5977173
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2",
+    "size": 5805950
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG",
+    "size": 21700096
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF",
+    "size": 16106536
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW",
+    "size": 25272320
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG",
+    "size": 1251128
+   }
+  ],
+  "seconds": 96.39984464645386,
+  "summary": "Ingested 8 frames, every copy verified. \u00b7 2 renamed to avoid overwriting",
+  "templateProblems": [],
+  "wasCancelled": false
+ },
+ "s10-backup-alias": {
+  "independent": {
+   "all_landed_sha256_match": true,
+   "card_files_changed_or_deleted": [],
+   "card_files_never_copied": [
+    "DCIM/100MSDCF/C0005.MP4",
+    "DCIM/100MSDCF/DSC00001.XMP",
+    "DCIM/100MSDCF/DSC00003.WAV",
+    "DCIM/100MSDCF/DSC00003.xmp"
+   ],
+   "checks": [],
+   "destination_trees": {
+    "s10-backup-alias/backup-link": [],
+    "s10-backup-alias/primary": []
+   },
+   "leftover_part_files": [],
+   "pre_existing_files_changed": []
+  },
+  "preview": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s10-backup-alias/primary/2026/20261126/DSC00001.ARW",
+  "refused": "Nothing was copied: the backup destination is the primary destination.",
+  "scanned": [
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW",
+    "size": 14712832
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW",
+    "size": 49184768
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG",
+    "size": 5977173
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2",
+    "size": 5805950
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG",
+    "size": 21700096
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF",
+    "size": 16106536
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW",
+    "size": 25272320
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG",
+    "size": 1251128
+   }
+  ],
+  "templateProblems": []
+ },
+ "s11-job-traversal": {
+  "allVerified": true,
+  "filesAttempted": 8,
+  "filesPlanned": 8,
+  "framesVerified": 8,
+  "independent": {
+   "all_landed_sha256_match": true,
+   "card_files_changed_or_deleted": [],
+   "card_files_never_copied": [
+    "DCIM/100MSDCF/C0005.MP4",
+    "DCIM/100MSDCF/DSC00001.XMP",
+    "DCIM/100MSDCF/DSC00003.WAV",
+    "DCIM/100MSDCF/DSC00003.xmp"
+   ],
+   "checks": [
+    {
+     "landed": "s11-job-traversal/primary/2026/..-..-escape/..-..-escape-001.ARW",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00001.ARW"
+    },
+    {
+     "landed": "s11-job-traversal/primary/2026/..-..-escape/..-..-escape-002.ARW",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/101MSDCF/DSC00001.ARW"
+    },
+    {
+     "landed": "s11-job-traversal/primary/2026/..-..-escape/..-..-escape-001.JPG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00001.JPG"
+    },
+    {
+     "landed": "s11-job-traversal/primary/2026/..-..-escape/..-..-escape-003.CR2",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00002.CR2"
+    },
+    {
+     "landed": "s11-job-traversal/primary/2026/..-..-escape/..-..-escape-004.DNG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/101MSDCF/DSC00002.DNG"
+    },
+    {
+     "landed": "s11-job-traversal/primary/2026/..-..-escape/..-..-escape-005.NEF",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00003.NEF"
+    },
+    {
+     "landed": "s11-job-traversal/primary/2026/..-..-escape/..-..-escape-006.ARW",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00004.ARW"
+    },
+    {
+     "landed": "s11-job-traversal/primary/2026/..-..-escape/..-..-escape-006.JPG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00004.JPG"
+    }
+   ],
+   "destination_trees": {
+    "s11-job-traversal/primary": [
+     "2026/..-..-escape/..-..-escape-001.ARW",
+     "2026/..-..-escape/..-..-escape-001.JPG",
+     "2026/..-..-escape/..-..-escape-002.ARW",
+     "2026/..-..-escape/..-..-escape-003.CR2",
+     "2026/..-..-escape/..-..-escape-004.DNG",
+     "2026/..-..-escape/..-..-escape-005.NEF",
+     "2026/..-..-escape/..-..-escape-006.ARW",
+     "2026/..-..-escape/..-..-escape-006.JPG"
+    ]
+   },
+   "leftover_part_files": [],
+   "pre_existing_files_changed": []
+  },
+  "plan": [
+   {
+    "bytes": 14712832,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s11-job-traversal/primary/2026/..-..-escape/..-..-escape-001.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW"
+   },
+   {
+    "bytes": 49184768,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s11-job-traversal/primary/2026/..-..-escape/..-..-escape-002.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW"
+   },
+   {
+    "bytes": 5977173,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s11-job-traversal/primary/2026/..-..-escape/..-..-escape-001.JPG"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG"
+   },
+   {
+    "bytes": 5805950,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s11-job-traversal/primary/2026/..-..-escape/..-..-escape-003.CR2"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2"
+   },
+   {
+    "bytes": 21700096,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s11-job-traversal/primary/2026/..-..-escape/..-..-escape-004.DNG"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG"
+   },
+   {
+    "bytes": 16106536,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s11-job-traversal/primary/2026/..-..-escape/..-..-escape-005.NEF"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF"
+   },
+   {
+    "bytes": 25272320,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s11-job-traversal/primary/2026/..-..-escape/..-..-escape-006.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW"
+   },
+   {
+    "bytes": 1251128,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s11-job-traversal/primary/2026/..-..-escape/..-..-escape-006.JPG"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG"
+   }
+  ],
+  "planRefusals": [],
+  "preview": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s11-job-traversal/primary/2026/..-..-escape/..-..-escape-001.ARW",
+  "progressEvents": 54,
+  "results": [
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s11-job-traversal/primary/2026/..-..-escape/..-..-escape-001.ARW",
+    "outcome": "verified xxh64:2962a2c30158308c (14712832 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s11-job-traversal/primary/2026/..-..-escape/..-..-escape-001.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s11-job-traversal/primary/2026/..-..-escape/..-..-escape-002.ARW",
+    "outcome": "verified xxh64:aad864a82666f96f (49184768 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s11-job-traversal/primary/2026/..-..-escape/..-..-escape-002.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s11-job-traversal/primary/2026/..-..-escape/..-..-escape-001.JPG",
+    "outcome": "verified xxh64:86c18c5701339cc4 (5977173 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s11-job-traversal/primary/2026/..-..-escape/..-..-escape-001.JPG",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s11-job-traversal/primary/2026/..-..-escape/..-..-escape-003.CR2",
+    "outcome": "verified xxh64:8ea595d456e8ec44 (5805950 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s11-job-traversal/primary/2026/..-..-escape/..-..-escape-003.CR2",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s11-job-traversal/primary/2026/..-..-escape/..-..-escape-004.DNG",
+    "outcome": "verified xxh64:e44ec216bd2f9ecf (21700096 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s11-job-traversal/primary/2026/..-..-escape/..-..-escape-004.DNG",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s11-job-traversal/primary/2026/..-..-escape/..-..-escape-005.NEF",
+    "outcome": "verified xxh64:94f316dbf9964275 (16106536 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s11-job-traversal/primary/2026/..-..-escape/..-..-escape-005.NEF",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s11-job-traversal/primary/2026/..-..-escape/..-..-escape-006.ARW",
+    "outcome": "verified xxh64:d55d6ab33af74b54 (25272320 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s11-job-traversal/primary/2026/..-..-escape/..-..-escape-006.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s11-job-traversal/primary/2026/..-..-escape/..-..-escape-006.JPG",
+    "outcome": "verified xxh64:35b87a1d4774e0db (1251128 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s11-job-traversal/primary/2026/..-..-escape/..-..-escape-006.JPG",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG"
+   }
+  ],
+  "scanned": [
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW",
+    "size": 14712832
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW",
+    "size": 49184768
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG",
+    "size": 5977173
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2",
+    "size": 5805950
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG",
+    "size": 21700096
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF",
+    "size": 16106536
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW",
+    "size": 25272320
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG",
+    "size": 1251128
+   }
+  ],
+  "seconds": 83.4911013841629,
+  "summary": "Ingested 8 frames, every copy verified.",
+  "templateProblems": [],
+  "wasCancelled": false
+ },
+ "s12-verify-off": {
+  "allVerified": false,
+  "filesAttempted": 8,
+  "filesPlanned": 8,
+  "framesVerified": 0,
+  "independent": {
+   "all_landed_sha256_match": true,
+   "card_files_changed_or_deleted": [],
+   "card_files_never_copied": [
+    "DCIM/100MSDCF/C0005.MP4",
+    "DCIM/100MSDCF/DSC00001.XMP",
+    "DCIM/100MSDCF/DSC00003.WAV",
+    "DCIM/100MSDCF/DSC00003.xmp"
+   ],
+   "checks": [
+    {
+     "landed": "s12-verify-off/primary/2026/20261126/DSC00001.ARW",
+     "outcome": "copied",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00001.ARW"
+    },
+    {
+     "landed": "s12-verify-off/primary/2026/20261126/DSC00001-1.ARW",
+     "outcome": "copied",
+     "renamed": true,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/101MSDCF/DSC00001.ARW"
+    },
+    {
+     "landed": "s12-verify-off/primary/2026/20261126/DSC00001.JPG",
+     "outcome": "copied",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00001.JPG"
+    },
+    {
+     "landed": "s12-verify-off/primary/2026/20261126/DSC00002.CR2",
+     "outcome": "copied",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00002.CR2"
+    },
+    {
+     "landed": "s12-verify-off/primary/2026/20261126/DSC00002.DNG",
+     "outcome": "copied",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/101MSDCF/DSC00002.DNG"
+    },
+    {
+     "landed": "s12-verify-off/primary/2026/20261126/DSC00003.NEF",
+     "outcome": "copied",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00003.NEF"
+    },
+    {
+     "landed": "s12-verify-off/primary/2026/20261126/DSC00004.ARW",
+     "outcome": "copied",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00004.ARW"
+    },
+    {
+     "landed": "s12-verify-off/primary/2026/20261126/DSC00004.JPG",
+     "outcome": "copied",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00004.JPG"
+    }
+   ],
+   "destination_trees": {
+    "s12-verify-off/primary": [
+     "2026/20261126/DSC00001-1.ARW",
+     "2026/20261126/DSC00001.ARW",
+     "2026/20261126/DSC00001.JPG",
+     "2026/20261126/DSC00002.CR2",
+     "2026/20261126/DSC00002.DNG",
+     "2026/20261126/DSC00003.NEF",
+     "2026/20261126/DSC00004.ARW",
+     "2026/20261126/DSC00004.JPG"
+    ]
+   },
+   "leftover_part_files": [],
+   "pre_existing_files_changed": []
+  },
+  "plan": [
+   {
+    "bytes": 14712832,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s12-verify-off/primary/2026/20261126/DSC00001.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW"
+   },
+   {
+    "bytes": 49184768,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s12-verify-off/primary/2026/20261126/DSC00001.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW"
+   },
+   {
+    "bytes": 5977173,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s12-verify-off/primary/2026/20261126/DSC00001.JPG"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG"
+   },
+   {
+    "bytes": 5805950,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s12-verify-off/primary/2026/20261126/DSC00002.CR2"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2"
+   },
+   {
+    "bytes": 21700096,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s12-verify-off/primary/2026/20261126/DSC00002.DNG"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG"
+   },
+   {
+    "bytes": 16106536,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s12-verify-off/primary/2026/20261126/DSC00003.NEF"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF"
+   },
+   {
+    "bytes": 25272320,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s12-verify-off/primary/2026/20261126/DSC00004.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW"
+   },
+   {
+    "bytes": 1251128,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s12-verify-off/primary/2026/20261126/DSC00004.JPG"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG"
+   }
+  ],
+  "planRefusals": [],
+  "preview": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s12-verify-off/primary/2026/20261126/DSC00001.ARW",
+  "progressEvents": 54,
+  "results": [
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s12-verify-off/primary/2026/20261126/DSC00001.ARW",
+    "outcome": "copied xxh64:2962a2c30158308c (14712832 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s12-verify-off/primary/2026/20261126/DSC00001.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s12-verify-off/primary/2026/20261126/DSC00001-1.ARW",
+    "outcome": "copied xxh64:aad864a82666f96f (49184768 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s12-verify-off/primary/2026/20261126/DSC00001.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s12-verify-off/primary/2026/20261126/DSC00001.JPG",
+    "outcome": "copied xxh64:86c18c5701339cc4 (5977173 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s12-verify-off/primary/2026/20261126/DSC00001.JPG",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s12-verify-off/primary/2026/20261126/DSC00002.CR2",
+    "outcome": "copied xxh64:8ea595d456e8ec44 (5805950 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s12-verify-off/primary/2026/20261126/DSC00002.CR2",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s12-verify-off/primary/2026/20261126/DSC00002.DNG",
+    "outcome": "copied xxh64:e44ec216bd2f9ecf (21700096 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s12-verify-off/primary/2026/20261126/DSC00002.DNG",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s12-verify-off/primary/2026/20261126/DSC00003.NEF",
+    "outcome": "copied xxh64:94f316dbf9964275 (16106536 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s12-verify-off/primary/2026/20261126/DSC00003.NEF",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s12-verify-off/primary/2026/20261126/DSC00004.ARW",
+    "outcome": "copied xxh64:d55d6ab33af74b54 (25272320 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s12-verify-off/primary/2026/20261126/DSC00004.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s12-verify-off/primary/2026/20261126/DSC00004.JPG",
+    "outcome": "copied xxh64:35b87a1d4774e0db (1251128 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s12-verify-off/primary/2026/20261126/DSC00004.JPG",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG"
+   }
+  ],
+  "scanned": [
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW",
+    "size": 14712832
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW",
+    "size": 49184768
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG",
+    "size": 5977173
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2",
+    "size": 5805950
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG",
+    "size": 21700096
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF",
+    "size": 16106536
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW",
+    "size": 25272320
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG",
+    "size": 1251128
+   }
+  ],
+  "seconds": 40.182676792144775,
+  "summary": "Ingested 8 frames, UNVERIFIED. \u00b7 1 renamed to avoid overwriting",
+  "templateProblems": [],
+  "wasCancelled": false
+ },
+ "s13-backup-inside-primary": {
+  "allVerified": true,
+  "filesAttempted": 8,
+  "filesPlanned": 8,
+  "framesVerified": 8,
+  "independent": {
+   "all_landed_sha256_match": true,
+   "card_files_changed_or_deleted": [],
+   "card_files_never_copied": [
+    "DCIM/100MSDCF/C0005.MP4",
+    "DCIM/100MSDCF/DSC00001.XMP",
+    "DCIM/100MSDCF/DSC00003.WAV",
+    "DCIM/100MSDCF/DSC00003.xmp"
+   ],
+   "checks": [
+    {
+     "landed": "s13-backup-inside-primary/primary/2026/20261126/DSC00001.ARW",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00001.ARW"
+    },
+    {
+     "landed": "s13-backup-inside-primary/primary/BACKUP/2026/20261126/DSC00001.ARW",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00001.ARW"
+    },
+    {
+     "landed": "s13-backup-inside-primary/primary/2026/20261126/DSC00001-1.ARW",
+     "outcome": "verified",
+     "renamed": true,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/101MSDCF/DSC00001.ARW"
+    },
+    {
+     "landed": "s13-backup-inside-primary/primary/BACKUP/2026/20261126/DSC00001-1.ARW",
+     "outcome": "verified",
+     "renamed": true,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/101MSDCF/DSC00001.ARW"
+    },
+    {
+     "landed": "s13-backup-inside-primary/primary/2026/20261126/DSC00001.JPG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00001.JPG"
+    },
+    {
+     "landed": "s13-backup-inside-primary/primary/BACKUP/2026/20261126/DSC00001.JPG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00001.JPG"
+    },
+    {
+     "landed": "s13-backup-inside-primary/primary/2026/20261126/DSC00002.CR2",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00002.CR2"
+    },
+    {
+     "landed": "s13-backup-inside-primary/primary/BACKUP/2026/20261126/DSC00002.CR2",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00002.CR2"
+    },
+    {
+     "landed": "s13-backup-inside-primary/primary/2026/20261126/DSC00002.DNG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/101MSDCF/DSC00002.DNG"
+    },
+    {
+     "landed": "s13-backup-inside-primary/primary/BACKUP/2026/20261126/DSC00002.DNG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/101MSDCF/DSC00002.DNG"
+    },
+    {
+     "landed": "s13-backup-inside-primary/primary/2026/20261126/DSC00003.NEF",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00003.NEF"
+    },
+    {
+     "landed": "s13-backup-inside-primary/primary/BACKUP/2026/20261126/DSC00003.NEF",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00003.NEF"
+    },
+    {
+     "landed": "s13-backup-inside-primary/primary/2026/20261126/DSC00004.ARW",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00004.ARW"
+    },
+    {
+     "landed": "s13-backup-inside-primary/primary/BACKUP/2026/20261126/DSC00004.ARW",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00004.ARW"
+    },
+    {
+     "landed": "s13-backup-inside-primary/primary/2026/20261126/DSC00004.JPG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00004.JPG"
+    },
+    {
+     "landed": "s13-backup-inside-primary/primary/BACKUP/2026/20261126/DSC00004.JPG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00004.JPG"
+    }
+   ],
+   "destination_trees": {
+    "s13-backup-inside-primary/primary": [
+     "2026/20261126/DSC00001-1.ARW",
+     "2026/20261126/DSC00001.ARW",
+     "2026/20261126/DSC00001.JPG",
+     "2026/20261126/DSC00002.CR2",
+     "2026/20261126/DSC00002.DNG",
+     "2026/20261126/DSC00003.NEF",
+     "2026/20261126/DSC00004.ARW",
+     "2026/20261126/DSC00004.JPG",
+     "BACKUP/2026/20261126/DSC00001-1.ARW",
+     "BACKUP/2026/20261126/DSC00001.ARW",
+     "BACKUP/2026/20261126/DSC00001.JPG",
+     "BACKUP/2026/20261126/DSC00002.CR2",
+     "BACKUP/2026/20261126/DSC00002.DNG",
+     "BACKUP/2026/20261126/DSC00003.NEF",
+     "BACKUP/2026/20261126/DSC00004.ARW",
+     "BACKUP/2026/20261126/DSC00004.JPG"
+    ],
+    "s13-backup-inside-primary/primary/BACKUP": [
+     "2026/20261126/DSC00001-1.ARW",
+     "2026/20261126/DSC00001.ARW",
+     "2026/20261126/DSC00001.JPG",
+     "2026/20261126/DSC00002.CR2",
+     "2026/20261126/DSC00002.DNG",
+     "2026/20261126/DSC00003.NEF",
+     "2026/20261126/DSC00004.ARW",
+     "2026/20261126/DSC00004.JPG"
+    ]
+   },
+   "leftover_part_files": [],
+   "pre_existing_files_changed": []
+  },
+  "plan": [
+   {
+    "bytes": 14712832,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/2026/20261126/DSC00001.ARW"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/BACKUP/2026/20261126/DSC00001.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW"
+   },
+   {
+    "bytes": 49184768,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/2026/20261126/DSC00001.ARW"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/BACKUP/2026/20261126/DSC00001.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW"
+   },
+   {
+    "bytes": 5977173,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/2026/20261126/DSC00001.JPG"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/BACKUP/2026/20261126/DSC00001.JPG"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG"
+   },
+   {
+    "bytes": 5805950,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/2026/20261126/DSC00002.CR2"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/BACKUP/2026/20261126/DSC00002.CR2"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2"
+   },
+   {
+    "bytes": 21700096,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/2026/20261126/DSC00002.DNG"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/BACKUP/2026/20261126/DSC00002.DNG"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG"
+   },
+   {
+    "bytes": 16106536,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/2026/20261126/DSC00003.NEF"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/BACKUP/2026/20261126/DSC00003.NEF"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF"
+   },
+   {
+    "bytes": 25272320,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/2026/20261126/DSC00004.ARW"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/BACKUP/2026/20261126/DSC00004.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW"
+   },
+   {
+    "bytes": 1251128,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/2026/20261126/DSC00004.JPG"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/BACKUP/2026/20261126/DSC00004.JPG"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG"
+   }
+  ],
+  "planRefusals": [],
+  "preview": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/2026/20261126/DSC00001.ARW",
+  "progressEvents": 54,
+  "results": [
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/2026/20261126/DSC00001.ARW",
+    "outcome": "verified xxh64:2962a2c30158308c (14712832 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/2026/20261126/DSC00001.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/BACKUP/2026/20261126/DSC00001.ARW",
+    "outcome": "verified xxh64:2962a2c30158308c (14712832 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/BACKUP/2026/20261126/DSC00001.ARW",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/2026/20261126/DSC00001-1.ARW",
+    "outcome": "verified xxh64:aad864a82666f96f (49184768 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/2026/20261126/DSC00001.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/BACKUP/2026/20261126/DSC00001-1.ARW",
+    "outcome": "verified xxh64:aad864a82666f96f (49184768 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/BACKUP/2026/20261126/DSC00001.ARW",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/2026/20261126/DSC00001.JPG",
+    "outcome": "verified xxh64:86c18c5701339cc4 (5977173 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/2026/20261126/DSC00001.JPG",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/BACKUP/2026/20261126/DSC00001.JPG",
+    "outcome": "verified xxh64:86c18c5701339cc4 (5977173 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/BACKUP/2026/20261126/DSC00001.JPG",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/2026/20261126/DSC00002.CR2",
+    "outcome": "verified xxh64:8ea595d456e8ec44 (5805950 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/2026/20261126/DSC00002.CR2",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/BACKUP/2026/20261126/DSC00002.CR2",
+    "outcome": "verified xxh64:8ea595d456e8ec44 (5805950 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/BACKUP/2026/20261126/DSC00002.CR2",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/2026/20261126/DSC00002.DNG",
+    "outcome": "verified xxh64:e44ec216bd2f9ecf (21700096 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/2026/20261126/DSC00002.DNG",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/BACKUP/2026/20261126/DSC00002.DNG",
+    "outcome": "verified xxh64:e44ec216bd2f9ecf (21700096 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/BACKUP/2026/20261126/DSC00002.DNG",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/2026/20261126/DSC00003.NEF",
+    "outcome": "verified xxh64:94f316dbf9964275 (16106536 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/2026/20261126/DSC00003.NEF",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/BACKUP/2026/20261126/DSC00003.NEF",
+    "outcome": "verified xxh64:94f316dbf9964275 (16106536 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/BACKUP/2026/20261126/DSC00003.NEF",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/2026/20261126/DSC00004.ARW",
+    "outcome": "verified xxh64:d55d6ab33af74b54 (25272320 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/2026/20261126/DSC00004.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/BACKUP/2026/20261126/DSC00004.ARW",
+    "outcome": "verified xxh64:d55d6ab33af74b54 (25272320 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/BACKUP/2026/20261126/DSC00004.ARW",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/2026/20261126/DSC00004.JPG",
+    "outcome": "verified xxh64:35b87a1d4774e0db (1251128 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/2026/20261126/DSC00004.JPG",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/BACKUP/2026/20261126/DSC00004.JPG",
+    "outcome": "verified xxh64:35b87a1d4774e0db (1251128 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s13-backup-inside-primary/primary/BACKUP/2026/20261126/DSC00004.JPG",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG"
+   }
+  ],
+  "scanned": [
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW",
+    "size": 14712832
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW",
+    "size": 49184768
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG",
+    "size": 5977173
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2",
+    "size": 5805950
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG",
+    "size": 21700096
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF",
+    "size": 16106536
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW",
+    "size": 25272320
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG",
+    "size": 1251128
+   }
+  ],
+  "seconds": 121.75735211372375,
+  "summary": "Ingested 8 frames, every copy verified. \u00b7 2 renamed to avoid overwriting",
+  "templateProblems": [],
+  "wasCancelled": false
+ },
+ "s2-default-seq-colon": {
+  "allVerified": true,
+  "filesAttempted": 8,
+  "filesPlanned": 8,
+  "framesVerified": 8,
+  "independent": {
+   "all_landed_sha256_match": true,
+   "card_files_changed_or_deleted": [],
+   "card_files_never_copied": [
+    "DCIM/100MSDCF/C0005.MP4",
+    "DCIM/100MSDCF/DSC00001.XMP",
+    "DCIM/100MSDCF/DSC00003.WAV",
+    "DCIM/100MSDCF/DSC00003.xmp"
+   ],
+   "checks": [
+    {
+     "landed": "s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.ARW",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00001.ARW"
+    },
+    {
+     "landed": "s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.ARW",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00001.ARW"
+    },
+    {
+     "landed": "s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0002-DSC00001.ARW",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/101MSDCF/DSC00001.ARW"
+    },
+    {
+     "landed": "s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0002-DSC00001.ARW",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/101MSDCF/DSC00001.ARW"
+    },
+    {
+     "landed": "s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.JPG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00001.JPG"
+    },
+    {
+     "landed": "s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.JPG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00001.JPG"
+    },
+    {
+     "landed": "s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0003-DSC00002.CR2",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00002.CR2"
+    },
+    {
+     "landed": "s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0003-DSC00002.CR2",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00002.CR2"
+    },
+    {
+     "landed": "s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0004-DSC00002.DNG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/101MSDCF/DSC00002.DNG"
+    },
+    {
+     "landed": "s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0004-DSC00002.DNG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/101MSDCF/DSC00002.DNG"
+    },
+    {
+     "landed": "s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0005-DSC00003.NEF",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00003.NEF"
+    },
+    {
+     "landed": "s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0005-DSC00003.NEF",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00003.NEF"
+    },
+    {
+     "landed": "s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0006-DSC00004.ARW",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00004.ARW"
+    },
+    {
+     "landed": "s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0006-DSC00004.ARW",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00004.ARW"
+    },
+    {
+     "landed": "s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0006-DSC00004.JPG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00004.JPG"
+    },
+    {
+     "landed": "s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0006-DSC00004.JPG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00004.JPG"
+    }
+   ],
+   "destination_trees": {
+    "s2-default-seq-colon/backup": [
+     "2026/20261126 Kyoto Trip/20261126-0001-DSC00001.ARW",
+     "2026/20261126 Kyoto Trip/20261126-0001-DSC00001.JPG",
+     "2026/20261126 Kyoto Trip/20261126-0002-DSC00001.ARW",
+     "2026/20261126 Kyoto Trip/20261126-0003-DSC00002.CR2",
+     "2026/20261126 Kyoto Trip/20261126-0004-DSC00002.DNG",
+     "2026/20261126 Kyoto Trip/20261126-0005-DSC00003.NEF",
+     "2026/20261126 Kyoto Trip/20261126-0006-DSC00004.ARW",
+     "2026/20261126 Kyoto Trip/20261126-0006-DSC00004.JPG"
+    ],
+    "s2-default-seq-colon/primary": [
+     "2026/20261126 Kyoto Trip/20261126-0001-DSC00001.ARW",
+     "2026/20261126 Kyoto Trip/20261126-0001-DSC00001.JPG",
+     "2026/20261126 Kyoto Trip/20261126-0002-DSC00001.ARW",
+     "2026/20261126 Kyoto Trip/20261126-0003-DSC00002.CR2",
+     "2026/20261126 Kyoto Trip/20261126-0004-DSC00002.DNG",
+     "2026/20261126 Kyoto Trip/20261126-0005-DSC00003.NEF",
+     "2026/20261126 Kyoto Trip/20261126-0006-DSC00004.ARW",
+     "2026/20261126 Kyoto Trip/20261126-0006-DSC00004.JPG"
+    ]
+   },
+   "leftover_part_files": [],
+   "pre_existing_files_changed": []
+  },
+  "plan": [
+   {
+    "bytes": 14712832,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.ARW"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW"
+   },
+   {
+    "bytes": 49184768,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0002-DSC00001.ARW"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0002-DSC00001.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW"
+   },
+   {
+    "bytes": 5977173,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.JPG"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.JPG"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG"
+   },
+   {
+    "bytes": 5805950,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0003-DSC00002.CR2"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0003-DSC00002.CR2"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2"
+   },
+   {
+    "bytes": 21700096,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0004-DSC00002.DNG"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0004-DSC00002.DNG"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG"
+   },
+   {
+    "bytes": 16106536,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0005-DSC00003.NEF"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0005-DSC00003.NEF"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF"
+   },
+   {
+    "bytes": 25272320,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0006-DSC00004.ARW"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0006-DSC00004.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW"
+   },
+   {
+    "bytes": 1251128,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0006-DSC00004.JPG"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0006-DSC00004.JPG"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG"
+   }
+  ],
+  "planRefusals": [],
+  "preview": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.ARW",
+  "progressEvents": 54,
+  "results": [
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.ARW",
+    "outcome": "verified xxh64:2962a2c30158308c (14712832 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.ARW",
+    "outcome": "verified xxh64:2962a2c30158308c (14712832 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.ARW",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0002-DSC00001.ARW",
+    "outcome": "verified xxh64:aad864a82666f96f (49184768 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0002-DSC00001.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0002-DSC00001.ARW",
+    "outcome": "verified xxh64:aad864a82666f96f (49184768 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0002-DSC00001.ARW",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.JPG",
+    "outcome": "verified xxh64:86c18c5701339cc4 (5977173 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.JPG",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.JPG",
+    "outcome": "verified xxh64:86c18c5701339cc4 (5977173 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.JPG",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0003-DSC00002.CR2",
+    "outcome": "verified xxh64:8ea595d456e8ec44 (5805950 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0003-DSC00002.CR2",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0003-DSC00002.CR2",
+    "outcome": "verified xxh64:8ea595d456e8ec44 (5805950 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0003-DSC00002.CR2",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0004-DSC00002.DNG",
+    "outcome": "verified xxh64:e44ec216bd2f9ecf (21700096 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0004-DSC00002.DNG",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0004-DSC00002.DNG",
+    "outcome": "verified xxh64:e44ec216bd2f9ecf (21700096 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0004-DSC00002.DNG",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0005-DSC00003.NEF",
+    "outcome": "verified xxh64:94f316dbf9964275 (16106536 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0005-DSC00003.NEF",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0005-DSC00003.NEF",
+    "outcome": "verified xxh64:94f316dbf9964275 (16106536 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0005-DSC00003.NEF",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0006-DSC00004.ARW",
+    "outcome": "verified xxh64:d55d6ab33af74b54 (25272320 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0006-DSC00004.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0006-DSC00004.ARW",
+    "outcome": "verified xxh64:d55d6ab33af74b54 (25272320 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0006-DSC00004.ARW",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0006-DSC00004.JPG",
+    "outcome": "verified xxh64:35b87a1d4774e0db (1251128 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0006-DSC00004.JPG",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0006-DSC00004.JPG",
+    "outcome": "verified xxh64:35b87a1d4774e0db (1251128 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0006-DSC00004.JPG",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG"
+   }
+  ],
+  "scanned": [
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW",
+    "size": 14712832
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW",
+    "size": 49184768
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG",
+    "size": 5977173
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2",
+    "size": 5805950
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG",
+    "size": 21700096
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF",
+    "size": 16106536
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW",
+    "size": 25272320
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG",
+    "size": 1251128
+   }
+  ],
+  "seconds": 93.79078245162964,
+  "summary": "Ingested 8 frames, every copy verified.",
+  "templateProblems": [],
+  "wasCancelled": false
+ },
+ "s3-doc-default-seq4": {
+  "allVerified": true,
+  "filesAttempted": 8,
+  "filesPlanned": 8,
+  "framesVerified": 8,
+  "independent": {
+   "all_landed_sha256_match": true,
+   "card_files_changed_or_deleted": [],
+   "card_files_never_copied": [
+    "DCIM/100MSDCF/C0005.MP4",
+    "DCIM/100MSDCF/DSC00001.XMP",
+    "DCIM/100MSDCF/DSC00003.WAV",
+    "DCIM/100MSDCF/DSC00003.xmp"
+   ],
+   "checks": [
+    {
+     "landed": "s3-doc-default-seq4/primary/2026/20261126 Kyoto Trip/20261126--DSC00001.ARW",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00001.ARW"
+    },
+    {
+     "landed": "s3-doc-default-seq4/backup/2026/20261126 Kyoto Trip/20261126--DSC00001.ARW",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00001.ARW"
+    },
+    {
+     "landed": "s3-doc-default-seq4/primary/2026/20261126 Kyoto Trip/20261126--DSC00001-1.ARW",
+     "outcome": "verified",
+     "renamed": true,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/101MSDCF/DSC00001.ARW"
+    },
+    {
+     "landed": "s3-doc-default-seq4/backup/2026/20261126 Kyoto Trip/20261126--DSC00001-1.ARW",
+     "outcome": "verified",
+     "renamed": true,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/101MSDCF/DSC00001.ARW"
+    },
+    {
+     "landed": "s3-doc-default-seq4/primary/2026/20261126 Kyoto Trip/20261126--DSC00001.JPG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00001.JPG"
+    },
+    {
+     "landed": "s3-doc-default-seq4/backup/2026/20261126 Kyoto Trip/20261126--DSC00001.JPG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00001.JPG"
+    },
+    {
+     "landed": "s3-doc-default-seq4/primary/2026/20261126 Kyoto Trip/20261126--DSC00002.CR2",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00002.CR2"
+    },
+    {
+     "landed": "s3-doc-default-seq4/backup/2026/20261126 Kyoto Trip/20261126--DSC00002.CR2",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00002.CR2"
+    },
+    {
+     "landed": "s3-doc-default-seq4/primary/2026/20261126 Kyoto Trip/20261126--DSC00002.DNG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/101MSDCF/DSC00002.DNG"
+    },
+    {
+     "landed": "s3-doc-default-seq4/backup/2026/20261126 Kyoto Trip/20261126--DSC00002.DNG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/101MSDCF/DSC00002.DNG"
+    },
+    {
+     "landed": "s3-doc-default-seq4/primary/2026/20261126 Kyoto Trip/20261126--DSC00003.NEF",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00003.NEF"
+    },
+    {
+     "landed": "s3-doc-default-seq4/backup/2026/20261126 Kyoto Trip/20261126--DSC00003.NEF",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00003.NEF"
+    },
+    {
+     "landed": "s3-doc-default-seq4/primary/2026/20261126 Kyoto Trip/20261126--DSC00004.ARW",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00004.ARW"
+    },
+    {
+     "landed": "s3-doc-default-seq4/backup/2026/20261126 Kyoto Trip/20261126--DSC00004.ARW",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00004.ARW"
+    },
+    {
+     "landed": "s3-doc-default-seq4/primary/2026/20261126 Kyoto Trip/20261126--DSC00004.JPG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00004.JPG"
+    },
+    {
+     "landed": "s3-doc-default-seq4/backup/2026/20261126 Kyoto Trip/20261126--DSC00004.JPG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00004.JPG"
+    }
+   ],
+   "destination_trees": {
+    "s3-doc-default-seq4/backup": [
+     "2026/20261126 Kyoto Trip/20261126--DSC00001-1.ARW",
+     "2026/20261126 Kyoto Trip/20261126--DSC00001.ARW",
+     "2026/20261126 Kyoto Trip/20261126--DSC00001.JPG",
+     "2026/20261126 Kyoto Trip/20261126--DSC00002.CR2",
+     "2026/20261126 Kyoto Trip/20261126--DSC00002.DNG",
+     "2026/20261126 Kyoto Trip/20261126--DSC00003.NEF",
+     "2026/20261126 Kyoto Trip/20261126--DSC00004.ARW",
+     "2026/20261126 Kyoto Trip/20261126--DSC00004.JPG"
+    ],
+    "s3-doc-default-seq4/primary": [
+     "2026/20261126 Kyoto Trip/20261126--DSC00001-1.ARW",
+     "2026/20261126 Kyoto Trip/20261126--DSC00001.ARW",
+     "2026/20261126 Kyoto Trip/20261126--DSC00001.JPG",
+     "2026/20261126 Kyoto Trip/20261126--DSC00002.CR2",
+     "2026/20261126 Kyoto Trip/20261126--DSC00002.DNG",
+     "2026/20261126 Kyoto Trip/20261126--DSC00003.NEF",
+     "2026/20261126 Kyoto Trip/20261126--DSC00004.ARW",
+     "2026/20261126 Kyoto Trip/20261126--DSC00004.JPG"
+    ]
+   },
+   "leftover_part_files": [],
+   "pre_existing_files_changed": []
+  },
+  "plan": [
+   {
+    "bytes": 14712832,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/primary/2026/20261126 Kyoto Trip/20261126--DSC00001.ARW"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/backup/2026/20261126 Kyoto Trip/20261126--DSC00001.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW"
+   },
+   {
+    "bytes": 49184768,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/primary/2026/20261126 Kyoto Trip/20261126--DSC00001.ARW"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/backup/2026/20261126 Kyoto Trip/20261126--DSC00001.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW"
+   },
+   {
+    "bytes": 5977173,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/primary/2026/20261126 Kyoto Trip/20261126--DSC00001.JPG"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/backup/2026/20261126 Kyoto Trip/20261126--DSC00001.JPG"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG"
+   },
+   {
+    "bytes": 5805950,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/primary/2026/20261126 Kyoto Trip/20261126--DSC00002.CR2"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/backup/2026/20261126 Kyoto Trip/20261126--DSC00002.CR2"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2"
+   },
+   {
+    "bytes": 21700096,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/primary/2026/20261126 Kyoto Trip/20261126--DSC00002.DNG"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/backup/2026/20261126 Kyoto Trip/20261126--DSC00002.DNG"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG"
+   },
+   {
+    "bytes": 16106536,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/primary/2026/20261126 Kyoto Trip/20261126--DSC00003.NEF"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/backup/2026/20261126 Kyoto Trip/20261126--DSC00003.NEF"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF"
+   },
+   {
+    "bytes": 25272320,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/primary/2026/20261126 Kyoto Trip/20261126--DSC00004.ARW"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/backup/2026/20261126 Kyoto Trip/20261126--DSC00004.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW"
+   },
+   {
+    "bytes": 1251128,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/primary/2026/20261126 Kyoto Trip/20261126--DSC00004.JPG"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/backup/2026/20261126 Kyoto Trip/20261126--DSC00004.JPG"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG"
+   }
+  ],
+  "planRefusals": [],
+  "preview": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/primary/2026/20261126 Kyoto Trip/20261126--DSC00001.ARW",
+  "progressEvents": 54,
+  "results": [
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/primary/2026/20261126 Kyoto Trip/20261126--DSC00001.ARW",
+    "outcome": "verified xxh64:2962a2c30158308c (14712832 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/primary/2026/20261126 Kyoto Trip/20261126--DSC00001.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/backup/2026/20261126 Kyoto Trip/20261126--DSC00001.ARW",
+    "outcome": "verified xxh64:2962a2c30158308c (14712832 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/backup/2026/20261126 Kyoto Trip/20261126--DSC00001.ARW",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/primary/2026/20261126 Kyoto Trip/20261126--DSC00001-1.ARW",
+    "outcome": "verified xxh64:aad864a82666f96f (49184768 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/primary/2026/20261126 Kyoto Trip/20261126--DSC00001.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/backup/2026/20261126 Kyoto Trip/20261126--DSC00001-1.ARW",
+    "outcome": "verified xxh64:aad864a82666f96f (49184768 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/backup/2026/20261126 Kyoto Trip/20261126--DSC00001.ARW",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/primary/2026/20261126 Kyoto Trip/20261126--DSC00001.JPG",
+    "outcome": "verified xxh64:86c18c5701339cc4 (5977173 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/primary/2026/20261126 Kyoto Trip/20261126--DSC00001.JPG",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/backup/2026/20261126 Kyoto Trip/20261126--DSC00001.JPG",
+    "outcome": "verified xxh64:86c18c5701339cc4 (5977173 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/backup/2026/20261126 Kyoto Trip/20261126--DSC00001.JPG",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/primary/2026/20261126 Kyoto Trip/20261126--DSC00002.CR2",
+    "outcome": "verified xxh64:8ea595d456e8ec44 (5805950 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/primary/2026/20261126 Kyoto Trip/20261126--DSC00002.CR2",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/backup/2026/20261126 Kyoto Trip/20261126--DSC00002.CR2",
+    "outcome": "verified xxh64:8ea595d456e8ec44 (5805950 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/backup/2026/20261126 Kyoto Trip/20261126--DSC00002.CR2",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/primary/2026/20261126 Kyoto Trip/20261126--DSC00002.DNG",
+    "outcome": "verified xxh64:e44ec216bd2f9ecf (21700096 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/primary/2026/20261126 Kyoto Trip/20261126--DSC00002.DNG",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/backup/2026/20261126 Kyoto Trip/20261126--DSC00002.DNG",
+    "outcome": "verified xxh64:e44ec216bd2f9ecf (21700096 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/backup/2026/20261126 Kyoto Trip/20261126--DSC00002.DNG",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/primary/2026/20261126 Kyoto Trip/20261126--DSC00003.NEF",
+    "outcome": "verified xxh64:94f316dbf9964275 (16106536 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/primary/2026/20261126 Kyoto Trip/20261126--DSC00003.NEF",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/backup/2026/20261126 Kyoto Trip/20261126--DSC00003.NEF",
+    "outcome": "verified xxh64:94f316dbf9964275 (16106536 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/backup/2026/20261126 Kyoto Trip/20261126--DSC00003.NEF",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/primary/2026/20261126 Kyoto Trip/20261126--DSC00004.ARW",
+    "outcome": "verified xxh64:d55d6ab33af74b54 (25272320 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/primary/2026/20261126 Kyoto Trip/20261126--DSC00004.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/backup/2026/20261126 Kyoto Trip/20261126--DSC00004.ARW",
+    "outcome": "verified xxh64:d55d6ab33af74b54 (25272320 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/backup/2026/20261126 Kyoto Trip/20261126--DSC00004.ARW",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/primary/2026/20261126 Kyoto Trip/20261126--DSC00004.JPG",
+    "outcome": "verified xxh64:35b87a1d4774e0db (1251128 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/primary/2026/20261126 Kyoto Trip/20261126--DSC00004.JPG",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/backup/2026/20261126 Kyoto Trip/20261126--DSC00004.JPG",
+    "outcome": "verified xxh64:35b87a1d4774e0db (1251128 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s3-doc-default-seq4/backup/2026/20261126 Kyoto Trip/20261126--DSC00004.JPG",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG"
+   }
+  ],
+  "scanned": [
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW",
+    "size": 14712832
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW",
+    "size": 49184768
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG",
+    "size": 5977173
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2",
+    "size": 5805950
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG",
+    "size": 21700096
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF",
+    "size": 16106536
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW",
+    "size": 25272320
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG",
+    "size": 1251128
+   }
+  ],
+  "seconds": 97.85261023044586,
+  "summary": "Ingested 8 frames, every copy verified. \u00b7 2 renamed to avoid overwriting",
+  "templateProblems": [
+   "Filename template: unknown token {seq4}"
+  ],
+  "wasCancelled": false
+ },
+ "s4-orig": {
+  "allVerified": true,
+  "filesAttempted": 8,
+  "filesPlanned": 8,
+  "framesVerified": 8,
+  "independent": {
+   "all_landed_sha256_match": true,
+   "card_files_changed_or_deleted": [],
+   "card_files_never_copied": [
+    "DCIM/100MSDCF/C0005.MP4",
+    "DCIM/100MSDCF/DSC00001.XMP",
+    "DCIM/100MSDCF/DSC00003.WAV",
+    "DCIM/100MSDCF/DSC00003.xmp"
+   ],
+   "checks": [
+    {
+     "landed": "s4-orig/primary/2026/20261126/DSC00001.ARW",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00001.ARW"
+    },
+    {
+     "landed": "s4-orig/primary/2026/20261126/DSC00001-1.ARW",
+     "outcome": "verified",
+     "renamed": true,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/101MSDCF/DSC00001.ARW"
+    },
+    {
+     "landed": "s4-orig/primary/2026/20261126/DSC00001.JPG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00001.JPG"
+    },
+    {
+     "landed": "s4-orig/primary/2026/20261126/DSC00002.CR2",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00002.CR2"
+    },
+    {
+     "landed": "s4-orig/primary/2026/20261126/DSC00002.DNG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/101MSDCF/DSC00002.DNG"
+    },
+    {
+     "landed": "s4-orig/primary/2026/20261126/DSC00003.NEF",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00003.NEF"
+    },
+    {
+     "landed": "s4-orig/primary/2026/20261126/DSC00004.ARW",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00004.ARW"
+    },
+    {
+     "landed": "s4-orig/primary/2026/20261126/DSC00004.JPG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00004.JPG"
+    }
+   ],
+   "destination_trees": {
+    "s4-orig/primary": [
+     "2026/20261126/DSC00001-1.ARW",
+     "2026/20261126/DSC00001.ARW",
+     "2026/20261126/DSC00001.JPG",
+     "2026/20261126/DSC00002.CR2",
+     "2026/20261126/DSC00002.DNG",
+     "2026/20261126/DSC00003.NEF",
+     "2026/20261126/DSC00004.ARW",
+     "2026/20261126/DSC00004.JPG"
+    ]
+   },
+   "leftover_part_files": [],
+   "pre_existing_files_changed": []
+  },
+  "plan": [
+   {
+    "bytes": 14712832,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s4-orig/primary/2026/20261126/DSC00001.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW"
+   },
+   {
+    "bytes": 49184768,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s4-orig/primary/2026/20261126/DSC00001.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW"
+   },
+   {
+    "bytes": 5977173,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s4-orig/primary/2026/20261126/DSC00001.JPG"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG"
+   },
+   {
+    "bytes": 5805950,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s4-orig/primary/2026/20261126/DSC00002.CR2"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2"
+   },
+   {
+    "bytes": 21700096,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s4-orig/primary/2026/20261126/DSC00002.DNG"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG"
+   },
+   {
+    "bytes": 16106536,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s4-orig/primary/2026/20261126/DSC00003.NEF"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF"
+   },
+   {
+    "bytes": 25272320,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s4-orig/primary/2026/20261126/DSC00004.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW"
+   },
+   {
+    "bytes": 1251128,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s4-orig/primary/2026/20261126/DSC00004.JPG"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG"
+   }
+  ],
+  "planRefusals": [],
+  "preview": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s4-orig/primary/2026/20261126/DSC00001.ARW",
+  "progressEvents": 54,
+  "results": [
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s4-orig/primary/2026/20261126/DSC00001.ARW",
+    "outcome": "verified xxh64:2962a2c30158308c (14712832 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s4-orig/primary/2026/20261126/DSC00001.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s4-orig/primary/2026/20261126/DSC00001-1.ARW",
+    "outcome": "verified xxh64:aad864a82666f96f (49184768 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s4-orig/primary/2026/20261126/DSC00001.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s4-orig/primary/2026/20261126/DSC00001.JPG",
+    "outcome": "verified xxh64:86c18c5701339cc4 (5977173 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s4-orig/primary/2026/20261126/DSC00001.JPG",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s4-orig/primary/2026/20261126/DSC00002.CR2",
+    "outcome": "verified xxh64:8ea595d456e8ec44 (5805950 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s4-orig/primary/2026/20261126/DSC00002.CR2",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s4-orig/primary/2026/20261126/DSC00002.DNG",
+    "outcome": "verified xxh64:e44ec216bd2f9ecf (21700096 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s4-orig/primary/2026/20261126/DSC00002.DNG",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s4-orig/primary/2026/20261126/DSC00003.NEF",
+    "outcome": "verified xxh64:94f316dbf9964275 (16106536 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s4-orig/primary/2026/20261126/DSC00003.NEF",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s4-orig/primary/2026/20261126/DSC00004.ARW",
+    "outcome": "verified xxh64:d55d6ab33af74b54 (25272320 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s4-orig/primary/2026/20261126/DSC00004.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s4-orig/primary/2026/20261126/DSC00004.JPG",
+    "outcome": "verified xxh64:35b87a1d4774e0db (1251128 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s4-orig/primary/2026/20261126/DSC00004.JPG",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG"
+   }
+  ],
+  "scanned": [
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW",
+    "size": 14712832
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW",
+    "size": 49184768
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG",
+    "size": 5977173
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2",
+    "size": 5805950
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG",
+    "size": 21700096
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF",
+    "size": 16106536
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW",
+    "size": 25272320
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG",
+    "size": 1251128
+   }
+  ],
+  "seconds": 66.94157063961029,
+  "summary": "Ingested 8 frames, every copy verified. \u00b7 1 renamed to avoid overwriting",
+  "templateProblems": [],
+  "wasCancelled": false
+ },
+ "s5-date-only": {
+  "allVerified": true,
+  "filesAttempted": 8,
+  "filesPlanned": 8,
+  "framesVerified": 8,
+  "independent": {
+   "all_landed_sha256_match": true,
+   "card_files_changed_or_deleted": [],
+   "card_files_never_copied": [
+    "DCIM/100MSDCF/C0005.MP4",
+    "DCIM/100MSDCF/DSC00001.XMP",
+    "DCIM/100MSDCF/DSC00003.WAV",
+    "DCIM/100MSDCF/DSC00003.xmp"
+   ],
+   "checks": [
+    {
+     "landed": "s5-date-only/primary/2026/20261126/20261126.ARW",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00001.ARW"
+    },
+    {
+     "landed": "s5-date-only/primary/2026/20261126/20261126-1.ARW",
+     "outcome": "verified",
+     "renamed": true,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/101MSDCF/DSC00001.ARW"
+    },
+    {
+     "landed": "s5-date-only/primary/2026/20261126/20261126.JPG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00001.JPG"
+    },
+    {
+     "landed": "s5-date-only/primary/2026/20261126/20261126.CR2",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00002.CR2"
+    },
+    {
+     "landed": "s5-date-only/primary/2026/20261126/20261126.DNG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/101MSDCF/DSC00002.DNG"
+    },
+    {
+     "landed": "s5-date-only/primary/2026/20261126/20261126.NEF",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00003.NEF"
+    },
+    {
+     "landed": "s5-date-only/primary/2026/20261126/20261126-2.ARW",
+     "outcome": "verified",
+     "renamed": true,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00004.ARW"
+    },
+    {
+     "landed": "s5-date-only/primary/2026/20261126/20261126-2.JPG",
+     "outcome": "verified",
+     "renamed": true,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00004.JPG"
+    }
+   ],
+   "destination_trees": {
+    "s5-date-only/primary": [
+     "2026/20261126/20261126-1.ARW",
+     "2026/20261126/20261126-2.ARW",
+     "2026/20261126/20261126-2.JPG",
+     "2026/20261126/20261126.ARW",
+     "2026/20261126/20261126.CR2",
+     "2026/20261126/20261126.DNG",
+     "2026/20261126/20261126.JPG",
+     "2026/20261126/20261126.NEF"
+    ]
+   },
+   "leftover_part_files": [],
+   "pre_existing_files_changed": []
+  },
+  "plan": [
+   {
+    "bytes": 14712832,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s5-date-only/primary/2026/20261126/20261126.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW"
+   },
+   {
+    "bytes": 49184768,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s5-date-only/primary/2026/20261126/20261126.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW"
+   },
+   {
+    "bytes": 5977173,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s5-date-only/primary/2026/20261126/20261126.JPG"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG"
+   },
+   {
+    "bytes": 5805950,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s5-date-only/primary/2026/20261126/20261126.CR2"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2"
+   },
+   {
+    "bytes": 21700096,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s5-date-only/primary/2026/20261126/20261126.DNG"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG"
+   },
+   {
+    "bytes": 16106536,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s5-date-only/primary/2026/20261126/20261126.NEF"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF"
+   },
+   {
+    "bytes": 25272320,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s5-date-only/primary/2026/20261126/20261126.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW"
+   },
+   {
+    "bytes": 1251128,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s5-date-only/primary/2026/20261126/20261126.JPG"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG"
+   }
+  ],
+  "planRefusals": [],
+  "preview": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s5-date-only/primary/2026/20261126/20261126.ARW",
+  "progressEvents": 54,
+  "results": [
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s5-date-only/primary/2026/20261126/20261126.ARW",
+    "outcome": "verified xxh64:2962a2c30158308c (14712832 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s5-date-only/primary/2026/20261126/20261126.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s5-date-only/primary/2026/20261126/20261126-1.ARW",
+    "outcome": "verified xxh64:aad864a82666f96f (49184768 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s5-date-only/primary/2026/20261126/20261126.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s5-date-only/primary/2026/20261126/20261126.JPG",
+    "outcome": "verified xxh64:86c18c5701339cc4 (5977173 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s5-date-only/primary/2026/20261126/20261126.JPG",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s5-date-only/primary/2026/20261126/20261126.CR2",
+    "outcome": "verified xxh64:8ea595d456e8ec44 (5805950 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s5-date-only/primary/2026/20261126/20261126.CR2",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s5-date-only/primary/2026/20261126/20261126.DNG",
+    "outcome": "verified xxh64:e44ec216bd2f9ecf (21700096 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s5-date-only/primary/2026/20261126/20261126.DNG",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s5-date-only/primary/2026/20261126/20261126.NEF",
+    "outcome": "verified xxh64:94f316dbf9964275 (16106536 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s5-date-only/primary/2026/20261126/20261126.NEF",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s5-date-only/primary/2026/20261126/20261126-2.ARW",
+    "outcome": "verified xxh64:d55d6ab33af74b54 (25272320 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s5-date-only/primary/2026/20261126/20261126.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s5-date-only/primary/2026/20261126/20261126-2.JPG",
+    "outcome": "verified xxh64:35b87a1d4774e0db (1251128 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s5-date-only/primary/2026/20261126/20261126.JPG",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG"
+   }
+  ],
+  "scanned": [
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW",
+    "size": 14712832
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW",
+    "size": 49184768
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG",
+    "size": 5977173
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2",
+    "size": 5805950
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG",
+    "size": 21700096
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF",
+    "size": 16106536
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW",
+    "size": 25272320
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG",
+    "size": 1251128
+   }
+  ],
+  "seconds": 69.18283987045288,
+  "summary": "Ingested 8 frames, every copy verified. \u00b7 3 renamed to avoid overwriting",
+  "templateProblems": [],
+  "wasCancelled": false
+ },
+ "s6-job-empty-name": {
+  "allVerified": false,
+  "filesAttempted": 0,
+  "filesPlanned": 0,
+  "framesVerified": 0,
+  "independent": {
+   "all_landed_sha256_match": true,
+   "card_files_changed_or_deleted": [],
+   "card_files_never_copied": [
+    "DCIM/100MSDCF/C0005.MP4",
+    "DCIM/100MSDCF/DSC00001.XMP",
+    "DCIM/100MSDCF/DSC00003.WAV",
+    "DCIM/100MSDCF/DSC00003.xmp"
+   ],
+   "checks": [],
+   "destination_trees": {
+    "s6-job-empty-name/primary": []
+   },
+   "leftover_part_files": [],
+   "pre_existing_files_changed": []
+  },
+  "plan": [],
+  "planRefusals": [
+   "DSC00001.ARW: the filename template renders no usable name for this file, so it was not copied.",
+   "DSC00001.ARW: the filename template renders no usable name for this file, so it was not copied.",
+   "DSC00001.JPG: the filename template renders no usable name for this file, so it was not copied.",
+   "DSC00002.CR2: the filename template renders no usable name for this file, so it was not copied.",
+   "DSC00002.DNG: the filename template renders no usable name for this file, so it was not copied.",
+   "DSC00003.NEF: the filename template renders no usable name for this file, so it was not copied.",
+   "DSC00004.ARW: the filename template renders no usable name for this file, so it was not copied.",
+   "DSC00004.JPG: the filename template renders no usable name for this file, so it was not copied."
+  ],
+  "preview": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s6-job-empty-name/primary/2026/20261126/.ARW",
+  "progressEvents": 0,
+  "results": [],
+  "scanned": [
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW",
+    "size": 14712832
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW",
+    "size": 49184768
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG",
+    "size": 5977173
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2",
+    "size": 5805950
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG",
+    "size": 21700096
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF",
+    "size": 16106536
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW",
+    "size": 25272320
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG",
+    "size": 1251128
+   }
+  ],
+  "seconds": 0.00012171268463134766,
+  "summary": "Nothing was copied. \u00b7 8 refused: DSC00001.ARW: the filename template renders no usable name for this file, so it was not copied.",
+  "templateProblems": [],
+  "wasCancelled": false
+ },
+ "s7-collision": {
+  "allVerified": true,
+  "filesAttempted": 8,
+  "filesPlanned": 8,
+  "framesVerified": 8,
+  "independent": {
+   "all_landed_sha256_match": true,
+   "card_files_changed_or_deleted": [],
+   "card_files_never_copied": [
+    "DCIM/100MSDCF/C0005.MP4",
+    "DCIM/100MSDCF/DSC00001.XMP",
+    "DCIM/100MSDCF/DSC00003.WAV",
+    "DCIM/100MSDCF/DSC00003.xmp"
+   ],
+   "checks": [
+    {
+     "landed": "s7-collision/primary/2026/20261126/DSC00001.ARW",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00001.ARW"
+    },
+    {
+     "landed": "s7-collision/primary/2026/20261126/DSC00001-1.ARW",
+     "outcome": "verified",
+     "renamed": true,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/101MSDCF/DSC00001.ARW"
+    },
+    {
+     "landed": "s7-collision/primary/2026/20261126/DSC00001.JPG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00001.JPG"
+    },
+    {
+     "landed": "s7-collision/primary/2026/20261126/DSC00002.CR2",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00002.CR2"
+    },
+    {
+     "landed": "s7-collision/primary/2026/20261126/DSC00002.DNG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/101MSDCF/DSC00002.DNG"
+    },
+    {
+     "landed": "s7-collision/primary/2026/20261126/DSC00003.NEF",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00003.NEF"
+    },
+    {
+     "landed": "s7-collision/primary/2026/20261126/DSC00004.ARW",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00004.ARW"
+    },
+    {
+     "landed": "s7-collision/primary/2026/20261126/DSC00004.JPG",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00004.JPG"
+    }
+   ],
+   "destination_trees": {
+    "s7-collision/primary": [
+     "2026/20260902/DSC00001.JPG",
+     "2026/20260902/DSC00002.CR2",
+     "2026/20261126/DSC00001-1.ARW",
+     "2026/20261126/DSC00001.ARW",
+     "2026/20261126/DSC00001.JPG",
+     "2026/20261126/DSC00002.CR2",
+     "2026/20261126/DSC00002.DNG",
+     "2026/20261126/DSC00003.NEF",
+     "2026/20261126/DSC00004.ARW",
+     "2026/20261126/DSC00004.JPG"
+    ]
+   },
+   "leftover_part_files": [],
+   "pre_existing_files_changed": []
+  },
+  "plan": [
+   {
+    "bytes": 14712832,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s7-collision/primary/2026/20261126/DSC00001.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW"
+   },
+   {
+    "bytes": 49184768,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s7-collision/primary/2026/20261126/DSC00001.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW"
+   },
+   {
+    "bytes": 5977173,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s7-collision/primary/2026/20261126/DSC00001.JPG"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG"
+   },
+   {
+    "bytes": 5805950,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s7-collision/primary/2026/20261126/DSC00002.CR2"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2"
+   },
+   {
+    "bytes": 21700096,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s7-collision/primary/2026/20261126/DSC00002.DNG"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG"
+   },
+   {
+    "bytes": 16106536,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s7-collision/primary/2026/20261126/DSC00003.NEF"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF"
+   },
+   {
+    "bytes": 25272320,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s7-collision/primary/2026/20261126/DSC00004.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW"
+   },
+   {
+    "bytes": 1251128,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s7-collision/primary/2026/20261126/DSC00004.JPG"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG"
+   }
+  ],
+  "planRefusals": [],
+  "preview": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s7-collision/primary/2026/20261126/DSC00001.ARW",
+  "progressEvents": 54,
+  "results": [
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s7-collision/primary/2026/20261126/DSC00001.ARW",
+    "outcome": "verified xxh64:2962a2c30158308c (14712832 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s7-collision/primary/2026/20261126/DSC00001.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s7-collision/primary/2026/20261126/DSC00001-1.ARW",
+    "outcome": "verified xxh64:aad864a82666f96f (49184768 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s7-collision/primary/2026/20261126/DSC00001.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s7-collision/primary/2026/20261126/DSC00001.JPG",
+    "outcome": "verified xxh64:86c18c5701339cc4 (5977173 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s7-collision/primary/2026/20261126/DSC00001.JPG",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s7-collision/primary/2026/20261126/DSC00002.CR2",
+    "outcome": "verified xxh64:8ea595d456e8ec44 (5805950 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s7-collision/primary/2026/20261126/DSC00002.CR2",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s7-collision/primary/2026/20261126/DSC00002.DNG",
+    "outcome": "verified xxh64:e44ec216bd2f9ecf (21700096 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s7-collision/primary/2026/20261126/DSC00002.DNG",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s7-collision/primary/2026/20261126/DSC00003.NEF",
+    "outcome": "verified xxh64:94f316dbf9964275 (16106536 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s7-collision/primary/2026/20261126/DSC00003.NEF",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s7-collision/primary/2026/20261126/DSC00004.ARW",
+    "outcome": "verified xxh64:d55d6ab33af74b54 (25272320 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s7-collision/primary/2026/20261126/DSC00004.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s7-collision/primary/2026/20261126/DSC00004.JPG",
+    "outcome": "verified xxh64:35b87a1d4774e0db (1251128 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s7-collision/primary/2026/20261126/DSC00004.JPG",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG"
+   }
+  ],
+  "scanned": [
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW",
+    "size": 14712832
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW",
+    "size": 49184768
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG",
+    "size": 5977173
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2",
+    "size": 5805950
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG",
+    "size": 21700096
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF",
+    "size": 16106536
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW",
+    "size": 25272320
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG",
+    "size": 1251128
+   }
+  ],
+  "seconds": 78.30803620815277,
+  "summary": "Ingested 8 frames, every copy verified. \u00b7 1 renamed to avoid overwriting",
+  "templateProblems": [],
+  "wasCancelled": false
+ },
+ "s8-rerun-s2": {
+  "allVerified": true,
+  "filesAttempted": 8,
+  "filesPlanned": 8,
+  "framesVerified": 8,
+  "independent": {
+   "all_landed_sha256_match": true,
+   "card_files_changed_or_deleted": [],
+   "card_files_never_copied": [
+    "DCIM/100MSDCF/C0005.MP4",
+    "DCIM/100MSDCF/DSC00001.XMP",
+    "DCIM/100MSDCF/DSC00003.WAV",
+    "DCIM/100MSDCF/DSC00003.xmp"
+   ],
+   "checks": [
+    {
+     "landed": "s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.ARW",
+     "outcome": "alreadyPresent",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00001.ARW"
+    },
+    {
+     "landed": "s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.ARW",
+     "outcome": "alreadyPresent",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00001.ARW"
+    },
+    {
+     "landed": "s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0002-DSC00001.ARW",
+     "outcome": "alreadyPresent",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/101MSDCF/DSC00001.ARW"
+    },
+    {
+     "landed": "s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0002-DSC00001.ARW",
+     "outcome": "alreadyPresent",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/101MSDCF/DSC00001.ARW"
+    },
+    {
+     "landed": "s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.JPG",
+     "outcome": "alreadyPresent",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00001.JPG"
+    },
+    {
+     "landed": "s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.JPG",
+     "outcome": "alreadyPresent",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00001.JPG"
+    },
+    {
+     "landed": "s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0003-DSC00002.CR2",
+     "outcome": "alreadyPresent",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00002.CR2"
+    },
+    {
+     "landed": "s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0003-DSC00002.CR2",
+     "outcome": "alreadyPresent",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00002.CR2"
+    },
+    {
+     "landed": "s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0004-DSC00002.DNG",
+     "outcome": "alreadyPresent",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/101MSDCF/DSC00002.DNG"
+    },
+    {
+     "landed": "s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0004-DSC00002.DNG",
+     "outcome": "alreadyPresent",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/101MSDCF/DSC00002.DNG"
+    },
+    {
+     "landed": "s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0005-DSC00003.NEF",
+     "outcome": "alreadyPresent",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00003.NEF"
+    },
+    {
+     "landed": "s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0005-DSC00003.NEF",
+     "outcome": "alreadyPresent",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00003.NEF"
+    },
+    {
+     "landed": "s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0006-DSC00004.ARW",
+     "outcome": "alreadyPresent",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00004.ARW"
+    },
+    {
+     "landed": "s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0006-DSC00004.ARW",
+     "outcome": "alreadyPresent",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00004.ARW"
+    },
+    {
+     "landed": "s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0006-DSC00004.JPG",
+     "outcome": "alreadyPresent",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00004.JPG"
+    },
+    {
+     "landed": "s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0006-DSC00004.JPG",
+     "outcome": "alreadyPresent",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00004.JPG"
+    }
+   ],
+   "destination_trees": {
+    "s2-default-seq-colon/backup": [
+     "2026/20261126 Kyoto Trip/20261126-0001-DSC00001.ARW",
+     "2026/20261126 Kyoto Trip/20261126-0001-DSC00001.JPG",
+     "2026/20261126 Kyoto Trip/20261126-0002-DSC00001.ARW",
+     "2026/20261126 Kyoto Trip/20261126-0003-DSC00002.CR2",
+     "2026/20261126 Kyoto Trip/20261126-0004-DSC00002.DNG",
+     "2026/20261126 Kyoto Trip/20261126-0005-DSC00003.NEF",
+     "2026/20261126 Kyoto Trip/20261126-0006-DSC00004.ARW",
+     "2026/20261126 Kyoto Trip/20261126-0006-DSC00004.JPG"
+    ],
+    "s2-default-seq-colon/primary": [
+     "2026/20261126 Kyoto Trip/20261126-0001-DSC00001.ARW",
+     "2026/20261126 Kyoto Trip/20261126-0001-DSC00001.JPG",
+     "2026/20261126 Kyoto Trip/20261126-0002-DSC00001.ARW",
+     "2026/20261126 Kyoto Trip/20261126-0003-DSC00002.CR2",
+     "2026/20261126 Kyoto Trip/20261126-0004-DSC00002.DNG",
+     "2026/20261126 Kyoto Trip/20261126-0005-DSC00003.NEF",
+     "2026/20261126 Kyoto Trip/20261126-0006-DSC00004.ARW",
+     "2026/20261126 Kyoto Trip/20261126-0006-DSC00004.JPG"
+    ]
+   },
+   "leftover_part_files": [],
+   "pre_existing_files_changed": []
+  },
+  "plan": [
+   {
+    "bytes": 14712832,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.ARW"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW"
+   },
+   {
+    "bytes": 49184768,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0002-DSC00001.ARW"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0002-DSC00001.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW"
+   },
+   {
+    "bytes": 5977173,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.JPG"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.JPG"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG"
+   },
+   {
+    "bytes": 5805950,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0003-DSC00002.CR2"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0003-DSC00002.CR2"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2"
+   },
+   {
+    "bytes": 21700096,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0004-DSC00002.DNG"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0004-DSC00002.DNG"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG"
+   },
+   {
+    "bytes": 16106536,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0005-DSC00003.NEF"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0005-DSC00003.NEF"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF"
+   },
+   {
+    "bytes": 25272320,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0006-DSC00004.ARW"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0006-DSC00004.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW"
+   },
+   {
+    "bytes": 1251128,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0006-DSC00004.JPG"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0006-DSC00004.JPG"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG"
+   }
+  ],
+  "planRefusals": [],
+  "preview": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.ARW",
+  "progressEvents": 16,
+  "results": [
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.ARW",
+    "outcome": "alreadyPresent xxh64:2962a2c30158308c (14712832 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.ARW",
+    "outcome": "alreadyPresent xxh64:2962a2c30158308c (14712832 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.ARW",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0002-DSC00001.ARW",
+    "outcome": "alreadyPresent xxh64:aad864a82666f96f (49184768 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0002-DSC00001.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0002-DSC00001.ARW",
+    "outcome": "alreadyPresent xxh64:aad864a82666f96f (49184768 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0002-DSC00001.ARW",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.JPG",
+    "outcome": "alreadyPresent xxh64:86c18c5701339cc4 (5977173 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.JPG",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.JPG",
+    "outcome": "alreadyPresent xxh64:86c18c5701339cc4 (5977173 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0001-DSC00001.JPG",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0003-DSC00002.CR2",
+    "outcome": "alreadyPresent xxh64:8ea595d456e8ec44 (5805950 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0003-DSC00002.CR2",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0003-DSC00002.CR2",
+    "outcome": "alreadyPresent xxh64:8ea595d456e8ec44 (5805950 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0003-DSC00002.CR2",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0004-DSC00002.DNG",
+    "outcome": "alreadyPresent xxh64:e44ec216bd2f9ecf (21700096 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0004-DSC00002.DNG",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0004-DSC00002.DNG",
+    "outcome": "alreadyPresent xxh64:e44ec216bd2f9ecf (21700096 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0004-DSC00002.DNG",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0005-DSC00003.NEF",
+    "outcome": "alreadyPresent xxh64:94f316dbf9964275 (16106536 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0005-DSC00003.NEF",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0005-DSC00003.NEF",
+    "outcome": "alreadyPresent xxh64:94f316dbf9964275 (16106536 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0005-DSC00003.NEF",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0006-DSC00004.ARW",
+    "outcome": "alreadyPresent xxh64:d55d6ab33af74b54 (25272320 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0006-DSC00004.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0006-DSC00004.ARW",
+    "outcome": "alreadyPresent xxh64:d55d6ab33af74b54 (25272320 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0006-DSC00004.ARW",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0006-DSC00004.JPG",
+    "outcome": "alreadyPresent xxh64:35b87a1d4774e0db (1251128 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/primary/2026/20261126 Kyoto Trip/20261126-0006-DSC00004.JPG",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0006-DSC00004.JPG",
+    "outcome": "alreadyPresent xxh64:35b87a1d4774e0db (1251128 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s2-default-seq-colon/backup/2026/20261126 Kyoto Trip/20261126-0006-DSC00004.JPG",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG"
+   }
+  ],
+  "scanned": [
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW",
+    "size": 14712832
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW",
+    "size": 49184768
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG",
+    "size": 5977173
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2",
+    "size": 5805950
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG",
+    "size": 21700096
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF",
+    "size": 16106536
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW",
+    "size": 25272320
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG",
+    "size": 1251128
+   }
+  ],
+  "seconds": 180.4071488380432,
+  "summary": "Ingested 8 frames, every copy verified. \u00b7 16 already on disk",
+  "templateProblems": [],
+  "wasCancelled": false
+ },
+ "s9-stop-mid": {
+  "allVerified": false,
+  "filesAttempted": 1,
+  "filesPlanned": 8,
+  "framesVerified": 1,
+  "independent": {
+   "all_landed_sha256_match": true,
+   "card_files_changed_or_deleted": [],
+   "card_files_never_copied": [
+    "DCIM/100MSDCF/C0005.MP4",
+    "DCIM/100MSDCF/DSC00001.XMP",
+    "DCIM/100MSDCF/DSC00003.WAV",
+    "DCIM/100MSDCF/DSC00003.xmp"
+   ],
+   "checks": [
+    {
+     "landed": "s9-stop-mid/primary/2026/20261126/20261126-0001-DSC00001.ARW",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "primary",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00001.ARW"
+    },
+    {
+     "landed": "s9-stop-mid/backup/2026/20261126/20261126-0001-DSC00001.ARW",
+     "outcome": "verified",
+     "renamed": false,
+     "role": "backup",
+     "sha256_match": true,
+     "source": "DCIM/100MSDCF/DSC00001.ARW"
+    }
+   ],
+   "destination_trees": {
+    "s9-stop-mid/backup": [
+     "2026/20261126/20261126-0001-DSC00001.ARW"
+    ],
+    "s9-stop-mid/primary": [
+     "2026/20261126/20261126-0001-DSC00001.ARW"
+    ]
+   },
+   "leftover_part_files": [],
+   "pre_existing_files_changed": []
+  },
+  "plan": [
+   {
+    "bytes": 14712832,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s9-stop-mid/primary/2026/20261126/20261126-0001-DSC00001.ARW"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s9-stop-mid/backup/2026/20261126/20261126-0001-DSC00001.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW"
+   },
+   {
+    "bytes": 49184768,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s9-stop-mid/primary/2026/20261126/20261126-0002-DSC00001.ARW"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s9-stop-mid/backup/2026/20261126/20261126-0002-DSC00001.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW"
+   },
+   {
+    "bytes": 5977173,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s9-stop-mid/primary/2026/20261126/20261126-0001-DSC00001.JPG"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s9-stop-mid/backup/2026/20261126/20261126-0001-DSC00001.JPG"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG"
+   },
+   {
+    "bytes": 5805950,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s9-stop-mid/primary/2026/20261126/20261126-0003-DSC00002.CR2"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s9-stop-mid/backup/2026/20261126/20261126-0003-DSC00002.CR2"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2"
+   },
+   {
+    "bytes": 21700096,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s9-stop-mid/primary/2026/20261126/20261126-0004-DSC00002.DNG"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s9-stop-mid/backup/2026/20261126/20261126-0004-DSC00002.DNG"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG"
+   },
+   {
+    "bytes": 16106536,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s9-stop-mid/primary/2026/20261126/20261126-0005-DSC00003.NEF"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s9-stop-mid/backup/2026/20261126/20261126-0005-DSC00003.NEF"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF"
+   },
+   {
+    "bytes": 25272320,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s9-stop-mid/primary/2026/20261126/20261126-0006-DSC00004.ARW"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s9-stop-mid/backup/2026/20261126/20261126-0006-DSC00004.ARW"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW"
+   },
+   {
+    "bytes": 1251128,
+    "destinations": [
+     {
+      "role": "primary",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s9-stop-mid/primary/2026/20261126/20261126-0006-DSC00004.JPG"
+     },
+     {
+      "role": "backup",
+      "url": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s9-stop-mid/backup/2026/20261126/20261126-0006-DSC00004.JPG"
+     }
+    ],
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG"
+   }
+  ],
+  "planRefusals": [],
+  "preview": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s9-stop-mid/primary/2026/20261126/20261126-0001-DSC00001.ARW",
+  "progressEvents": 11,
+  "results": [
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s9-stop-mid/primary/2026/20261126/20261126-0001-DSC00001.ARW",
+    "outcome": "verified xxh64:2962a2c30158308c (14712832 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s9-stop-mid/primary/2026/20261126/20261126-0001-DSC00001.ARW",
+    "role": "primary",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW"
+   },
+   {
+    "landed": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s9-stop-mid/backup/2026/20261126/20261126-0001-DSC00001.ARW",
+    "outcome": "verified xxh64:2962a2c30158308c (14712832 bytes)",
+    "planned": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/s9-stop-mid/backup/2026/20261126/20261126-0001-DSC00001.ARW",
+    "role": "backup",
+    "source": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW"
+   }
+  ],
+  "scanned": [
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.ARW",
+    "size": 14712832
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00001.ARW",
+    "size": 49184768
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00001.JPG",
+    "size": 5977173
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00002.CR2",
+    "size": 5805950
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/101MSDCF/DSC00002.DNG",
+    "size": 21700096
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00003.NEF",
+    "size": 16106536
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.ARW",
+    "size": 25272320
+   },
+   {
+    "path": "/tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/ingest-work/CARD/DCIM/100MSDCF/DSC00004.JPG",
+    "size": 1251128
+   }
+  ],
+  "seconds": 17.317102789878845,
+  "summary": "Stopped after 1 of 8 frames \u2014 nothing was left half-written.",
+  "templateProblems": [],
+  "wasCancelled": true
+ }
+}

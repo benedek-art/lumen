@@ -1,0 +1,216 @@
+{
+ "name": "cr-halation",
+ "defaults": {
+  "longEdge": 1536,
+  "tile": 300
+ },
+ "jobs": [
+  {
+   "id": "hal-portra400",
+   "photo": "chart:pointLights",
+   "recipe": {
+    "look.filmLab.stock": "lumen/portra400"
+   },
+   "grid": {
+    "x": {
+     "path": "look.filmLab.halation",
+     "label": "hal",
+     "values": [
+      0,
+      25,
+      50,
+      75,
+      100
+     ]
+    },
+    "y": {
+     "path": "look.filmLab.halationSize",
+     "label": "size",
+     "values": [
+      0.5,
+      1,
+      2
+     ]
+    }
+   }
+  },
+  {
+   "id": "hal-cine250d",
+   "photo": "chart:pointLights",
+   "recipe": {
+    "look.filmLab.stock": "lumen/cine250d"
+   },
+   "grid": {
+    "x": {
+     "path": "look.filmLab.halation",
+     "label": "hal",
+     "values": [
+      0,
+      25,
+      50,
+      75,
+      100
+     ]
+    },
+    "y": {
+     "path": "look.filmLab.halationSize",
+     "label": "size",
+     "values": [
+      0.5,
+      1,
+      2
+     ]
+    }
+   }
+  },
+  {
+   "id": "hal-trix400",
+   "photo": "chart:pointLights",
+   "recipe": {
+    "look.filmLab.stock": "lumen/trix400"
+   },
+   "grid": {
+    "x": {
+     "path": "look.filmLab.halation",
+     "label": "hal",
+     "values": [
+      0,
+      25,
+      50,
+      75,
+      100
+     ]
+    },
+    "y": {
+     "path": "look.filmLab.halationSize",
+     "label": "size",
+     "values": [
+      0.5,
+      1,
+      2
+     ]
+    }
+   }
+  },
+  {
+   "id": "hal-velvia50",
+   "photo": "chart:pointLights",
+   "recipe": {
+    "look.filmLab.stock": "lumen/velvia50"
+   },
+   "grid": {
+    "x": {
+     "path": "look.filmLab.halation",
+     "label": "hal",
+     "values": [
+      0,
+      25,
+      50,
+      75,
+      100
+     ]
+    },
+    "y": {
+     "path": "look.filmLab.halationSize",
+     "label": "size",
+     "values": [
+      0.5,
+      1,
+      2
+     ]
+    }
+   }
+  },
+  {
+   "id": "hal-redness",
+   "photo": "chart:pointLights",
+   "recipe": {
+    "look.filmLab.stock": "lumen/portra400",
+    "look.filmLab.halation": 100
+   },
+   "sweep": {
+    "path": "look.filmLab.halationRedness",
+    "label": "red",
+    "values": [
+     0,
+     25,
+     50,
+     75,
+     100
+    ]
+   }
+  },
+  {
+   "id": "hal-real",
+   "photos": [
+    "6929",
+    "1346",
+    "5812"
+   ],
+   "recipe": {
+    "look.filmLab.stock": "lumen/cine250d"
+   },
+   "grid": {
+    "x": {
+     "path": "look.filmLab.halation",
+     "label": "hal",
+     "values": [
+      0,
+      50,
+      100
+     ]
+    },
+    "y": {
+     "path": "look.filmLab.halationSize",
+     "label": "size",
+     "values": [
+      0.5,
+      1,
+      2
+     ]
+    }
+   }
+  },
+  {
+   "id": "hal-real-1to1",
+   "photos": [
+    "6929-crop15-20",
+    "6929-crop40-40",
+    "6929-crop65-60",
+    "1346-crop15-20",
+    "1346-crop40-40"
+   ],
+   "recipe": {
+    "look.filmLab.stock": "lumen/cine250d"
+   },
+   "sweep": {
+    "path": "look.filmLab.halation",
+    "label": "hal",
+    "values": [
+     50,
+     100
+    ],
+    "neutral": 0
+   }
+  },
+  {
+   "id": "hal-exp",
+   "photo": "chart:pointLights",
+   "recipe": {
+    "look.filmLab.stock": "lumen/portra400",
+    "look.filmLab.halation": 80
+   },
+   "sweep": {
+    "path": "develop.tone.exposure",
+    "label": "exp",
+    "values": [
+     -2,
+     -1,
+     1,
+     2
+    ],
+    "neutral": 0
+   }
+  }
+ ]
+}

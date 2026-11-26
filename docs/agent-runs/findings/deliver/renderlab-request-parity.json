@@ -1,0 +1,3 @@
+{"lane": "macos", "drift": "none", "manifest": {"name": "deliver-parity", "jobs": [
+  {"id": "p2048", "photo": "1346", "longEdge": 2048, "paths": ["export", "settled"]}
+]}}

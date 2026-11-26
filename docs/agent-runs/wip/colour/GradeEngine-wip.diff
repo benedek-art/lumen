@@ -1,0 +1,413 @@
+--- Sources/LumenCore/Engine/GradeEngine.swift	2026-11-26 05:02:08.834437110 +0000
++++ /tmp/claude-0/-home-user-lumen/7b419a8a-9f16-5bc3-bbad-d84e24161d81/scratchpad/cfix/GradeEngine.new.swift	2026-11-26 05:02:49.958439555 +0000
+@@ -6,14 +6,10 @@
+ // What the spec actually specifies, and what this file therefore implements, is neither
+ // ASC-CDL (slope/offset/power) nor lift/gamma/gain:
+ //
+-//   · a wheel tint is a CONSTANT-LIGHTNESS hue/chroma offset — a translation of the
+-//     OKLab (a, b) pair, weighted by the zone windows. OKLab L is not touched, so the
+-//     tint holds perceptual lightness and a wheel at sat = 0 is an exact no-op. It does
+-//     NOT hold scene luminance Y: L is a cube root of an LMS mix that the a, b move
+-//     changes, so a full-deflection tint moves a mid-grey's Y by about ±10 % and a −3 EV
+-//     shadow's by about ±20 % (teal up, red down), enough to push a channel negative
+-//     there (S14 handles that). This used to say "no luminance contamination"; whether
+-//     to restore Y or H-K brightness instead is open (B2-03, P13 DECISION 2). Pinned by
++//   · a wheel tint is a LUMINANCE-HOLDING hue/chroma offset — a translation of the
++//     OKLab (a, b) pair, weighted by the zone windows, then a uniform RGB scale back to
++//     the input's scene luminance Y. A wheel at sat = 0 is an exact no-op. Holding H-K
++//     brightness instead of Y remains open (B2-03, P13 DECISION 2). Pinned by
+ //     WheelTintLightnessContractTests.
+ //   · a wheel's Luminance is a PER-ZONE PERCEPTUAL LIGHTNESS GAIN through Lumen UCS
+ //     (LumenUCS.scaleBrightness), not a linear multiply — so the move holds the colour's
+@@ -21,10 +17,9 @@
+ //
+ // Equivalence note for colorists (a tooltip, not the maths): the shadow-weighted offset
+ // behaves like lift, the mid-weighted one like gamma, the high-weighted one like gain.
+-// The difference is that here the zone boundaries are visible, draggable, and shared
+-// with the tone panel — `ZoneWindows` is built on `ZoneWeights`, the same raised-cosine
+-// crossfade kernel the six-slider tone stack and the Zones panel use, so "shadows" means
+-// exactly one thing in this application.
++// The difference is that here the zone boundaries are visible and draggable.
++// `ZoneWindows` uses `ZoneWeights`, the raised-cosine crossfade kernel of the tone stack
++// and the Zones panel, but on the display tone axis rather than the EV axis.
+ //
+ // Two placement facts the file depends on:
+ //   · Printer lights are S6 — three scene-linear multiplies immediately after WB and
+@@ -46,51 +41,63 @@
+ /// The two visible pivots of the grading panel, resolved into three weights that sum to
+ /// exactly 1 at every tonal position.
+ ///
+-/// Axis: the normalized tonal axis `x = (t − blackAnchorEV) / (whiteAnchorEV − blackAnchorEV)`
+-/// over `t = log2(luminance / 0.18)` — the axis `ToneEngine.normalizedAxis` defines, so a
+-/// pivot dragged in the tone panel and a pivot dragged in the grading panel are the same
+-/// coordinate. `GradingWheels.pivots` is denominated on that normalized axis.
++/// Pivots, Balance and Blending live on the DISPLAY TONE axis `y`: the OKLab lightness of
++/// a neutral at that scene position through the SDR Neutral display transform on the
++/// live anchors, normalized so the black anchor is 0 and the white anchor 1. So 0.33 on
++/// the strip is a third of the way up the rendered tones. Defaults (1/3, 2/3) land near
++/// −1.2 / +0.7 EV.
+ ///
+-/// Shape (docs/05 §D15, one raised-cosine crossfade per pivot):
++/// The pivots used to be fractions of the EV span (−9 … +5), where 0.33 is −4.4 EV:
++/// the Shadows wheel reached display L < 0.18 only and Midtones graded what
++/// photographers call shadows.
++///
++/// `normalizedAxis` / `weights(atNormalized:)` / `spanEV` stay on the EV-linear axis
++/// `x = (t − black)/(white − black)` that the monotonicity solves step over.
++///
++/// Shape (docs/05 §D15, one raised-cosine crossfade per pivot, on `y`):
+ /// ```
+-/// w_shadow = 1 − step((x − p_s)/hw)      step = the ZoneWeights crossfade
+-/// w_high   =     step((x − p_h)/hw)
++/// w_shadow = 1 − step((y − p_s)/hw)      step = the ZoneWeights crossfade
++/// w_high   =     step((y − p_h)/hw)
+ /// w_mid    = 1 − w_shadow − w_high       ⇒ Σ = 1 exactly
+ /// ```
+-/// `hw` is clamped to at most half the pivot separation, which is the invariant that
+-/// keeps `w_mid ≥ 0` when the two pivots are dragged together.
++/// `hw` is clamped to at most half the pivot separation, which keeps `w_mid ≥ 0`.
+ public struct ZoneWindows: Sendable {
+ 
+-    /// Balance translates BOTH pivots; ±100 = ∓this many stops (+ moves them DOWN).
+-    public static let balanceRangeEV: Double = 2.0
+-    /// Crossfade half-width at Blending = 50 (falloff 0.5 × 3.0 EV) — docs/05 §D15.
+-    public static let nominalHalfWidthEV: Double = 1.5
++    /// Balance translates BOTH pivots; ±100 = ∓this much of the tone axis.
++    public static let balanceRange: Double = 0.2
++    /// Crossfade half-width at Blending = 50, on the tone axis. Blending 100 asks for
++    /// twice this, which at the default pivots is the ceiling (eased onto, never met).
++    public static let nominalHalfWidth: Double = 1.0 / 12.0
+     /// Never let a crossfade collapse to a hard edge; that is where banding lives.
+-    public static let minimumHalfWidthEV: Double = 0.05
++    public static let minimumHalfWidth: Double = 0.005
+ 
+     /// Fraction of the half-width ceiling below which Blending is applied exactly.
+     /// Same knee as the tone engine, the parametric curve and the Luminance ring.
+     public static let blendingKnee: Double = 0.8
+-    /// Minimum separation between the pivots on the normalized axis.
++    /// Minimum separation between the pivots.
+     public static let minimumPivotGap: Double = 0.02
+ 
+-    /// Shadow/mid boundary on the normalized axis, after Balance.
++    /// Shadow/mid boundary on the tone axis `y`, after Balance.
+     public let shadowPivot: Double
+-    /// Mid/highlight boundary on the normalized axis, after Balance.
++    /// Mid/highlight boundary on the tone axis `y`, after Balance.
+     public let highlightPivot: Double
+-    /// Crossfade half-widths, normalized. Held separately so the per-pivot `falloffs`
+-    /// field the format is due to gain can drive them independently without a rewrite.
++    /// Crossfade half-widths on the tone axis `y`.
+     public let shadowHalfWidth: Double
+     public let highlightHalfWidth: Double
++    /// The narrowest crossfade measured on the EV-linear axis: what a solve stepping
++    /// over `weights(atNormalized:)` must resolve.
++    public let narrowestNormalizedWidth: Double
+ 
+     public let whiteAnchorEV: Double
+     public let blackAnchorEV: Double
+     /// Guaranteed > 0 — every division by the axis span goes through this.
+     public let spanEV: Double
+ 
+-    /// Pre-built two-pivot crossfades handed straight to the shared kernel.
+     private let shadowCrossfade: [Double]
+     private let highlightCrossfade: [Double]
++    private let display: DisplayTransform
++    private let blackLightness: Double
++    private let lightnessSpan: Double
+ 
+     public init(pivots: [Double] = GradingWheels.defaultPivots,
+                 blending: Double = 50,
+@@ -105,6 +112,21 @@
+         self.blackAnchorEV = loEV
+         self.spanEV = span
+ 
++        // SDR Neutral on the live anchors, whatever the recipe's preset or the
++        // display's peak: the zones must not move between viewer and export, or when a
++        // pasted Look meets a different rendition.
++        var params = DisplayTransformParams()
++        params.whiteAnchorEV = hiEV
++        params.blackAnchorEV = loEV
++        let display = DisplayTransform(params)
++        self.display = display
++        let lb: Double = cbrt(Swift.max(display.black, 0))
++        let lw: Double = cbrt(Swift.max(display.tone(DisplayTransform.midGrey
++            * pow(2.0, loEV + span)), 0))
++        let lightnessSpan: Double = lw - lb > 1e-6 ? lw - lb : 1
++        self.blackLightness = lb
++        self.lightnessSpan = lightnessSpan
++
+         var p0: Double = pivots.count >= 2 ? pivots[0] : GradingWheels.defaultPivots[0]
+         var p1: Double = pivots.count >= 2 ? pivots[1] : GradingWheels.defaultPivots[1]
+         if !p0.isFinite { p0 = GradingWheels.defaultPivots[0] }
+@@ -122,36 +144,21 @@
+             p1 = centre + ZoneWindows.minimumPivotGap / 2
+         }
+ 
+-        // `pivotShift` is negative for +Balance, for Lightroom's direction: +Balance
+-        // favours the Highlights wheel (both pivots move DOWN, so the highlight zone
+-        // reaches into darker tones) and −Balance favours Shadows. A positive shift
+-        // ran the slider backwards: +100 grew the shadow zone to 0.47 of the axis and
+-        // shrank the highlight zone to 0.19.
+-        let balanceShift: Double = ZoneWindows.pivotShift(balance: balance, spanEV: span)
++        // Negative for +Balance, Lightroom's direction: +Balance moves both pivots DOWN,
++        // handing more of the frame to the Highlights wheel. `GradeBalanceDirectionTests`.
++        let balanceShift: Double = ZoneWindows.pivotShift(balance: balance)
+         let ps: Double = p0 + balanceShift
+         let ph: Double = p1 + balanceShift
+         self.shadowPivot = ps
+         self.highlightPivot = ph
+ 
+-        // Half the separation is the hard ceiling: at it, the two crossfades meet at a
+-        // point and the mid zone is a single tonal position — never a negative weight.
++        // Half the separation is the hard ceiling: at it the mid zone is a single point.
+         let maxHalf: Double = (ph - ps) / 2
+         let requested: Double =
+-            ZoneWindows.nominalHalfWidthEV * (Num.clamp(blending, 0, 100) / 50) / span
+-        let floorHalf: Double = Swift.min(ZoneWindows.minimumHalfWidthEV / span, maxHalf)
+-        // Eased onto the ceiling, not clipped at it.
+-        //
+-        // `Swift.min(requested, maxHalf)` was a dead control. At the default pivots and
+-        // anchors the ceiling binds at Blending 79.3, so measured on a colour chart
+-        // every setting from 80 to 100 rendered BYTE-IDENTICAL — the top fifth of the
+-        // slider did nothing whatever. The same shape as the Highlights slider's old
+-        // hard cap, and the parametric curve's, found the same way.
+-        //
+-        // The ceiling itself is real and not a taste question: at it the two crossfades
+-        // meet at a point, and past it the mid zone's weight goes negative. So this
+-        // approaches it and never reaches it — `softKnee` is exact below
+-        // `blendingKnee × maxHalf` and asymptotic after, which leaves the mid zone a
+-        // vanishing but positive sliver at Blending 100 instead of a hard stop at 79.
++            ZoneWindows.nominalHalfWidth * (Num.clamp(blending, 0, 100) / 50)
++        let floorHalf: Double = Swift.min(ZoneWindows.minimumHalfWidth, maxHalf)
++        // Eased onto the ceiling, not clipped at it: a hard min() left the top of the
++        // Blending slider byte-identical.
+         let eased: Double = maxHalf > 0
+             ? maxHalf * Num.softKnee(requested / maxHalf, knee: ZoneWindows.blendingKnee)
+             : 0
+@@ -160,26 +167,37 @@
+         self.highlightHalfWidth = half
+         self.shadowCrossfade = [ps - half, ps + half]
+         self.highlightCrossfade = [ph - half, ph + half]
++
++        // Steepest dy/dx of the tone axis, so a solve stepping over x resolves the
++        // crossfade where the display curve is steepest.
++        let samples = 256
++        var steepest: Double = 1e-6
++        var previous: Double = ZoneWindows.lightness(display, x: 0, blackEV: loEV,
++                                                     spanEV: span, black: lb,
++                                                     span: lightnessSpan)
++        for i in 1...samples {
++            let y = ZoneWindows.lightness(display, x: Double(i) / Double(samples),
++                                          blackEV: loEV, spanEV: span, black: lb,
++                                          span: lightnessSpan)
++            steepest = Swift.max(steepest, (y - previous) * Double(samples))
++            previous = y
++        }
++        self.narrowestNormalizedWidth = half / steepest
+     }
+ 
+-    /// How far Balance moves BOTH pivots, on the normalized axis — signed so that it can
+-    /// be added to a pivot. Positive Balance gives a NEGATIVE shift.
+-    ///
+-    /// That sign is Lightroom's, which docs/05 §D15 asks for: positive Balance hands
+-    /// more of the frame to the Highlights wheel. Pivots moving DOWN the axis are what
+-    /// do that — the Highlights zone is everything above the highlight pivot. This was
+-    /// `+balance` once, which slid the pivots up and made +100 SHRINK the Highlights
+-    /// zone (its weight at +1 EV fell from 0.80 to 0.004) while mid-grey became a pure
+-    /// highlight at −100: the slider ran backwards against every LrC tutorial a user
+-    /// learned it from. `GradeBalanceDirectionTests` pins the direction.
+-    ///
+-    /// One function because two places need it: these windows, and the panel's pivot
+-    /// strip, which has to subtract exactly this shift to turn a dragged handle back
+-    /// into a stored pivot. If they disagreed, the handle would jump under the pointer.
+-    public static func pivotShift(balance: Double, spanEV: Double) -> Double {
+-        let span: Double = spanEV.isFinite && spanEV > 1e-3 ? spanEV : 1.0
++    private static func lightness(_ display: DisplayTransform, x: Double, blackEV: Double,
++                                  spanEV: Double, black: Double, span: Double) -> Double {
++        let ev: Double = blackEV + Num.saturate(x) * spanEV
++        let y: Double = display.tone(DisplayTransform.midGrey * pow(2.0, ev))
++        return (cbrt(Swift.max(y, 0)) - black) / span
++    }
++
++    /// How far Balance moves BOTH pivots on the tone axis. Positive Balance gives a
++    /// NEGATIVE shift (Lightroom's sign, docs/05 §D15). One function because the strip
++    /// subtracts exactly this to turn a dragged handle back into a stored pivot.
++    public static func pivotShift(balance: Double) -> Double {
+         let b: Double = balance.isFinite ? Num.clamp(balance, -100, 100) : 0
+-        return -(b / 100) * ZoneWindows.balanceRangeEV / span
++        return -(b / 100) * ZoneWindows.balanceRange
+     }
+ 
+     /// The windows a `GradingWheels` describes. Per-mask grading passes the GLOBAL
+@@ -194,19 +212,9 @@
+                   blackAnchorEV: blackAnchorEV)
+     }
+ 
+-    /// The windows `RenderPlan` grades `recipe` through: the wheels' pivots, Blending
+-    /// and Balance on the TONE stage's live anchors, which Whites and Blacks move by up
+-    /// to 1.5 EV each. This is what the Colour Grading strip draws and what its handle
+-    /// drag inverts, so the picture of the zones is the zones being rendered.
+-    ///
+-    /// The strip used to build `ZoneWindows(pivots:blending:balance:)` — the factory
+-    /// −9 … +5 EV — and convert Balance with a hard-coded 14 EV span. Both halves of
+-    /// the window are denominated in EV and divided by the span (the Balance shift and
+-    /// the crossfade half-width), so at Whites +100, span 12.5, it drew every crossfade
+-    /// 10.7 % narrower than the one rendering and stored a pivot 0.21 EV off the handle
+-    /// at Balance ±100 (B2-05). Whichever way the zone axis is eventually denominated
+-    /// (A1-03 / D-5), the strip follows it by asking here rather than holding its own
+-    /// copy. `GradeStripAxisTests`.
++    /// The windows `RenderPlan` grades `recipe` through: the wheels on the TONE stage's
++    /// live anchors, which Whites and Blacks move. What the Colour Grading strip draws
++    /// and what its handle drag inverts (B2-05, `GradeStripAxisTests`).
+     public init(gradeOf recipe: Recipe) {
+         let anchors = ToneEngine.anchors(for: recipe.develop.tone)
+         self.init(wheels: recipe.look.wheels,
+@@ -214,30 +222,53 @@
+                   blackAnchorEV: anchors.black)
+     }
+ 
+-    /// `t = log2(lum/0.18)` → the normalized axis the pivots live on.
++    /// `t = log2(lum/0.18)` → the EV-linear normalized axis.
+     public func normalizedAxis(_ t: Double) -> Double {
+         guard t.isFinite else { return 0 }
+         return Num.saturate((t - blackAnchorEV) / spanEV)
+     }
+ 
+-    /// Where the histogram strip above the wheels draws its draggable handles.
+-    public var shadowPivotEV: Double { blackAnchorEV + shadowPivot * spanEV }
+-    public var highlightPivotEV: Double { blackAnchorEV + highlightPivot * spanEV }
++    /// EV-linear position → tone axis `y`.
++    public func toneAxis(atNormalized x: Double) -> Double {
++        ZoneWindows.lightness(display, x: x.isFinite ? x : 0, blackEV: blackAnchorEV,
++                              spanEV: spanEV, black: blackLightness, span: lightnessSpan)
++    }
++
++    /// Tone axis `y` → EV relative to mid-grey (bisection; the curve is monotone).
++    public func ev(atTone y: Double) -> Double {
++        let target: Double = y.isFinite ? y : 0
++        var lo: Double = 0
++        var hi: Double = 1
++        for _ in 0..<60 {
++            let mid: Double = (lo + hi) / 2
++            if toneAxis(atNormalized: mid) < target { lo = mid } else { hi = mid }
++        }
++        return blackAnchorEV + (lo + hi) / 2 * spanEV
++    }
++
++    /// Where the pivots sit in scene EV, for readouts.
++    public var shadowPivotEV: Double { ev(atTone: shadowPivot) }
++    public var highlightPivotEV: Double { ev(atTone: highlightPivot) }
+ 
+-    /// Zone weights at a normalized position. Both crossfades are evaluated by
+-    /// `ZoneWeights` itself — one kernel, so tone zones and grade zones can never drift.
+-    public func weights(atNormalized x: Double) -> (shadows: Double, mid: Double, high: Double) {
++    /// Zone weights at a position on the tone axis — what the strip draws. Both
++    /// crossfades are evaluated by `ZoneWeights`, the kernel the tone zones use.
++    public func weights(atTone y: Double) -> (shadows: Double, mid: Double, high: Double) {
+         // Clamp before the kernel: ZoneWeights' pivot search assumes an ordered
+         // comparison, which a NaN would defeat.
+-        let xs: Double = x.isFinite ? Num.saturate(x) : 0
+-        let s: Double = ZoneWeights.weights(x: xs, pivots: shadowCrossfade)[0]
+-        let h: Double = ZoneWeights.weights(x: xs, pivots: highlightCrossfade)[1]
++        let ys: Double = y.isFinite ? Num.saturate(y) : 0
++        let s: Double = ZoneWeights.weights(x: ys, pivots: shadowCrossfade)[0]
++        let h: Double = ZoneWeights.weights(x: ys, pivots: highlightCrossfade)[1]
+         // The half-width clamp makes the two windows disjoint, so this is already ≥ 0;
+         // the max() only absorbs float noise at the meeting point.
+         let m: Double = Swift.max(0, 1 - s - h)
+         return (s, m, h)
+     }
+ 
++    /// Zone weights at an EV-linear normalized position.
++    public func weights(atNormalized x: Double) -> (shadows: Double, mid: Double, high: Double) {
++        weights(atTone: toneAxis(atNormalized: x))
++    }
++
+     /// Zone weights at tonal position `t = log2(lum/0.18)`.
+     public func weights(at t: Double) -> (shadows: Double, mid: Double, high: Double) {
+         weights(atNormalized: normalizedAxis(t))
+@@ -440,8 +471,7 @@
+         // narrow one and reports a slope far gentler than the real peak — which is
+         // exactly the failure being solved for, so sampling it coarsely produces a
+         // scale that still inverts.
+-        let narrowest = Swift.min(windows.shadowHalfWidth, windows.highlightHalfWidth)
+-        let step = Num.clamp(narrowest / 8, 1e-4, 0.01)
++        let step = Num.clamp(windows.narrowestNormalizedWidth / 8, 1e-4, 0.01)
+         let margin = 0.05
+         // Unbounded, so a gentle setting reports the cap it is genuinely far below
+         // rather than a flat 1. The knee below needs that headroom: clamping here
+@@ -600,9 +630,7 @@
+         // The same step both siblings take, from the narrowest feature rather than a
+         // round number — and the same one, so this reads the wheels' own intervals
+         // rather than a third grid that could walk over the crossfade they measured.
+-        let narrowest: Double = Swift.min(windows.shadowHalfWidth,
+-                                          windows.highlightHalfWidth)
+-        let step: Double = Num.clamp(narrowest / 8, 1e-4, 0.01)
++        let step: Double = Num.clamp(windows.narrowestNormalizedWidth / 8, 1e-4, 0.01)
+         let margin: Double = 0.05
+         let blackGain: Double = pow(2.0, ColorBalanceGrid.blackFloorEV)
+ 
+@@ -702,6 +730,17 @@
+         return Num.safeLog2(y / LumenLog.midGrey)
+     }
+ 
++    /// `moved` scaled uniformly so its working-space luminance equals `source`'s.
++    /// Black stays black; a move whose luminance is not positive is returned as is.
++    static func holdingLuminance(of source: RGB, _ moved: RGB) -> RGB {
++        let w: RGB = GradeEngine.workingLuminanceWeights
++        let target: Double = w.r * source.r + w.g * source.g + w.b * source.b
++        let current: Double = w.r * moved.r + w.g * moved.g + w.b * moved.b
++        guard target.isFinite, current.isFinite, current > 1e-12 else { return moved }
++        let k: Double = Swift.max(target, 0) / current
++        return RGB(moved.r * k, moved.g * k, moved.b * k)
++    }
++
+     // MARK: Printer lights (S6, exposed not applied)
+ 
+     /// Per-channel scene-linear gains, `2^(points/12)` with the master added to all
+@@ -742,9 +781,9 @@
+     // MARK: Apply
+ 
+     /// The wheels and the advanced grid, at one pixel. Zone weights come from the INPUT
+-    /// pixel's tonal position (invariant 4), the tint is a constant-lightness
+-    /// translation in OKLab (L held, scene Y not — see the file header), the lightness move is a perceptual gain in UCS, and the
+-    /// stage closes on the no gamut clip — see below.
++    /// pixel's tonal position (invariant 4), the tint is an OKLab translation that holds
++    /// scene Y (see the file header), the lightness move is a perceptual gain in UCS,
++    /// and the stage closes on the no gamut clip — see below.
+     ///
+     /// Order: wheels first, grid second, exactly as the panel stacks them — the grid is
+     /// the disclosure that opens BELOW the wheels, and reading the panel top to bottom
+@@ -776,16 +815,15 @@
+ 
+         var out: RGB = c
+ 
+-        // Tint: (a, b) translation at constant OKLab L — NOT constant scene Y: the
+-        // a, b move changes the LMS mix under L's cube root, so Y moves (about ±10 % at
+-        // mid-grey at full deflection; see the file header and
+-        // WheelTintLightnessContractTests). An all-zero offset never enters the round
+-        // trip at all.
++        // Tint: (a, b) translation in OKLab, then a uniform RGB scale back to the input's
++        // scene luminance Y. Constant L alone moved Y by hue (blue mids +0.55 stop at
++        // −3 EV, teal up, red down). The scale keeps chromaticity, so the tint's hue
++        // survives. An all-zero offset never enters the round trip at all.
+         if da != 0 || db != 0 {
+             var lab: OKLab = context.toLab(c)
+             lab.a += da
+             lab.b += db
+-            out = context.toRGB(lab)
++            out = GradeEngine.holdingLuminance(of: c, context.toRGB(lab))
+         }
+ 
+         // Luminance: a perceptual lightness gain through Lumen UCS, which holds the
+@@ -1140,9 +1178,7 @@
+         // Step from the narrowest feature, for `solveLumScale`'s reason: a fixed step
+         // walks straight over a hard crossfade and reports a slope far gentler than
+         // the real peak.
+-        let narrowest: Double = Swift.min(windows.shadowHalfWidth,
+-                                          windows.highlightHalfWidth)
+-        let step: Double = Num.clamp(narrowest / 8, 1e-4, 0.01)
++        let step: Double = Num.clamp(windows.narrowestNormalizedWidth / 8, 1e-4, 0.01)
+         // The zone-weighted term, sampled once; the solve below reads the samples in
+         // adjacent pairs.
+         var zoned: [Double] = []

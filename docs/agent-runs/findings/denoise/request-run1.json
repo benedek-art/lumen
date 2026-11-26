@@ -1,0 +1,1387 @@
+{
+ "lane": "both",
+ "shards": 2,
+ "drift": "none",
+ "label": "test-denoise run1",
+ "manifest": {
+  "name": "denoise-hiiso",
+  "defaults": {
+   "longEdge": 1536,
+   "paths": [
+    "export"
+   ],
+   "tile": 300
+  },
+  "jobs": [
+   {
+    "id": "fit2048",
+    "photos": [
+     "4145",
+     "2260",
+     "2127"
+    ],
+    "longEdge": 2048,
+    "paths": [
+     "export",
+     "settled"
+    ],
+    "compare": [
+     "settled",
+     "export"
+    ],
+    "tile": 360,
+    "variants": [
+     {
+      "label": "off",
+      "recipe": {
+       "develop.denoise.mode": "off"
+      }
+     },
+     {
+      "label": "imported",
+      "recipe": {}
+     },
+     {
+      "label": "classic 100-100",
+      "recipe": {
+       "develop.denoise.classic.luma": 100,
+       "develop.denoise.classic.chroma": 100
+      }
+     },
+     {
+      "label": "ai 50",
+      "recipe": {
+       "develop.denoise.mode": "ai"
+      }
+     },
+     {
+      "label": "ai 100",
+      "recipe": {
+       "develop.denoise.mode": "ai",
+       "develop.denoise.amount": 100
+      }
+     }
+    ]
+   },
+   {
+    "id": "fit3072",
+    "photos": [
+     "4145",
+     "2260",
+     "2127"
+    ],
+    "longEdge": 3072,
+    "paths": [
+     "export",
+     "settled"
+    ],
+    "compare": [
+     "settled",
+     "export"
+    ],
+    "tile": 360,
+    "variants": [
+     {
+      "label": "off",
+      "recipe": {
+       "develop.denoise.mode": "off"
+      }
+     },
+     {
+      "label": "imported",
+      "recipe": {}
+     },
+     {
+      "label": "classic 100-100",
+      "recipe": {
+       "develop.denoise.classic.luma": 100,
+       "develop.denoise.classic.chroma": 100
+      }
+     }
+    ]
+   },
+   {
+    "id": "fit4096",
+    "photos": [
+     "2260",
+     "4145"
+    ],
+    "longEdge": 4096,
+    "paths": [
+     "export",
+     "settled"
+    ],
+    "compare": [
+     "settled",
+     "export"
+    ],
+    "tile": 360,
+    "variants": [
+     {
+      "label": "off",
+      "recipe": {
+       "develop.denoise.mode": "off"
+      }
+     },
+     {
+      "label": "imported",
+      "recipe": {}
+     },
+     {
+      "label": "classic 100-100",
+      "recipe": {
+       "develop.denoise.classic.luma": 100,
+       "develop.denoise.classic.chroma": 100
+      }
+     }
+    ]
+   },
+   {
+    "id": "modes-fern",
+    "photo": "4145",
+    "crop": [
+     0.4,
+     0.42,
+     0.12,
+     0.12
+    ],
+    "paths": [
+     "export",
+     "settled"
+    ],
+    "compare": [
+     "settled",
+     "export"
+    ],
+    "tile": 360,
+    "variants": [
+     {
+      "label": "off",
+      "recipe": {
+       "develop.denoise.mode": "off"
+      }
+     },
+     {
+      "label": "imported",
+      "recipe": {}
+     },
+     {
+      "label": "classic 100-100",
+      "recipe": {
+       "develop.denoise.classic.luma": 100,
+       "develop.denoise.classic.chroma": 100
+      }
+     },
+     {
+      "label": "ai 50",
+      "recipe": {
+       "develop.denoise.mode": "ai"
+      }
+     },
+     {
+      "label": "ai 100",
+      "recipe": {
+       "develop.denoise.mode": "ai",
+       "develop.denoise.amount": 100
+      }
+     },
+     {
+      "label": "ai50 + hand luma60",
+      "recipe": {
+       "develop.denoise.mode": "ai",
+       "develop.denoise.classic.luma": 60,
+       "develop.denoise.classic.lumaUserSet": true
+      }
+     }
+    ]
+   },
+   {
+    "id": "modes-succ",
+    "photo": "4145",
+    "crop": [
+     0.26,
+     0.02,
+     0.12,
+     0.14
+    ],
+    "paths": [
+     "export",
+     "settled"
+    ],
+    "compare": [
+     "settled",
+     "export"
+    ],
+    "tile": 360,
+    "variants": [
+     {
+      "label": "off",
+      "recipe": {
+       "develop.denoise.mode": "off"
+      }
+     },
+     {
+      "label": "imported",
+      "recipe": {}
+     },
+     {
+      "label": "classic 100-100",
+      "recipe": {
+       "develop.denoise.classic.luma": 100,
+       "develop.denoise.classic.chroma": 100
+      }
+     },
+     {
+      "label": "ai 50",
+      "recipe": {
+       "develop.denoise.mode": "ai"
+      }
+     },
+     {
+      "label": "ai 100",
+      "recipe": {
+       "develop.denoise.mode": "ai",
+       "develop.denoise.amount": 100
+      }
+     },
+     {
+      "label": "ai50 + hand luma60",
+      "recipe": {
+       "develop.denoise.mode": "ai",
+       "develop.denoise.classic.luma": 60,
+       "develop.denoise.classic.lumaUserSet": true
+      }
+     }
+    ]
+   },
+   {
+    "id": "modes-wood",
+    "photo": "4145",
+    "crop": [
+     0.02,
+     0.56,
+     0.12,
+     0.15
+    ],
+    "paths": [
+     "export",
+     "settled"
+    ],
+    "compare": [
+     "settled",
+     "export"
+    ],
+    "tile": 360,
+    "variants": [
+     {
+      "label": "off",
+      "recipe": {
+       "develop.denoise.mode": "off"
+      }
+     },
+     {
+      "label": "imported",
+      "recipe": {}
+     },
+     {
+      "label": "classic 100-100",
+      "recipe": {
+       "develop.denoise.classic.luma": 100,
+       "develop.denoise.classic.chroma": 100
+      }
+     },
+     {
+      "label": "ai 50",
+      "recipe": {
+       "develop.denoise.mode": "ai"
+      }
+     },
+     {
+      "label": "ai 100",
+      "recipe": {
+       "develop.denoise.mode": "ai",
+       "develop.denoise.amount": 100
+      }
+     },
+     {
+      "label": "ai50 + hand luma60",
+      "recipe": {
+       "develop.denoise.mode": "ai",
+       "develop.denoise.classic.luma": 60,
+       "develop.denoise.classic.lumaUserSet": true
+      }
+     }
+    ]
+   },
+   {
+    "id": "modes-car",
+    "photo": "2260",
+    "crop": [
+     0.27,
+     0.47,
+     0.14,
+     0.14
+    ],
+    "paths": [
+     "export",
+     "settled"
+    ],
+    "compare": [
+     "settled",
+     "export"
+    ],
+    "tile": 360,
+    "variants": [
+     {
+      "label": "off",
+      "recipe": {
+       "develop.denoise.mode": "off"
+      }
+     },
+     {
+      "label": "imported",
+      "recipe": {}
+     },
+     {
+      "label": "classic 100-100",
+      "recipe": {
+       "develop.denoise.classic.luma": 100,
+       "develop.denoise.classic.chroma": 100
+      }
+     },
+     {
+      "label": "ai 50",
+      "recipe": {
+       "develop.denoise.mode": "ai"
+      }
+     },
+     {
+      "label": "ai 100",
+      "recipe": {
+       "develop.denoise.mode": "ai",
+       "develop.denoise.amount": 100
+      }
+     },
+     {
+      "label": "ai50 + hand luma60",
+      "recipe": {
+       "develop.denoise.mode": "ai",
+       "develop.denoise.classic.luma": 60,
+       "develop.denoise.classic.lumaUserSet": true
+      }
+     }
+    ]
+   },
+   {
+    "id": "modes-bus",
+    "photo": "2260",
+    "crop": [
+     0.58,
+     0.17,
+     0.14,
+     0.14
+    ],
+    "paths": [
+     "export",
+     "settled"
+    ],
+    "compare": [
+     "settled",
+     "export"
+    ],
+    "tile": 360,
+    "variants": [
+     {
+      "label": "off",
+      "recipe": {
+       "develop.denoise.mode": "off"
+      }
+     },
+     {
+      "label": "imported",
+      "recipe": {}
+     },
+     {
+      "label": "classic 100-100",
+      "recipe": {
+       "develop.denoise.classic.luma": 100,
+       "develop.denoise.classic.chroma": 100
+      }
+     },
+     {
+      "label": "ai 50",
+      "recipe": {
+       "develop.denoise.mode": "ai"
+      }
+     },
+     {
+      "label": "ai 100",
+      "recipe": {
+       "develop.denoise.mode": "ai",
+       "develop.denoise.amount": 100
+      }
+     },
+     {
+      "label": "ai50 + hand luma60",
+      "recipe": {
+       "develop.denoise.mode": "ai",
+       "develop.denoise.classic.luma": 60,
+       "develop.denoise.classic.lumaUserSet": true
+      }
+     }
+    ]
+   },
+   {
+    "id": "modes-wall",
+    "photo": "2260",
+    "crop": [
+     0.84,
+     0.25,
+     0.12,
+     0.14
+    ],
+    "paths": [
+     "export",
+     "settled"
+    ],
+    "compare": [
+     "settled",
+     "export"
+    ],
+    "tile": 360,
+    "variants": [
+     {
+      "label": "off",
+      "recipe": {
+       "develop.denoise.mode": "off"
+      }
+     },
+     {
+      "label": "imported",
+      "recipe": {}
+     },
+     {
+      "label": "classic 100-100",
+      "recipe": {
+       "develop.denoise.classic.luma": 100,
+       "develop.denoise.classic.chroma": 100
+      }
+     },
+     {
+      "label": "ai 50",
+      "recipe": {
+       "develop.denoise.mode": "ai"
+      }
+     },
+     {
+      "label": "ai 100",
+      "recipe": {
+       "develop.denoise.mode": "ai",
+       "develop.denoise.amount": 100
+      }
+     },
+     {
+      "label": "ai50 + hand luma60",
+      "recipe": {
+       "develop.denoise.mode": "ai",
+       "develop.denoise.classic.luma": 60,
+       "develop.denoise.classic.lumaUserSet": true
+      }
+     }
+    ]
+   },
+   {
+    "id": "modes-faces",
+    "photo": "2127",
+    "crop": [
+     0.62,
+     0.74,
+     0.12,
+     0.12
+    ],
+    "paths": [
+     "export",
+     "settled"
+    ],
+    "compare": [
+     "settled",
+     "export"
+    ],
+    "tile": 360,
+    "variants": [
+     {
+      "label": "off",
+      "recipe": {
+       "develop.denoise.mode": "off"
+      }
+     },
+     {
+      "label": "imported",
+      "recipe": {}
+     },
+     {
+      "label": "classic 100-100",
+      "recipe": {
+       "develop.denoise.classic.luma": 100,
+       "develop.denoise.classic.chroma": 100
+      }
+     },
+     {
+      "label": "ai 50",
+      "recipe": {
+       "develop.denoise.mode": "ai"
+      }
+     },
+     {
+      "label": "ai 100",
+      "recipe": {
+       "develop.denoise.mode": "ai",
+       "develop.denoise.amount": 100
+      }
+     },
+     {
+      "label": "ai50 + hand luma60",
+      "recipe": {
+       "develop.denoise.mode": "ai",
+       "develop.denoise.classic.luma": 60,
+       "develop.denoise.classic.lumaUserSet": true
+      }
+     }
+    ]
+   },
+   {
+    "id": "modes-hair",
+    "photo": "2127",
+    "crop": [
+     0.77,
+     0.87,
+     0.1,
+     0.12
+    ],
+    "paths": [
+     "export",
+     "settled"
+    ],
+    "compare": [
+     "settled",
+     "export"
+    ],
+    "tile": 360,
+    "variants": [
+     {
+      "label": "off",
+      "recipe": {
+       "develop.denoise.mode": "off"
+      }
+     },
+     {
+      "label": "imported",
+      "recipe": {}
+     },
+     {
+      "label": "classic 100-100",
+      "recipe": {
+       "develop.denoise.classic.luma": 100,
+       "develop.denoise.classic.chroma": 100
+      }
+     },
+     {
+      "label": "ai 50",
+      "recipe": {
+       "develop.denoise.mode": "ai"
+      }
+     },
+     {
+      "label": "ai 100",
+      "recipe": {
+       "develop.denoise.mode": "ai",
+       "develop.denoise.amount": 100
+      }
+     },
+     {
+      "label": "ai50 + hand luma60",
+      "recipe": {
+       "develop.denoise.mode": "ai",
+       "develop.denoise.classic.luma": 60,
+       "develop.denoise.classic.lumaUserSet": true
+      }
+     }
+    ]
+   },
+   {
+    "id": "modes-crowd",
+    "photo": "2127",
+    "crop": [
+     0.3,
+     0.02,
+     0.12,
+     0.12
+    ],
+    "paths": [
+     "export",
+     "settled"
+    ],
+    "compare": [
+     "settled",
+     "export"
+    ],
+    "tile": 360,
+    "variants": [
+     {
+      "label": "off",
+      "recipe": {
+       "develop.denoise.mode": "off"
+      }
+     },
+     {
+      "label": "imported",
+      "recipe": {}
+     },
+     {
+      "label": "classic 100-100",
+      "recipe": {
+       "develop.denoise.classic.luma": 100,
+       "develop.denoise.classic.chroma": 100
+      }
+     },
+     {
+      "label": "ai 50",
+      "recipe": {
+       "develop.denoise.mode": "ai"
+      }
+     },
+     {
+      "label": "ai 100",
+      "recipe": {
+       "develop.denoise.mode": "ai",
+       "develop.denoise.amount": 100
+      }
+     },
+     {
+      "label": "ai50 + hand luma60",
+      "recipe": {
+       "develop.denoise.mode": "ai",
+       "develop.denoise.classic.luma": 60,
+       "develop.denoise.classic.lumaUserSet": true
+      }
+     }
+    ]
+   },
+   {
+    "id": "sw-luma-fern",
+    "photo": "4145",
+    "crop": [
+     0.4,
+     0.42,
+     0.12,
+     0.12
+    ],
+    "paths": [
+     "export"
+    ],
+    "tile": 300,
+    "sweep": {
+     "path": "develop.denoise.classic.luma",
+     "values": [
+      0,
+      20,
+      40,
+      60,
+      80,
+      100
+     ],
+     "neutral": 0
+    }
+   },
+   {
+    "id": "sw-chroma-fern",
+    "photo": "4145",
+    "crop": [
+     0.4,
+     0.42,
+     0.12,
+     0.12
+    ],
+    "paths": [
+     "export"
+    ],
+    "tile": 300,
+    "sweep": {
+     "path": "develop.denoise.classic.chroma",
+     "values": [
+      0,
+      20,
+      40,
+      60,
+      80,
+      100
+     ],
+     "neutral": 0
+    }
+   },
+   {
+    "id": "sw-lumaDetail-fern",
+    "photo": "4145",
+    "crop": [
+     0.4,
+     0.42,
+     0.12,
+     0.12
+    ],
+    "paths": [
+     "export"
+    ],
+    "tile": 300,
+    "sweep": {
+     "path": "develop.denoise.classic.lumaDetail",
+     "values": [
+      0,
+      25,
+      50,
+      75,
+      100
+     ]
+    },
+    "recipe": {
+     "develop.denoise.classic.luma": 60
+    }
+   },
+   {
+    "id": "sw-lumaContrast-fern",
+    "photo": "4145",
+    "crop": [
+     0.4,
+     0.42,
+     0.12,
+     0.12
+    ],
+    "paths": [
+     "export"
+    ],
+    "tile": 300,
+    "sweep": {
+     "path": "develop.denoise.classic.lumaContrast",
+     "values": [
+      0,
+      50,
+      100
+     ]
+    },
+    "recipe": {
+     "develop.denoise.classic.luma": 60
+    }
+   },
+   {
+    "id": "sw-colorDetail-fern",
+    "photo": "4145",
+    "crop": [
+     0.4,
+     0.42,
+     0.12,
+     0.12
+    ],
+    "paths": [
+     "export"
+    ],
+    "tile": 300,
+    "sweep": {
+     "path": "develop.denoise.classic.colorDetail",
+     "values": [
+      0,
+      50,
+      100
+     ]
+    },
+    "recipe": {
+     "develop.denoise.classic.chroma": 80
+    }
+   },
+   {
+    "id": "sw-colorSmooth-fern",
+    "photo": "4145",
+    "crop": [
+     0.4,
+     0.42,
+     0.12,
+     0.12
+    ],
+    "paths": [
+     "export"
+    ],
+    "tile": 300,
+    "sweep": {
+     "path": "develop.denoise.classic.colorSmoothness",
+     "values": [
+      0,
+      50,
+      100
+     ]
+    },
+    "recipe": {
+     "develop.denoise.classic.chroma": 80
+    }
+   },
+   {
+    "id": "sw-hot-fern",
+    "photo": "4145",
+    "crop": [
+     0.4,
+     0.42,
+     0.12,
+     0.12
+    ],
+    "paths": [
+     "export"
+    ],
+    "tile": 300,
+    "sweep": {
+     "path": "develop.denoise.classic.hotPixels",
+     "values": [
+      0,
+      50,
+      100
+     ]
+    }
+   },
+   {
+    "id": "sw-aiAmount-fern",
+    "photo": "4145",
+    "crop": [
+     0.4,
+     0.42,
+     0.12,
+     0.12
+    ],
+    "paths": [
+     "export"
+    ],
+    "tile": 300,
+    "sweep": {
+     "path": "develop.denoise.amount",
+     "values": [
+      0,
+      25,
+      50,
+      75,
+      100
+     ]
+    },
+    "recipe": {
+     "develop.denoise.mode": "ai"
+    }
+   },
+   {
+    "id": "sw-luma-car",
+    "photo": "2260",
+    "crop": [
+     0.27,
+     0.47,
+     0.14,
+     0.14
+    ],
+    "paths": [
+     "export"
+    ],
+    "tile": 300,
+    "sweep": {
+     "path": "develop.denoise.classic.luma",
+     "values": [
+      0,
+      20,
+      40,
+      60,
+      80,
+      100
+     ],
+     "neutral": 0
+    }
+   },
+   {
+    "id": "sw-chroma-car",
+    "photo": "2260",
+    "crop": [
+     0.27,
+     0.47,
+     0.14,
+     0.14
+    ],
+    "paths": [
+     "export"
+    ],
+    "tile": 300,
+    "sweep": {
+     "path": "develop.denoise.classic.chroma",
+     "values": [
+      0,
+      20,
+      40,
+      60,
+      80,
+      100
+     ],
+     "neutral": 0
+    }
+   },
+   {
+    "id": "sw-lumaDetail-car",
+    "photo": "2260",
+    "crop": [
+     0.27,
+     0.47,
+     0.14,
+     0.14
+    ],
+    "paths": [
+     "export"
+    ],
+    "tile": 300,
+    "sweep": {
+     "path": "develop.denoise.classic.lumaDetail",
+     "values": [
+      0,
+      25,
+      50,
+      75,
+      100
+     ]
+    },
+    "recipe": {
+     "develop.denoise.classic.luma": 60
+    }
+   },
+   {
+    "id": "sw-lumaContrast-car",
+    "photo": "2260",
+    "crop": [
+     0.27,
+     0.47,
+     0.14,
+     0.14
+    ],
+    "paths": [
+     "export"
+    ],
+    "tile": 300,
+    "sweep": {
+     "path": "develop.denoise.classic.lumaContrast",
+     "values": [
+      0,
+      50,
+      100
+     ]
+    },
+    "recipe": {
+     "develop.denoise.classic.luma": 60
+    }
+   },
+   {
+    "id": "sw-colorDetail-car",
+    "photo": "2260",
+    "crop": [
+     0.27,
+     0.47,
+     0.14,
+     0.14
+    ],
+    "paths": [
+     "export"
+    ],
+    "tile": 300,
+    "sweep": {
+     "path": "develop.denoise.classic.colorDetail",
+     "values": [
+      0,
+      50,
+      100
+     ]
+    },
+    "recipe": {
+     "develop.denoise.classic.chroma": 80
+    }
+   },
+   {
+    "id": "sw-colorSmooth-car",
+    "photo": "2260",
+    "crop": [
+     0.27,
+     0.47,
+     0.14,
+     0.14
+    ],
+    "paths": [
+     "export"
+    ],
+    "tile": 300,
+    "sweep": {
+     "path": "develop.denoise.classic.colorSmoothness",
+     "values": [
+      0,
+      50,
+      100
+     ]
+    },
+    "recipe": {
+     "develop.denoise.classic.chroma": 80
+    }
+   },
+   {
+    "id": "sw-hot-car",
+    "photo": "2260",
+    "crop": [
+     0.27,
+     0.47,
+     0.14,
+     0.14
+    ],
+    "paths": [
+     "export"
+    ],
+    "tile": 300,
+    "sweep": {
+     "path": "develop.denoise.classic.hotPixels",
+     "values": [
+      0,
+      50,
+      100
+     ]
+    }
+   },
+   {
+    "id": "sw-aiAmount-car",
+    "photo": "2260",
+    "crop": [
+     0.27,
+     0.47,
+     0.14,
+     0.14
+    ],
+    "paths": [
+     "export"
+    ],
+    "tile": 300,
+    "sweep": {
+     "path": "develop.denoise.amount",
+     "values": [
+      0,
+      25,
+      50,
+      75,
+      100
+     ]
+    },
+    "recipe": {
+     "develop.denoise.mode": "ai"
+    }
+   },
+   {
+    "id": "sw-luma-faces",
+    "photo": "2127",
+    "crop": [
+     0.62,
+     0.74,
+     0.12,
+     0.12
+    ],
+    "paths": [
+     "export"
+    ],
+    "tile": 300,
+    "sweep": {
+     "path": "develop.denoise.classic.luma",
+     "values": [
+      0,
+      20,
+      40,
+      60,
+      80,
+      100
+     ],
+     "neutral": 0
+    }
+   },
+   {
+    "id": "sw-chroma-faces",
+    "photo": "2127",
+    "crop": [
+     0.62,
+     0.74,
+     0.12,
+     0.12
+    ],
+    "paths": [
+     "export"
+    ],
+    "tile": 300,
+    "sweep": {
+     "path": "develop.denoise.classic.chroma",
+     "values": [
+      0,
+      20,
+      40,
+      60,
+      80,
+      100
+     ],
+     "neutral": 0
+    }
+   },
+   {
+    "id": "sw-lumaDetail-faces",
+    "photo": "2127",
+    "crop": [
+     0.62,
+     0.74,
+     0.12,
+     0.12
+    ],
+    "paths": [
+     "export"
+    ],
+    "tile": 300,
+    "sweep": {
+     "path": "develop.denoise.classic.lumaDetail",
+     "values": [
+      0,
+      25,
+      50,
+      75,
+      100
+     ]
+    },
+    "recipe": {
+     "develop.denoise.classic.luma": 60
+    }
+   },
+   {
+    "id": "sw-lumaContrast-faces",
+    "photo": "2127",
+    "crop": [
+     0.62,
+     0.74,
+     0.12,
+     0.12
+    ],
+    "paths": [
+     "export"
+    ],
+    "tile": 300,
+    "sweep": {
+     "path": "develop.denoise.classic.lumaContrast",
+     "values": [
+      0,
+      50,
+      100
+     ]
+    },
+    "recipe": {
+     "develop.denoise.classic.luma": 60
+    }
+   },
+   {
+    "id": "sw-colorDetail-faces",
+    "photo": "2127",
+    "crop": [
+     0.62,
+     0.74,
+     0.12,
+     0.12
+    ],
+    "paths": [
+     "export"
+    ],
+    "tile": 300,
+    "sweep": {
+     "path": "develop.denoise.classic.colorDetail",
+     "values": [
+      0,
+      50,
+      100
+     ]
+    },
+    "recipe": {
+     "develop.denoise.classic.chroma": 80
+    }
+   },
+   {
+    "id": "sw-colorSmooth-faces",
+    "photo": "2127",
+    "crop": [
+     0.62,
+     0.74,
+     0.12,
+     0.12
+    ],
+    "paths": [
+     "export"
+    ],
+    "tile": 300,
+    "sweep": {
+     "path": "develop.denoise.classic.colorSmoothness",
+     "values": [
+      0,
+      50,
+      100
+     ]
+    },
+    "recipe": {
+     "develop.denoise.classic.chroma": 80
+    }
+   },
+   {
+    "id": "sw-hot-faces",
+    "photo": "2127",
+    "crop": [
+     0.62,
+     0.74,
+     0.12,
+     0.12
+    ],
+    "paths": [
+     "export"
+    ],
+    "tile": 300,
+    "sweep": {
+     "path": "develop.denoise.classic.hotPixels",
+     "values": [
+      0,
+      50,
+      100
+     ]
+    }
+   },
+   {
+    "id": "sw-aiAmount-faces",
+    "photo": "2127",
+    "crop": [
+     0.62,
+     0.74,
+     0.12,
+     0.12
+    ],
+    "paths": [
+     "export"
+    ],
+    "tile": 300,
+    "sweep": {
+     "path": "develop.denoise.amount",
+     "values": [
+      0,
+      25,
+      50,
+      75,
+      100
+     ]
+    },
+    "recipe": {
+     "develop.denoise.mode": "ai"
+    }
+   },
+   {
+    "id": "sw-luma-hair",
+    "photo": "2127",
+    "crop": [
+     0.77,
+     0.87,
+     0.1,
+     0.12
+    ],
+    "paths": [
+     "export"
+    ],
+    "tile": 300,
+    "sweep": {
+     "path": "develop.denoise.classic.luma",
+     "values": [
+      0,
+      20,
+      40,
+      60,
+      80,
+      100
+     ],
+     "neutral": 0
+    }
+   },
+   {
+    "id": "sw-chroma-hair",
+    "photo": "2127",
+    "crop": [
+     0.77,
+     0.87,
+     0.1,
+     0.12
+    ],
+    "paths": [
+     "export"
+    ],
+    "tile": 300,
+    "sweep": {
+     "path": "develop.denoise.classic.chroma",
+     "values": [
+      0,
+      20,
+      40,
+      60,
+      80,
+      100
+     ],
+     "neutral": 0
+    }
+   },
+   {
+    "id": "sw-lumaDetail-hair",
+    "photo": "2127",
+    "crop": [
+     0.77,
+     0.87,
+     0.1,
+     0.12
+    ],
+    "paths": [
+     "export"
+    ],
+    "tile": 300,
+    "sweep": {
+     "path": "develop.denoise.classic.lumaDetail",
+     "values": [
+      0,
+      25,
+      50,
+      75,
+      100
+     ]
+    },
+    "recipe": {
+     "develop.denoise.classic.luma": 60
+    }
+   },
+   {
+    "id": "sw-aiAmount-hair",
+    "photo": "2127",
+    "crop": [
+     0.77,
+     0.87,
+     0.1,
+     0.12
+    ],
+    "paths": [
+     "export"
+    ],
+    "tile": 300,
+    "sweep": {
+     "path": "develop.denoise.amount",
+     "values": [
+      0,
+      25,
+      50,
+      75,
+      100
+     ]
+    },
+    "recipe": {
+     "develop.denoise.mode": "ai"
+    }
+   }
+  ]
+ }
+}

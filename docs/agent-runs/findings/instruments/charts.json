@@ -1,0 +1,15 @@
+{
+  "name": "instr-charts",
+  "defaults": {"longEdge": 1536, "tile": 300},
+  "jobs": [
+    {"id": "ramp", "photo": "chart:greyRamp", "variants": [
+      {"label": "ev0", "recipe": {}},
+      {"label": "ev+1", "recipe": {"develop.tone.exposure": 1}},
+      {"label": "ev-2", "recipe": {"develop.tone.exposure": -2}},
+      {"label": "linear", "recipe": {"look.render.preset": "Linear"}}]},
+    {"id": "checker", "photo": "chart:colorChecker", "variants": [
+      {"label": "ev0", "recipe": {}},
+      {"label": "linear", "recipe": {"look.render.preset": "Linear"}}]},
+    {"id": "skin", "photo": "chart:skin", "variants": [{"label": "ev0", "recipe": {}}]}
+  ]
+}

@@ -1,0 +1,171 @@
+{
+ "name": "cr-stack",
+ "defaults": {
+  "longEdge": 1024,
+  "tile": 240
+ },
+ "luts": {
+  "cr:identity33": "cr-luts/cr-identity-33.cube",
+  "cr:teal": "cr-luts/cr-teal-orange-33.cube",
+  "cr:print65": "cr-luts/cr-film-print-65.cube",
+  "cr:mono": "cr-luts/cr-mono-33.cube",
+  "lab:warm-teal": "../luts/lab-warm-teal.cube",
+  "lab:identity": "../luts/lab-identity.cube"
+ },
+ "jobs": [
+  {
+   "id": "stack",
+   "photos": [
+    "6929",
+    "5812",
+    "1346",
+    "chart:skin",
+    "chart:colorChecker",
+    "chart:hueRing",
+    "chart:greyRamp"
+   ],
+   "variants": [
+    {
+     "label": "stock",
+     "recipe": {
+      "look.filmLab.stock": "lumen/portra400"
+     }
+    },
+    {
+     "label": "stock+lut",
+     "recipe": {
+      "look.filmLab.stock": "lumen/portra400",
+      "look.lut": {
+       "ref": "cr:teal",
+       "name": "teal",
+       "tap": "display",
+       "amount": 60
+      }
+     }
+    },
+    {
+     "label": "stock+lut+grade",
+     "recipe": {
+      "look.filmLab.stock": "lumen/portra400",
+      "look.lut": {
+       "ref": "cr:teal",
+       "name": "teal",
+       "tap": "display",
+       "amount": 60
+      },
+      "look.wheels.shadows.hue": 200,
+      "look.wheels.shadows.sat": 0.35,
+      "look.wheels.high.hue": 40,
+      "look.wheels.high.sat": 0.3
+     }
+    },
+    {
+     "label": "stock+lut+grade+vig",
+     "recipe": {
+      "look.filmLab.stock": "lumen/portra400",
+      "look.lut": {
+       "ref": "cr:teal",
+       "name": "teal",
+       "tap": "display",
+       "amount": 60
+      },
+      "look.wheels.shadows.hue": 200,
+      "look.wheels.shadows.sat": 0.35,
+      "look.wheels.high.hue": 40,
+      "look.wheels.high.sat": 0.3,
+      "look.vignette": -1.5
+     }
+    },
+    {
+     "label": "all+sat30+contrast30",
+     "recipe": {
+      "look.filmLab.stock": "lumen/portra400",
+      "look.lut": {
+       "ref": "cr:teal",
+       "name": "teal",
+       "tap": "display",
+       "amount": 60
+      },
+      "look.wheels.shadows.hue": 200,
+      "look.wheels.shadows.sat": 0.35,
+      "look.wheels.high.hue": 40,
+      "look.wheels.high.sat": 0.3,
+      "look.vignette": -1.5,
+      "develop.color.saturation": 30,
+      "develop.tone.contrast": 30
+     }
+    },
+    {
+     "label": "velvia+print65+grade+vig",
+     "recipe": {
+      "look.filmLab.stock": "lumen/velvia50",
+      "look.lut": {
+       "ref": "cr:print65",
+       "name": "print65",
+       "tap": "display",
+       "amount": 100
+      },
+      "look.wheels.shadows.hue": 200,
+      "look.wheels.shadows.sat": 0.35,
+      "look.wheels.high.hue": 40,
+      "look.wheels.high.sat": 0.3,
+      "look.vignette": -2,
+      "develop.color.saturation": 30
+     }
+    },
+    {
+     "label": "ektar+teal log+vig+hal",
+     "recipe": {
+      "look.filmLab.stock": "lumen/ektar100",
+      "look.lut": {
+       "ref": "cr:teal",
+       "name": "teal",
+       "tap": "log",
+       "amount": 80
+      },
+      "look.vignette": -1.5,
+      "look.filmLab.halation": 80
+     }
+    },
+    {
+     "label": "cine+halation+vig+exp+1",
+     "recipe": {
+      "look.filmLab.stock": "lumen/cine250d",
+      "look.filmLab.halation": 100,
+      "look.vignette": -2,
+      "develop.tone.exposure": 1
+     }
+    },
+    {
+     "label": "trix+vig+grade",
+     "recipe": {
+      "look.filmLab.stock": "lumen/trix400",
+      "look.vignette": -2,
+      "look.wheels.shadows.hue": 200,
+      "look.wheels.shadows.sat": 0.35,
+      "look.wheels.high.hue": 40,
+      "look.wheels.high.sat": 0.3
+     }
+    },
+    {
+     "label": "punchy+teal+grade+vig (no stock)",
+     "recipe": {
+      "look.render.preset": "Punchy",
+      "look.lut": {
+       "ref": "cr:teal",
+       "name": "teal",
+       "tap": "display",
+       "amount": 100
+      },
+      "look.wheels.shadows.hue": 200,
+      "look.wheels.shadows.sat": 0.35,
+      "look.wheels.high.hue": 40,
+      "look.wheels.high.sat": 0.3,
+      "look.vignette": -1.5,
+      "develop.color.saturation": 40
+     }
+    }
+   ]
+  }
+ ]
+}

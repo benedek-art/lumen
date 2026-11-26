@@ -1,0 +1,383 @@
+{
+ "name": "tone-macos",
+ "defaults": {
+  "longEdge": 768,
+  "paths": [
+   "export"
+  ],
+  "tile": 260
+ },
+ "jobs": [
+  {
+   "id": "zones-plateau",
+   "photos": [
+    "chart:greyRamp",
+    "1346"
+   ],
+   "longEdge": 1024,
+   "variants": [
+    {
+     "label": "shadow+1",
+     "recipe": {
+      "develop.zones.shadow.ev": 1
+     }
+    },
+    {
+     "label": "shadow+1.5",
+     "recipe": {
+      "develop.zones.shadow.ev": 1.5
+     }
+    },
+    {
+     "label": "shadow+2",
+     "recipe": {
+      "develop.zones.shadow.ev": 2
+     }
+    },
+    {
+     "label": "shadow+3",
+     "recipe": {
+      "develop.zones.shadow.ev": 3
+     }
+    },
+    {
+     "label": "mid+2",
+     "recipe": {
+      "develop.zones.mid.ev": 2
+     }
+    },
+    {
+     "label": "mid-2",
+     "recipe": {
+      "develop.zones.mid.ev": -2
+     }
+    },
+    {
+     "label": "light-1.5",
+     "recipe": {
+      "develop.zones.light.ev": -1.5
+     }
+    },
+    {
+     "label": "light-2",
+     "recipe": {
+      "develop.zones.light.ev": -2
+     }
+    },
+    {
+     "label": "dark+3",
+     "recipe": {
+      "develop.zones.dark.ev": 3
+     }
+    }
+   ]
+  },
+  {
+   "id": "tint",
+   "photos": [
+    "chart:colorChecker",
+    "1346"
+   ],
+   "longEdge": 1024,
+   "variants": [
+    {
+     "label": "as shot",
+     "recipe": {}
+    },
+    {
+     "label": "tint -150",
+     "recipe": {
+      "develop.raw.tint": -150
+     }
+    },
+    {
+     "label": "tint -50",
+     "recipe": {
+      "develop.raw.tint": -50
+     }
+    },
+    {
+     "label": "tint +50",
+     "recipe": {
+      "develop.raw.tint": 50
+     }
+    },
+    {
+     "label": "tint +150",
+     "recipe": {
+      "develop.raw.tint": 150
+     }
+    }
+   ]
+  },
+  {
+   "id": "tint-5500",
+   "photo": "chart:colorChecker",
+   "recipe": {
+    "develop.raw.temp": 5500
+   },
+   "sweep": {
+    "path": "develop.raw.tint",
+    "values": [
+     -150,
+     -100,
+     -50,
+     50,
+     100,
+     150
+    ],
+    "neutral": 0
+   }
+  },
+  {
+   "id": "protect-skin",
+   "photo": "chart:skin",
+   "variants": [
+    {
+     "label": "vib+100 ps0",
+     "recipe": {
+      "develop.color.vibrance": 100,
+      "develop.color.protectSkin": 0
+     }
+    },
+    {
+     "label": "vib+100 ps70",
+     "recipe": {
+      "develop.color.vibrance": 100
+     }
+    },
+    {
+     "label": "vib+100 ps100",
+     "recipe": {
+      "develop.color.vibrance": 100,
+      "develop.color.protectSkin": 100
+     }
+    },
+    {
+     "label": "sat+100 ps100",
+     "recipe": {
+      "develop.color.saturation": 100,
+      "develop.color.protectSkin": 100
+     }
+    }
+   ]
+  },
+  {
+   "id": "sat-vib",
+   "photos": [
+    "chart:colorChecker",
+    "chart:hueRing"
+   ],
+   "variants": [
+    {
+     "label": "sat-100",
+     "recipe": {
+      "develop.color.saturation": -100
+     }
+    },
+    {
+     "label": "sat+50",
+     "recipe": {
+      "develop.color.saturation": 50
+     }
+    },
+    {
+     "label": "sat+100",
+     "recipe": {
+      "develop.color.saturation": 100
+     }
+    },
+    {
+     "label": "vib+50",
+     "recipe": {
+      "develop.color.vibrance": 50
+     }
+    },
+    {
+     "label": "vib+100",
+     "recipe": {
+      "develop.color.vibrance": 100
+     }
+    }
+   ]
+  },
+  {
+   "id": "dehaze",
+   "photos": [
+    "chart:greyRamp",
+    "1346"
+   ],
+   "longEdge": 1024,
+   "sweep": {
+    "path": "develop.detail.dehaze",
+    "values": [
+     50,
+     100
+    ],
+    "neutral": 0
+   }
+  },
+  {
+   "id": "clarity",
+   "photos": [
+    "6929",
+    "1346"
+   ],
+   "longEdge": 1536,
+   "sweep": {
+    "path": "develop.detail.clarity",
+    "values": [
+     -100,
+     100
+    ],
+    "neutral": 0
+   }
+  },
+  {
+   "id": "whites-blacks",
+   "photos": [
+    "chart:greyRamp",
+    "6929"
+   ],
+   "longEdge": 1024,
+   "variants": [
+    {
+     "label": "whites-100",
+     "recipe": {
+      "develop.tone.whites": -100
+     }
+    },
+    {
+     "label": "whites+100",
+     "recipe": {
+      "develop.tone.whites": 100
+     }
+    },
+    {
+     "label": "blacks-100",
+     "recipe": {
+      "develop.tone.blacks": -100
+     }
+    },
+    {
+     "label": "blacks+100",
+     "recipe": {
+      "develop.tone.blacks": 100
+     }
+    },
+    {
+     "label": "shadows+100",
+     "recipe": {
+      "develop.tone.shadows": 100
+     }
+    },
+    {
+     "label": "highlights-100",
+     "recipe": {
+      "develop.tone.highlights": -100
+     }
+    }
+   ]
+  },
+  {
+   "id": "autotone-6929",
+   "photo": "6929",
+   "longEdge": 1024,
+   "variants": [
+    {
+     "label": "neutral",
+     "recipe": {}
+    },
+    {
+     "label": "auto",
+     "recipe": {
+      "develop.tone": {
+       "exposure": 0.25039370078740186,
+       "blacks": -14.566929133858263,
+       "whites": 17.48031496062992,
+       "highlights": 0,
+       "contrastPivot": 0,
+       "shadows": 0,
+       "contrast": 12.204724409448797
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": "autotone-5812",
+   "photo": "5812",
+   "longEdge": 1024,
+   "variants": [
+    {
+     "label": "neutral",
+     "recipe": {}
+    },
+    {
+     "label": "auto",
+     "recipe": {
+      "develop.tone": {
+       "contrast": 0,
+       "whites": 1.8897637795275557,
+       "highlights": -100,
+       "exposure": 3.274015748031496,
+       "shadows": 0,
+       "contrastPivot": 0,
+       "blacks": -1.5748031496062964
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": "autotone-2607",
+   "photo": "2607",
+   "longEdge": 1024,
+   "variants": [
+    {
+     "label": "neutral",
+     "recipe": {}
+    },
+    {
+     "label": "auto",
+     "recipe": {
+      "develop.tone": {
+       "highlights": -27.87401574803148,
+       "shadows": 0,
+       "blacks": -2.75590551181103,
+       "contrastPivot": 0,
+       "exposure": 0.06141732283464629,
+       "contrast": 12.204724409448797,
+       "whites": 3.307086614173236
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": "autotone-1346",
+   "photo": "1346",
+   "longEdge": 1024,
+   "variants": [
+    {
+     "label": "neutral",
+     "recipe": {}
+    },
+    {
+     "label": "auto",
+     "recipe": {
+      "develop.tone": {
+       "blacks": 0,
+       "contrastPivot": 0,
+       "contrast": 0,
+       "shadows": 0,
+       "whites": 0,
+       "highlights": -27.874015748031567,
+       "exposure": 1.1952755905511814
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

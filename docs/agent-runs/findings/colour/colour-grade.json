@@ -1,0 +1,1242 @@
+{
+ "name": "colour-grade",
+ "defaults": {
+  "longEdge": 1440,
+  "paths": [
+   "export"
+  ],
+  "tile": 300
+ },
+ "jobs": [
+  {
+   "id": "wheel-hue-global",
+   "photo": "chart:greyRamp",
+   "variants": [
+    {
+     "label": "global h0",
+     "recipe": {
+      "look.wheels.global.sat": 0.6,
+      "look.wheels.global.hue": 0
+     }
+    },
+    {
+     "label": "global h1",
+     "recipe": {
+      "look.wheels.global.sat": 0.6,
+      "look.wheels.global.hue": 1
+     }
+    },
+    {
+     "label": "global h30",
+     "recipe": {
+      "look.wheels.global.sat": 0.6,
+      "look.wheels.global.hue": 30
+     }
+    },
+    {
+     "label": "global h60",
+     "recipe": {
+      "look.wheels.global.sat": 0.6,
+      "look.wheels.global.hue": 60
+     }
+    },
+    {
+     "label": "global h90",
+     "recipe": {
+      "look.wheels.global.sat": 0.6,
+      "look.wheels.global.hue": 90
+     }
+    },
+    {
+     "label": "global h120",
+     "recipe": {
+      "look.wheels.global.sat": 0.6,
+      "look.wheels.global.hue": 120
+     }
+    },
+    {
+     "label": "global h150",
+     "recipe": {
+      "look.wheels.global.sat": 0.6,
+      "look.wheels.global.hue": 150
+     }
+    },
+    {
+     "label": "global h180",
+     "recipe": {
+      "look.wheels.global.sat": 0.6,
+      "look.wheels.global.hue": 180
+     }
+    },
+    {
+     "label": "global h210",
+     "recipe": {
+      "look.wheels.global.sat": 0.6,
+      "look.wheels.global.hue": 210
+     }
+    },
+    {
+     "label": "global h240",
+     "recipe": {
+      "look.wheels.global.sat": 0.6,
+      "look.wheels.global.hue": 240
+     }
+    },
+    {
+     "label": "global h270",
+     "recipe": {
+      "look.wheels.global.sat": 0.6,
+      "look.wheels.global.hue": 270
+     }
+    },
+    {
+     "label": "global h300",
+     "recipe": {
+      "look.wheels.global.sat": 0.6,
+      "look.wheels.global.hue": 300
+     }
+    },
+    {
+     "label": "global h330",
+     "recipe": {
+      "look.wheels.global.sat": 0.6,
+      "look.wheels.global.hue": 330
+     }
+    },
+    {
+     "label": "global h359",
+     "recipe": {
+      "look.wheels.global.sat": 0.6,
+      "look.wheels.global.hue": 359
+     }
+    },
+    {
+     "label": "global h360",
+     "recipe": {
+      "look.wheels.global.sat": 0.6,
+      "look.wheels.global.hue": 360
+     }
+    }
+   ]
+  },
+  {
+   "id": "wheel-hue-shadows",
+   "photo": "chart:greyRamp",
+   "variants": [
+    {
+     "label": "shadows h0",
+     "recipe": {
+      "look.wheels.shadows.sat": 0.6,
+      "look.wheels.shadows.hue": 0
+     }
+    },
+    {
+     "label": "shadows h1",
+     "recipe": {
+      "look.wheels.shadows.sat": 0.6,
+      "look.wheels.shadows.hue": 1
+     }
+    },
+    {
+     "label": "shadows h30",
+     "recipe": {
+      "look.wheels.shadows.sat": 0.6,
+      "look.wheels.shadows.hue": 30
+     }
+    },
+    {
+     "label": "shadows h60",
+     "recipe": {
+      "look.wheels.shadows.sat": 0.6,
+      "look.wheels.shadows.hue": 60
+     }
+    },
+    {
+     "label": "shadows h90",
+     "recipe": {
+      "look.wheels.shadows.sat": 0.6,
+      "look.wheels.shadows.hue": 90
+     }
+    },
+    {
+     "label": "shadows h120",
+     "recipe": {
+      "look.wheels.shadows.sat": 0.6,
+      "look.wheels.shadows.hue": 120
+     }
+    },
+    {
+     "label": "shadows h150",
+     "recipe": {
+      "look.wheels.shadows.sat": 0.6,
+      "look.wheels.shadows.hue": 150
+     }
+    },
+    {
+     "label": "shadows h180",
+     "recipe": {
+      "look.wheels.shadows.sat": 0.6,
+      "look.wheels.shadows.hue": 180
+     }
+    },
+    {
+     "label": "shadows h210",
+     "recipe": {
+      "look.wheels.shadows.sat": 0.6,
+      "look.wheels.shadows.hue": 210
+     }
+    },
+    {
+     "label": "shadows h240",
+     "recipe": {
+      "look.wheels.shadows.sat": 0.6,
+      "look.wheels.shadows.hue": 240
+     }
+    },
+    {
+     "label": "shadows h270",
+     "recipe": {
+      "look.wheels.shadows.sat": 0.6,
+      "look.wheels.shadows.hue": 270
+     }
+    },
+    {
+     "label": "shadows h300",
+     "recipe": {
+      "look.wheels.shadows.sat": 0.6,
+      "look.wheels.shadows.hue": 300
+     }
+    },
+    {
+     "label": "shadows h330",
+     "recipe": {
+      "look.wheels.shadows.sat": 0.6,
+      "look.wheels.shadows.hue": 330
+     }
+    },
+    {
+     "label": "shadows h359",
+     "recipe": {
+      "look.wheels.shadows.sat": 0.6,
+      "look.wheels.shadows.hue": 359
+     }
+    },
+    {
+     "label": "shadows h360",
+     "recipe": {
+      "look.wheels.shadows.sat": 0.6,
+      "look.wheels.shadows.hue": 360
+     }
+    }
+   ]
+  },
+  {
+   "id": "wheel-hue-mid",
+   "photo": "chart:greyRamp",
+   "variants": [
+    {
+     "label": "mid h0",
+     "recipe": {
+      "look.wheels.mid.sat": 0.6,
+      "look.wheels.mid.hue": 0
+     }
+    },
+    {
+     "label": "mid h1",
+     "recipe": {
+      "look.wheels.mid.sat": 0.6,
+      "look.wheels.mid.hue": 1
+     }
+    },
+    {
+     "label": "mid h30",
+     "recipe": {
+      "look.wheels.mid.sat": 0.6,
+      "look.wheels.mid.hue": 30
+     }
+    },
+    {
+     "label": "mid h60",
+     "recipe": {
+      "look.wheels.mid.sat": 0.6,
+      "look.wheels.mid.hue": 60
+     }
+    },
+    {
+     "label": "mid h90",
+     "recipe": {
+      "look.wheels.mid.sat": 0.6,
+      "look.wheels.mid.hue": 90
+     }
+    },
+    {
+     "label": "mid h120",
+     "recipe": {
+      "look.wheels.mid.sat": 0.6,
+      "look.wheels.mid.hue": 120
+     }
+    },
+    {
+     "label": "mid h150",
+     "recipe": {
+      "look.wheels.mid.sat": 0.6,
+      "look.wheels.mid.hue": 150
+     }
+    },
+    {
+     "label": "mid h180",
+     "recipe": {
+      "look.wheels.mid.sat": 0.6,
+      "look.wheels.mid.hue": 180
+     }
+    },
+    {
+     "label": "mid h210",
+     "recipe": {
+      "look.wheels.mid.sat": 0.6,
+      "look.wheels.mid.hue": 210
+     }
+    },
+    {
+     "label": "mid h240",
+     "recipe": {
+      "look.wheels.mid.sat": 0.6,
+      "look.wheels.mid.hue": 240
+     }
+    },
+    {
+     "label": "mid h270",
+     "recipe": {
+      "look.wheels.mid.sat": 0.6,
+      "look.wheels.mid.hue": 270
+     }
+    },
+    {
+     "label": "mid h300",
+     "recipe": {
+      "look.wheels.mid.sat": 0.6,
+      "look.wheels.mid.hue": 300
+     }
+    },
+    {
+     "label": "mid h330",
+     "recipe": {
+      "look.wheels.mid.sat": 0.6,
+      "look.wheels.mid.hue": 330
+     }
+    },
+    {
+     "label": "mid h359",
+     "recipe": {
+      "look.wheels.mid.sat": 0.6,
+      "look.wheels.mid.hue": 359
+     }
+    },
+    {
+     "label": "mid h360",
+     "recipe": {
+      "look.wheels.mid.sat": 0.6,
+      "look.wheels.mid.hue": 360
+     }
+    }
+   ]
+  },
+  {
+   "id": "wheel-hue-high",
+   "photo": "chart:greyRamp",
+   "variants": [
+    {
+     "label": "high h0",
+     "recipe": {
+      "look.wheels.high.sat": 0.6,
+      "look.wheels.high.hue": 0
+     }
+    },
+    {
+     "label": "high h1",
+     "recipe": {
+      "look.wheels.high.sat": 0.6,
+      "look.wheels.high.hue": 1
+     }
+    },
+    {
+     "label": "high h30",
+     "recipe": {
+      "look.wheels.high.sat": 0.6,
+      "look.wheels.high.hue": 30
+     }
+    },
+    {
+     "label": "high h60",
+     "recipe": {
+      "look.wheels.high.sat": 0.6,
+      "look.wheels.high.hue": 60
+     }
+    },
+    {
+     "label": "high h90",
+     "recipe": {
+      "look.wheels.high.sat": 0.6,
+      "look.wheels.high.hue": 90
+     }
+    },
+    {
+     "label": "high h120",
+     "recipe": {
+      "look.wheels.high.sat": 0.6,
+      "look.wheels.high.hue": 120
+     }
+    },
+    {
+     "label": "high h150",
+     "recipe": {
+      "look.wheels.high.sat": 0.6,
+      "look.wheels.high.hue": 150
+     }
+    },
+    {
+     "label": "high h180",
+     "recipe": {
+      "look.wheels.high.sat": 0.6,
+      "look.wheels.high.hue": 180
+     }
+    },
+    {
+     "label": "high h210",
+     "recipe": {
+      "look.wheels.high.sat": 0.6,
+      "look.wheels.high.hue": 210
+     }
+    },
+    {
+     "label": "high h240",
+     "recipe": {
+      "look.wheels.high.sat": 0.6,
+      "look.wheels.high.hue": 240
+     }
+    },
+    {
+     "label": "high h270",
+     "recipe": {
+      "look.wheels.high.sat": 0.6,
+      "look.wheels.high.hue": 270
+     }
+    },
+    {
+     "label": "high h300",
+     "recipe": {
+      "look.wheels.high.sat": 0.6,
+      "look.wheels.high.hue": 300
+     }
+    },
+    {
+     "label": "high h330",
+     "recipe": {
+      "look.wheels.high.sat": 0.6,
+      "look.wheels.high.hue": 330
+     }
+    },
+    {
+     "label": "high h359",
+     "recipe": {
+      "look.wheels.high.sat": 0.6,
+      "look.wheels.high.hue": 359
+     }
+    },
+    {
+     "label": "high h360",
+     "recipe": {
+      "look.wheels.high.sat": 0.6,
+      "look.wheels.high.hue": 360
+     }
+    }
+   ]
+  },
+  {
+   "id": "wheel-zones",
+   "photo": "chart:greyRamp",
+   "variants": [
+    {
+     "label": "shadows sat0.8",
+     "recipe": {
+      "look.wheels.shadows.sat": 0.8,
+      "look.wheels.shadows.hue": 30
+     }
+    },
+    {
+     "label": "shadows lum+1",
+     "recipe": {
+      "look.wheels.shadows.lum": 1
+     }
+    },
+    {
+     "label": "shadows lum-1",
+     "recipe": {
+      "look.wheels.shadows.lum": -1
+     }
+    },
+    {
+     "label": "mid sat0.8",
+     "recipe": {
+      "look.wheels.mid.sat": 0.8,
+      "look.wheels.mid.hue": 30
+     }
+    },
+    {
+     "label": "mid lum+1",
+     "recipe": {
+      "look.wheels.mid.lum": 1
+     }
+    },
+    {
+     "label": "mid lum-1",
+     "recipe": {
+      "look.wheels.mid.lum": -1
+     }
+    },
+    {
+     "label": "high sat0.8",
+     "recipe": {
+      "look.wheels.high.sat": 0.8,
+      "look.wheels.high.hue": 30
+     }
+    },
+    {
+     "label": "high lum+1",
+     "recipe": {
+      "look.wheels.high.lum": 1
+     }
+    },
+    {
+     "label": "high lum-1",
+     "recipe": {
+      "look.wheels.high.lum": -1
+     }
+    },
+    {
+     "label": "global lum+1",
+     "recipe": {
+      "look.wheels.global.lum": 1
+     }
+    },
+    {
+     "label": "global lum-1",
+     "recipe": {
+      "look.wheels.global.lum": -1
+     }
+    }
+   ]
+  },
+  {
+   "id": "wheel-balance-shadow",
+   "photo": "chart:greyRamp",
+   "recipe": {
+    "look.wheels.shadows.sat": 0.8,
+    "look.wheels.shadows.hue": 30
+   },
+   "variants": [
+    {
+     "label": "bal -100",
+     "recipe": {
+      "look.wheels.balance": -100
+     }
+    },
+    {
+     "label": "bal -50",
+     "recipe": {
+      "look.wheels.balance": -50
+     }
+    },
+    {
+     "label": "bal 0",
+     "recipe": {
+      "look.wheels.balance": 0
+     }
+    },
+    {
+     "label": "bal 50",
+     "recipe": {
+      "look.wheels.balance": 50
+     }
+    },
+    {
+     "label": "bal 100",
+     "recipe": {
+      "look.wheels.balance": 100
+     }
+    },
+    {
+     "label": "blend 0",
+     "recipe": {
+      "look.wheels.blending": 0
+     }
+    },
+    {
+     "label": "blend 25",
+     "recipe": {
+      "look.wheels.blending": 25
+     }
+    },
+    {
+     "label": "blend 75",
+     "recipe": {
+      "look.wheels.blending": 75
+     }
+    },
+    {
+     "label": "blend 100",
+     "recipe": {
+      "look.wheels.blending": 100
+     }
+    },
+    {
+     "label": "pivots .1/.9",
+     "recipe": {
+      "look.wheels.pivots": [
+       0.1,
+       0.9
+      ]
+     }
+    },
+    {
+     "label": "pivots .6/.4 overlap",
+     "recipe": {
+      "look.wheels.pivots": [
+       0.65,
+       0.35
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "wheel-balance-high",
+   "photo": "chart:greyRamp",
+   "recipe": {
+    "look.wheels.high.sat": 0.8,
+    "look.wheels.high.hue": 210
+   },
+   "variants": [
+    {
+     "label": "bal -100",
+     "recipe": {
+      "look.wheels.balance": -100
+     }
+    },
+    {
+     "label": "bal -50",
+     "recipe": {
+      "look.wheels.balance": -50
+     }
+    },
+    {
+     "label": "bal 0",
+     "recipe": {
+      "look.wheels.balance": 0
+     }
+    },
+    {
+     "label": "bal 50",
+     "recipe": {
+      "look.wheels.balance": 50
+     }
+    },
+    {
+     "label": "bal 100",
+     "recipe": {
+      "look.wheels.balance": 100
+     }
+    },
+    {
+     "label": "blend 0",
+     "recipe": {
+      "look.wheels.blending": 0
+     }
+    },
+    {
+     "label": "blend 25",
+     "recipe": {
+      "look.wheels.blending": 25
+     }
+    },
+    {
+     "label": "blend 75",
+     "recipe": {
+      "look.wheels.blending": 75
+     }
+    },
+    {
+     "label": "blend 100",
+     "recipe": {
+      "look.wheels.blending": 100
+     }
+    }
+   ]
+  },
+  {
+   "id": "wheel-splittone",
+   "photos": [
+    "chart:skin",
+    "sweep"
+   ],
+   "variants": [
+    {
+     "label": "teal/orange",
+     "recipe": {
+      "look.wheels.shadows.sat": 0.5,
+      "look.wheels.shadows.hue": 200,
+      "look.wheels.high.sat": 0.5,
+      "look.wheels.high.hue": 40
+     }
+    }
+   ]
+  },
+  {
+   "id": "printer-linear",
+   "photo": "chart:greyRamp",
+   "recipe": {
+    "look.render.preset": "Linear"
+   },
+   "variants": [
+    {
+     "label": "master -48",
+     "recipe": {
+      "look.printerLights.master": -48
+     }
+    },
+    {
+     "label": "master -24",
+     "recipe": {
+      "look.printerLights.master": -24
+     }
+    },
+    {
+     "label": "master -12",
+     "recipe": {
+      "look.printerLights.master": -12
+     }
+    },
+    {
+     "label": "master -6",
+     "recipe": {
+      "look.printerLights.master": -6
+     }
+    },
+    {
+     "label": "master -1",
+     "recipe": {
+      "look.printerLights.master": -1
+     }
+    },
+    {
+     "label": "master +1",
+     "recipe": {
+      "look.printerLights.master": 1
+     }
+    },
+    {
+     "label": "master +6",
+     "recipe": {
+      "look.printerLights.master": 6
+     }
+    },
+    {
+     "label": "master +12",
+     "recipe": {
+      "look.printerLights.master": 12
+     }
+    },
+    {
+     "label": "master +24",
+     "recipe": {
+      "look.printerLights.master": 24
+     }
+    },
+    {
+     "label": "master +48",
+     "recipe": {
+      "look.printerLights.master": 48
+     }
+    },
+    {
+     "label": "r -24",
+     "recipe": {
+      "look.printerLights.r": -24
+     }
+    },
+    {
+     "label": "r -12",
+     "recipe": {
+      "look.printerLights.r": -12
+     }
+    },
+    {
+     "label": "r -1",
+     "recipe": {
+      "look.printerLights.r": -1
+     }
+    },
+    {
+     "label": "r +1",
+     "recipe": {
+      "look.printerLights.r": 1
+     }
+    },
+    {
+     "label": "r +12",
+     "recipe": {
+      "look.printerLights.r": 12
+     }
+    },
+    {
+     "label": "r +24",
+     "recipe": {
+      "look.printerLights.r": 24
+     }
+    },
+    {
+     "label": "g -24",
+     "recipe": {
+      "look.printerLights.g": -24
+     }
+    },
+    {
+     "label": "g -12",
+     "recipe": {
+      "look.printerLights.g": -12
+     }
+    },
+    {
+     "label": "g -1",
+     "recipe": {
+      "look.printerLights.g": -1
+     }
+    },
+    {
+     "label": "g +1",
+     "recipe": {
+      "look.printerLights.g": 1
+     }
+    },
+    {
+     "label": "g +12",
+     "recipe": {
+      "look.printerLights.g": 12
+     }
+    },
+    {
+     "label": "g +24",
+     "recipe": {
+      "look.printerLights.g": 24
+     }
+    },
+    {
+     "label": "b -24",
+     "recipe": {
+      "look.printerLights.b": -24
+     }
+    },
+    {
+     "label": "b -12",
+     "recipe": {
+      "look.printerLights.b": -12
+     }
+    },
+    {
+     "label": "b -1",
+     "recipe": {
+      "look.printerLights.b": -1
+     }
+    },
+    {
+     "label": "b +1",
+     "recipe": {
+      "look.printerLights.b": 1
+     }
+    },
+    {
+     "label": "b +12",
+     "recipe": {
+      "look.printerLights.b": 12
+     }
+    },
+    {
+     "label": "b +24",
+     "recipe": {
+      "look.printerLights.b": 24
+     }
+    }
+   ]
+  },
+  {
+   "id": "printer-neutral",
+   "photos": [
+    "chart:colorChecker"
+   ],
+   "variants": [
+    {
+     "label": "master -12",
+     "recipe": {
+      "look.printerLights.master": -12
+     }
+    },
+    {
+     "label": "master +12",
+     "recipe": {
+      "look.printerLights.master": 12
+     }
+    },
+    {
+     "label": "r -12",
+     "recipe": {
+      "look.printerLights.r": -12
+     }
+    },
+    {
+     "label": "r +12",
+     "recipe": {
+      "look.printerLights.r": 12
+     }
+    },
+    {
+     "label": "g -12",
+     "recipe": {
+      "look.printerLights.g": -12
+     }
+    },
+    {
+     "label": "g +12",
+     "recipe": {
+      "look.printerLights.g": 12
+     }
+    },
+    {
+     "label": "b -12",
+     "recipe": {
+      "look.printerLights.b": -12
+     }
+    },
+    {
+     "label": "b +12",
+     "recipe": {
+      "look.printerLights.b": 12
+     }
+    }
+   ]
+  },
+  {
+   "id": "primaries",
+   "photos": [
+    "chart:colorChecker",
+    "sweep",
+    "chart:greyRamp"
+   ],
+   "variants": [
+    {
+     "label": "rHue +100",
+     "recipe": {
+      "look.primaries.rHue": 100
+     }
+    },
+    {
+     "label": "rHue -100",
+     "recipe": {
+      "look.primaries.rHue": -100
+     }
+    },
+    {
+     "label": "rPurity +100",
+     "recipe": {
+      "look.primaries.rPurity": 100
+     }
+    },
+    {
+     "label": "rPurity -100",
+     "recipe": {
+      "look.primaries.rPurity": -100
+     }
+    },
+    {
+     "label": "gHue +100",
+     "recipe": {
+      "look.primaries.gHue": 100
+     }
+    },
+    {
+     "label": "gHue -100",
+     "recipe": {
+      "look.primaries.gHue": -100
+     }
+    },
+    {
+     "label": "gPurity +100",
+     "recipe": {
+      "look.primaries.gPurity": 100
+     }
+    },
+    {
+     "label": "gPurity -100",
+     "recipe": {
+      "look.primaries.gPurity": -100
+     }
+    },
+    {
+     "label": "bHue +100",
+     "recipe": {
+      "look.primaries.bHue": 100
+     }
+    },
+    {
+     "label": "bHue -100",
+     "recipe": {
+      "look.primaries.bHue": -100
+     }
+    },
+    {
+     "label": "bPurity +100",
+     "recipe": {
+      "look.primaries.bPurity": 100
+     }
+    },
+    {
+     "label": "bPurity -100",
+     "recipe": {
+      "look.primaries.bPurity": -100
+     }
+    },
+    {
+     "label": "tintHue +100",
+     "recipe": {
+      "look.primaries.tintHue": 100
+     }
+    },
+    {
+     "label": "tintHue -100",
+     "recipe": {
+      "look.primaries.tintHue": -100
+     }
+    },
+    {
+     "label": "tintPurity +100",
+     "recipe": {
+      "look.primaries.tintPurity": 100
+     }
+    },
+    {
+     "label": "tintPurity -100",
+     "recipe": {
+      "look.primaries.tintPurity": -100
+     }
+    },
+    {
+     "label": "tintHue+100 tintPurity+100",
+     "recipe": {
+      "look.primaries.tintHue": 100,
+      "look.primaries.tintPurity": 100
+     }
+    }
+   ]
+  },
+  {
+   "id": "colour-balance",
+   "photos": [
+    "sweep",
+    "chart:skin"
+   ],
+   "variants": [
+    {
+     "label": "hueShift -180",
+     "recipe": {
+      "look.wheels.colorBalance.hueShift": -180
+     }
+    },
+    {
+     "label": "hueShift -90",
+     "recipe": {
+      "look.wheels.colorBalance.hueShift": -90
+     }
+    },
+    {
+     "label": "hueShift -30",
+     "recipe": {
+      "look.wheels.colorBalance.hueShift": -30
+     }
+    },
+    {
+     "label": "hueShift +30",
+     "recipe": {
+      "look.wheels.colorBalance.hueShift": 30
+     }
+    },
+    {
+     "label": "hueShift +90",
+     "recipe": {
+      "look.wheels.colorBalance.hueShift": 90
+     }
+    },
+    {
+     "label": "hueShift +180",
+     "recipe": {
+      "look.wheels.colorBalance.hueShift": 180
+     }
+    },
+    {
+     "label": "cbvib -100",
+     "recipe": {
+      "look.wheels.colorBalance.vibrance": -100
+     }
+    },
+    {
+     "label": "cbvib +100",
+     "recipe": {
+      "look.wheels.colorBalance.vibrance": 100
+     }
+    },
+    {
+     "label": "chroma global +100",
+     "recipe": {
+      "look.wheels.colorBalance.chroma.global": 100
+     }
+    },
+    {
+     "label": "chroma global -100",
+     "recipe": {
+      "look.wheels.colorBalance.chroma.global": -100
+     }
+    },
+    {
+     "label": "chroma shadows +100",
+     "recipe": {
+      "look.wheels.colorBalance.chroma.shadows": 100
+     }
+    },
+    {
+     "label": "chroma shadows -100",
+     "recipe": {
+      "look.wheels.colorBalance.chroma.shadows": -100
+     }
+    },
+    {
+     "label": "chroma mid +100",
+     "recipe": {
+      "look.wheels.colorBalance.chroma.mid": 100
+     }
+    },
+    {
+     "label": "chroma mid -100",
+     "recipe": {
+      "look.wheels.colorBalance.chroma.mid": -100
+     }
+    },
+    {
+     "label": "chroma high +100",
+     "recipe": {
+      "look.wheels.colorBalance.chroma.high": 100
+     }
+    },
+    {
+     "label": "chroma high -100",
+     "recipe": {
+      "look.wheels.colorBalance.chroma.high": -100
+     }
+    },
+    {
+     "label": "saturation global +100",
+     "recipe": {
+      "look.wheels.colorBalance.saturation.global": 100
+     }
+    },
+    {
+     "label": "saturation global -100",
+     "recipe": {
+      "look.wheels.colorBalance.saturation.global": -100
+     }
+    },
+    {
+     "label": "saturation shadows +100",
+     "recipe": {
+      "look.wheels.colorBalance.saturation.shadows": 100
+     }
+    },
+    {
+     "label": "saturation shadows -100",
+     "recipe": {
+      "look.wheels.colorBalance.saturation.shadows": -100
+     }
+    },
+    {
+     "label": "saturation mid +100",
+     "recipe": {
+      "look.wheels.colorBalance.saturation.mid": 100
+     }
+    },
+    {
+     "label": "saturation mid -100",
+     "recipe": {
+      "look.wheels.colorBalance.saturation.mid": -100
+     }
+    },
+    {
+     "label": "saturation high +100",
+     "recipe": {
+      "look.wheels.colorBalance.saturation.high": 100
+     }
+    },
+    {
+     "label": "saturation high -100",
+     "recipe": {
+      "look.wheels.colorBalance.saturation.high": -100
+     }
+    },
+    {
+     "label": "brilliance global +100",
+     "recipe": {
+      "look.wheels.colorBalance.brilliance.global": 100
+     }
+    },
+    {
+     "label": "brilliance global -100",
+     "recipe": {
+      "look.wheels.colorBalance.brilliance.global": -100
+     }
+    },
+    {
+     "label": "brilliance shadows +100",
+     "recipe": {
+      "look.wheels.colorBalance.brilliance.shadows": 100
+     }
+    },
+    {
+     "label": "brilliance shadows -100",
+     "recipe": {
+      "look.wheels.colorBalance.brilliance.shadows": -100
+     }
+    },
+    {
+     "label": "brilliance mid +100",
+     "recipe": {
+      "look.wheels.colorBalance.brilliance.mid": 100
+     }
+    },
+    {
+     "label": "brilliance mid -100",
+     "recipe": {
+      "look.wheels.colorBalance.brilliance.mid": -100
+     }
+    },
+    {
+     "label": "brilliance high +100",
+     "recipe": {
+      "look.wheels.colorBalance.brilliance.high": 100
+     }
+    },
+    {
+     "label": "brilliance high -100",
+     "recipe": {
+      "look.wheels.colorBalance.brilliance.high": -100
+     }
+    }
+   ]
+  }
+ ]
+}

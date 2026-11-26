@@ -1,0 +1,735 @@
+{
+ "name": "cr-lut",
+ "defaults": {
+  "longEdge": 1024,
+  "tile": 240
+ },
+ "luts": {
+  "cr:identity33": "cr-luts/cr-identity-33.cube",
+  "cr:teal": "cr-luts/cr-teal-orange-33.cube",
+  "cr:print65": "cr-luts/cr-film-print-65.cube",
+  "cr:mono": "cr-luts/cr-mono-33.cube",
+  "lab:warm-teal": "../luts/lab-warm-teal.cube",
+  "lab:identity": "../luts/lab-identity.cube"
+ },
+ "jobs": [
+  {
+   "id": "lut-identity",
+   "photos": [
+    "6929",
+    "5812",
+    "chart:skin",
+    "chart:hueRing",
+    "chart:colorChecker"
+   ],
+   "variants": [
+    {
+     "label": "identity2 display",
+     "recipe": {
+      "look.lut": {
+       "ref": "lab:identity",
+       "name": "identity",
+       "tap": "display",
+       "amount": 100
+      }
+     }
+    },
+    {
+     "label": "identity33 display",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:identity33",
+       "name": "identity33",
+       "tap": "display",
+       "amount": 100
+      }
+     }
+    },
+    {
+     "label": "identity2 log",
+     "recipe": {
+      "look.lut": {
+       "ref": "lab:identity",
+       "name": "identity",
+       "tap": "log",
+       "amount": 100
+      }
+     }
+    },
+    {
+     "label": "identity33 log",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:identity33",
+       "name": "identity33",
+       "tap": "log",
+       "amount": 100
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": "lut-teal-display",
+   "photos": [
+    "6929",
+    "5812",
+    "chart:skin",
+    "chart:hueRing",
+    "chart:colorChecker"
+   ],
+   "variants": [
+    {
+     "label": "amt 0",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:teal",
+       "name": "teal",
+       "tap": "display",
+       "amount": 0
+      }
+     }
+    },
+    {
+     "label": "amt 10",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:teal",
+       "name": "teal",
+       "tap": "display",
+       "amount": 10
+      }
+     }
+    },
+    {
+     "label": "amt 25",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:teal",
+       "name": "teal",
+       "tap": "display",
+       "amount": 25
+      }
+     }
+    },
+    {
+     "label": "amt 50",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:teal",
+       "name": "teal",
+       "tap": "display",
+       "amount": 50
+      }
+     }
+    },
+    {
+     "label": "amt 75",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:teal",
+       "name": "teal",
+       "tap": "display",
+       "amount": 75
+      }
+     }
+    },
+    {
+     "label": "amt 100",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:teal",
+       "name": "teal",
+       "tap": "display",
+       "amount": 100
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": "lut-teal-log",
+   "photos": [
+    "6929",
+    "5812",
+    "chart:skin",
+    "chart:hueRing",
+    "chart:colorChecker"
+   ],
+   "variants": [
+    {
+     "label": "amt 0",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:teal",
+       "name": "teal",
+       "tap": "log",
+       "amount": 0
+      }
+     }
+    },
+    {
+     "label": "amt 10",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:teal",
+       "name": "teal",
+       "tap": "log",
+       "amount": 10
+      }
+     }
+    },
+    {
+     "label": "amt 25",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:teal",
+       "name": "teal",
+       "tap": "log",
+       "amount": 25
+      }
+     }
+    },
+    {
+     "label": "amt 50",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:teal",
+       "name": "teal",
+       "tap": "log",
+       "amount": 50
+      }
+     }
+    },
+    {
+     "label": "amt 75",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:teal",
+       "name": "teal",
+       "tap": "log",
+       "amount": 75
+      }
+     }
+    },
+    {
+     "label": "amt 100",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:teal",
+       "name": "teal",
+       "tap": "log",
+       "amount": 100
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": "lut-print65-display",
+   "photos": [
+    "6929",
+    "5812",
+    "chart:skin",
+    "chart:hueRing",
+    "chart:colorChecker"
+   ],
+   "variants": [
+    {
+     "label": "amt 0",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:print65",
+       "name": "print65",
+       "tap": "display",
+       "amount": 0
+      }
+     }
+    },
+    {
+     "label": "amt 10",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:print65",
+       "name": "print65",
+       "tap": "display",
+       "amount": 10
+      }
+     }
+    },
+    {
+     "label": "amt 25",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:print65",
+       "name": "print65",
+       "tap": "display",
+       "amount": 25
+      }
+     }
+    },
+    {
+     "label": "amt 50",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:print65",
+       "name": "print65",
+       "tap": "display",
+       "amount": 50
+      }
+     }
+    },
+    {
+     "label": "amt 75",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:print65",
+       "name": "print65",
+       "tap": "display",
+       "amount": 75
+      }
+     }
+    },
+    {
+     "label": "amt 100",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:print65",
+       "name": "print65",
+       "tap": "display",
+       "amount": 100
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": "lut-print65-log",
+   "photos": [
+    "6929",
+    "5812",
+    "chart:skin",
+    "chart:hueRing",
+    "chart:colorChecker"
+   ],
+   "variants": [
+    {
+     "label": "amt 0",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:print65",
+       "name": "print65",
+       "tap": "log",
+       "amount": 0
+      }
+     }
+    },
+    {
+     "label": "amt 10",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:print65",
+       "name": "print65",
+       "tap": "log",
+       "amount": 10
+      }
+     }
+    },
+    {
+     "label": "amt 25",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:print65",
+       "name": "print65",
+       "tap": "log",
+       "amount": 25
+      }
+     }
+    },
+    {
+     "label": "amt 50",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:print65",
+       "name": "print65",
+       "tap": "log",
+       "amount": 50
+      }
+     }
+    },
+    {
+     "label": "amt 75",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:print65",
+       "name": "print65",
+       "tap": "log",
+       "amount": 75
+      }
+     }
+    },
+    {
+     "label": "amt 100",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:print65",
+       "name": "print65",
+       "tap": "log",
+       "amount": 100
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": "lut-mono-display",
+   "photos": [
+    "6929",
+    "5812",
+    "chart:skin",
+    "chart:hueRing",
+    "chart:colorChecker"
+   ],
+   "variants": [
+    {
+     "label": "amt 0",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:mono",
+       "name": "mono",
+       "tap": "display",
+       "amount": 0
+      }
+     }
+    },
+    {
+     "label": "amt 10",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:mono",
+       "name": "mono",
+       "tap": "display",
+       "amount": 10
+      }
+     }
+    },
+    {
+     "label": "amt 25",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:mono",
+       "name": "mono",
+       "tap": "display",
+       "amount": 25
+      }
+     }
+    },
+    {
+     "label": "amt 50",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:mono",
+       "name": "mono",
+       "tap": "display",
+       "amount": 50
+      }
+     }
+    },
+    {
+     "label": "amt 75",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:mono",
+       "name": "mono",
+       "tap": "display",
+       "amount": 75
+      }
+     }
+    },
+    {
+     "label": "amt 100",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:mono",
+       "name": "mono",
+       "tap": "display",
+       "amount": 100
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": "lut-mono-log",
+   "photos": [
+    "6929",
+    "5812",
+    "chart:skin",
+    "chart:hueRing",
+    "chart:colorChecker"
+   ],
+   "variants": [
+    {
+     "label": "amt 0",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:mono",
+       "name": "mono",
+       "tap": "log",
+       "amount": 0
+      }
+     }
+    },
+    {
+     "label": "amt 10",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:mono",
+       "name": "mono",
+       "tap": "log",
+       "amount": 10
+      }
+     }
+    },
+    {
+     "label": "amt 25",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:mono",
+       "name": "mono",
+       "tap": "log",
+       "amount": 25
+      }
+     }
+    },
+    {
+     "label": "amt 50",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:mono",
+       "name": "mono",
+       "tap": "log",
+       "amount": 50
+      }
+     }
+    },
+    {
+     "label": "amt 75",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:mono",
+       "name": "mono",
+       "tap": "log",
+       "amount": 75
+      }
+     }
+    },
+    {
+     "label": "amt 100",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:mono",
+       "name": "mono",
+       "tap": "log",
+       "amount": 100
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": "lut-warm-teal-display",
+   "photos": [
+    "6929",
+    "5812",
+    "chart:skin",
+    "chart:hueRing",
+    "chart:colorChecker"
+   ],
+   "variants": [
+    {
+     "label": "amt 0",
+     "recipe": {
+      "look.lut": {
+       "ref": "lab:warm-teal",
+       "name": "warm-teal",
+       "tap": "display",
+       "amount": 0
+      }
+     }
+    },
+    {
+     "label": "amt 10",
+     "recipe": {
+      "look.lut": {
+       "ref": "lab:warm-teal",
+       "name": "warm-teal",
+       "tap": "display",
+       "amount": 10
+      }
+     }
+    },
+    {
+     "label": "amt 25",
+     "recipe": {
+      "look.lut": {
+       "ref": "lab:warm-teal",
+       "name": "warm-teal",
+       "tap": "display",
+       "amount": 25
+      }
+     }
+    },
+    {
+     "label": "amt 50",
+     "recipe": {
+      "look.lut": {
+       "ref": "lab:warm-teal",
+       "name": "warm-teal",
+       "tap": "display",
+       "amount": 50
+      }
+     }
+    },
+    {
+     "label": "amt 75",
+     "recipe": {
+      "look.lut": {
+       "ref": "lab:warm-teal",
+       "name": "warm-teal",
+       "tap": "display",
+       "amount": 75
+      }
+     }
+    },
+    {
+     "label": "amt 100",
+     "recipe": {
+      "look.lut": {
+       "ref": "lab:warm-teal",
+       "name": "warm-teal",
+       "tap": "display",
+       "amount": 100
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": "lut-warm-teal-log",
+   "photos": [
+    "6929",
+    "5812",
+    "chart:skin",
+    "chart:hueRing",
+    "chart:colorChecker"
+   ],
+   "variants": [
+    {
+     "label": "amt 0",
+     "recipe": {
+      "look.lut": {
+       "ref": "lab:warm-teal",
+       "name": "warm-teal",
+       "tap": "log",
+       "amount": 0
+      }
+     }
+    },
+    {
+     "label": "amt 10",
+     "recipe": {
+      "look.lut": {
+       "ref": "lab:warm-teal",
+       "name": "warm-teal",
+       "tap": "log",
+       "amount": 10
+      }
+     }
+    },
+    {
+     "label": "amt 25",
+     "recipe": {
+      "look.lut": {
+       "ref": "lab:warm-teal",
+       "name": "warm-teal",
+       "tap": "log",
+       "amount": 25
+      }
+     }
+    },
+    {
+     "label": "amt 50",
+     "recipe": {
+      "look.lut": {
+       "ref": "lab:warm-teal",
+       "name": "warm-teal",
+       "tap": "log",
+       "amount": 50
+      }
+     }
+    },
+    {
+     "label": "amt 75",
+     "recipe": {
+      "look.lut": {
+       "ref": "lab:warm-teal",
+       "name": "warm-teal",
+       "tap": "log",
+       "amount": 75
+      }
+     }
+    },
+    {
+     "label": "amt 100",
+     "recipe": {
+      "look.lut": {
+       "ref": "lab:warm-teal",
+       "name": "warm-teal",
+       "tap": "log",
+       "amount": 100
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": "lut-identity-bright",
+   "photos": [
+    "chart:hueRing",
+    "chart:colorChecker"
+   ],
+   "recipe": {
+    "develop.tone.exposure": 2
+   },
+   "variants": [
+    {
+     "label": "none",
+     "recipe": {}
+    },
+    {
+     "label": "identity33 display",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:identity33",
+       "name": "identity33",
+       "tap": "display",
+       "amount": 100
+      }
+     }
+    },
+    {
+     "label": "identity33 display 50",
+     "recipe": {
+      "look.lut": {
+       "ref": "cr:identity33",
+       "name": "identity33",
+       "tap": "display",
+       "amount": 50
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,435 @@
+{
+ "name": "cr-stocks",
+ "defaults": {
+  "longEdge": 1024,
+  "tile": 240
+ },
+ "jobs": [
+  {
+   "id": "stocks",
+   "photos": [
+    "6929",
+    "5812",
+    "1346",
+    "chart:skin",
+    "chart:colorChecker",
+    "chart:hueRing",
+    "chart:greyRamp"
+   ],
+   "sweep": {
+    "path": "look.filmLab.stock",
+    "label": "stock",
+    "values": [
+     "lumen/portra400",
+     "lumen/gold200",
+     "lumen/ektar100",
+     "lumen/velvia50",
+     "lumen/cine250d",
+     "lumen/trix400"
+    ]
+   }
+  },
+  {
+   "id": "strength-portra400",
+   "photos": [
+    "5812",
+    "chart:skin",
+    "chart:colorChecker"
+   ],
+   "sweep": {
+    "path": "look.filmLab.amount",
+    "label": "strength",
+    "values": [
+     0,
+     25,
+     50,
+     75,
+     100
+    ]
+   },
+   "recipe": {
+    "look.filmLab.stock": "lumen/portra400"
+   }
+  },
+  {
+   "id": "filmexp-portra400",
+   "photos": [
+    "chart:greyRamp",
+    "6929",
+    "chart:skin"
+   ],
+   "recipe": {
+    "look.filmLab.stock": "lumen/portra400"
+   },
+   "sweep": {
+    "path": "look.filmLab.exposure",
+    "label": "film exp",
+    "values": [
+     -2,
+     -1,
+     -0.5,
+     0.5,
+     1,
+     2,
+     3
+    ],
+    "neutral": 0
+   }
+  },
+  {
+   "id": "push-portra400",
+   "photos": [
+    "chart:greyRamp",
+    "5812"
+   ],
+   "recipe": {
+    "look.filmLab.stock": "lumen/portra400"
+   },
+   "sweep": {
+    "path": "look.filmLab.pushPull",
+    "label": "push",
+    "values": [
+     -1,
+     1,
+     2
+    ],
+    "neutral": 0
+   }
+  },
+  {
+   "id": "strength-gold200",
+   "photos": [
+    "5812",
+    "chart:skin",
+    "chart:colorChecker"
+   ],
+   "sweep": {
+    "path": "look.filmLab.amount",
+    "label": "strength",
+    "values": [
+     0,
+     25,
+     50,
+     75,
+     100
+    ]
+   },
+   "recipe": {
+    "look.filmLab.stock": "lumen/gold200"
+   }
+  },
+  {
+   "id": "filmexp-gold200",
+   "photos": [
+    "chart:greyRamp",
+    "6929",
+    "chart:skin"
+   ],
+   "recipe": {
+    "look.filmLab.stock": "lumen/gold200"
+   },
+   "sweep": {
+    "path": "look.filmLab.exposure",
+    "label": "film exp",
+    "values": [
+     -2,
+     -1,
+     -0.5,
+     0.5,
+     1,
+     2,
+     3
+    ],
+    "neutral": 0
+   }
+  },
+  {
+   "id": "push-gold200",
+   "photos": [
+    "chart:greyRamp",
+    "5812"
+   ],
+   "recipe": {
+    "look.filmLab.stock": "lumen/gold200"
+   },
+   "sweep": {
+    "path": "look.filmLab.pushPull",
+    "label": "push",
+    "values": [
+     -1,
+     1,
+     2
+    ],
+    "neutral": 0
+   }
+  },
+  {
+   "id": "strength-ektar100",
+   "photos": [
+    "5812",
+    "chart:skin",
+    "chart:colorChecker"
+   ],
+   "sweep": {
+    "path": "look.filmLab.amount",
+    "label": "strength",
+    "values": [
+     0,
+     25,
+     50,
+     75,
+     100
+    ]
+   },
+   "recipe": {
+    "look.filmLab.stock": "lumen/ektar100"
+   }
+  },
+  {
+   "id": "filmexp-ektar100",
+   "photos": [
+    "chart:greyRamp",
+    "6929",
+    "chart:skin"
+   ],
+   "recipe": {
+    "look.filmLab.stock": "lumen/ektar100"
+   },
+   "sweep": {
+    "path": "look.filmLab.exposure",
+    "label": "film exp",
+    "values": [
+     -2,
+     -1,
+     -0.5,
+     0.5,
+     1,
+     2,
+     3
+    ],
+    "neutral": 0
+   }
+  },
+  {
+   "id": "push-ektar100",
+   "photos": [
+    "chart:greyRamp",
+    "5812"
+   ],
+   "recipe": {
+    "look.filmLab.stock": "lumen/ektar100"
+   },
+   "sweep": {
+    "path": "look.filmLab.pushPull",
+    "label": "push",
+    "values": [
+     -1,
+     1,
+     2
+    ],
+    "neutral": 0
+   }
+  },
+  {
+   "id": "strength-velvia50",
+   "photos": [
+    "5812",
+    "chart:skin",
+    "chart:colorChecker"
+   ],
+   "sweep": {
+    "path": "look.filmLab.amount",
+    "label": "strength",
+    "values": [
+     0,
+     25,
+     50,
+     75,
+     100
+    ]
+   },
+   "recipe": {
+    "look.filmLab.stock": "lumen/velvia50"
+   }
+  },
+  {
+   "id": "filmexp-velvia50",
+   "photos": [
+    "chart:greyRamp",
+    "6929",
+    "chart:skin"
+   ],
+   "recipe": {
+    "look.filmLab.stock": "lumen/velvia50"
+   },
+   "sweep": {
+    "path": "look.filmLab.exposure",
+    "label": "film exp",
+    "values": [
+     -2,
+     -1,
+     -0.5,
+     0.5,
+     1,
+     2,
+     3
+    ],
+    "neutral": 0
+   }
+  },
+  {
+   "id": "push-velvia50",
+   "photos": [
+    "chart:greyRamp",
+    "5812"
+   ],
+   "recipe": {
+    "look.filmLab.stock": "lumen/velvia50"
+   },
+   "sweep": {
+    "path": "look.filmLab.pushPull",
+    "label": "push",
+    "values": [
+     -1,
+     1,
+     2
+    ],
+    "neutral": 0
+   }
+  },
+  {
+   "id": "strength-cine250d",
+   "photos": [
+    "5812",
+    "chart:skin",
+    "chart:colorChecker"
+   ],
+   "sweep": {
+    "path": "look.filmLab.amount",
+    "label": "strength",
+    "values": [
+     0,
+     25,
+     50,
+     75,
+     100
+    ]
+   },
+   "recipe": {
+    "look.filmLab.stock": "lumen/cine250d"
+   }
+  },
+  {
+   "id": "filmexp-cine250d",
+   "photos": [
+    "chart:greyRamp",
+    "6929",
+    "chart:skin"
+   ],
+   "recipe": {
+    "look.filmLab.stock": "lumen/cine250d"
+   },
+   "sweep": {
+    "path": "look.filmLab.exposure",
+    "label": "film exp",
+    "values": [
+     -2,
+     -1,
+     -0.5,
+     0.5,
+     1,
+     2,
+     3
+    ],
+    "neutral": 0
+   }
+  },
+  {
+   "id": "push-cine250d",
+   "photos": [
+    "chart:greyRamp",
+    "5812"
+   ],
+   "recipe": {
+    "look.filmLab.stock": "lumen/cine250d"
+   },
+   "sweep": {
+    "path": "look.filmLab.pushPull",
+    "label": "push",
+    "values": [
+     -1,
+     1,
+     2
+    ],
+    "neutral": 0
+   }
+  },
+  {
+   "id": "strength-trix400",
+   "photos": [
+    "5812",
+    "chart:skin",
+    "chart:colorChecker"
+   ],
+   "sweep": {
+    "path": "look.filmLab.amount",
+    "label": "strength",
+    "values": [
+     0,
+     25,
+     50,
+     75,
+     100
+    ]
+   },
+   "recipe": {
+    "look.filmLab.stock": "lumen/trix400"
+   }
+  },
+  {
+   "id": "filmexp-trix400",
+   "photos": [
+    "chart:greyRamp",
+    "6929",
+    "chart:skin"
+   ],
+   "recipe": {
+    "look.filmLab.stock": "lumen/trix400"
+   },
+   "sweep": {
+    "path": "look.filmLab.exposure",
+    "label": "film exp",
+    "values": [
+     -2,
+     -1,
+     -0.5,
+     0.5,
+     1,
+     2,
+     3
+    ],
+    "neutral": 0
+   }
+  },
+  {
+   "id": "push-trix400",
+   "photos": [
+    "chart:greyRamp",
+    "5812"
+   ],
+   "recipe": {
+    "look.filmLab.stock": "lumen/trix400"
+   },
+   "sweep": {
+    "path": "look.filmLab.pushPull",
+    "label": "push",
+    "values": [
+     -1,
+     1,
+     2
+    ],
+    "neutral": 0
+   }
+  }
+ ]
+}
