@@ -148,8 +148,9 @@ final class GrainParityScanTests: XCTestCase {
                                  + "checking nothing")
 
         let calls = Self.plateCalls(in: sources)
-        XCTAssertGreaterThan(calls.count, 1,
-                             "no `.plate(` call was found anywhere in "
+        // One call since the field replaced the per-channel tiles.
+        XCTAssertGreaterThan(calls.count, 0,
+                             "no `.plate(`/`.field(` call was found anywhere in "
                                  + "Sources/LumenPipeline. Either the GPU stopped "
                                  + "building a plate — in which case film grain is gone "
                                  + "from every preview and every export — or the pattern "

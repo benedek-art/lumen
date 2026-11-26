@@ -652,27 +652,23 @@ public enum KernelLibrary {
 
     /// `GrainField.value` per pixel, three layers, packed for `lumenGrain`. A generator:
     /// `m`, `t` map the destination to the frame position (`RenderGraph.grainPlate`).
-    /// Every hash intermediate is an integer below 2^24 and each division's quotient
-    /// stays clear of an integer by more than float32 error, so the lattice values are
-    /// the CPU's exactly. The modulus is split ((34r + 1) mod 289 first) to keep the
-    /// largest product under 83521.
+    /// The lattice hash is integer arithmetic below 2^24, so float32 is exact; the
+    /// quotient in `lumenGrainReduce` is corrected rather than trusted, so an approximate
+    /// division cannot move a lattice value.
     static let grainFieldSource = """
     float lumenGrainReduce(float v) {
-        return v - 289.0 * floor((v + 0.5) / 289.0);
+        float r = v - 4091.0 * floor(v / 4091.0);
+        r = (r < 0.0) ? r + 4091.0 : r;
+        return (r >= 4091.0) ? r - 4091.0 : r;
     }
-    float lumenGrainPermute(float v) {
+    float lumenGrainCube(float v) {
         float r = lumenGrainReduce(v);
-        return lumenGrainReduce(lumenGrainReduce(34.0 * r + 1.0) * r);
+        return lumenGrainReduce(lumenGrainReduce(r * r) * r);
     }
     float lumenGrainLattice(float x, float y, float salt) {
-        float xq = floor((x + 0.5) / 289.0);
-        float yq = floor((y + 0.5) / 289.0);
-        float inner = lumenGrainPermute(lumenGrainPermute(x - 289.0 * xq)
-                                        + (y - 289.0 * yq));
-        float outer = lumenGrainPermute(lumenGrainPermute(lumenGrainReduce(xq))
-                                        + lumenGrainReduce(yq));
-        float h = lumenGrainPermute(lumenGrainPermute(inner + outer) + salt);
-        return (h + 0.5) * (2.0 / 289.0) - 1.0;
+        float h = lumenGrainCube(lumenGrainCube(lumenGrainCube(lumenGrainCube(x) + y)
+                                                + x + salt));
+        return (h + 0.5) * (2.0 / 4091.0) - 1.0;
     }
     float lumenGrainOctave(vec2 p, float inv, float w, float ox, float oy, float salt) {
         if (w == 0.0) { return 0.0; }
