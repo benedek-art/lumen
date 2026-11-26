@@ -12,14 +12,15 @@
     {"do": "waitFor", "that": "viewport.zoom", "eq": 1, "timeout": 5, "note": "double-click at fit goes to 1:1"},
     {"do": "shot", "name": "one-to-one-first", "after": 0.3},
     {"do": "waitSettled", "timeout": 60},
-    {"do": "shot", "name": "one-to-one"},
+    {"do": "shot", "name": "one-to-one", "also": "cacheDisplay"},
     {"do": "state", "name": "one-to-one"},
     {"do": "expect", "that": "shots.one-to-one.lumaSD", "gt": 10, "note": "there is a picture on screen at 1:1, not a blank"},
     {"do": "click", "id": "out", "target": "viewer", "at": [0.4, 0.45], "count": 2},
     {"do": "waitFor", "that": "viewport.zoom", "eq": 0, "timeout": 5, "note": "double-click at 1:1 goes back to fit"},
     {"do": "waitSettled", "timeout": 60},
-    {"do": "shot", "name": "fit-again"},
-    {"do": "expect", "that": "shots.fit-again.lumaSD", "gt": 10, "note": "the picture is back at fit"}
+    {"do": "shot", "name": "fit-again", "also": "cacheDisplay"},
+    {"do": "expect", "that": "shots.fit-again.lumaSD", "gt": 10, "note": "the picture is back at fit (as composited on screen)"},
+    {"do": "expect", "that": "shots.fit-again.cacheDisplay.lumaSD", "gt": 10, "note": "the picture is back at fit (as AppKit draws the view tree)"}
   ],
   "witness": [
     {"that": "shots.one-to-one.located", "eq": true, "note": "the fiducial is visible at 1:1"},

@@ -76,7 +76,7 @@ def fetch_run(source, out, timeout):
     return out
 
 
-GESTURE_KEYS = ("via", "events", "gestureMs", "framesDuring", "maxFrameGapMs", "firstFrameMs",
+GESTURE_KEYS = ("via", "events", "postingMs", "postLateMeanMs", "postLateWorstMs", "gestureMs", "framesDuring", "maxFrameGapMs", "firstFrameMs",
                 "distinctValues", "distinctValuesShown", "staleFramesDuring",
                 "releaseToFinalValueMs", "releaseToSharpMs", "releaseToSettledMs",
                 "hitches", "hitchMaxMs", "hitchAfterMaxMs", "screenChangesDuring",

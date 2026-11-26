@@ -136,19 +136,23 @@ final class DriverFilm {
             while isRunning() {
                 let began = DriverClock.now()
                 if let signature = capture() {
-                    if let previous {
+                    if let reference = previous {
                         var total = 0
                         for index in 0..<signature.count {
-                            total += abs(Int(signature[index]) - Int(previous[index]))
+                            total += abs(Int(signature[index]) - Int(reference[index]))
                         }
                         let delta = Double(total) / Double(signature.count)
+                        // Compared with the last picture that counted, so a slow
+                        // drift adds up instead of hiding under the threshold.
                         if delta > 0.2 {
                             lock.lock()
                             changes.append((t: began, delta: delta))
                             lock.unlock()
+                            previous = signature
                         }
+                    } else {
+                        previous = signature
                     }
-                    previous = signature
                     lock.lock()
                     count += 1
                     lock.unlock()

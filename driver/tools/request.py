@@ -1,17 +1,29 @@
 #!/usr/bin/env python3
 """Ask the Driver lane for a run by pushing a request commit.
 
-    request.py --suite "smoke.json repro-*.json"
-    request.py --scenario my-scenario.json --scenario other.json --ref some-branch
-    request.py --suite smoke.json --branch claude/loving-cray-d58nrb-driver --force
+    request.py --scenario my-scenario.json --ref <branch under test> --wait
+    request.py --suite "smoke.json repro-*.json" --wait
 
-The lane starts on any push that adds docs/driver-requests/<name>.json (a docs-only
-push starts no other workflow). This writes that file in a commit on top of --base
-(default HEAD) without touching the working tree, and pushes it to --branch (default:
-the current branch). The driver, its tools and the scenario files named by --suite are
-the ones in that commit; --ref names the app code to test when it is another branch.
+The lane starts on any push that adds docs/driver-requests/<name>.json. This adds
+that file on top of the shared requests branch (--queue, default
+claude/loving-cray-d58nrb-driver) and pushes; if someone else pushed first it starts
+over on the new tip. It never touches your working tree or your branch.
 
-Prints the commit SHA: the run is the Driver run whose head_sha is that commit.
+Why one shared branch: a push that only touches docs/ starts the Driver lane and no
+other workflow, and GitHub scopes build caches to the branch, so every request on that
+branch reuses the app already built for the same sources.
+
+What runs: the driver, tools and committed scenarios on the requests branch; your
+--scenario files, sent inline; the app code named by --ref (default: the requests
+branch itself, which carries a copy of the driver branch's app).
+
+Prints the request commit's SHA: the run is the Driver run whose head_sha is that
+commit. With --wait it then waits and prints the results (results.py).
+
+--base/--branch push a one-off request built on any commit instead (for testing a
+change to the driver itself). The commit must already be on the remote, and the branch
+should be a new one: pushed onto an existing branch, the commit is compared with that
+branch's old tip and can start every other workflow too.
 """
 import argparse
 import json
@@ -42,9 +54,12 @@ def main():
     parser.add_argument("--strict", action="store_true", help="fail the job on a failed expectation")
     parser.add_argument("--name", default="", help="request name (default: a timestamp)")
     parser.add_argument("--note", default="")
-    parser.add_argument("--base", default="HEAD", help="commit the request is added on top of")
-    parser.add_argument("--branch", default="", help="branch to push to (default: the current branch)")
-    parser.add_argument("--force", action="store_true", help="force-push (for a throwaway queue branch)")
+    parser.add_argument("--queue", default="claude/loving-cray-d58nrb-driver",
+                        help="the shared requests branch")
+    parser.add_argument("--base", default="",
+                        help="one-off: build the request on this commit instead of the queue")
+    parser.add_argument("--branch", default="", help="one-off: push to this (new) branch")
+    parser.add_argument("--force", action="store_true", help="one-off: force-push")
     parser.add_argument("--remote", default="origin")
     parser.add_argument("--dry-run", action="store_true", help="create the commit, do not push")
     parser.add_argument("--wait", action="store_true",
@@ -58,43 +73,57 @@ def main():
         scenarios += data if isinstance(data, list) else [data]
     if not args.suite and not scenarios:
         sys.exit("nothing to run: give --suite and/or --scenario")
-    name = args.name or time.strftime("%Y%m%d-%H%M%S") + f"-{os.getpid()}"
+    name = args.name or time.strftime("%Y%m%d-%H%M%S") + "-" + os.urandom(3).hex()
+    if not all(c.isalnum() or c in "-_." for c in name):
+        sys.exit("--name takes letters, digits, - _ . only")
     request = {"suite": args.suite, "scenarios": scenarios, "ref": args.ref,
                "config": args.config, "strict": args.strict, "note": args.note}
-    branch = args.branch or git("rev-parse", "--abbrev-ref", "HEAD")
-    base = git("rev-parse", args.base)
-
     blob = git("hash-object", "-w", "--stdin", stdin=json.dumps(request, indent=1) + "\n")
-    with tempfile.TemporaryDirectory() as scratch:
-        index = {"GIT_INDEX_FILE": str(Path(scratch) / "index")}
-        git("read-tree", base, env=index)
-        git("update-index", "--add", "--cacheinfo", f"100644,{blob},docs/driver-requests/{name}.json",
-            env=index)
-        tree = git("write-tree", env=index)
     message = f"Driver request: {name}\n"
     if args.note:
         message += f"\n{args.note}\n"
     trailers = os.environ.get("DRIVER_COMMIT_TRAILERS", "").strip()
     if trailers:
         message += f"\n{trailers}\n"
-    commit = git("commit-tree", tree, "-p", base, "-m", message)
-    if args.dry_run:
-        print(commit)
-        return
-    push = ["push", args.remote, f"{commit}:refs/heads/{branch}"]
-    if args.force:
-        push.insert(1, "--force")
-    for attempt in range(4):
-        out = subprocess.run(["git", *push], capture_output=True, text=True)
+
+    def commit_on(base):
+        with tempfile.TemporaryDirectory() as scratch:
+            index = {"GIT_INDEX_FILE": str(Path(scratch) / "index")}
+            git("read-tree", base, env=index)
+            git("update-index", "--add", "--cacheinfo",
+                f"100644,{blob},docs/driver-requests/{name}.json", env=index)
+            tree = git("write-tree", env=index)
+        return git("commit-tree", tree, "-p", base, "-m", message)
+
+    one_off = bool(args.base or args.branch)
+    commit = ""
+    for attempt in range(8):
+        if one_off:
+            base = git("rev-parse", args.base or "HEAD")
+            branch = args.branch or f"claude/loving-cray-d58nrb-run-{name}"
+            if not git("branch", "-r", "--contains", base) and not args.force:
+                sys.exit(f"{base[:10]} is not on the remote yet. Push it first: a request "
+                         "push that carries code starts every workflow.")
+        else:
+            branch = args.queue
+            git("fetch", "--quiet", args.remote, branch)
+            base = git("rev-parse", "FETCH_HEAD")
+        commit = commit_on(base)
+        if args.dry_run:
+            print(commit)
+            return
+        push = ["git", "push", "--quiet", args.remote, f"{commit}:refs/heads/{branch}"]
+        if args.force and one_off:
+            push.insert(2, "--force")
+        out = subprocess.run(push, capture_output=True, text=True)
         if out.returncode == 0:
             break
-        if "rejected" in out.stderr or attempt == 3:
+        if one_off and "rejected" in out.stderr:
             sys.exit(f"push failed: {out.stderr.strip()}")
-        time.sleep(2 ** (attempt + 1))
-    current = git("rev-parse", "--abbrev-ref", "HEAD")
-    if current == branch and git("rev-parse", "HEAD") == base:
-        git("merge", "--ff-only", commit)
-    print(commit)
+        if attempt == 7:
+            sys.exit(f"push failed after 8 tries: {out.stderr.strip()}")
+        time.sleep(1 + attempt)  # another tester got there first, or the network blinked
+    print(commit, flush=True)
     if args.wait:
         command = [sys.executable, str(Path(__file__).resolve().parent / "results.py"), commit]
         if args.out:

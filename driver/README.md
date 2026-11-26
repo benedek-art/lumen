@@ -25,14 +25,17 @@ cat > /tmp/zoom.json <<'EOF'
 }
 EOF
 
-# 2. Ask for a run and wait for it. This pushes one small commit to a throwaway
-#    branch; the lane starts on the push. Then it polls, downloads and prints.
+# 2. Ask for a run against the branch you want tested, and wait for it.
 python3 driver/tools/request.py --scenario /tmp/zoom.json \
-    --branch claude/loving-cray-d58nrb-driver --force --wait --out /tmp/run
+    --ref claude/loving-cray-d58nrb-integration --wait --out /tmp/run
 ```
 
-That prints the verdict table, every failed check with its note, the numbers each
-gesture measured, and the folder of screenshots. Look at a screenshot with the Read tool.
+That pushes one small commit to the shared requests branch
+(`claude/loving-cray-d58nrb-driver`), waits for the run it starts, downloads the
+artifact to `/tmp/run` and prints the verdict table, every failed check with its note,
+the numbers each gesture measured, and the folder of screenshots. Look at a screenshot
+with the Read tool. It does not touch your working tree or your own branch, so you can
+run it from any checkout that has `driver/tools/`.
 
 Without `--wait`, `request.py` prints the request commit's SHA and returns; later,
 `python3 driver/tools/results.py <that SHA> --out /tmp/run` waits for the run and
@@ -45,31 +48,51 @@ give `results.py` the signed URL.)
 
 @@TIMES@@
 
-### Why a push and not a dispatch
+### Why a push, why one shared branch
 
 `driver.yml` has `workflow_dispatch` inputs (`suite`, `scenario`, `ref`, `runs_on`,
 `config`, `strict`) and a person can use them from the Actions page. Agents here cannot:
 dispatching returns HTTP 403 both through the GitHub MCP tools and through the REST API.
-So the lane also starts on any push that adds or changes `docs/driver-requests/*.json`. That
-path is under `docs/` on purpose: a docs-only push starts no other workflow in this
-repository, so a request costs one macOS job, not six.
+So the lane also starts on any push that adds `docs/driver-requests/<name>.json`.
+
+- The file is under `docs/` because a push that touches only `docs/` starts no other
+  workflow in this repository. A request costs one macOS job.
+- Everyone pushes to the same branch, `claude/loving-cray-d58nrb-driver`, because
+  GitHub scopes build caches to a branch: on a shared branch the second request for the
+  same app sources skips the build. (A request pushed as a brand-new branch works but
+  always builds; a request force-pushed over an existing branch is compared with the
+  branch's old tip and starts CI, UI layout and GPU parity as well. `request.py` does
+  neither unless you ask with `--base`/`--branch`.)
+- Each request is its own file with a unique name (a timestamp plus random hex unless
+  you give `--name`), so concurrent testers never conflict. If two push at once the
+  second is rejected and `request.py` retries on the new tip. Each run belongs to its
+  own commit, so runs never cancel one another.
+- The requests branch carries a copy of the driver and of the app. A request names the
+  app to test with `--ref`; the lane checks that ref out, lays the requests branch's
+  driver over it and re-installs the hook lines, so any branch can be tested, including
+  one that predates the driver. Committed scenarios (`--suite`) are the requests
+  branch's; your own go inline with `--scenario`.
+- To update the driver on the requests branch (driver maintainers only):
+  `git push --force origin <driver commit>:claude/loving-cray-d58nrb-driver`, where that
+  commit's message contains `[skip ci]` so the update itself starts nothing.
 
 A request file is `{"suite": "...", "scenarios": [...], "ref": "...", "config": "release",
-"strict": false}`, every key optional. `request.py` writes it and pushes it for you:
+"strict": false}`, every key optional. `request.py` options:
 
 | option | meaning |
 |---|---|
-| `--suite "smoke.json repro-*.json"` | committed scenarios, as files or globs under `driver/scenarios/` |
-| `--scenario file.json` (repeatable) | scenarios sent inline; they need not be committed. A file may hold one scenario or an array |
-| `--ref <branch or sha>` | the app code to test, when it is not the commit you are pushing from. The driver, tools and scenarios still come from your commit, and the hooks are re-installed onto that ref, so a branch that predates the driver can be tested |
-| `--base <commit>` | the commit the request is added on top of (default `HEAD`). The driver, tools and committed scenarios are that commit's |
-| `--branch`, `--force` | where the request commit is pushed. Default: your current branch, which then carries the request file. Prefer a throwaway branch with `--force`: `claude/loving-cray-d58nrb-driver` is used that way. The run belongs to the commit, not the branch, so two agents force-pushing the same branch both get their runs |
-| `--wait`, `--out DIR` | wait for the run and print its results |
-| `--strict` | fail the job when an expectation fails. Without it the job is red only for a driver error, hang, timeout or crash |
+| `--scenario file.json` (repeatable) | scenarios sent inline. A file may hold one scenario or an array of them |
+| `--suite "smoke.json repro-*.json"` | committed scenarios, as files or globs under `driver/scenarios/` on the requests branch |
+| `--ref <branch or sha>` | the app code to test. Default: the requests branch's own copy |
+| `--name`, `--note` | the request's file name and a line for the commit message |
+| `--strict` | fail the job when a check fails. Without it the job is red only for a driver error, hang, timeout or crash |
 | `--config debug` | faster build, meaningless timings |
+| `--wait`, `--out DIR` | wait for the run and print its results |
+| `--base <commit> --branch <new branch>` | one-off: build the request on any pushed commit instead, to test a change to the driver itself |
 
-Several runs proceed in parallel; no run cancels another. The account runs about five
-macOS jobs at once, so put many scenarios in one request rather than one request each.
+The account runs about five macOS jobs at once across every workflow, so at most five
+requests are in flight and the rest queue. Put many scenarios in one request rather
+than one request each.
 
 ## What a run produces
 
@@ -193,7 +216,7 @@ gesture recognizers. None calls the app's own functions.
 | `drag` | `target`, `from` and `to` (fractions of the target), or `toTarget`/`toAt`; `path` (extra `[fx, fy]` waypoints); `duration`, `hz` (60), `ease` (`linear`/`inout`), `pressHold` (0.05), `hold` before release (0.05), `button`, `modifiers` |
 | `scroll` | a mouse wheel: `target`, `at`, `lines` `[dx, dy]`, `count` (1), `interval` (0.05), `modifiers` (`["option"]` zooms sliders) |
 | `swipe` | a two-finger trackpad scroll with began/changed/ended phases: `target`, `at`, `by` `[dx, dy]` total points, `duration`, `hz`; `momentum`: `{"by": [dx, dy], "duration": 0.5}` adds the coasting phase |
-| `pinch` | a trackpad pinch with began/changed/ended phases: `target`, `at`, `scale` (the whole gesture's factor; each event carries an equal share of `scale - 1`), `duration`, `hz`, or explicit `deltas` |
+| `pinch` | a trackpad pinch with began/changed/ended phases: `target`, `at`, `scale` (the whole gesture's factor: every event carries the same magnification d with (1 + d) multiplied over all events equal to `scale`, AppKit's convention), `duration`, `hz`, or explicit `deltas` |
 | `smartMagnify` | the two-finger double-tap: `target`, `at` |
 | `key` | `key` (a letter, digit, symbol, or `return tab space delete escape left right up down`), `modifiers` (`cmd shift option ctrl`), `count`, `interval` |
 | `type` | `text`: typed one character at a time into whatever has keyboard focus |
