@@ -192,7 +192,7 @@ final class RenderLabShippingHarness: XCTestCase {
                                                 colorSpace: .srgb, resizeMode: .longEdge,
                                                 resizeValue: Double(longEdge))
                 let missing = try renderer.export(source: src, recipe: recipe, to: file,
-                                                  using: exportRecipe, allowOverwrite: true)
+                                                  using: exportRecipe)
                 let total = ms()
                 guard let container = CGImageSourceCreateWithURL(file as CFURL, nil),
                       let cg = CGImageSourceCreateImageAtIndex(container, 0, nil)
@@ -365,10 +365,12 @@ final class RenderLabShippingHarness: XCTestCase {
         try FileManager.default.createDirectory(at: out.appendingPathComponent("sheets"),
                                                 withIntermediateDirectories: true)
         var lines = ["job\tphoto\tlabel\tsize\tdMAE\tp99\tmax\tdLuma\tdHue\tdChroma"]
+        var failures = 0
         for job in manifest.jobs {
             for photo in job.photos {
                 let sBase = try shipping.baseRecipe(photo: photo, base: job.base)
                 for variant in job.variants {
+                  do {
                     let recipe = try RecipePatch.apply(variant.patch, to: sBase).recipe
                     let s = try shipping.render(photo: photo, recipe: recipe, path: "export",
                                                 longEdge: job.longEdge, draftLongEdge: nil, crop: nil)
@@ -395,6 +397,10 @@ final class RenderLabShippingHarness: XCTestCase {
                         columns: 2, tile: 640)
                     let name = "\(job.id)__\(RenderLabManifest.slug(photo))__\(RenderLabManifest.slug(variant.label)).png"
                     try Self.pngData(sheet).write(to: out.appendingPathComponent("sheets/" + name))
+                  } catch {
+                    lines.append([job.id, photo, variant.label, "ERROR: \(error)"].joined(separator: "\t"))
+                    failures += 1
+                  }
                 }
             }
         }
@@ -403,6 +409,7 @@ final class RenderLabShippingHarness: XCTestCase {
         print("RENDERLAB_DRIFT_BEGIN")
         print(table)
         print("RENDERLAB_DRIFT_END")
+        XCTAssertEqual(failures, 0, "drift renders that failed are listed in drift.tsv")
     }
 }
 

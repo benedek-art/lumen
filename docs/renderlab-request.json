@@ -1,1 +1,1 @@
-{"manifests": "smoke", "lane": "both", "shards": 2, "drift": "drift-sample", "label": "warm-drift"}
+{"manifests": "smoke", "lane": "both", "shards": 2, "drift": "drift-sample", "label": "drift-2"}

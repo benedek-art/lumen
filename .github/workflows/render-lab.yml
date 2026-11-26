@@ -123,10 +123,10 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .build
-          key: renderlab-build-${{ runner.os }}-${{ github.sha }}
-          restore-keys: renderlab-build-${{ runner.os }}-
+          key: renderlab-build-v2-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved', 'Sources/**', 'Tests/**') }}
       - name: Build (release, with tests)
         id: build
+        if: steps.build-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           start=$(date +%s)
@@ -137,11 +137,11 @@ jobs:
           echo "build seconds: $(( $(date +%s) - start ))" | tee -a "$GITHUB_STEP_SUMMARY"
           exit $status
       - name: Save the build for this commit
-        if: always() && steps.build-cache.outputs.cache-hit != 'true'
+        if: always() && steps.build.outcome == 'success'
         uses: actions/cache/save@v4
         with:
           path: .build
-          key: renderlab-build-${{ runner.os }}-${{ github.sha }}
+          key: renderlab-build-v2-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved', 'Sources/**', 'Tests/**') }}
       - name: Decode plates
         shell: bash
         env:
@@ -188,10 +188,10 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .build
-          key: renderlab-build-${{ runner.os }}-${{ github.sha }}
-          restore-keys: renderlab-build-${{ runner.os }}-
+          key: renderlab-build-v2-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved', 'Sources/**', 'Tests/**') }}
       - name: Build (release, with tests)
         id: build
+        if: steps.build-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           start=$(date +%s)
@@ -202,11 +202,11 @@ jobs:
           echo "build seconds: $(( $(date +%s) - start ))" | tee -a "$GITHUB_STEP_SUMMARY"
           exit $status
       - name: Save the build for this commit
-        if: always() && steps.build-cache.outputs.cache-hit != 'true'
+        if: always() && steps.build.outcome == 'success'
         uses: actions/cache/save@v4
         with:
           path: .build
-          key: renderlab-build-${{ runner.os }}-${{ github.sha }}
+          key: renderlab-build-v2-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved', 'Sources/**', 'Tests/**') }}
       - uses: actions/download-artifact@v4
         with:
           name: renderlab-manifests
@@ -232,7 +232,7 @@ jobs:
           python3 renderlab/lab.py table renderlab-out/shipping | tee -a "$GITHUB_STEP_SUMMARY" || true
           exit $status
       - name: Reference against shipping drift
-        if: always() && steps.build.outcome == 'success' && needs.plan.outputs.drift != ''
+        if: always() && steps.build.outcome != 'failure' && needs.plan.outputs.drift != ''
         shell: bash
         env:
           LUMEN_RENDERLAB_PHOTOS: ${{ env.PHOTOS }}
@@ -292,10 +292,10 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .build
-          key: renderlab-build-${{ runner.os }}-${{ github.sha }}
-          restore-keys: renderlab-build-${{ runner.os }}-
+          key: renderlab-build-v2-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved', 'Sources/**', 'Tests/**') }}
       - name: Build (release, with tests)
         id: build
+        if: steps.build-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           export PATH="/opt/swift/usr/bin:$PATH"
@@ -307,11 +307,11 @@ jobs:
           echo "build seconds: $(( $(date +%s) - start ))"
           exit $status
       - name: Save the build for this commit
-        if: always() && steps.build-cache.outputs.cache-hit != 'true'
+        if: always() && steps.build.outcome == 'success'
         uses: actions/cache/save@v4
         with:
           path: .build
-          key: renderlab-build-${{ runner.os }}-${{ github.sha }}
+          key: renderlab-build-v2-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved', 'Sources/**', 'Tests/**') }}
       - uses: actions/download-artifact@v4
         with:
           name: renderlab-manifests
