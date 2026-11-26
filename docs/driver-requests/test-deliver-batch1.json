@@ -1,0 +1,1562 @@
+{
+ "suite": "",
+ "scenarios": [
+  {
+   "name": "ba-fiducial",
+   "fixture": "fiducial",
+   "timeoutSeconds": 400,
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop"
+    },
+    {
+     "do": "shot",
+     "name": "orig"
+    },
+    {
+     "do": "drag",
+     "id": "exp",
+     "target": "slider/Exposure#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.8,
+      0.5
+     ],
+     "duration": 0.6,
+     "settle": 20
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "edited"
+    },
+    {
+     "do": "state",
+     "name": "edited"
+    },
+    {
+     "do": "key",
+     "key": "\\"
+    },
+    {
+     "do": "wait",
+     "seconds": 2
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "flip"
+    },
+    {
+     "do": "state",
+     "name": "flip"
+    },
+    {
+     "do": "compare",
+     "a": "orig",
+     "b": "flip",
+     "name": "origVsFlip"
+    },
+    {
+     "do": "compare",
+     "a": "edited",
+     "b": "flip",
+     "name": "editedVsFlip"
+    },
+    {
+     "do": "key",
+     "key": "\\"
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "unflip"
+    },
+    {
+     "do": "compare",
+     "a": "edited",
+     "b": "unflip",
+     "name": "editedVsUnflip"
+    },
+    {
+     "do": "key",
+     "key": "y"
+    },
+    {
+     "do": "wait",
+     "seconds": 3
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "sbs"
+    },
+    {
+     "do": "state",
+     "name": "sbs"
+    },
+    {
+     "do": "key",
+     "key": "y"
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "state",
+     "name": "sbs-off"
+    },
+    {
+     "do": "key",
+     "key": "y",
+     "modifiers": [
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 3
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "split"
+    },
+    {
+     "do": "state",
+     "name": "split"
+    },
+    {
+     "do": "drag",
+     "id": "div1",
+     "target": "viewer.image",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.15,
+      0.5
+     ],
+     "duration": 0.5
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "shot",
+     "name": "split-15"
+    },
+    {
+     "do": "state",
+     "name": "split-15"
+    },
+    {
+     "do": "drag",
+     "id": "div2",
+     "target": "viewer.image",
+     "from": [
+      0.15,
+      0.5
+     ],
+     "to": [
+      0.999,
+      0.5
+     ],
+     "duration": 0.5
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "shot",
+     "name": "split-100"
+    },
+    {
+     "do": "state",
+     "name": "split-100"
+    },
+    {
+     "do": "drag",
+     "id": "div3",
+     "target": "viewer.image",
+     "from": [
+      0.995,
+      0.5
+     ],
+     "to": [
+      0.5,
+      0.5
+     ],
+     "duration": 0.5
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "shot",
+     "name": "split-back"
+    },
+    {
+     "do": "state",
+     "name": "split-back"
+    },
+    {
+     "do": "click",
+     "target": "viewer",
+     "at": [
+      0.2,
+      0.3
+     ],
+     "count": 2
+    },
+    {
+     "do": "wait",
+     "seconds": 3
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "split-zoom"
+    },
+    {
+     "do": "state",
+     "name": "split-zoom"
+    },
+    {
+     "do": "drag",
+     "id": "pan",
+     "target": "viewer",
+     "from": [
+      0.3,
+      0.5
+     ],
+     "to": [
+      0.7,
+      0.5
+     ],
+     "duration": 0.5
+    },
+    {
+     "do": "wait",
+     "seconds": 2
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "split-zoom-pan"
+    },
+    {
+     "do": "state",
+     "name": "split-zoom-pan"
+    },
+    {
+     "do": "direct",
+     "call": "fit"
+    },
+    {
+     "do": "wait",
+     "seconds": 2
+    },
+    {
+     "do": "key",
+     "key": "y",
+     "modifiers": [
+      "option"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 3
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "topbottom"
+    },
+    {
+     "do": "state",
+     "name": "topbottom"
+    },
+    {
+     "do": "key",
+     "key": "y",
+     "modifiers": [
+      "option"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "state",
+     "name": "tb-off"
+    },
+    {
+     "do": "key",
+     "key": "y"
+    },
+    {
+     "do": "wait",
+     "seconds": 2
+    },
+    {
+     "do": "key",
+     "key": "\\"
+    },
+    {
+     "do": "wait",
+     "seconds": 2
+    },
+    {
+     "do": "shot",
+     "name": "sbs-plus-flip"
+    },
+    {
+     "do": "state",
+     "name": "sbs-plus-flip"
+    },
+    {
+     "do": "key",
+     "key": "y"
+    },
+    {
+     "do": "wait",
+     "seconds": 2
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "after-sbs-off"
+    },
+    {
+     "do": "state",
+     "name": "after-sbs-off"
+    },
+    {
+     "do": "key",
+     "key": "\\"
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "key",
+     "key": "g"
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "key",
+     "key": "\\"
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "state",
+     "name": "grid-flip"
+    },
+    {
+     "do": "key",
+     "key": "e"
+    },
+    {
+     "do": "wait",
+     "seconds": 2
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "loupe-after-grid-flip"
+    },
+    {
+     "do": "state",
+     "name": "loupe-after-grid-flip"
+    }
+   ]
+  },
+  {
+   "name": "ba-raw",
+   "fixture": "raw",
+   "timeoutSeconds": 500,
+   "hangSeconds": 60,
+   "steps": [
+    {
+     "do": "open",
+     "photo": "A7IV",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "orig"
+    },
+    {
+     "do": "drag",
+     "id": "exp",
+     "target": "slider/Exposure#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.75,
+      0.5
+     ],
+     "duration": 0.6,
+     "settle": 30
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "edited"
+    },
+    {
+     "do": "state",
+     "name": "edited"
+    },
+    {
+     "do": "key",
+     "key": "\\"
+    },
+    {
+     "do": "wait",
+     "seconds": 3
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "flip"
+    },
+    {
+     "do": "key",
+     "key": "\\"
+    },
+    {
+     "do": "wait",
+     "seconds": 2
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "key",
+     "key": "y"
+    },
+    {
+     "do": "wait",
+     "seconds": 5
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "sbs"
+    },
+    {
+     "do": "state",
+     "name": "sbs"
+    },
+    {
+     "do": "drag",
+     "id": "exp2",
+     "target": "slider/Exposure#track",
+     "from": [
+      0.75,
+      0.5
+     ],
+     "to": [
+      0.3,
+      0.5
+     ],
+     "duration": 1.0,
+     "settle": 30,
+     "film": 20
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "sbs-after-drag"
+    },
+    {
+     "do": "compare",
+     "a": "sbs",
+     "b": "sbs-after-drag",
+     "name": "sbsDrag",
+     "region": "viewer"
+    },
+    {
+     "do": "key",
+     "key": "b",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 3
+    },
+    {
+     "do": "shot",
+     "name": "sbs-assess"
+    },
+    {
+     "do": "state",
+     "name": "sbs-assess"
+    },
+    {
+     "do": "key",
+     "key": "y"
+    },
+    {
+     "do": "wait",
+     "seconds": 3
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "loupe-assess"
+    },
+    {
+     "do": "key",
+     "key": "b",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 2
+    },
+    {
+     "do": "key",
+     "key": "y",
+     "modifiers": [
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 4
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "split"
+    },
+    {
+     "do": "key",
+     "key": "m"
+    },
+    {
+     "do": "wait",
+     "seconds": 3
+    },
+    {
+     "do": "shot",
+     "name": "split-then-m"
+    },
+    {
+     "do": "state",
+     "name": "split-then-m"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 2
+    },
+    {
+     "do": "key",
+     "key": "r"
+    },
+    {
+     "do": "wait",
+     "seconds": 3
+    },
+    {
+     "do": "shot",
+     "name": "split-then-r"
+    },
+    {
+     "do": "state",
+     "name": "split-then-r"
+    },
+    {
+     "do": "key",
+     "key": "r"
+    },
+    {
+     "do": "wait",
+     "seconds": 3
+    },
+    {
+     "do": "state",
+     "name": "after-r"
+    }
+   ]
+  },
+  {
+   "name": "ba-crop-fiducial",
+   "fixture": "fiducial",
+   "timeoutSeconds": 400,
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop"
+    },
+    {
+     "do": "drag",
+     "id": "exp",
+     "target": "slider/Exposure#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.8,
+      0.5
+     ],
+     "duration": 0.6,
+     "settle": 20
+    },
+    {
+     "do": "key",
+     "key": "r"
+    },
+    {
+     "do": "wait",
+     "seconds": 3
+    },
+    {
+     "do": "state",
+     "name": "crop-armed"
+    },
+    {
+     "do": "shot",
+     "name": "crop-armed"
+    },
+    {
+     "do": "drag",
+     "id": "corner",
+     "target": "viewer.image",
+     "from": [
+      0.003,
+      0.003
+     ],
+     "to": [
+      0.35,
+      0.25
+     ],
+     "duration": 0.6
+    },
+    {
+     "do": "wait",
+     "seconds": 2
+    },
+    {
+     "do": "shot",
+     "name": "crop-dragged"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Angle#track"
+    },
+    {
+     "do": "drag",
+     "id": "ang",
+     "target": "slider/Angle#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.62,
+      0.5
+     ],
+     "duration": 0.5,
+     "settle": 15
+    },
+    {
+     "do": "wait",
+     "seconds": 2
+    },
+    {
+     "do": "shot",
+     "name": "crop-angle"
+    },
+    {
+     "do": "state",
+     "name": "crop-angle"
+    },
+    {
+     "do": "key",
+     "key": "r"
+    },
+    {
+     "do": "wait",
+     "seconds": 3
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "after-crop"
+    },
+    {
+     "do": "state",
+     "name": "after-crop"
+    },
+    {
+     "do": "key",
+     "key": "\\"
+    },
+    {
+     "do": "wait",
+     "seconds": 3
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "before-crop"
+    },
+    {
+     "do": "state",
+     "name": "before-crop"
+    },
+    {
+     "do": "key",
+     "key": "\\"
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "key",
+     "key": "y",
+     "modifiers": [
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 3
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "split-crop"
+    },
+    {
+     "do": "key",
+     "key": "y",
+     "modifiers": [
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "key",
+     "key": "y"
+    },
+    {
+     "do": "wait",
+     "seconds": 3
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "sbs-crop"
+    }
+   ]
+  },
+  {
+   "name": "compare-raw",
+   "fixture": "raw",
+   "timeoutSeconds": 600,
+   "hangSeconds": 60,
+   "steps": [
+    {
+     "do": "open",
+     "photo": "5D",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "key",
+     "key": "c"
+    },
+    {
+     "do": "wait",
+     "seconds": 3
+    },
+    {
+     "do": "shot",
+     "name": "c-one"
+    },
+    {
+     "do": "state",
+     "name": "c-one"
+    },
+    {
+     "do": "key",
+     "key": "c"
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "state",
+     "name": "c-one-off"
+    },
+    {
+     "do": "key",
+     "key": "g"
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "key",
+     "key": "a",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "state",
+     "name": "selall"
+    },
+    {
+     "do": "key",
+     "key": "c"
+    },
+    {
+     "do": "wait",
+     "seconds": 6
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "c-fit"
+    },
+    {
+     "do": "state",
+     "name": "c-fit"
+    },
+    {
+     "do": "click",
+     "target": "compare",
+     "at": [
+      0.15,
+      0.35
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 8
+    },
+    {
+     "do": "shot",
+     "name": "c-zoom"
+    },
+    {
+     "do": "state",
+     "name": "c-zoom"
+    },
+    {
+     "do": "drag",
+     "id": "cpan",
+     "target": "compare",
+     "from": [
+      0.25,
+      0.5
+     ],
+     "to": [
+      0.35,
+      0.6
+     ],
+     "duration": 0.5
+    },
+    {
+     "do": "wait",
+     "seconds": 5
+    },
+    {
+     "do": "shot",
+     "name": "c-pan"
+    },
+    {
+     "do": "click",
+     "target": "compare",
+     "at": [
+      0.25,
+      0.5
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 4
+    },
+    {
+     "do": "shot",
+     "name": "c-unzoom"
+    },
+    {
+     "do": "key",
+     "key": "right"
+    },
+    {
+     "do": "wait",
+     "seconds": 5
+    },
+    {
+     "do": "shot",
+     "name": "c-right1"
+    },
+    {
+     "do": "state",
+     "name": "c-right1"
+    },
+    {
+     "do": "key",
+     "key": "right"
+    },
+    {
+     "do": "wait",
+     "seconds": 5
+    },
+    {
+     "do": "shot",
+     "name": "c-right2"
+    },
+    {
+     "do": "state",
+     "name": "c-right2"
+    },
+    {
+     "do": "key",
+     "key": "left"
+    },
+    {
+     "do": "wait",
+     "seconds": 3
+    },
+    {
+     "do": "key",
+     "key": "left"
+    },
+    {
+     "do": "wait",
+     "seconds": 3
+    },
+    {
+     "do": "state",
+     "name": "c-left2"
+    },
+    {
+     "do": "click",
+     "target": "compare",
+     "at": [
+      0.75,
+      0.5
+     ],
+     "count": 2
+    },
+    {
+     "do": "wait",
+     "seconds": 3
+    },
+    {
+     "do": "shot",
+     "name": "c-dbl"
+    },
+    {
+     "do": "state",
+     "name": "c-dbl"
+    },
+    {
+     "do": "key",
+     "key": "s",
+     "modifiers": [
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 6
+    },
+    {
+     "do": "shot",
+     "name": "c-proof"
+    },
+    {
+     "do": "state",
+     "name": "c-proof"
+    },
+    {
+     "do": "key",
+     "key": "s",
+     "modifiers": [
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 2
+    },
+    {
+     "do": "key",
+     "key": "b",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 3
+    },
+    {
+     "do": "shot",
+     "name": "c-assess"
+    },
+    {
+     "do": "key",
+     "key": "b",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "key",
+     "key": "\\"
+    },
+    {
+     "do": "wait",
+     "seconds": 2
+    },
+    {
+     "do": "state",
+     "name": "c-backslash"
+    },
+    {
+     "do": "key",
+     "key": "c"
+    },
+    {
+     "do": "wait",
+     "seconds": 2
+    },
+    {
+     "do": "state",
+     "name": "c-off"
+    },
+    {
+     "do": "key",
+     "key": "e"
+    },
+    {
+     "do": "wait",
+     "seconds": 4
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "loupe-after-c-backslash"
+    },
+    {
+     "do": "state",
+     "name": "loupe-after-c-backslash"
+    },
+    {
+     "do": "key",
+     "key": "\\"
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "key",
+     "key": "n"
+    },
+    {
+     "do": "wait",
+     "seconds": 6
+    },
+    {
+     "do": "shot",
+     "name": "survey"
+    },
+    {
+     "do": "state",
+     "name": "survey"
+    },
+    {
+     "do": "key",
+     "key": "a"
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "state",
+     "name": "survey-aa"
+    },
+    {
+     "do": "key",
+     "key": "x"
+    },
+    {
+     "do": "wait",
+     "seconds": 3
+    },
+    {
+     "do": "shot",
+     "name": "survey-x"
+    },
+    {
+     "do": "state",
+     "name": "survey-x"
+    },
+    {
+     "do": "key",
+     "key": "u",
+     "modifiers": [
+      "shift"
+     ]
+    },
+    {
+     "do": "key",
+     "key": "u"
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "key",
+     "key": "n"
+    },
+    {
+     "do": "wait",
+     "seconds": 2
+    },
+    {
+     "do": "state",
+     "name": "survey-off"
+    }
+   ]
+  },
+  {
+   "name": "proof-raw",
+   "fixture": "raw",
+   "timeoutSeconds": 600,
+   "hangSeconds": 60,
+   "steps": [
+    {
+     "do": "open",
+     "photo": "A7IV",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Saturation#track"
+    },
+    {
+     "do": "drag",
+     "id": "sat",
+     "target": "slider/Saturation#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.97,
+      0.5
+     ],
+     "duration": 0.6,
+     "settle": 30
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "sat"
+    },
+    {
+     "do": "state",
+     "name": "sat"
+    },
+    {
+     "do": "open",
+     "photo": "A7IV",
+     "workspace": "deliver",
+     "timeout": 60
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "deliver"
+    },
+    {
+     "do": "state",
+     "name": "deliver",
+     "texts": true
+    },
+    {
+     "do": "key",
+     "key": "s",
+     "modifiers": [
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 5
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "proof-on"
+    },
+    {
+     "do": "state",
+     "name": "proof-on",
+     "texts": true
+    },
+    {
+     "do": "compare",
+     "a": "deliver",
+     "b": "proof-on",
+     "name": "proofDelta"
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Gamut warning",
+      "within": "develop.column"
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 5
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "gw-toggled"
+    },
+    {
+     "do": "state",
+     "name": "gw-toggled"
+    },
+    {
+     "do": "compare",
+     "a": "proof-on",
+     "b": "gw-toggled",
+     "name": "gwDelta"
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Simulate paper",
+      "within": "develop.column"
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 5
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "paper"
+    },
+    {
+     "do": "state",
+     "name": "paper"
+    },
+    {
+     "do": "compare",
+     "a": "gw-toggled",
+     "b": "paper",
+     "name": "paperDelta"
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Perceptual",
+      "within": "develop.column"
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 5
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "perceptual"
+    },
+    {
+     "do": "state",
+     "name": "perceptual"
+    },
+    {
+     "do": "compare",
+     "a": "paper",
+     "b": "perceptual",
+     "name": "intentDelta"
+    },
+    {
+     "do": "key",
+     "key": "y",
+     "modifiers": [
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 5
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "proof-split"
+    },
+    {
+     "do": "state",
+     "name": "proof-split"
+    },
+    {
+     "do": "key",
+     "key": "y",
+     "modifiers": [
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 2
+    },
+    {
+     "do": "key",
+     "key": "s",
+     "modifiers": [
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 5
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "shot",
+     "name": "proof-off"
+    },
+    {
+     "do": "state",
+     "name": "proof-off"
+    },
+    {
+     "do": "compare",
+     "a": "deliver",
+     "b": "proof-off",
+     "name": "offDelta"
+    },
+    {
+     "do": "key",
+     "key": "e",
+     "modifiers": [
+      "cmd",
+      "option",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 3
+    },
+    {
+     "do": "state",
+     "name": "export-previous"
+    },
+    {
+     "do": "key",
+     "key": "e",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 3
+    },
+    {
+     "do": "state",
+     "name": "export-sheet"
+    },
+    {
+     "do": "key",
+     "key": "x"
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "state",
+     "name": "x-with-sheet"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 2
+    },
+    {
+     "do": "state",
+     "name": "sheet-closed"
+    }
+   ]
+  }
+ ],
+ "ref": "claude/loving-cray-d58nrb-integration",
+ "config": "release",
+ "strict": false,
+ "note": "deliver: compare, before/after, soft proof"
+}
