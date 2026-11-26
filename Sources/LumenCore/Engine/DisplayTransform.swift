@@ -363,18 +363,16 @@ public struct DisplayTransform: Sendable {
         // Per-channel character: the curve on each channel independently.
         let perChannel = RGB(tone(inset.r), tone(inset.g), tone(inset.b))
 
-        // Hue-stable: curve the norm, keep the ratios.
+        // Hue-stable: curve the norm, keep the ratios — of the rise above `black` only.
+        // The floor itself is grey, as it is in the per-channel branch, so the two
+        // meet exactly at the floor. Scaling the whole pixel instead put a saturated
+        // colour's minor channels below `black` while per-channel put them at it, and
+        // the fade below turned that gap into a reversal: darker blues rendered up to
+        // 0.13 OKLab L lighter (`DisplayTransformBlackFloorTests`).
         //
-        // Below the black anchor the curve is flat at `black`, so the ratio scale
-        // tone(peak)/peak is black/peak and grows without bound as the peak falls
-        // toward zero. A shadow-noise pixel with a peak near zero and partners near
-        // −0.01 had those partners multiplied by ~1.5e5, and the outset's negative
-        // off-diagonals turned them into R ≈ 126. Below the anchor the hue-stable
-        // branch therefore fades into the per-channel one, in proportion to how far
-        // the peak sits under it. The per-channel branch is already exactly `black`
-        // there. The faded ratio term reduces to inset·black/anchor, which is bounded
-        // and keeps neutrals at `black`. At and above the anchor the weight is exactly
-        // 1, so nothing a visible pixel renders through changes.
+        // Below the black anchor the hue-stable branch fades into the per-channel one,
+        // in proportion to how far the peak sits under it. At and above the anchor the
+        // weight is exactly 1.
         //
         // The black fallback keys on the UNfloored peak: `norm` is floored for the
         // log below, and testing it instead made the fallback unreachable, so scene
@@ -382,7 +380,8 @@ public struct DisplayTransform: Sendable {
         // was on (0.3·black at the Film Base preset's 70, black only at 0).
         let peak = inset.maxComponent
         let norm = Swift.max(peak, 1e-9)
-        let ratio = peak > 1e-9 ? inset * (tone(norm) / norm) : RGB(black, black, black)
+        let floor = RGB(black, black, black)
+        let ratio = peak > 1e-9 ? floor + inset * ((tone(norm) - black) / norm) : floor
         let blackAnchorScene = DisplayTransform.midGrey * exp2(minEV)
         let aboveBlack = Num.saturate(peak / blackAnchorScene)
 
