@@ -1,8 +1,0 @@
-{
- "suite": "repro-slider-drag.json",
- "scenarios": [],
- "ref": "f837a2a50ae6d708978aeb92858d3250de5fa604",
- "config": "release",
- "strict": false,
- "note": ""
-}

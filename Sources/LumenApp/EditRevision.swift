@@ -42,6 +42,9 @@
 // stated here rather than left to be discovered. The alternative — `@Observable`, which
 // tracks reads per property and needs no rule — is the migration this is a step toward,
 // not a substitute for.
+//
+// A develop panel declares `PanelEditRevision` instead: it must not follow a slider drag
+// per event, and catches up when the drag ends.
 
 #if os(macOS)
 
