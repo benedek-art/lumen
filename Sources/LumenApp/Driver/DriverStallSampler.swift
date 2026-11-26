@@ -86,10 +86,41 @@ final class DriverStallSampler: @unchecked Sendable {
         if let stall = current { close(stall) }
         current = nil
         let rows = finished
+        let published = publishRows()
         let pending = appAddresses.sorted()
         let names = symbolNames
         lock.unlock()
-        write(rows, symbols: names, resolving: Self.atos(pending))
+        write(rows, symbols: names, publishes: published, resolving: Self.atos(pending))
+    }
+
+    // MARK: Publishes
+
+    private var publishes: [String: [[UInt]: Int]] = [:]
+
+    /// An `objectWillChange` of `name`, with the stack that sent it. Main thread.
+    func notePublish(_ name: String, duringDrag: Bool) {
+        var stack: [UInt] = []
+        for (i, address) in Thread.callStackReturnAddresses.enumerated() where i >= 2 {
+            if stack.count == 28 { break }
+            stack.append(Self.strip(address.uintValue) &- 1)
+        }
+        let key = duringDrag ? name + " (drag)" : name
+        lock.lock()
+        publishes[key, default: [:]][stack, default: 0] += 1
+        lock.unlock()
+        DriverTimeline.shared.add("pub", ["o": name])
+    }
+
+    /// Called with `lock` held.
+    private func publishRows() -> [[String: Any]] {
+        publishes.map { name, stacks -> [String: Any] in
+            [
+                "o": name, "n": stacks.values.reduce(0, +),
+                "stacks": stacks.sorted { $0.value > $1.value }.prefix(12).map {
+                    [$0.value, $0.key.map { index(of: symbol($0)) }] as [Any]
+                },
+            ]
+        }.sorted { ($0["n"] as? Int ?? 0) > ($1["n"] as? Int ?? 0) }
     }
 
     /// The app's own symbols are not exported, so `dladdr` names the nearest public
@@ -270,6 +301,7 @@ final class DriverStallSampler: @unchecked Sendable {
     }
 
     private func write(_ rows: [[String: Any]], symbols table: [String],
+                       publishes: [[String: Any]] = [],
                        resolving names: [String: String] = [:]) {
         var resolved = rows
         let symbolTable = table.map { names[$0] ?? $0 }
@@ -282,7 +314,7 @@ final class DriverStallSampler: @unchecked Sendable {
             }
             resolved = rows.map { row in row.mapValues(swap) }
         }
-        DriverJSON.write(["stalls": resolved, "symbols": symbolTable,
+        DriverJSON.write(["stalls": resolved, "symbols": symbolTable, "publishes": publishes,
                           "thresholdMs": threshold * 1000, "intervalMs": interval * 1000],
                          to: out.appendingPathComponent("stalls.json"))
     }

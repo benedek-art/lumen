@@ -4,6 +4,7 @@
 #if os(macOS)
 
 import AppKit
+import Combine
 import LumenCore
 import SwiftUI
 
@@ -95,6 +96,8 @@ final class DriverSession {
     var input: DriverInput?
     let heartbeat = DriverHeartbeat()
     var stallSampler: DriverStallSampler?
+    private var publishSinks: [AnyCancellable] = []
+    private var watchedModels: Set<ObjectIdentifier> = []
 
     var frames: [DriverFrame] = []
     var samples: [DriverSample] = []
@@ -178,6 +181,7 @@ final class DriverSession {
             let sampler = DriverStallSampler(out: outDir, thresholdMs: stallMs, intervalMs: 3)
             sampler.start()
             stallSampler = sampler
+            watchPublishes()
         }
 
         do {
@@ -311,7 +315,38 @@ final class DriverSession {
 
     // MARK: Hooks
 
+    private func watch<Object: ObservableObject>(_ name: String, _ object: Object) {
+        publishSinks.append(object.objectWillChange.sink { [weak self] _ in
+            // These objects publish on the main thread only.
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.stallSampler?.notePublish(
+                    name, duringDrag: self.heartbeat.read().verb == "drag")
+            }
+        })
+    }
+
+    private func watchPublishes() {
+        watch("AppState", state)
+        watch("EditRevision", state.edits)
+        watch("HistoryStack", state.history)
+        watch("ThumbnailLoader", state.thumbnails)
+        watch("LatencyHUD", LatencyHUD.shared)
+        watch("PanelLayout", PanelLayout.shared)
+        watch("LoupeViewport", LoupeViewport.shared)
+        watch("ModifierKeys", ModifierKeys.shared)
+        watch("EDRDisplay", EDRDisplay.shared)
+        watch("MaskBrushStore", MaskBrushStore.shared)
+        watch("CropTool", CropTool.shared)
+        watch("HealTool", HealTool.shared)
+        watch("CaptureInfoDisplay", CaptureInfoDisplay.shared)
+    }
+
     func noteFrame(_ result: RenderResult, recipe: Recipe, model: AnyObject) {
+        if stallSampler != nil, let render = model as? PhotoRenderModel,
+           watchedModels.insert(ObjectIdentifier(render)).inserted {
+            watch("PhotoRenderModel#\(watchedModels.count)", render)
+        }
         let frame = DriverFrame(
             t: DriverClock.now(), recipe: recipe, isDraft: result.isDraft,
             width: result.image.width, height: result.image.height,
