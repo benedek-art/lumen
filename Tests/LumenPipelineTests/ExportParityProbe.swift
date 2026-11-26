@@ -74,6 +74,15 @@ final class ExportParityProbe: XCTestCase {
         }
         say("boxPass kernel compiled: \(KernelLibrary.boxPass != nil); "
             + "unavailable: \(KernelLibrary.unavailableKernels)")
+        // Memory first, in a fresh process, before anything else has touched the GPU.
+        do {
+            let url = try RenderLabShippingHarness.photoURL("6929", in: dir)
+            let src = try AppleRawSource(url: url)
+            let base = Recipe.asImported(from: Recipe.SourceFile(
+                isRendered: false, iso: src.captureMetadata.iso.map { Int($0) }))
+            memoryStudy(src: src, recipe: base)
+        }
+        seamStudy()
         boxParity()
         try chartBlackClipStudy()
         for id in ["6929", "5812"] {
@@ -81,8 +90,120 @@ final class ExportParityProbe: XCTestCase {
             let src = try AppleRawSource(url: url)
             let base = Recipe.asImported(from: Recipe.SourceFile(
                 isRendered: false, iso: src.captureMetadata.iso.map { Int($0) }))
-            decodeScaleStudy(id: id, src: src, recipe: base)
             exportStudy(id: id, src: src, recipe: base)
+        }
+    }
+
+    static let device = MTLCreateSystemDefaultDevice()
+
+    func gpu() -> String {
+        guard let device = Self.device else { return "no device" }
+        return "gpu allocated \(device.currentAllocatedSize / 1_048_576) MB"
+    }
+
+    /// The develop graph of a full-size frame, rendered whole and in tiles of several
+    /// sizes, with the device's allocation after each.
+    func memoryStudy(src: AppleRawSource, recipe base: Recipe) {
+        say("start: \(gpu())")
+        var recipe = base
+        recipe.develop.tone.contrast = 50
+        guard let decoded = src.decode(recipe: recipe, draft: false, scaleFactor: 1.0) else {
+            say("decode failed"); return
+        }
+        say("lazy native decode: \(gpu())")
+        guard let pixels = DecodeMaterializer.materialize(decoded) else {
+            say("materialize failed: \(gpu())"); return
+        }
+        say("materialized native decode \(pixels.bytes / 1_048_576) MB: \(gpu())")
+        let longEdge = Int(max(pixels.image.extent.width, pixels.image.extent.height))
+        let plan = RenderPlan(recipe: recipe, asShotKelvin: src.asShotTemperature,
+                              asShotTint: src.asShotTint, lutSize: LUT3D.exportSize,
+                              captureISO: src.captureMetadata.iso)
+        let graph = RenderGraph(healStrokesOf: recipe, strokeSets: [:])
+        let image = graph.build(pixels.image, plan: plan,
+                                options: RenderGraph.Options(longEdge: longEdge,
+                                                             lutSize: LUT3D.exportSize))
+        for tile in [512.0, 1024.0, 2048.0] {
+            let started = Date()
+            do {
+                let out = try PipelineRenderer.renderedInTiles(image, minimumPixels: 0,
+                                                               tile: CGFloat(tile))
+                say("develop graph in \(Int(tile)) px tiles: ok in "
+                    + String(format: "%.1f s", Date().timeIntervalSince(started))
+                    + " extent \(out.extent.size); \(gpu())")
+            } catch {
+                say("develop graph in \(Int(tile)) px tiles: FAILED after "
+                    + String(format: "%.1f s", Date().timeIntervalSince(started))
+                    + ": \(error); \(gpu())")
+            }
+        }
+        renderTask(RenderGraph.scaledToProxy(image, longEdge: 1536),
+                   label: "develop graph whole, then resized")
+        say("after whole: \(gpu())")
+        // The tone stage alone, and one guided filter alone.
+        if let lum = RenderGraph.logLuminance(pixels.image),
+           let guided = RenderGraph.guidedSelfFilter(
+               lum, radius: max(Int(Double(longEdge) * 0.02), 2),
+               epsilon: ReferenceRenderer.toneMaskEpsilon) {
+            renderTask(RenderGraph.scaledToProxy(guided, longEdge: 1536),
+                       label: "guided filter alone, whole")
+            say("after guided: \(gpu())")
+        }
+        let probe = CIImage(color: CIColor(red: 0.25, green: 0.5, blue: 0.75))
+            .cropped(to: CGRect(x: 0, y: 0, width: 64, height: 64))
+        var px = [Float](repeating: 0, count: 4)
+        Self.context.render(probe, toBitmap: &px, rowBytes: 16,
+                            bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
+                            format: .RGBAf, colorSpace: nil)
+        say("sanity pixel after the study (expect ~0.25,0.5,0.75 in some space): \(px)")
+    }
+
+    /// Tiled against whole on a small synthetic frame, one stage at a time, to name
+    /// the stage whose kernels under-report their reach.
+    func seamStudy() {
+        let w = 640, h = 427
+        let buffer = ImageBuffer(width: w, height: h) { u, v in
+            let ramp = 0.18 * pow(2.0, -6 + u * 10)
+            let texture = 1.0 + 0.2 * sin(u * 97.0) * sin(v * 61.0)
+            let edge: Double = v > 0.5 ? 1.6 : 0.6
+            let y = ramp * texture * edge
+            return RGB(y, y * 0.9, y * 1.1)
+        }
+        let data = buffer.pixels.withUnsafeBufferPointer { Data(buffer: $0) }
+        let decoded = CIImage(bitmapData: data, bytesPerRow: w * 16,
+                              size: CGSize(width: w, height: h), format: .RGBAf,
+                              colorSpace: nil)
+        let stages: [(String, (inout Recipe) -> Void)] = [
+            ("none", { _ in }),
+            ("contrast", { $0.develop.tone.contrast = 40 }),
+            ("shadows", { $0.develop.tone.shadows = 50 }),
+            ("clarity", { $0.develop.detail.clarity = 50 }),
+            ("texture", { $0.develop.detail.texture = 40 }),
+            ("dehaze", { $0.develop.detail.dehaze = 30 }),
+            ("sharpen", { $0.develop.detail.sharpen.amount = 60 }),
+        ]
+        for (label, apply) in stages {
+            var recipe = Recipe()
+            apply(&recipe)
+            let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.exportSize)
+            let graph = RenderGraph(healStrokesOf: recipe, strokeSets: [:])
+            let image = graph.build(decoded, plan: plan,
+                                    options: RenderGraph.Options(longEdge: w,
+                                                                 lutSize: LUT3D.exportSize))
+            guard let tiled = try? PipelineRenderer.renderedInTiles(image, minimumPixels: 0,
+                                                                    tile: 96),
+                  let a = PipelineRenderer.buffer(from: image,
+                                                  context: PipelineRenderer.tileContext),
+                  let b = PipelineRenderer.buffer(from: tiled,
+                                                  context: PipelineRenderer.tileContext)
+            else { say("seam \(label): render failed"); continue }
+            var worst = 0.0, at = 0
+            for i in 0..<a.pixels.count where i % 4 != 3 {
+                let d = abs(Double(a.pixels[i]) - Double(b.pixels[i]))
+                    / max(1, abs(Double(a.pixels[i])))
+                if d > worst { worst = d; at = i / 4 }
+            }
+            say(String(format: "seam %@: worst %.5f at x %d y %d", label, worst, at % w, at / w))
         }
     }
 
@@ -208,6 +329,25 @@ final class ExportParityProbe: XCTestCase {
                     if let c = CGImageSourceCreateWithURL(file as CFURL, nil),
                        let cg = CGImageSourceCreateImageAtIndex(c, 0, nil) {
                         say("\(tag) writePNG: \(Self.drawnZero(cg)) | \(Self.rawZero(cg))")
+                        if let png = try? RenderLabShippingHarness.rgba8(cg) {
+                            // PNG code minus the ideal rounding, by the float's code value.
+                            var byCode = [Int: (n: Int, diff: Int, changed: Int)]()
+                            for i in 0..<(w * h) {
+                                let f = min(max(Double(floats[i * 4 + 1]), 0), 1) * 255
+                                let ideal = Int(f.rounded())
+                                let d = Int(png.rgba[i * 4 + 1]) - ideal
+                                let bucket = min(Int(f.rounded(.down)), 6)
+                                var e = byCode[bucket] ?? (0, 0, 0)
+                                e.n += 1; e.diff += d; e.changed += d != 0 ? 1 : 0
+                                byCode[bucket] = e
+                            }
+                            say("\(tag) PNG minus ideal by float code: " + byCode.keys.sorted()
+                                .map { k in let e = byCode[k]!
+                                    return String(format: "[%d: n %d mean %+.3f changed %.3f]", k,
+                                                  e.n, Double(e.diff) / Double(e.n),
+                                                  Double(e.changed) / Double(e.n)) }
+                                .joined(separator: " "))
+                        }
                     }
                 } catch {
                     say("chart writePNG failed: \(Self.describe(error))")

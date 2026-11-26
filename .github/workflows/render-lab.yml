@@ -211,6 +211,16 @@ jobs:
         with:
           name: renderlab-manifests
           path: resolved
+      - name: Parity probe
+        if: always() && steps.build.outcome != 'failure'
+        shell: bash
+        run: |
+          grep -q '"probe"' docs/renderlab-request.json || exit 0
+          set +e
+          LUMEN_PARITY_PROBE_PHOTOS="$PHOTOS" swift test -c release --skip-build \
+            --filter "ExportParityProbe|TiledDeliveryTests" > probe.log 2>&1
+          grep -E "PROBE:|error:|Test Case .* (passed|failed)" probe.log | tee -a "$GITHUB_STEP_SUMMARY"
+          exit 0
       - name: Render on the shipping path
         if: needs.plan.outputs.macos == 'true'
         shell: bash
@@ -231,16 +241,6 @@ jobs:
           echo "render seconds: $(( $(date +%s) - start ))" | tee -a "$GITHUB_STEP_SUMMARY"
           python3 renderlab/lab.py table renderlab-out/shipping | tee -a "$GITHUB_STEP_SUMMARY" || true
           exit $status
-      - name: Parity probe
-        if: always() && steps.build.outcome != 'failure'
-        shell: bash
-        run: |
-          grep -q '"probe"' docs/renderlab-request.json || exit 0
-          set +e
-          LUMEN_PARITY_PROBE_PHOTOS="$PHOTOS" swift test -c release --skip-build \
-            --filter "ExportParityProbe|TiledDeliveryTests" > probe.log 2>&1
-          grep -E "PROBE:|error:|Test Case .* (passed|failed)" probe.log | tee -a "$GITHUB_STEP_SUMMARY"
-          exit 0
       - name: Reference against shipping drift
         if: always() && steps.build.outcome != 'failure' && needs.plan.outputs.drift != ''
         shell: bash
