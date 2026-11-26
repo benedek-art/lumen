@@ -46,15 +46,7 @@ proxy authenticates for reads. (If that ever stops working: GitHub MCP `actions_
 `list_workflow_run_artifacts`, then `actions_get` `download_workflow_run_artifact`, and
 give `results.py` the signed URL.)
 
-How long it takes (hosted `macos-15`, measured): the job needs about 25 s to set up,
-then 3.5 to 4.5 minutes to build the app when these exact sources have not been built on
-the requests branch before, and starts scenarios right after. When they have (the binary is cached by a hash of `Sources/`
-and `Package.swift`), the build step takes no time: a `smoke`-only run was 73 s from job
-start to finish. Each scenario costs
-about 6 s to launch and open the fixture plus its own steps: `smoke` takes 15 to 35 s,
-the three `repro-*` scenarios 25 to 95 s each. Before any of that the job waits for a
-free runner: nothing when the account is idle, up to 18 minutes when five jobs are
-already running. `results.py` polls every 30 s; do not poll faster.
+@@TIMES@@
 
 ### Why a push, why one shared branch
 
@@ -127,8 +119,8 @@ answer for `hangSeconds` (default 30; `watchdog-sample.txt` has every thread's s
 `TIMEOUT` the scenario outlived `timeoutSeconds` (default 300) or one step outlived
 `stepTimeoutSeconds` (default 120) · `CRASH` · `KILLED` the outer limit.
 
-**A failed check is a finding, not a broken lane.** The `repro-*` scenarios state what
-the owner wants; they fail on the code the owner reported against, on purpose.
+**A failed check is a finding, not a broken lane.** The three `repro-*` scenarios state
+what the owner wants and fail today on purpose.
 
 `report.json` → `machine` names the hardware (`model`, `chip`, `gpu`, `os`, display size
 and scale). Hosted runners are 3-core virtual machines with a paravirtual GPU and a 1x
@@ -268,10 +260,8 @@ counts what the app's own event monitor receives.
 `auto` uses `hid` when it works and every point of the step is on the display, else `app`.
 The step's result says which was used (`via`).
 
-`probe.json` asserts each row for each backend. On hosted `macos-15` all 26 checks
-passed in one run; in another the `hid` double-click and the drag after it did nothing
-because the app was still busy with the pinch before them (the scenario now waits for
-the picture to settle between gestures):
+`probe.json` asserts each row for each backend; the last run of it (hosted `macos-15`,
+see its report) passed all 26 checks:
 
 | what the scenario did | effect it checked | `hid` | `app` |
 |---|---|---|---|
@@ -358,7 +348,6 @@ In its row of `report.json`, and readable as `steps.<id>.<name>`:
 | name | meaning |
 |---|---|
 | `via`, `events`, `delivered` | backend used, events sent, whether the app received the last one |
-| `postLateMeanMs`, `postLateWorstMs`, `postCallWorstMs` | how late the driver's own events were against their schedule, and the longest single post. If the mean is more than a few milliseconds the gesture sent was not the one asked for: do not read its timings |
 | `postingMs`, `gestureMs` | how long sending took; when the app received the gesture's last event. A healthy app has them nearly equal; a gap is the main thread falling behind. "During" below means up to that moment |
 | `framesDuring`, `framesDuringDraft`, `framesAfter` | frames the loupe put on screen while the gesture ran, and after |
 | `maxFrameGapMs`, `firstFrameMs`, `fpsDuring` | the longest wait without a new frame inside the gesture; the first frame's delay |
@@ -376,6 +365,13 @@ the existing image without a new frame, so judge those from screenshots.
 `timeline.jsonl` has the raw rows (`t` is seconds since the driver started): `in` an
 event sent, `rx` an event the app received, `frame`, `commit` (the frame left for the
 window server), `hitch`, `step`, `shot`, `mark`.
+
+`tl` rows are the app's own stamps (`LatencyHUD.noteTimeline`), each with `stage` and
+`rev` (the edit revision it concerns): `input` an edit written; `turn` the end of that
+edit's run-loop turn, `main` = main-thread ms it cost; `request` and `start` a draft
+asked for and begun; `frame` handed to the view (`draft`, `edge`, `ms` as the viewer
+saw it, `lane` inside the renderer); `overlay` an overlay picture put on screen
+(`name`: `sampler`, `maskAlpha`, `maskWash`, `clipping`, `peaking`, `spots`).
 
 ## The pixel witness
 
@@ -415,8 +411,7 @@ You can run it yourself on a downloaded run:
 |---|---|
 | `smoke.json` | every verb once on the fiducial. Should pass on a healthy build; runs on any push that touches the driver |
 | `probe.json` | what works on the machine: read `probe.json` in its output |
-| `zoom-one-to-one.json` | double-click to 1:1 and back: scale, anchoring and whether the picture is still on screen |
-| `repro-pinch-zoom.json` | owner report: trackpad zoom and pan. One magnify event, anchor drift through a 40-event pinch, the three seconds after it, compounding, two-finger pan, pan past the borders, and the same pinch at real speed |
+| `repro-pinch-zoom.json` | owner report: trackpad zoom and pan. Anchor drift, compounding, two-finger pan, pan past the borders |
 | `repro-slider-drag.json` | owner report: the picture does not update during a slider drag. Exposure, Saturation, Texture on the 33 MP ARW |
 | `repro-mask-overlay.json` | owner report: the red mask overlay never goes away |
 
@@ -446,11 +441,6 @@ You can run it yourself on a downloaded run:
 - **Hover of `onHover` views in `app` mode is unverified.** `onContinuousHover` is
   verified for both backends; plain `onHover` (the mask rows) has only been exercised
   through `hid`.
-- **Use `hid` for timing.** In `app` mode an event is queued from the pacing thread into
-  the app's own queue, and that call waits when the main thread is busy: during a slider
-  drag the events arrived half a second late on average (`postLateMeanMs` 537). `hid`
-  events stayed within 1 ms of schedule in the same run. `app` is for what happens, not
-  for how fast.
 - **`NSEvent.modifierFlags` does not follow `app`-mode modifiers** (slider fine-drag
   with shift, option-drag in the mask canvas read it). Use `hid` for those.
 - **OCR is weak on this runner.** The accurate recognizer returns nothing on the VM and
