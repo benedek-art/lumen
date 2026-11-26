@@ -1,0 +1,204 @@
+{
+ "name": "cropheal-geo",
+ "defaults": {
+  "paths": [
+   "export",
+   "settled"
+  ]
+ },
+ "jobs": [
+  {
+   "id": "geo-chart",
+   "photos": [
+    "chart:detail",
+    "chart:colorChecker"
+   ],
+   "longEdge": 1200,
+   "base": "blank",
+   "variants": [
+    {
+     "label": "none",
+     "recipe": {}
+    },
+    {
+     "label": "crop-centre",
+     "recipe": {
+      "develop.geometry.crop.x": 0.25,
+      "develop.geometry.crop.y": 0.25,
+      "develop.geometry.crop.w": 0.5,
+      "develop.geometry.crop.h": 0.5
+     }
+    },
+    {
+     "label": "crop-off",
+     "recipe": {
+      "develop.geometry.crop.x": 0.05,
+      "develop.geometry.crop.y": 0.4,
+      "develop.geometry.crop.w": 0.3,
+      "develop.geometry.crop.h": 0.55
+     }
+    },
+    {
+     "label": "flip",
+     "recipe": {
+      "develop.geometry.flipH": true
+     }
+    },
+    {
+     "label": "flip-crop-off",
+     "recipe": {
+      "develop.geometry.crop.x": 0.05,
+      "develop.geometry.crop.y": 0.4,
+      "develop.geometry.crop.w": 0.3,
+      "develop.geometry.crop.h": 0.55,
+      "develop.geometry.flipH": true
+     }
+    },
+    {
+     "label": "a+5",
+     "recipe": {
+      "develop.geometry.angle": 5
+     }
+    },
+    {
+     "label": "a-12",
+     "recipe": {
+      "develop.geometry.angle": -12
+     }
+    },
+    {
+     "label": "a+45",
+     "recipe": {
+      "develop.geometry.angle": 45
+     }
+    },
+    {
+     "label": "a+5-crop-off",
+     "recipe": {
+      "develop.geometry.crop.x": 0.05,
+      "develop.geometry.crop.y": 0.4,
+      "develop.geometry.crop.w": 0.3,
+      "develop.geometry.crop.h": 0.55,
+      "develop.geometry.angle": 5
+     }
+    },
+    {
+     "label": "a+30-flip-crop-off",
+     "recipe": {
+      "develop.geometry.crop.x": 0.05,
+      "develop.geometry.crop.y": 0.4,
+      "develop.geometry.crop.w": 0.3,
+      "develop.geometry.crop.h": 0.55,
+      "develop.geometry.angle": 30,
+      "develop.geometry.flipH": true
+     }
+    },
+    {
+     "label": "a+0.3",
+     "recipe": {
+      "develop.geometry.angle": 0.3
+     }
+    }
+   ],
+   "compare": [
+    "settled",
+    "export"
+   ]
+  },
+  {
+   "id": "geo-raw",
+   "photos": [
+    "5812",
+    "6929",
+    "1346"
+   ],
+   "longEdge": 1536,
+   "variants": [
+    {
+     "label": "none",
+     "recipe": {}
+    },
+    {
+     "label": "crop-off",
+     "recipe": {
+      "develop.geometry.crop.x": 0.05,
+      "develop.geometry.crop.y": 0.4,
+      "develop.geometry.crop.w": 0.3,
+      "develop.geometry.crop.h": 0.55
+     }
+    },
+    {
+     "label": "a+8",
+     "recipe": {
+      "develop.geometry.angle": 8
+     }
+    },
+    {
+     "label": "a-8-crop-off",
+     "recipe": {
+      "develop.geometry.crop.x": 0.05,
+      "develop.geometry.crop.y": 0.4,
+      "develop.geometry.crop.w": 0.3,
+      "develop.geometry.crop.h": 0.55,
+      "develop.geometry.angle": -8
+     }
+    },
+    {
+     "label": "flip",
+     "recipe": {
+      "develop.geometry.flipH": true
+     }
+    },
+    {
+     "label": "4:3-land",
+     "recipe": {
+      "develop.geometry.crop.x": 0,
+      "develop.geometry.crop.y": 0.25,
+      "develop.geometry.crop.w": 1,
+      "develop.geometry.crop.h": 0.5
+     }
+    }
+   ],
+   "compare": [
+    "settled",
+    "export"
+   ]
+  },
+  {
+   "id": "geo-portrait",
+   "photos": [
+    "5812"
+   ],
+   "longEdge": 1536,
+   "paths": [
+    "export",
+    "settled"
+   ],
+   "variants": [
+    {
+     "label": "1:1",
+     "recipe": {
+      "develop.geometry.crop.x": 0,
+      "develop.geometry.crop.y": 0.16667,
+      "develop.geometry.crop.w": 1,
+      "develop.geometry.crop.h": 0.66667
+     }
+    },
+    {
+     "label": "a+10-1:1",
+     "recipe": {
+      "develop.geometry.angle": 10,
+      "develop.geometry.crop.x": 0,
+      "develop.geometry.crop.y": 0.2,
+      "develop.geometry.crop.w": 1,
+      "develop.geometry.crop.h": 0.6
+     }
+    }
+   ],
+   "compare": [
+    "settled",
+    "export"
+   ]
+  }
+ ]
+}

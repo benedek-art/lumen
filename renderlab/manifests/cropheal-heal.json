@@ -1,0 +1,1453 @@
+{
+ "name": "cropheal-heal",
+ "defaults": {
+  "paths": [
+   "export"
+  ]
+ },
+ "jobs": [
+  {
+   "id": "heal-all-6929",
+   "photo": "6929",
+   "longEdge": 1536,
+   "variants": [
+    {
+     "label": "none",
+     "recipe": {}
+    },
+    {
+     "label": "heal-all",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "heal",
+        "x": 0.2725,
+        "y": 0.892,
+        "sourceX": 0.2925,
+        "sourceY": 0.892,
+        "radius": 0.004,
+        "feather": 50,
+        "opacity": 100
+       },
+       {
+        "id": "s1",
+        "mode": "heal",
+        "x": 0.456,
+        "y": 0.832,
+        "sourceX": 0.42,
+        "sourceY": 0.88,
+        "radius": 0.009,
+        "feather": 50,
+        "opacity": 100
+       },
+       {
+        "id": "s2",
+        "mode": "heal",
+        "x": 0.075,
+        "y": 0.139,
+        "sourceX": 0.075,
+        "sourceY": 0.11,
+        "radius": 0.004,
+        "feather": 50,
+        "opacity": 100
+       },
+       {
+        "id": "s3",
+        "mode": "heal",
+        "x": 0.35,
+        "y": 0.862,
+        "sourceX": 0.35,
+        "sourceY": 0.92,
+        "radius": 0.008,
+        "feather": 50,
+        "opacity": 100
+       },
+       {
+        "id": "s4",
+        "mode": "heal",
+        "x": 0.85,
+        "y": 0.87,
+        "sourceX": 0.8,
+        "sourceY": 0.87,
+        "radius": 0.01,
+        "feather": 50,
+        "opacity": 100
+       },
+       {
+        "id": "s5",
+        "mode": "heal",
+        "x": 0.995,
+        "y": 0.487,
+        "sourceX": 0.95,
+        "sourceY": 0.487,
+        "radius": 0.01,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    },
+    {
+     "label": "clone-all",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "clone",
+        "x": 0.2725,
+        "y": 0.892,
+        "sourceX": 0.2925,
+        "sourceY": 0.892,
+        "radius": 0.004,
+        "feather": 50,
+        "opacity": 100
+       },
+       {
+        "id": "s1",
+        "mode": "clone",
+        "x": 0.456,
+        "y": 0.832,
+        "sourceX": 0.42,
+        "sourceY": 0.88,
+        "radius": 0.009,
+        "feather": 50,
+        "opacity": 100
+       },
+       {
+        "id": "s2",
+        "mode": "clone",
+        "x": 0.075,
+        "y": 0.139,
+        "sourceX": 0.075,
+        "sourceY": 0.11,
+        "radius": 0.004,
+        "feather": 50,
+        "opacity": 100
+       },
+       {
+        "id": "s3",
+        "mode": "clone",
+        "x": 0.35,
+        "y": 0.862,
+        "sourceX": 0.35,
+        "sourceY": 0.92,
+        "radius": 0.008,
+        "feather": 50,
+        "opacity": 100
+       },
+       {
+        "id": "s4",
+        "mode": "clone",
+        "x": 0.85,
+        "y": 0.87,
+        "sourceX": 0.8,
+        "sourceY": 0.87,
+        "radius": 0.01,
+        "feather": 50,
+        "opacity": 100
+       },
+       {
+        "id": "s5",
+        "mode": "clone",
+        "x": 0.995,
+        "y": 0.487,
+        "sourceX": 0.95,
+        "sourceY": 0.487,
+        "radius": 0.01,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    }
+   ],
+   "compare": [
+    "settled",
+    "export"
+   ],
+   "paths": [
+    "export",
+    "settled"
+   ]
+  },
+  {
+   "id": "heal-6929-wallmark",
+   "photo": "6929",
+   "variants": [
+    {
+     "label": "none",
+     "recipe": {}
+    },
+    {
+     "label": "heal",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "heal",
+        "x": 0.2725,
+        "y": 0.892,
+        "sourceX": 0.2925,
+        "sourceY": 0.892,
+        "radius": 0.004,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    },
+    {
+     "label": "heal-f0",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "heal",
+        "x": 0.2725,
+        "y": 0.892,
+        "sourceX": 0.2925,
+        "sourceY": 0.892,
+        "radius": 0.004,
+        "feather": 0,
+        "opacity": 100
+       }
+      ]
+     }
+    },
+    {
+     "label": "clone",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "clone",
+        "x": 0.2725,
+        "y": 0.892,
+        "sourceX": 0.2925,
+        "sourceY": 0.892,
+        "radius": 0.004,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    }
+   ],
+   "crop": [
+    0.2645,
+    0.865,
+    0.036,
+    0.054
+   ],
+   "paths": [
+    "export",
+    "settled"
+   ]
+  },
+  {
+   "id": "heal-6929-sign",
+   "photo": "6929",
+   "variants": [
+    {
+     "label": "none",
+     "recipe": {}
+    },
+    {
+     "label": "heal",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "heal",
+        "x": 0.456,
+        "y": 0.832,
+        "sourceX": 0.42,
+        "sourceY": 0.88,
+        "radius": 0.009,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    },
+    {
+     "label": "heal-f0",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "heal",
+        "x": 0.456,
+        "y": 0.832,
+        "sourceX": 0.42,
+        "sourceY": 0.88,
+        "radius": 0.009,
+        "feather": 0,
+        "opacity": 100
+       }
+      ]
+     }
+    },
+    {
+     "label": "clone",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "clone",
+        "x": 0.456,
+        "y": 0.832,
+        "sourceX": 0.42,
+        "sourceY": 0.88,
+        "radius": 0.009,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    }
+   ],
+   "crop": [
+    0.3975,
+    0.7953,
+    0.081,
+    0.1214
+   ],
+   "paths": [
+    "export",
+    "settled"
+   ]
+  },
+  {
+   "id": "heal-6929-wire",
+   "photo": "6929",
+   "variants": [
+    {
+     "label": "none",
+     "recipe": {}
+    },
+    {
+     "label": "heal",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "heal",
+        "x": 0.075,
+        "y": 0.139,
+        "sourceX": 0.075,
+        "sourceY": 0.11,
+        "radius": 0.004,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    },
+    {
+     "label": "heal-f0",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "heal",
+        "x": 0.075,
+        "y": 0.139,
+        "sourceX": 0.075,
+        "sourceY": 0.11,
+        "radius": 0.004,
+        "feather": 0,
+        "opacity": 100
+       }
+      ]
+     }
+    },
+    {
+     "label": "clone",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "clone",
+        "x": 0.075,
+        "y": 0.139,
+        "sourceX": 0.075,
+        "sourceY": 0.11,
+        "radius": 0.004,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    }
+   ],
+   "crop": [
+    0.057,
+    0.0975,
+    0.036,
+    0.054
+   ],
+   "paths": [
+    "export",
+    "settled"
+   ]
+  },
+  {
+   "id": "heal-6929-edge",
+   "photo": "6929",
+   "variants": [
+    {
+     "label": "none",
+     "recipe": {}
+    },
+    {
+     "label": "heal",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "heal",
+        "x": 0.35,
+        "y": 0.862,
+        "sourceX": 0.35,
+        "sourceY": 0.92,
+        "radius": 0.008,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    },
+    {
+     "label": "heal-f0",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "heal",
+        "x": 0.35,
+        "y": 0.862,
+        "sourceX": 0.35,
+        "sourceY": 0.92,
+        "radius": 0.008,
+        "feather": 0,
+        "opacity": 100
+       }
+      ]
+     }
+    },
+    {
+     "label": "clone",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "clone",
+        "x": 0.35,
+        "y": 0.862,
+        "sourceX": 0.35,
+        "sourceY": 0.92,
+        "radius": 0.008,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    }
+   ],
+   "crop": [
+    0.314,
+    0.837,
+    0.072,
+    0.1079
+   ],
+   "paths": [
+    "export",
+    "settled"
+   ]
+  },
+  {
+   "id": "heal-6929-whitestain",
+   "photo": "6929",
+   "variants": [
+    {
+     "label": "none",
+     "recipe": {}
+    },
+    {
+     "label": "heal",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "heal",
+        "x": 0.85,
+        "y": 0.87,
+        "sourceX": 0.8,
+        "sourceY": 0.87,
+        "radius": 0.01,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    },
+    {
+     "label": "heal-f0",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "heal",
+        "x": 0.85,
+        "y": 0.87,
+        "sourceX": 0.8,
+        "sourceY": 0.87,
+        "radius": 0.01,
+        "feather": 0,
+        "opacity": 100
+       }
+      ]
+     }
+    },
+    {
+     "label": "clone",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "clone",
+        "x": 0.85,
+        "y": 0.87,
+        "sourceX": 0.8,
+        "sourceY": 0.87,
+        "radius": 0.01,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    }
+   ],
+   "crop": [
+    0.78,
+    0.8025,
+    0.09,
+    0.1349
+   ],
+   "paths": [
+    "export",
+    "settled"
+   ]
+  },
+  {
+   "id": "heal-6929-border",
+   "photo": "6929",
+   "variants": [
+    {
+     "label": "none",
+     "recipe": {}
+    },
+    {
+     "label": "heal",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "heal",
+        "x": 0.995,
+        "y": 0.487,
+        "sourceX": 0.95,
+        "sourceY": 0.487,
+        "radius": 0.01,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    },
+    {
+     "label": "heal-f0",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "heal",
+        "x": 0.995,
+        "y": 0.487,
+        "sourceX": 0.95,
+        "sourceY": 0.487,
+        "radius": 0.01,
+        "feather": 0,
+        "opacity": 100
+       }
+      ]
+     }
+    },
+    {
+     "label": "clone",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "clone",
+        "x": 0.995,
+        "y": 0.487,
+        "sourceX": 0.95,
+        "sourceY": 0.487,
+        "radius": 0.01,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    }
+   ],
+   "crop": [
+    0.91,
+    0.4195,
+    0.09,
+    0.1349
+   ],
+   "paths": [
+    "export",
+    "settled"
+   ]
+  },
+  {
+   "id": "heal-all-5812",
+   "photo": "5812",
+   "longEdge": 1536,
+   "variants": [
+    {
+     "label": "none",
+     "recipe": {}
+    },
+    {
+     "label": "heal-all",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "heal",
+        "x": 0.496,
+        "y": 0.344,
+        "sourceX": 0.47,
+        "sourceY": 0.3,
+        "radius": 0.003,
+        "feather": 50,
+        "opacity": 100
+       },
+       {
+        "id": "s1",
+        "mode": "heal",
+        "x": 0.5,
+        "y": 0.687,
+        "sourceX": 0.5,
+        "sourceY": 0.72,
+        "radius": 0.012,
+        "feather": 50,
+        "opacity": 100
+       },
+       {
+        "id": "s2",
+        "mode": "heal",
+        "x": 0.15,
+        "y": 0.15,
+        "sourceX": 0.15,
+        "sourceY": 0.22,
+        "radius": 0.02,
+        "feather": 50,
+        "opacity": 100
+       },
+       {
+        "id": "s3",
+        "mode": "heal",
+        "x": 0.315,
+        "y": 0.49,
+        "sourceX": 0.33,
+        "sourceY": 0.54,
+        "radius": 0.008,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    },
+    {
+     "label": "clone-all",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "clone",
+        "x": 0.496,
+        "y": 0.344,
+        "sourceX": 0.47,
+        "sourceY": 0.3,
+        "radius": 0.003,
+        "feather": 50,
+        "opacity": 100
+       },
+       {
+        "id": "s1",
+        "mode": "clone",
+        "x": 0.5,
+        "y": 0.687,
+        "sourceX": 0.5,
+        "sourceY": 0.72,
+        "radius": 0.012,
+        "feather": 50,
+        "opacity": 100
+       },
+       {
+        "id": "s2",
+        "mode": "clone",
+        "x": 0.15,
+        "y": 0.15,
+        "sourceX": 0.15,
+        "sourceY": 0.22,
+        "radius": 0.02,
+        "feather": 50,
+        "opacity": 100
+       },
+       {
+        "id": "s3",
+        "mode": "clone",
+        "x": 0.315,
+        "y": 0.49,
+        "sourceX": 0.33,
+        "sourceY": 0.54,
+        "radius": 0.008,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    }
+   ],
+   "compare": [
+    "settled",
+    "export"
+   ],
+   "paths": [
+    "export",
+    "settled"
+   ]
+  },
+  {
+   "id": "heal-5812-eyedot",
+   "photo": "5812",
+   "variants": [
+    {
+     "label": "none",
+     "recipe": {}
+    },
+    {
+     "label": "heal",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "heal",
+        "x": 0.496,
+        "y": 0.344,
+        "sourceX": 0.47,
+        "sourceY": 0.3,
+        "radius": 0.003,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    },
+    {
+     "label": "heal-f0",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "heal",
+        "x": 0.496,
+        "y": 0.344,
+        "sourceX": 0.47,
+        "sourceY": 0.3,
+        "radius": 0.003,
+        "feather": 0,
+        "opacity": 100
+       }
+      ]
+     }
+    },
+    {
+     "label": "clone",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "clone",
+        "x": 0.496,
+        "y": 0.344,
+        "sourceX": 0.47,
+        "sourceY": 0.3,
+        "radius": 0.003,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    }
+   ],
+   "crop": [
+    0.4628,
+    0.307,
+    0.0405,
+    0.03
+   ],
+   "paths": [
+    "export",
+    "settled"
+   ]
+  },
+  {
+   "id": "heal-5812-text",
+   "photo": "5812",
+   "variants": [
+    {
+     "label": "none",
+     "recipe": {}
+    },
+    {
+     "label": "heal",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "heal",
+        "x": 0.5,
+        "y": 0.687,
+        "sourceX": 0.5,
+        "sourceY": 0.72,
+        "radius": 0.012,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    },
+    {
+     "label": "heal-f0",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "heal",
+        "x": 0.5,
+        "y": 0.687,
+        "sourceX": 0.5,
+        "sourceY": 0.72,
+        "radius": 0.012,
+        "feather": 0,
+        "opacity": 100
+       }
+      ]
+     }
+    },
+    {
+     "label": "clone",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "clone",
+        "x": 0.5,
+        "y": 0.687,
+        "sourceX": 0.5,
+        "sourceY": 0.72,
+        "radius": 0.012,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    }
+   ],
+   "crop": [
+    0.419,
+    0.6495,
+    0.1619,
+    0.108
+   ],
+   "paths": [
+    "export",
+    "settled"
+   ]
+  },
+  {
+   "id": "heal-5812-bg",
+   "photo": "5812",
+   "variants": [
+    {
+     "label": "none",
+     "recipe": {}
+    },
+    {
+     "label": "heal",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "heal",
+        "x": 0.15,
+        "y": 0.15,
+        "sourceX": 0.15,
+        "sourceY": 0.22,
+        "radius": 0.02,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    },
+    {
+     "label": "heal-f0",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "heal",
+        "x": 0.15,
+        "y": 0.15,
+        "sourceX": 0.15,
+        "sourceY": 0.22,
+        "radius": 0.02,
+        "feather": 0,
+        "opacity": 100
+       }
+      ]
+     }
+    },
+    {
+     "label": "clone",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "clone",
+        "x": 0.15,
+        "y": 0.15,
+        "sourceX": 0.15,
+        "sourceY": 0.22,
+        "radius": 0.02,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    }
+   ],
+   "crop": [
+    0.0151,
+    0.095,
+    0.2699,
+    0.18
+   ],
+   "paths": [
+    "export",
+    "settled"
+   ]
+  },
+  {
+   "id": "heal-5812-scuff",
+   "photo": "5812",
+   "variants": [
+    {
+     "label": "none",
+     "recipe": {}
+    },
+    {
+     "label": "heal",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "heal",
+        "x": 0.315,
+        "y": 0.49,
+        "sourceX": 0.33,
+        "sourceY": 0.54,
+        "radius": 0.008,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    },
+    {
+     "label": "heal-f0",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "heal",
+        "x": 0.315,
+        "y": 0.49,
+        "sourceX": 0.33,
+        "sourceY": 0.54,
+        "radius": 0.008,
+        "feather": 0,
+        "opacity": 100
+       }
+      ]
+     }
+    },
+    {
+     "label": "clone",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "clone",
+        "x": 0.315,
+        "y": 0.49,
+        "sourceX": 0.33,
+        "sourceY": 0.54,
+        "radius": 0.008,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    }
+   ],
+   "crop": [
+    0.2685,
+    0.479,
+    0.1079,
+    0.072
+   ],
+   "paths": [
+    "export",
+    "settled"
+   ]
+  },
+  {
+   "id": "heal-all-1346",
+   "photo": "1346",
+   "longEdge": 1536,
+   "variants": [
+    {
+     "label": "none",
+     "recipe": {}
+    },
+    {
+     "label": "heal-all",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "heal",
+        "x": 0.651,
+        "y": 0.4535,
+        "sourceX": 0.651,
+        "sourceY": 0.42,
+        "radius": 0.008,
+        "feather": 50,
+        "opacity": 100
+       },
+       {
+        "id": "s1",
+        "mode": "heal",
+        "x": 0.875,
+        "y": 0.435,
+        "sourceX": 0.92,
+        "sourceY": 0.435,
+        "radius": 0.01,
+        "feather": 50,
+        "opacity": 100
+       },
+       {
+        "id": "s2",
+        "mode": "heal",
+        "x": 0.582,
+        "y": 0.266,
+        "sourceX": 0.582,
+        "sourceY": 0.33,
+        "radius": 0.01,
+        "feather": 50,
+        "opacity": 100
+       },
+       {
+        "id": "s3",
+        "mode": "heal",
+        "x": 0.1,
+        "y": 0.3,
+        "sourceX": 0.1,
+        "sourceY": 0.4,
+        "radius": 0.02,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    },
+    {
+     "label": "clone-all",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "clone",
+        "x": 0.651,
+        "y": 0.4535,
+        "sourceX": 0.651,
+        "sourceY": 0.42,
+        "radius": 0.008,
+        "feather": 50,
+        "opacity": 100
+       },
+       {
+        "id": "s1",
+        "mode": "clone",
+        "x": 0.875,
+        "y": 0.435,
+        "sourceX": 0.92,
+        "sourceY": 0.435,
+        "radius": 0.01,
+        "feather": 50,
+        "opacity": 100
+       },
+       {
+        "id": "s2",
+        "mode": "clone",
+        "x": 0.582,
+        "y": 0.266,
+        "sourceX": 0.582,
+        "sourceY": 0.33,
+        "radius": 0.01,
+        "feather": 50,
+        "opacity": 100
+       },
+       {
+        "id": "s3",
+        "mode": "clone",
+        "x": 0.1,
+        "y": 0.3,
+        "sourceX": 0.1,
+        "sourceY": 0.4,
+        "radius": 0.02,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    }
+   ],
+   "compare": [
+    "settled",
+    "export"
+   ],
+   "paths": [
+    "export",
+    "settled"
+   ]
+  },
+  {
+   "id": "heal-1346-plus",
+   "photo": "1346",
+   "variants": [
+    {
+     "label": "none",
+     "recipe": {}
+    },
+    {
+     "label": "heal",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "heal",
+        "x": 0.651,
+        "y": 0.4535,
+        "sourceX": 0.651,
+        "sourceY": 0.42,
+        "radius": 0.008,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    },
+    {
+     "label": "heal-f0",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "heal",
+        "x": 0.651,
+        "y": 0.4535,
+        "sourceX": 0.651,
+        "sourceY": 0.42,
+        "radius": 0.008,
+        "feather": 0,
+        "opacity": 100
+       }
+      ]
+     }
+    },
+    {
+     "label": "clone",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "clone",
+        "x": 0.651,
+        "y": 0.4535,
+        "sourceX": 0.651,
+        "sourceY": 0.42,
+        "radius": 0.008,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    }
+   ],
+   "crop": [
+    0.615,
+    0.3828,
+    0.072,
+    0.1079
+   ],
+   "paths": [
+    "export",
+    "settled"
+   ]
+  },
+  {
+   "id": "heal-1346-foam",
+   "photo": "1346",
+   "variants": [
+    {
+     "label": "none",
+     "recipe": {}
+    },
+    {
+     "label": "heal",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "heal",
+        "x": 0.875,
+        "y": 0.435,
+        "sourceX": 0.92,
+        "sourceY": 0.435,
+        "radius": 0.01,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    },
+    {
+     "label": "heal-f0",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "heal",
+        "x": 0.875,
+        "y": 0.435,
+        "sourceX": 0.92,
+        "sourceY": 0.435,
+        "radius": 0.01,
+        "feather": 0,
+        "opacity": 100
+       }
+      ]
+     }
+    },
+    {
+     "label": "clone",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "clone",
+        "x": 0.875,
+        "y": 0.435,
+        "sourceX": 0.92,
+        "sourceY": 0.435,
+        "radius": 0.01,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    }
+   ],
+   "crop": [
+    0.8525,
+    0.3675,
+    0.09,
+    0.1349
+   ],
+   "paths": [
+    "export",
+    "settled"
+   ]
+  },
+  {
+   "id": "heal-1346-patchedge",
+   "photo": "1346",
+   "variants": [
+    {
+     "label": "none",
+     "recipe": {}
+    },
+    {
+     "label": "heal",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "heal",
+        "x": 0.582,
+        "y": 0.266,
+        "sourceX": 0.582,
+        "sourceY": 0.33,
+        "radius": 0.01,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    },
+    {
+     "label": "heal-f0",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "heal",
+        "x": 0.582,
+        "y": 0.266,
+        "sourceX": 0.582,
+        "sourceY": 0.33,
+        "radius": 0.01,
+        "feather": 0,
+        "opacity": 100
+       }
+      ]
+     }
+    },
+    {
+     "label": "clone",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "clone",
+        "x": 0.582,
+        "y": 0.266,
+        "sourceX": 0.582,
+        "sourceY": 0.33,
+        "radius": 0.01,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    }
+   ],
+   "crop": [
+    0.537,
+    0.2305,
+    0.09,
+    0.1349
+   ],
+   "paths": [
+    "export",
+    "settled"
+   ]
+  },
+  {
+   "id": "heal-1346-bgsoft",
+   "photo": "1346",
+   "variants": [
+    {
+     "label": "none",
+     "recipe": {}
+    },
+    {
+     "label": "heal",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "heal",
+        "x": 0.1,
+        "y": 0.3,
+        "sourceX": 0.1,
+        "sourceY": 0.4,
+        "radius": 0.02,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    },
+    {
+     "label": "heal-f0",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "heal",
+        "x": 0.1,
+        "y": 0.3,
+        "sourceX": 0.1,
+        "sourceY": 0.4,
+        "radius": 0.02,
+        "feather": 0,
+        "opacity": 100
+       }
+      ]
+     }
+    },
+    {
+     "label": "clone",
+     "recipe": {
+      "develop.heal.spots": [
+       {
+        "id": "s0",
+        "mode": "clone",
+        "x": 0.1,
+        "y": 0.3,
+        "sourceX": 0.1,
+        "sourceY": 0.4,
+        "radius": 0.02,
+        "feather": 50,
+        "opacity": 100
+       }
+      ]
+     }
+    }
+   ],
+   "crop": [
+    0.01,
+    0.2151,
+    0.18,
+    0.2699
+   ],
+   "paths": [
+    "export",
+    "settled"
+   ]
+  }
+ ]
+}
