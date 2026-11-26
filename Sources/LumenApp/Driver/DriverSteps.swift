@@ -61,7 +61,8 @@ enum DriverPacer {
                     // the gesture keeps its length; but never closer than half the
                     // intended gap (20 ms at most), so a click's press and release
                     // cannot collapse into one instant.
-                    let floorGap = UInt64(Swift.min((tick.at - previousDue) * 0.5, 0.02) * 1e9)
+                    let floorGap = UInt64(Swift.max(Swift.min((tick.at - previousDue) * 0.5,
+                                                              0.02), 0) * 1e9)
                     let scheduled = start &+ UInt64(tick.at * 1e9)
                     let due = Swift.max(scheduled, lastFired &+ floorGap)
                     var now = DispatchTime.now().uptimeNanoseconds
@@ -314,8 +315,9 @@ extension DriverSession {
                     && target.midY < container.minY + container.height * 0.7
                 if inView || (stuck >= 2 && container.contains(CGPoint(x: target.midX,
                                                                         y: target.midY))) {
-                    await sleep(0.2)
-                    return ["scrolls": attempt, "frame": DriverJSON.rect(target)]
+                    await sleep(0.4)
+                    let settled = (try? await settledFrame(step.raw["target"])) ?? target
+                    return ["scrolls": attempt, "frame": DriverJSON.rect(settled)]
                 }
                 stuck = target == previous ? stuck + 1 : 0
                 if stuck >= 4 { break }
@@ -341,12 +343,18 @@ extension DriverSession {
         // Only anchors are cheap enough to watch; a point is a point, and OCR and the
         // accessibility tree are too slow to repeat.
         guard lastTarget["source"] as? String == "anchor" else { return frame }
-        for _ in 0..<25 {
-            await sleep(0.06)
+        // Three equal reads 0.08 s apart: a scroll view coasting after a wheel step moves
+        // its rows in small steps, and two reads can agree while it still moves.
+        var stable = 0
+        for _ in 0..<40 {
+            await sleep(0.08)
             let again = try await resolveFrame(target)
             if abs(again.minX - frame.minX) < 0.5, abs(again.minY - frame.minY) < 0.5,
                abs(again.width - frame.width) < 0.5, abs(again.height - frame.height) < 0.5 {
-                return again
+                stable += 1
+                if stable >= 2 { return again }
+            } else {
+                stable = 0
             }
             frame = again
         }
@@ -575,12 +583,14 @@ extension DriverSession {
                 throw DriverError("key needs a known key name")
             }
             let count = Swift.max(step.int("count") ?? 1, 1)
-            let interval = step.double("interval") ?? 0.08
+            let interval = Swift.max(step.double("interval") ?? 0.08, 0.002)
+            // Released before the next press, however short the interval.
+            let pressFor = Swift.min(0.03, interval / 2)
             for k in 0..<count {
                 ticks.append(DriverTick(at: Double(k) * interval) {
                     input.key(name, down: true)
                 })
-                ticks.append(DriverTick(at: Double(k) * interval + 0.03) {
+                ticks.append(DriverTick(at: Double(k) * interval + pressFor) {
                     input.key(name, down: false)
                 })
             }
