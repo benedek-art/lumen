@@ -2804,7 +2804,36 @@ public final class PipelineRenderer {
         filter.aspectRatio = 1
         guard let out = filter.outputImage else { return image }
         let target = image.extent.applying(CGAffineTransform(scaleX: scale, y: scale))
-        return out.cropped(to: target)
+        guard scale < 1, let floor = ringingFloor(image, scale: scale),
+              let lifted = CIFilter(name: "CIMaximumCompositing",
+                                    parameters: [kCIInputImageKey: out,
+                                                 kCIInputBackgroundImageKey: floor])?
+                .outputImage
+        else { return out.cropped(to: target) }
+        return lifted.cropped(to: target)
+    }
+
+    /// A per-channel lower bound for a downscale: the darkest source value under each
+    /// output pixel's footprint, resampled with a non-negative kernel.
+    ///
+    /// Lanczos's negative lobes undershoot on the dark side of every high-contrast
+    /// edge, and in linear light a dark pixel beside a bright one undershoots past
+    /// zero and is delivered as black: 0.28% of a 1536 px export of corpus 6929 at
+    /// neutral, more with any sharpening. Clamping the result to this floor removes
+    /// only undershoot below the darkest pixel the footprint saw.
+    static func ringingFloor(_ image: CIImage, scale: CGFloat) -> CIImage? {
+        let reach = Int((2 / scale).rounded(.up))
+        let minimum = CIFilter.morphologyRectangleMinimum()
+        minimum.inputImage = image.clampedToExtent()
+        minimum.width = Float(2 * reach + 1)
+        minimum.height = Float(2 * reach + 1)
+        let resample = CIFilter.bicubicScaleTransform()
+        resample.inputImage = minimum.outputImage?.cropped(to: image.extent).clampedToExtent()
+        resample.scale = Float(scale)
+        resample.aspectRatio = 1
+        resample.parameterB = 1
+        resample.parameterC = 0
+        return resample.outputImage
     }
 
     // MARK: - Output sharpening
