@@ -1,0 +1,345 @@
+{
+ "suite": "",
+ "scenarios": [
+  {
+   "name": "gridopen",
+   "fixture": "raw",
+   "stallSampleMs": 40,
+   "timeoutSeconds": 400,
+   "description": "select in the grid, pause, open the loupe: time to the sharp frame",
+   "steps": [
+    {
+     "do": "open",
+     "index": 0,
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 60
+    },
+    {
+     "do": "key",
+     "key": "g",
+     "count": 1,
+     "interval": 0.04
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 1,
+     "interval": 0.04
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "key",
+     "key": "e",
+     "count": 1,
+     "interval": 0.04,
+     "id": "open0",
+     "settle": 40
+    },
+    {
+     "do": "state",
+     "name": "open0"
+    },
+    {
+     "do": "expect",
+     "that": "app.scopes",
+     "note": "open 0: the histogram is filled in the loupe",
+     "exists": true
+    },
+    {
+     "do": "key",
+     "key": "g",
+     "count": 1,
+     "interval": 0.04
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 1,
+     "interval": 0.04
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "key",
+     "key": "e",
+     "count": 1,
+     "interval": 0.04,
+     "id": "open1",
+     "settle": 40
+    },
+    {
+     "do": "state",
+     "name": "open1"
+    },
+    {
+     "do": "expect",
+     "that": "app.scopes",
+     "note": "open 1: the histogram is filled in the loupe",
+     "exists": true
+    },
+    {
+     "do": "key",
+     "key": "g",
+     "count": 1,
+     "interval": 0.04
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 1,
+     "interval": 0.04
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "key",
+     "key": "e",
+     "count": 1,
+     "interval": 0.04,
+     "id": "open2",
+     "settle": 40
+    },
+    {
+     "do": "state",
+     "name": "open2"
+    },
+    {
+     "do": "expect",
+     "that": "app.scopes",
+     "note": "open 2: the histogram is filled in the loupe",
+     "exists": true
+    },
+    {
+     "do": "key",
+     "key": "g",
+     "count": 1,
+     "interval": 0.04
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    }
+   ]
+  },
+  {
+   "name": "comparehist",
+   "fixture": "raw",
+   "stallSampleMs": 40,
+   "timeoutSeconds": 300,
+   "description": "two frames selected in the grid, C: the develop column's histogram fills",
+   "steps": [
+    {
+     "do": "open",
+     "index": 0,
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 60
+    },
+    {
+     "do": "key",
+     "key": "g",
+     "count": 1,
+     "interval": 0.04
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 1,
+     "interval": 0.04,
+     "modifiers": [
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "app.selection.count",
+     "note": "two selected",
+     "eq": 2
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "count": 1,
+     "interval": 0.04
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "waitFor",
+     "that": "app.scopes",
+     "exists": true,
+     "timeout": 20,
+     "note": "compare shows a histogram for the cursor"
+    },
+    {
+     "do": "shot",
+     "name": "compare"
+    },
+    {
+     "do": "state",
+     "name": "compare"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 1,
+     "interval": 0.04
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "waitFor",
+     "that": "app.scopes",
+     "exists": true,
+     "timeout": 20,
+     "note": "moving the cursor in compare still fills the histogram"
+    }
+   ]
+  },
+  {
+   "name": "exportsheet",
+   "fixture": "raw",
+   "stallSampleMs": 6,
+   "timeoutSeconds": 300,
+   "description": "export sheet open: selection changes and typing must not read originals on the main thread",
+   "steps": [
+    {
+     "do": "open",
+     "index": 0,
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 60
+    },
+    {
+     "do": "menu",
+     "path": "Export > Export\u2026"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "mark",
+     "name": "sheet-open"
+    },
+    {
+     "do": "direct",
+     "call": "selectNext"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "direct",
+     "call": "selectNext"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "direct",
+     "call": "selectPrevious"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "direct",
+     "call": "selectNext"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "direct",
+     "call": "selectNext"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "direct",
+     "call": "selectPrevious"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "key",
+     "key": "tab",
+     "count": 1,
+     "interval": 0.04
+    },
+    {
+     "do": "type",
+     "text": "abcdefghij",
+     "interval": 0.06,
+     "id": "typing"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "mark",
+     "name": "done"
+    },
+    {
+     "do": "state",
+     "name": "end"
+    }
+   ]
+  }
+ ],
+ "ref": "claude/loving-cray-d58nrb-integration",
+ "config": "release",
+ "strict": false,
+ "note": "robustness baseline: grid open latency, compare histogram, export sheet"
+}
