@@ -19,6 +19,24 @@ final class ContinuousZoomTests: XCTestCase {
                                                          renderCap: 4096), 4096)
     }
 
+    func testTheZoomedAskIsOnePixelPerDevicePixel() {
+        // At and above 1:1 the full ask.
+        XCTAssertEqual(ContinuousZoom.zoomedAskLongEdge(fullLongEdge: 6000, zoom: 1), 6000)
+        XCTAssertEqual(ContinuousZoom.zoomedAskLongEdge(fullLongEdge: 6000, zoom: 4), 6000)
+        // Below it, what the panel draws, bucketed up.
+        XCTAssertEqual(ContinuousZoom.zoomedAskLongEdge(fullLongEdge: 6000, zoom: 0.25), 1536)
+        XCTAssertEqual(ContinuousZoom.zoomedAskLongEdge(fullLongEdge: 6000, zoom: 0.26), 1792)
+        XCTAssertEqual(ContinuousZoom.zoomedAskLongEdge(fullLongEdge: 6000, zoom: 0.99), 6000)
+        for zoom in stride(from: 0.05, to: 1.0, by: 0.01) {
+            let ask = ContinuousZoom.zoomedAskLongEdge(fullLongEdge: 7008, zoom: zoom)
+            XCTAssertGreaterThanOrEqual(Double(ask), zoom * 7008)
+            XCTAssertLessThanOrEqual(ask, 7008)
+        }
+        // Nonsense zooms leave the full ask alone.
+        XCTAssertEqual(ContinuousZoom.zoomedAskLongEdge(fullLongEdge: 6000, zoom: 0), 6000)
+        XCTAssertEqual(ContinuousZoom.zoomedAskLongEdge(fullLongEdge: 6000, zoom: .nan), 6000)
+    }
+
     /// Wide enough to catch a release a hair above fit, narrow enough that the
     /// correction at release is not a visible change of size.
     func testTheEndOfGestureSnapIsSmall() {
