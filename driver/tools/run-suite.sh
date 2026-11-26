@@ -129,6 +129,9 @@ for scenario in "${scenarios[@]}"; do
     continue
   fi
 
+  # Every scenario starts from the app's defaults, not from what the last one saved.
+  defaults delete dev.lumenapp.lumen.driver > /dev/null 2>&1 || true
+
   echo "::group::$name"
   started=$(date +%s)
   touch "$out/.started"
