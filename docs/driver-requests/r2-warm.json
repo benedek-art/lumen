@@ -1,0 +1,8 @@
+{
+ "suite": "repro-slider-drag.json repro-slider-wb-mixer.json",
+ "scenarios": [],
+ "ref": "",
+ "config": "release",
+ "strict": false,
+ "note": ""
+}
