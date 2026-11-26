@@ -1,0 +1,514 @@
+<title>Lumen Run 1 Report</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a darkroom report. One reading column with a sticky section index on wide screens; a zone strip (Zone 0 to X) as the masthead. */
+:root {
+  --bg: #f3f4f6;
+  --surface: #ffffff;
+  --sunk: #e9ecf0;
+  --fg: #14171b;
+  --muted: #59626e;
+  --line: #dbe0e6;
+  --accent: #2b59c3;
+  --accent-soft: #e4ebfa;
+  --ok: #1d7f47;
+  --ok-soft: #e0f2e8;
+  --warn: #9a6512;
+  --warn-soft: #fbefd9;
+  --bad: #b8352a;
+  --bad-soft: #fbe3e0;
+  --idle: #6b7380;
+  --idle-soft: #eceef1;
+  --font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1215; --surface: #171b20; --sunk: #1e232a; --fg: #e7eaee; --muted: #9aa3ae; --line: #2a3038;
+    --accent: #7ea3ff; --accent-soft: #1c2641; --ok: #53c487; --ok-soft: #14301f; --warn: #e4b14d; --warn-soft: #33270f;
+    --bad: #ff8172; --bad-soft: #3a1915; --idle: #9aa3ae; --idle-soft: #22272e; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1215; --surface: #171b20; --sunk: #1e232a; --fg: #e7eaee; --muted: #9aa3ae; --line: #2a3038;
+  --accent: #7ea3ff; --accent-soft: #1c2641; --ok: #53c487; --ok-soft: #14301f; --warn: #e4b14d; --warn-soft: #33270f;
+  --bad: #ff8172; --bad-soft: #3a1915; --idle: #9aa3ae; --idle-soft: #22272e; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.6; }
+a { color: var(--accent); text-underline-offset: 2px; }
+a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+code, .mono { font-family: var(--font-mono); font-size: 0.86em; }
+code { background: var(--sunk); padding: 0.1em 0.35em; border-radius: 4px; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; line-height: 1.2; margin: 0; }
+h1 { font-size: clamp(1.9rem, 4.5vw, 2.7rem); font-weight: 700; letter-spacing: -0.015em; }
+h2 { font-size: 1.45rem; font-weight: 600; }
+h3 { font-size: 1.05rem; font-weight: 600; }
+p { margin: 0; }
+
+.zone-strip { display: grid; grid-template-columns: repeat(11, 1fr); height: 14px; }
+.zone-strip span:nth-child(1) { background: #0b0b0b; } .zone-strip span:nth-child(2) { background: #1c1c1c; }
+.zone-strip span:nth-child(3) { background: #303030; } .zone-strip span:nth-child(4) { background: #464646; }
+.zone-strip span:nth-child(5) { background: #5e5e5e; } .zone-strip span:nth-child(6) { background: #767676; }
+.zone-strip span:nth-child(7) { background: #919191; } .zone-strip span:nth-child(8) { background: #acacac; }
+.zone-strip span:nth-child(9) { background: #c8c8c8; } .zone-strip span:nth-child(10) { background: #e3e3e3; }
+.zone-strip span:nth-child(11) { background: #fafafa; }
+
+.wrap { max-width: 1180px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+header.mast { padding-block: 2.2rem 1.6rem; display: grid; gap: 0.9rem; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.lede { max-width: 68ch; color: var(--muted); font-size: 1.02rem; }
+.status-row { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; }
+.pill { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.22rem 0.6rem; border-radius: 999px; font-size: 0.8rem; font-weight: 500; white-space: nowrap; }
+.pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.bad { background: var(--bad-soft); color: var(--bad); }
+.pill.idle { background: var(--idle-soft); color: var(--idle); }
+.pill.info { background: var(--accent-soft); color: var(--accent); }
+
+.layout { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 2.5rem; padding-block: 0.5rem 4rem; }
+nav.toc { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 1rem); align-self: start; display: grid; gap: 0.15rem; font-size: 0.86rem; }
+nav.toc a { color: var(--muted); text-decoration: none; padding: 0.25rem 0.5rem; border-radius: 6px; border-left: 2px solid transparent; }
+nav.toc a:hover { color: var(--fg); background: var(--sunk); }
+main { display: grid; gap: 3.2rem; min-width: 0; }
+section { display: grid; gap: 1.1rem; min-width: 0; scroll-margin-top: 1rem; }
+.sec-head { display: grid; gap: 0.3rem; border-top: 1px solid var(--line); padding-top: 1.2rem; }
+.sec-head p { color: var(--muted); max-width: 70ch; }
+
+.callout { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1.1rem 1.2rem; display: grid; gap: 0.6rem; }
+.callout.primary { border-color: var(--accent); background: var(--accent-soft); }
+.callout ol, .callout ul { margin: 0; padding-left: 1.2rem; display: grid; gap: 0.3rem; }
+
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.8rem; }
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 0.9rem 1rem; display: grid; gap: 0.15rem; }
+.stat b { font-family: var(--font-display); font-size: 1.8rem; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.stat span { color: var(--muted); font-size: 0.85rem; }
+
+.complaints { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0.8rem; }
+.complaint { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; display: grid; gap: 0.5rem; align-content: start; }
+.complaint q { font-style: italic; color: var(--muted); quotes: "\201C" "\201D"; }
+
+.tbl-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+th, td { text-align: left; padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); background: var(--sunk); white-space: nowrap; }
+tr:last-child td { border-bottom: none; }
+td.num, td .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 0.84rem; white-space: nowrap; }
+td.before { color: var(--bad); }
+td.after { color: var(--ok); }
+
+.areas { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 0.5rem; }
+.area { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--idle); border-radius: 8px; padding: 0.55rem 0.7rem; display: grid; gap: 0.15rem; font-size: 0.86rem; }
+.area .n { font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted); }
+.area.fixed { border-left-color: var(--ok); }
+.area.open { border-left-color: var(--warn); }
+.area.partial { border-left-color: var(--idle); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.6rem; font-size: 0.82rem; color: var(--muted); }
+
+.findings { display: grid; gap: 0.6rem; counter-reset: f; }
+.finding { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 0.8rem 1rem; display: grid; grid-template-columns: 2.2rem minmax(0, 1fr); gap: 0.2rem 0.6rem; }
+.finding::before { counter-increment: f; content: counter(f); grid-row: span 2; font-family: var(--font-display); font-weight: 600; font-size: 1.15rem; color: var(--muted); }
+.finding h3 { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.finding p { color: var(--muted); font-size: 0.9rem; }
+
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.8rem; }
+.list { margin: 0; padding-left: 1.15rem; display: grid; gap: 0.45rem; }
+.list li::marker { color: var(--muted); }
+.warnbox { background: var(--warn-soft); border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent); border-radius: 10px; padding: 1rem 1.1rem; display: grid; gap: 0.5rem; }
+.warnbox h3 { color: var(--warn); }
+pre.prompt { background: var(--sunk); border: 1px solid var(--line); border-radius: 8px; padding: 0.9rem 1rem; white-space: pre-wrap; font-family: var(--font-mono); font-size: 0.82rem; margin: 0; }
+.copy { justify-self: start; font: inherit; font-size: 0.85rem; padding: 0.35rem 0.8rem; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); cursor: pointer; }
+.copy:hover { border-color: var(--accent); }
+footer { color: var(--muted); font-size: 0.82rem; padding-block: 1rem 3rem; border-top: 1px solid var(--line); }
+
+@media (max-width: 860px) {
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; }
+  nav.toc { position: static; display: flex; flex-wrap: wrap; gap: 0.3rem; }
+  nav.toc a { background: var(--surface); border: 1px solid var(--line); }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+html { scroll-behavior: smooth; }
+</style>
+
+<div class="zone-strip" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+
+<div class="wrap">
+  <header class="mast">
+    <div class="eyebrow">Lumen · Agent test-and-fix run 1 · 25–26 Nov 2026</div>
+    <h1>Where Lumen stands after the first run</h1>
+    <p class="lede">What we set out to do, what got fixed and proven, what went wrong, what you should see when you open the build, and what's left. Every "fixed" below has a real app run or a test that failed before and passes after. Anything argued from code alone is marked as unproven.</p>
+    <div class="status-row">
+      <span class="pill ok">Build ready · CI green on f7729130</span>
+      <span class="pill info">PR #34 open (draft) into main</span>
+      <span class="pill warn">10 fix branches built, not merged</span>
+    </div>
+  </header>
+</div>
+
+<div class="wrap layout">
+  <nav class="toc" aria-label="Sections">
+    <a href="#now">Open the build</a>
+    <a href="#glance">At a glance</a>
+    <a href="#asks">Your four problems</a>
+    <a href="#see">What you should see</a>
+    <a href="#avoid">Avoid for now</a>
+    <a href="#fixed">What got fixed</a>
+    <a href="#coverage">Coverage, 30 areas</a>
+    <a href="#open">Open findings</a>
+    <a href="#unmerged">Built, not merged</a>
+    <a href="#decide">Your decisions</a>
+    <a href="#wrong">What went wrong</a>
+    <a href="#better">How we improved</a>
+    <a href="#next">Next run</a>
+  </nav>
+
+  <main>
+    <section id="now">
+      <div class="callout primary">
+        <h2>Open the build</h2>
+        <ol>
+          <li>Open <a href="https://github.com/benedek-art/lumen/actions/runs/45767804682" target="_blank" rel="noopener">CI run 45767804682</a> (commit <code>f7729130</code>).</li>
+          <li>Scroll to <b>Artifacts</b> at the bottom and download <b>app-bundle</b>.</li>
+          <li>Unzip it and open <code>Lumen.app</code>.</li>
+        </ol>
+        <p>Every check on that commit passed: macOS build, the full Mac test suite (about 3,800 tests), the app bundle, Linux engine tests, fixture and code checks, UI layout. GPU parity and the proof sweep passed on the previous commit, which has the same app code. The changes go into <code>main</code> when you merge <a href="https://github.com/benedek-art/lumen/pull/34" target="_blank" rel="noopener">PR #34</a>.</p>
+      </div>
+    </section>
+
+    <section id="glance">
+      <div class="sec-head">
+        <h2>At a glance</h2>
+        <p>About 11 hours of wall time, from the first agent to green CI. Opus did the fixing and testing; Fable ran the harness, the first fixers and the orchestration until you switched it off.</p>
+      </div>
+      <div class="stats">
+        <div class="stat"><b>~35</b><span>agents (about 4 Fable, the rest Opus)</span></div>
+        <div class="stat"><b>13</b><span>fix areas merged with proof</span></div>
+        <div class="stat"><b>10</b><span>fix branches built but not merged</span></div>
+        <div class="stat"><b>30 / 30</b><span>app areas touched by a tester or fixer</span></div>
+        <div class="stat"><b>~110</b><span>findings written up, ranked, saved in the repo</span></div>
+        <div class="stat"><b>0 → 1</b><span>times the real-RAW lane has ever passed</span></div>
+      </div>
+    </section>
+
+    <section id="asks">
+      <div class="sec-head">
+        <h2>Your four problems</h2>
+        <p>What you asked for at the start, and where each one ended.</p>
+      </div>
+      <div class="complaints">
+        <div class="complaint">
+          <span class="pill ok">Fixed and proven</span>
+          <h3>Trackpad zoom</h3>
+          <q>zoom in when i pinch out and stay where it is… pan off screen if needed</q>
+          <p>Pinch zooms about the point under your fingers, stays put when you lift them, compounds on the next pinch, and the picture can be pushed past the edges until a quarter of the pane is still covered. No blank viewer, no freeze after a pinch, sharp 1:1.</p>
+        </div>
+        <div class="complaint">
+          <span class="pill ok">Fixed and proven</span>
+          <h3>Mask red overlay</h3>
+          <q>when i change something it no longer stays red unless i hover</q>
+          <p>Lightroom's rule: red while you create or reshape, gone the moment you adjust, back only while you hover the mask's row. <code>O</code> still has a bug (see open findings).</p>
+        </div>
+        <div class="complaint">
+          <span class="pill warn">Much better, not finished</span>
+          <h3>Sliders update while dragging</h3>
+          <q>it waits usually for me to finish dragging to show the change</q>
+          <p>The photo now updates during a drag on every slider tested. The first grab of each slider is still slow (up to about 280 ms); that fix is built but unproven.</p>
+        </div>
+        <div class="complaint">
+          <span class="pill warn">Tested everywhere, many fixes still to do</span>
+          <h3>Trust every control</h3>
+          <q>peace of mind that the sliders do their jobs and won't wonk out my pics</q>
+          <p>All 30 areas were tested. The good news and the bad news are both specific now: see what works, what to avoid, and the ranked findings below.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="see">
+      <div class="sec-head">
+        <h2>What you should see now</h2>
+        <p>Things that should feel different in this build. If one doesn't, that's a finding worth telling me.</p>
+      </div>
+      <div class="two">
+        <div class="callout">
+          <h3>Viewing and editing</h3>
+          <ul class="list">
+            <li>Pinch from fit: the photo grows smoothly from under your fingers, with no shrink-then-jump.</li>
+            <li>Lift your fingers: nothing moves, even when the sharp version arrives.</li>
+            <li>Double-click or <code>Z</code> to 1:1: one image pixel per screen pixel, sharp.</li>
+            <li>Drag Exposure, Saturation, Texture, Temp or a mixer slider: the photo follows your hand. Panels outside the dragged slider catch up just after you let go.</li>
+            <li>Film grain at any amount: no stripes, no repeating tile, and 100% matches the export.</li>
+          </ul>
+        </div>
+        <div class="callout">
+          <h3>Masks, files and cards</h3>
+          <ul class="list">
+            <li>Create a mask, then move one of its sliders: the red disappears and stays gone until you hover the row.</li>
+            <li>Mask edits with several photos selected only change the photo you're on.</li>
+            <li>Duplicate a mask as its inverse: no halo along the edge.</li>
+            <li>Rename a shoot folder in Finder: its edits, snapshots and albums come back with it.</li>
+            <li>Ingest a card with video on it: the sheet names what it won't copy and keeps Eject locked. The card itself can't be picked as the destination.</li>
+            <li>A Leica Monochrom or Fujifilm X-H2 RAW tells you why it won't open, instead of showing black or nothing.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="avoid">
+      <div class="warnbox">
+        <h3>Avoid these until the next run fixes them</h3>
+        <ul class="list">
+          <li><b>Culling in the grid right after opening a folder.</b> Keys can go into the "New album" field (one test created an album called "px3"). Cull from the loupe.</li>
+          <li><b>Culling with a filter on.</b> A hidden photo can still take the keys; a pick was lost this way.</li>
+          <li><b>Pressing <code>'</code> outside masking.</b> It inverts the selected photo's mask and changes its pixels.</li>
+          <li><b>The ⇧H raw-truth panel.</b> It overstates clipping 6 to 10× and called a recoverable Panasonic shot "not recoverable".</li>
+          <li><b>Colour film stocks on saturated subjects or darker skin.</b> They clip colours to a zero channel.</li>
+          <li><b>Compare's "1:1".</b> It isn't 1:1, and the two panes sit at different magnifications.</li>
+          <li><b>Formatting a card</b> until you've seen the new ingest sheet name every file it left behind.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="fixed">
+      <div class="sec-head">
+        <h2>What got fixed, with numbers</h2>
+        <p>Measured on hosted Mac runners (a 3-core VM with a virtual GPU, so trust the direction more than the exact milliseconds) or by tests on Linux. All merged into PR #34.</p>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Fix</th><th>Before</th><th>After</th><th>Cause found</th></tr></thead>
+          <tbody>
+            <tr><td>First pinch from fit</td><td class="num before">photo shrank to 0.18× mid-gesture</td><td class="num after">1.03× for a +0.03 pinch</td><td>Zoom was measured against a size the app wasn't drawing</td></tr>
+            <tr><td>Point under the cursor during a pinch</td><td class="num before">not measurable (viewer blank)</td><td class="num after">within 0.6 pt over 40 steps</td><td>Pan re-clamped on every zoom event</td></tr>
+            <tr><td>Viewer after zooming</td><td class="num before">mostly blank</td><td class="num after">picture in 32 of 32 captures</td><td>Any zoom above fit asked for the full 24–33 MP frame</td></tr>
+            <tr><td>Freeze when a pinch ends</td><td class="num before">1.9–3.0 s</td><td class="num after">0 ms</td><td>Same: committing huge frames on the main thread</td></tr>
+            <tr><td>Exposure drag, frames during 1.6 s</td><td class="num before">0</td><td class="num after">13–35</td><td>Every open panel rebuilt on every drag event</td></tr>
+            <tr><td>Exposure release to sharp</td><td class="num before">656 ms</td><td class="num after">30–46 ms</td><td>Same</td></tr>
+            <tr><td>Mask overlay checks passed</td><td class="num before">4 of 9</td><td class="num after">9 of 9</td><td>The code that ended "just created" was never called</td></tr>
+            <tr><td>Grain seams on flat grey (Tri-X +80)</td><td class="num before">19.3 code values</td><td class="num after">0.28, the noise floor</td><td>A small grain tile scaled to a fractional size on the GPU</td></tr>
+            <tr><td>Grain repeating as a tile</td><td class="num before">0.85–1.00 match at the tile period</td><td class="num after">0.05–0.08 (noise)</td><td>One tile repeated across the frame</td></tr>
+            <tr><td>Grain at 100%, viewer vs export</td><td class="num before">different pattern, 5.5→7.9 cv drift</td><td class="num after">same pattern, 0.97–0.99 correlation</td><td>Viewer and export grained different coordinates</td></tr>
+            <tr><td>Renamed shoot folder</td><td class="num before">every photo came back as new and empty</td><td class="num after">edits, snapshots and albums follow</td><td>The scan never treated a vanished folder as moved</td></tr>
+            <tr><td>Backup restore</td><td class="num before">could overwrite newer sidecars</td><td class="num after">restored catalog owes nothing</td><td>The backup carried a stale "unsaved" list</td></tr>
+            <tr><td>Real-RAW test lane</td><td class="num before">red on all 40 runs since Sept</td><td class="num after">green</td><td>Wrong patch measured on two files; Apple decoder limits on two</td></tr>
+            <tr><td>Ingest with video on the card</td><td class="num before">"every copy verified", Eject unlocked</td><td class="num after">files named, Eject locked</td><td>The scan kept photos only and told nobody</td></tr>
+            <tr><td>Held decision key at the last frame</td><td class="num before">Pick / unflagged by key-repeat parity</td><td class="num after">never flips</td><td>Repeat allowed when the cursor couldn't move on</td></tr>
+            <tr><td>Search for <code>_MG_</code></td><td class="num before">returned every <code>IMG_</code></td><td class="num after">literal match</td><td><code>_</code> and <code>%</code> were SQL wildcards</td></tr>
+            <tr><td>Duplicate mask as inverse, Edge +30</td><td class="num before">pair off by 0.095</td><td class="num after">sums to 1 within 1e-6</td><td>Invert ran before Refine</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="mono" style="color:var(--muted)">Also merged: heal spot sources stay inside the frame; brush end caps match at every zoom; collapsed bursts stay visible after rejecting their top; AZERTY ratings no longer auto-advance; two colour-space accuracy tests.</p>
+    </section>
+
+    <section id="coverage">
+      <div class="sec-head">
+        <h2>Coverage, all 30 areas</h2>
+        <p>Every area of the app map got a tester or fixer. Green means fixes landed; amber means tested with findings still open; grey means only partly tested because the test tool couldn't reach it yet.</p>
+      </div>
+      <div class="legend"><span class="pill ok">Fixes merged</span><span class="pill warn">Tested, findings open</span><span class="pill idle">Partly tested</span></div>
+      <div class="areas">
+        <div class="area fixed"><span class="n">01</span>Launch, open, housekeeping</div>
+        <div class="area fixed"><span class="n">02</span>Ingest from card</div>
+        <div class="area partial"><span class="n">03</span>Sources sidebar (catalog only)</div>
+        <div class="area open"><span class="n">04</span>Filter bar and sort</div>
+        <div class="area open"><span class="n">05</span>Grid and selection</div>
+        <div class="area fixed"><span class="n">06</span>Culling</div>
+        <div class="area fixed"><span class="n">07</span>Loupe, zoom and pan</div>
+        <div class="area open"><span class="n">08</span>Viewing aids</div>
+        <div class="area open"><span class="n">09</span>Compare, before/after</div>
+        <div class="area open"><span class="n">10</span>Workspaces and layout</div>
+        <div class="area fixed"><span class="n">11</span>Slider behaviour</div>
+        <div class="area open"><span class="n">12</span>White balance</div>
+        <div class="area open"><span class="n">13</span>Tone, zones, Auto</div>
+        <div class="area open"><span class="n">14</span>Curve</div>
+        <div class="area open"><span class="n">15</span>Presence, saturation</div>
+        <div class="area open"><span class="n">16</span>Detail, sharpening, NR</div>
+        <div class="area open"><span class="n">17</span>Colour mixer, point colour, B&amp;W</div>
+        <div class="area open"><span class="n">18</span>Grading</div>
+        <div class="area open"><span class="n">19</span>Looks, LUTs, display</div>
+        <div class="area fixed"><span class="n">20</span>Film Lab and effects</div>
+        <div class="area partial"><span class="n">21</span>Crop (rendered only)</div>
+        <div class="area fixed"><span class="n">22</span>Heal and clone</div>
+        <div class="area fixed"><span class="n">23</span>Masking: list and overlay</div>
+        <div class="area fixed"><span class="n">24</span>Masking: drawn components</div>
+        <div class="area open"><span class="n">25</span>Masking: range, AI, algebra</div>
+        <div class="area open"><span class="n">26</span>Masking: local adjustments</div>
+        <div class="area open"><span class="n">27</span>History, undo, snapshots</div>
+        <div class="area open"><span class="n">28</span>Copy/paste, presets</div>
+        <div class="area open"><span class="n">29</span>Histogram and scopes</div>
+        <div class="area partial"><span class="n">30</span>Export (files not yet checked)</div>
+      </div>
+    </section>
+
+    <section id="open">
+      <div class="sec-head">
+        <h2>Open findings, ranked by harm</h2>
+        <p>The top 15 of about 110. Each has a repro file and a run ID in <code>docs/agent-runs/findings/</code>. The next run starts at number 1.</p>
+      </div>
+      <div class="findings">
+        <div class="finding"><h3>Culling keys go to the wrong place <span class="pill bad">Blocker</span></h3><p>Keys type into "New album" at launch; a filter leaves a hidden photo as the target (a pick was lost); keys act with the filter popover open; ⌘K once missed focus and culled three photos.</p></div>
+        <div class="finding"><h3><code>'</code> outside masking inverts a mask <span class="pill bad">Blocker</span></h3><p>Proven in the app: the picture changed visibly. Fix written on the keymap branch, waiting on its re-run.</p></div>
+        <div class="finding"><h3>Exposure instruments mislead <span class="pill bad">Major</span></h3><p>⇧H treats 1.0 as sensor white and overstates clipping 6–10×; histogram and J count about half the blown area; <code>]</code> can't show highlight detail; J shows only all-channel clipping.</p></div>
+        <div class="finding"><h3>Colour film stocks clip and treat skin unevenly <span class="pill bad">Major</span></h3><p>15–26% of a colour chart clips to a zero channel; Portra pushes darker skin orange and lighter skin pale; Tri-X can't be toned.</p></div>
+        <div class="finding"><h3>Grading and colour controls misbehave <span class="pill bad">Major</span></h3><p>Shadows wheel only reaches near-black; Point Colour hue shifts spill onto other colours; B&amp;W bands at −100 go to black; wheels change brightness.</p></div>
+        <div class="finding"><h3>Tone controls <span class="pill bad">Major</span></h3><p>Zone sliders crush 1–3 stops into one grey; Tint goes blue/olive instead of magenta/green; Protect Skin misses golden and olive skin; Auto Tone wrecks dark photos. Fixes built, 10 tests still failing.</p></div>
+        <div class="finding"><h3>Heal can invent colours <span class="pill bad">Major</span></h3><p>A spot on a black card came out navy; edge spots tint; strokes at the edge bring scratches back. Clone is fine.</p></div>
+        <div class="finding"><h3>Ingest edge cases <span class="pill bad">Major</span></h3><p>Re-ingest after an in-camera delete copies frames again under new names; with renaming off, main copy and backup can hold different photos under one name.</p></div>
+        <div class="finding"><h3>Compare and before/after views <span class="pill bad">Major</span></h3><p>Compare's 1:1 is wrong and uneven; ⇧Y split at 1:1 is blank; side-by-side panes are off-centre.</p></div>
+        <div class="finding"><h3>Masking leftovers <span class="pill bad">Major</span></h3><p><code>O</code> never returns to Auto; People mask selected 44% of a photo with no person; a drag 33 pt from a gradient replaces it.</p></div>
+        <div class="finding"><h3>Denoise at fit and on Nikons <span class="pill warn">Major</span></h3><p>The fit view never runs Classic NR; Nikon noise is 1.6–2.1× what the model assumes; a D5600 night frame's shadows go magenta.</p></div>
+        <div class="finding"><h3>Viewer doesn't match export on some files <span class="pill warn">Major</span></h3><p>The A7 IV viewer is softer and hazier. Fix built (4.2 → 1.5 levels) but it slows first view per photo. Your call.</p></div>
+        <div class="finding"><h3>Export details <span class="pill warn">Medium</span></h3><p>8-bit Adobe RGB/ProPhoto band in shadows; lens serial leaks with serial off; TIFF/PNG may carry an alpha channel; one export toggle does nothing.</p></div>
+        <div class="finding"><h3>Lag when changing photos in Develop <span class="pill warn">Medium</span></h3><p>3 freezes of 95–360 ms per photo change; first drag of each slider compiles a GPU program.</p></div>
+        <div class="finding"><h3>Engine edge cases <span class="pill warn">Medium</span></h3><p>Out-of-gamut blues shift toward violet; grade table bands at narrow pivots; local curve above Amount 100 inverts; crops export 1 px too big.</p></div>
+      </div>
+    </section>
+
+    <section id="unmerged">
+      <div class="sec-head">
+        <h2>Built, not merged</h2>
+        <p>Real work that didn't reach proof by the deadline, or needs your decision. Each sits on its own branch, <code>claude/loving-cray-d58nrb-fix-…</code>.</p>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Branch</th><th>What it does</th><th>What blocks it</th></tr></thead>
+          <tbody>
+            <tr><td class="num">-fix-slider</td><td>First-grab warm-up, instant sharpen on release, shorter panel lag</td><td><span class="pill warn">Runs queued</span></td></tr>
+            <tr><td class="num">-fix-tone</td><td>Zones, Tint, Protect Skin, Auto Tone</td><td><span class="pill bad">10 tests failing</span></td></tr>
+            <tr><td class="num">-fix-parity</td><td>Viewer matches export; export says why it failed</td><td><span class="pill info">Your decision</span></td></tr>
+            <tr><td class="num">-fix-sharpen</td><td>Sharpening keeps brightness; resize ringing floor</td><td><span class="pill info">Your decision</span> <span class="pill warn">Unrun</span></td></tr>
+            <tr><td class="num">-fix-keymap</td><td><code>'</code>, <code>\</code>, Space, ⌘Z in text fields, ⌘\, ⇧[ ⇧]</td><td><span class="pill warn">Re-run queued</span></td></tr>
+            <tr><td class="num">-fix-pill</td><td>Whole slider number box takes the click</td><td><span class="pill warn">Run queued</span></td></tr>
+            <tr><td class="num">-fix-robustness</td><td>Export sheet and grid stop blocking the main thread</td><td><span class="pill warn">Runs queued</span></td></tr>
+            <tr><td class="num">-fix-safety2</td><td>Export Overwrite never replaces an original</td><td><span class="pill info">Your decision</span> <span class="pill warn">Uncompiled</span></td></tr>
+            <tr><td class="num">-fix-enginemath</td><td>No light band where saturated colours meet black</td><td><span class="pill warn">Suite not run</span></td></tr>
+            <tr><td class="num">-fix-colour</td><td>Designs for the four colour majors</td><td><span class="pill idle">Not built</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="decide">
+      <div class="sec-head">
+        <h2>Decisions waiting on you</h2>
+        <p>Taste calls the agents were told not to make. My recommendation is in brackets where there is one.</p>
+      </div>
+      <div class="two">
+        <div class="callout">
+          <h3>How photos should look</h3>
+          <ul class="list">
+            <li>Saturation +100 darkens strong colours 15% on average, up to 40% for blues (bring it down to Vibrance's level).</li>
+            <li>Sharpening: crisp but 1.5–5% brighter on dark foliage, or exact but softer (crisp, re-measured).</li>
+            <li>Zone fix: pushing one zone hard moves its neighbours, or the slider stops working past about +0.9 EV (keep the spill).</li>
+            <li>Raised Black target: saturated colours fade to the same grey floor as neutrals (keep).</li>
+            <li>Grain amplitude ended 2–8% lower after the seam fix. Does it still feel right?</li>
+            <li>Clarity −100 is barely visible; Whites −100 and Blacks +100 are weak.</li>
+            <li>Matte print sharpening may be twice what's usual (check a real print first).</li>
+          </ul>
+        </div>
+        <div class="callout">
+          <h3>How the app should behave</h3>
+          <ul class="list">
+            <li>Viewer accuracy vs about 2 s slower first view per photo on the test Mac.</li>
+            <li>Export Overwrite: files exported before the fix would get renamed past instead of replaced.</li>
+            <li>A deleted folder re-imported with identical files gets its old edits back (keep).</li>
+            <li>Soft preview while dragging capture sharpening or AI denoise, vs sharp but steppy (soft).</li>
+            <li>Sort ties: newest file first, or capture time (capture time).</li>
+            <li>Rendering downsized exports at delivery size, which would also stop the GPU memory failures.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="wrong">
+      <div class="sec-head">
+        <h2>What went wrong</h2>
+        <p>Mistakes that cost time, mine included. Each one now has a rule in <code>docs/agent-runs/README.md</code> so the next run doesn't repeat it.</p>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>What happened</th><th>Cost</th><th>Lesson now written down</th></tr></thead>
+          <tbody>
+            <tr><td>The first slider fix looked fine, then made dragging worse at real 60 Hz input. The driver's event pacer had been sending too slowly.</td><td>About 2 hours on a wrong lead</td><td>Proof must come from real-speed input; the pacer now reports its own lateness</td></tr>
+            <tr><td>The shared driver branch fell out of sync with the code, so every test run against integration failed to build.</td><td>Several testers' first runs wasted</td><td>Sync the driver copy whenever the driver changes</td></tr>
+            <tr><td>Tester pushes set off full CI (3 to 5 Mac jobs each) on a queue that only runs 5 at once.</td><td>~19 jobs queued at the worst point</td><td>Tester and request branches start no CI</td></tr>
+            <tr><td>My CI trimming made two build jobs conditional, which the release policy forbids.</td><td>One failed CI round at the end</td><td>Run <code>check-release-policy.rb</code> before touching CI</td></tr>
+            <tr><td>A code checker misread a test variable as a function, and the driver used names it didn't know.</td><td>One failed CI round</td><td>Run the surface check on the merged tree, not just each branch</td></tr>
+            <tr><td>Hit the 20-agent cap; misread which launches failed. "Test honesty" never ran and ingest got two testers.</td><td>One lost auditor</td><td>Check the agent list after every batch launch</td></tr>
+            <tr><td>Linux test builds took 30–70 minutes with a dozen agents sharing one container.</td><td>The colour fixer ran out of time with nothing built</td><td>Build the reference lane first, in its own copy</td></tr>
+            <tr><td>GitHub refused manual dispatch and cancel (403); agent pushes were sometimes refused.</td><td>Workarounds, queued runs we couldn't stop</td><td>Runs start by request-file pushes; the orchestrator pushes for agents</td></tr>
+            <tr><td>Fable was used for the first workers and orchestration.</td><td>Higher usage than needed</td><td>Opus for all agents; orchestration can be Opus too</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="better">
+      <div class="sec-head">
+        <h2>How we improved</h2>
+        <p>The biggest change isn't any one fix. Before this run, nobody had ever run Lumen inside the fix loop, which is why the same bugs kept coming back "fixed".</p>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th></th><th>Before</th><th>Now</th></tr></thead>
+          <tbody>
+            <tr><td>Running the app</td><td>Only you, by hand</td><td>The driver runs the real app on hosted Macs with real trackpad, mouse and keys, sheets and popovers included</td></tr>
+            <tr><td>Judging pixels</td><td>Synthetic test frames only</td><td>The render lab renders real RAWs through the real export and viewer paths, with stats and contact sheets</td></tr>
+            <tr><td>Proof standard</td><td>Fixes argued from reading code</td><td>Fail before, pass after, on a real run or a real test</td></tr>
+            <tr><td>Real cameras</td><td>RAW lane red since September</td><td>Green, plus 3 high-ISO test files added</td></tr>
+            <tr><td>Knowing what's broken</td><td>Your reports, one at a time</td><td>About 110 written findings across 30 areas, ranked</td></tr>
+            <tr><td>Mac capacity</td><td>3 to 5 jobs per push</td><td>0 for tester pushes, cached builds, about 73 s for a warm driver run</td></tr>
+            <tr><td>Starting over</td><td>From scratch every time</td><td>Run log, rules, findings, drafts and scripts all in <code>docs/agent-runs/</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="next">
+      <div class="sec-head">
+        <h2>Next run</h2>
+        <p>Open a new Claude Code session on the repo, use Opus, and paste this. It picks up from the ranked list.</p>
+      </div>
+      <pre class="prompt" id="next-prompt">Continue the Lumen agent test-and-fix run. Read docs/agent-runs/README.md and the latest docs/agent-runs/*-run-*.md first. Start from the "Next run" and "Open findings" sections of the latest run log. Develop on a new integration branch created from main if PR #34 has merged, otherwise from claude/loving-cray-d58nrb-integration. Use Opus agents only. Stop new work 50 minutes before my deadline of &lt;time&gt;, then merge what is proven, open a PR into main, and update the run log.</pre>
+      <button class="copy" id="copy-btn" type="button">Copy prompt</button>
+      <div class="callout">
+        <h3>Suggested order</h3>
+        <ol>
+          <li>Prove and merge what's already built: keymap (the <code>'</code> bug), slider round 2, the value pill, robustness.</li>
+          <li>Fix the culling blockers in the grid and with filters.</li>
+          <li>Fix the exposure instruments (⇧H, J, clip counts) so you can trust exposure calls.</li>
+          <li>Finish tone, then colour and film stocks, using the renders already saved.</li>
+          <li>Test what was out of reach: interactive crop and heal, the export files themselves, the sidebar UI.</li>
+          <li>Run the "test honesty" auditor that didn't launch.</li>
+        </ol>
+      </div>
+    </section>
+
+    <footer>
+      Sources: run log <code>docs/agent-runs/2026-11-26-run-1.md</code>, findings in <code>docs/agent-runs/findings/</code>, CI on commit <code>f7729130</code>, <a href="https://github.com/benedek-art/lumen/pull/34" target="_blank" rel="noopener">PR #34</a>. Timing numbers come from a virtual Mac and will differ on yours.
+    </footer>
+  </main>
+</div>
+
+<script>
+(function () {
+  var btn = document.getElementById('copy-btn');
+  var pre = document.getElementById('next-prompt');
+  if (!btn || !pre) return;
+  btn.addEventListener('click', function () {
+    var text = pre.textContent;
+    function selectIt() {
+      var r = document.createRange(); r.selectNodeContents(pre);
+      var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+      btn.textContent = 'Selected, press ⌘C';
+    }
+    try {
+      navigator.clipboard.writeText(text).then(function () { btn.textContent = 'Copied'; }, selectIt);
+    } catch (e) { selectIt(); }
+  });
+})();
+</script>

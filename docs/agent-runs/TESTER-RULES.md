@@ -27,6 +27,7 @@ Push only to that branch and, through `request.py`, to the shared driver request
 - Things already being fixed right now, do not re-report: film grain seams/tiling and grain preview-vs-export; sharpening brightening/clipping and capture sharpening doing nothing; settled viewer vs export mismatch on the A7 IV, viewer crushing shadows, and `writeFailed` exports; slider-drag main-thread stall; zoom blank viewer, post-pinch stall and soft 1:1; Nikon Z 30 colour cast, Leica Monochrom black, X-H2 not decoding.
 
 ## Output
+Write files with Bash (`cat > file <<'EOF'`); the Write tool may refuse findings files for subagents.
 Write everything to `<scratchpad>/findings/<area>/`: `FINDINGS.md` plus the repro files and the key images. In `FINDINGS.md`, at most 12 findings, ranked by harm to a photographer, each with: title, severity (blocker / major / minor / taste), what you did, what you saw (numbers + image path), what correct would be, repro file, run ID, and your confidence. Separately list: what you tested and found working (one line each, so coverage is visible), and what you could not test and why. Taste calls (how strong a look should be) go in their own section; do not present them as defects.
 
 ## Report

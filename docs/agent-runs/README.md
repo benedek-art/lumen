@@ -4,7 +4,11 @@ How to run, and continue, a session where one orchestrator agent sends out fixer
 
 ## Starting the next run
 
-Open a new Claude Code session on this repo, use Opus as the orchestrator, and paste:
+One button: open a new Claude Code session on this repo with Opus and type
+
+    /lumen-next-run 23:00
+
+(the time is your deadline; add a focus after it if you want one, e.g. `/lumen-next-run 23:00 culling first`). The command is `.claude/commands/lumen-next-run.md`. If commands are unavailable, paste this instead:
 
 > Continue the Lumen agent test-and-fix run. Read `docs/agent-runs/README.md` and the latest `docs/agent-runs/*-run-*.md` first. Start from the "Next run" section of the latest run log. Develop on a new integration branch created from `claude/loving-cray-d58nrb-integration` (or from `main` if that PR has merged). Use Opus agents only. Stop new work 50 minutes before my deadline of <time>, then merge what is proven, open a PR into `main`, and update the run log.
 
@@ -16,6 +20,9 @@ Open a new Claude Code session on this repo, use Opus as the orchestrator, and p
 | Render lab | Recipe in, pixels and stats out, through the app's real export and viewer render paths on macOS, plus a Linux reference lane that runs locally in seconds on charts and decoded RAW "plates". Contact sheets, viewer-vs-export compare, 1:1 crops. | `renderlab/README.md`, `renderlab/CONTROLS.md`, `.github/workflows/render-lab.yml` |
 | Area map | 30 test areas covering the whole app: every control, shortcut and journey, with what correct looks like and the known gaps. | `driver/AREAS.md` |
 | Fixer rules | Shared brief every fixer reads first. | `docs/agent-runs/FIXER-RULES.md` |
+| Auditor rules | Extra rules for agents that audit code directly. | `docs/agent-runs/AUDITOR-RULES.md` |
+| Queue note | How to keep pushes from starting needless macOS jobs. | `docs/agent-runs/QUEUE-NOTE.md` |
+| Run report | The last run's full report as a page. | `docs/agent-runs/2026-11-26-run-1-report.html` |
 | Tester rules | Shared brief every tester reads first. | `docs/agent-runs/TESTER-RULES.md` |
 | Integration branch | Where proven fixes are merged together. Only the orchestrator merges into it. | `claude/loving-cray-d58nrb-integration` |
 | Driver requests branch | Shared branch that driver runs are requested on. `request.py` pushes a docs-only commit there. It must carry the same `Sources/LumenApp/Driver` as the code under test or the build fails. | `claude/loving-cray-d58nrb-driver` |
@@ -37,7 +44,11 @@ Rule files are copied into the orchestrator's scratchpad at the start of a run (
 - **Manual dispatch and cancel return 403** through the GitHub integration in this environment. Runs can only be started by pushes; queued runs cannot be cancelled. Hence the request-file design.
 - **Subagent pushes are sometimes refused by the permission system** when the push permission was relayed by the orchestrator rather than given by the owner. Agents must not retry; they commit locally and the orchestrator pushes `worktree-agent-<id>` to their branch.
 - **Keep the driver requests branch in sync** with the driver code on the branch under test (`git checkout origin/<integration> -- Sources/LumenApp/Driver driver/README.md`, commit with `[skip ci]`, push). A mismatch makes every run against that ref fail to build, silently from the tester's point of view.
-- **`request.py --ref` needs a full 40-character SHA** or a branch name; short SHAs fail.
+- **`request.py --ref`** now resolves short SHAs, branch names and tags.
+- **Release policy:** `build-macos` and `app-bundle` in `ci.yml` must stay unconditional; run `ruby scripts/check-release-policy.rb` before changing CI.
+- **Run `check-swift-surface.py` on the merged integration tree,** not only on each branch: merges create new false positives (a test closure named like a function, new platform names).
+- **Subagents cannot write report files with the Write tool;** they write them with Bash.
+- **The 20-subagent cap is real.** A second cloud session can take overflow work, but only within the brief it was given.
 - **Never trust a fix that was argued from code.** Run 1 found two "fixes" that were regressions at real input speed and one test that had passed for months while measuring a number the app did not use.
 - **Hosted runners are a 3-core VM with a paravirtual GPU.** Trust directions and ratios, not absolute milliseconds; run timing scenarios at least twice. Very large images (24 MP and up) were never drawn by the VM's compositor; that turned out to be a real app problem (asking for full-resolution frames below 1:1), not only a VM artefact.
 - **Line-number citations:** `Tests/LumenAppTests/LayoutMetricSupport.swift` cites slider call sites by line. Any edit above a slider in a panel file breaks `LayoutMetricSelfTests`. Fix with `python3 scripts/recite-slider-inventory.py <base> --write`.
