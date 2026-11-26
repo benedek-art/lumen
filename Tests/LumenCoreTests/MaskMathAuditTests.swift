@@ -490,9 +490,9 @@ final class MaskMathAuditTests: XCTestCase {
             ("saturation", { $0.sat = 40 }, { $0.develop.color.saturation = 40 }),
             ("vibrance", { $0.vibrance = 40 }, { $0.develop.color.vibrance = 40 }),
         ]
-        for (name, local, global) in cases {
+        for (name, setMaskAdjust, global) in cases {
             var adjust = LocalAdjust()
-            local(&adjust)
+            setMaskAdjust(&adjust)
             var masked = Recipe()
             masked.masks = [Mask(name: name, components: [c], adjust: adjust)]
             var globalRecipe = Recipe()

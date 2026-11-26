@@ -211,7 +211,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "VNRecognizeTextRequest", "VNRecognizedTextObservation", "VNRequestTextRecognitionLevel",
     "THREAD_TIME_CONSTRAINT_POLICY",
     # Its accessibility client and window list (sheets, popovers, panels).
-    "AXUIElement", "AXValueGetTypeID", "AXUIElementGetTypeID", "AXValue", "AXValueGetType",
+    "AXUIElement", "AXUIElementCopyAttributeValue", "CFTypeRef", "CFEqual", "AXValueGetTypeID", "AXUIElementGetTypeID", "AXValue", "AXValueGetType",
     "AXValueGetValue", "CFArray", "AXError", "AXUIElementCreateApplication",
     "AXUIElementSetMessagingTimeout", "AXUIElementCopyMultipleAttributeValues",
     "AXCopyMultipleAttributeOptions", "AXUIElementPerformAction", "NSTemporaryDirectory",
