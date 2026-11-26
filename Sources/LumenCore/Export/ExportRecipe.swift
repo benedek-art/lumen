@@ -875,18 +875,25 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
     /// file it was rendered from. An original under Overwrite is renamed instead, and
     /// no disambiguated candidate may land on one either. Skip is left alone: it
     /// writes nothing.
+    ///
+    /// `isLumenExport` names the files Overwrite may replace: a file on disk that is not
+    /// one (per the catalog's export log) is protected like an original and stepped past.
     public static func placement(for wanted: URL, policy: ExportCollisionPolicy,
                                  claimedThisRun: (URL) -> Bool,
                                  existsOnDisk: (URL) -> Bool,
-                                 isOriginal: (URL) -> Bool = { _ in false }) -> ExportPlacement {
+                                 isOriginal: (URL) -> Bool = { _ in false },
+                                 isLumenExport: (URL) -> Bool = { _ in true }) -> ExportPlacement {
         let taken: (URL) -> Bool = { claimedThisRun($0) || existsOnDisk($0) || isOriginal($0) }
+        func protected(_ url: URL) -> Bool {
+            isOriginal(url) || (existsOnDisk(url) && !isLumenExport(url))
+        }
         if claimedThisRun(wanted) {
             if policy == .overwrite {
                 // A re-delivery: the `-N` name a duplicate of this batch got last time is
                 // what Overwrite replaces. Counting files from before the run as taken
                 // left the stale render there and wrote a new `-N+1` on every run. Only
                 // this run's claims and originals are off limits.
-                let next = disambiguated(wanted, isTaken: { claimedThisRun($0) || isOriginal($0) })
+                let next = disambiguated(wanted, isTaken: { claimedThisRun($0) || protected($0) })
                 return .write(next, replacing: existsOnDisk(next))
             }
             return .write(disambiguated(wanted, isTaken: taken), replacing: false)
@@ -895,12 +902,12 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
         switch policy {
         case .rename: return .write(disambiguated(wanted, isTaken: taken), replacing: false)
         case .overwrite:
-            if isOriginal(wanted) {
+            if protected(wanted) {
                 // Stepped past the original, to the `-N` this re-delivery wrote last
                 // time, which Overwrite then replaces. Counting files already on disk as
                 // taken here wrote a new `-N+1` on every run: Lumen's own earlier `{name}`
                 // render beside the RAW shares its stem, so it reads as an original too.
-                let next = disambiguated(wanted, isTaken: { claimedThisRun($0) || isOriginal($0) })
+                let next = disambiguated(wanted, isTaken: { claimedThisRun($0) || protected($0) })
                 return .write(next, replacing: existsOnDisk(next))
             }
             return .write(wanted, replacing: true)
@@ -918,6 +925,11 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
     /// APFS, a symbolic link or a hard link all compare as the original they are. The
     /// stem match folds case and normalisation for the same reason — on Linux, or for
     /// a camera that writes `DSC00001.JPG` beside `dsc00001.arw`, the spellings differ.
+    /// A path compared as APFS compares it: case and Unicode normalisation folded.
+    public static func pathKey(_ url: URL) -> String {
+        url.standardizedFileURL.path.precomposedStringWithCanonicalMapping.lowercased()
+    }
+
     public static func originalIdentities(of sources: [URL]) -> Set<String> {
         func key(_ url: URL) -> String {
             url.deletingPathExtension().lastPathComponent

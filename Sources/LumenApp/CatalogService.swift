@@ -1322,6 +1322,27 @@ final class CatalogService: @unchecked Sendable {
         await onQueue("keyword read", fallback: []) { try $0.keywords(photoID: photoID) }
     }
 
+    /// Overwrite's guard (`ExportRecipe.placement`), as `ExportRecipe.pathKey`s. Nil when
+    /// the catalog cannot answer; the caller then replaces nothing.
+    func exportGuard() async -> ExportGuard? {
+        await onQueue("export guard read", fallback: nil) { store in
+            ExportGuard(
+                originals: Set(try store.cataloguedPhotoPaths().map {
+                    ExportRecipe.pathKey(URL(fileURLWithPath: $0)) }),
+                exports: Set(try store.exportedDestinations().map {
+                    ExportRecipe.pathKey(URL(fileURLWithPath: $0)) }))
+        }
+    }
+
+    func recordExport(photoID: Int64, recipe: Recipe, destination: URL) async {
+        await onQueue("export log write", fallback: ()) { store in
+            try store.recordExport(photoID: photoID,
+                                   recipeFingerprint: (try? RecipeFingerprint.fingerprint(recipe)) ?? "",
+                                   destination: destination.standardizedFileURL.path,
+                                   exportedAt: Int64(Date().timeIntervalSince1970))
+        }
+    }
+
     /// Authoritative flat tags for delivery. Unlike UI reads, a failure throws so
     /// export cannot quietly substitute missing catalog edits with source metadata.
     func exportKeywords(photoID: Int64) async throws -> [String] {
@@ -2619,3 +2640,8 @@ extension CatalogService {
     }
 }
 #endif
+
+struct ExportGuard: Sendable {
+    var originals: Set<String>
+    var exports: Set<String>
+}

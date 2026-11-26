@@ -328,6 +328,11 @@ extension AppState {
         let runStart = Date()
 
         Task {
+            // Overwrite may replace only a file the export log says Lumen delivered, and
+            // never a catalogued original. No catalog answer: nothing is replaced.
+            var exportGuard = await exportCatalog?.exportGuard()
+                ?? ExportGuard(originals: [], exports: [])
+            var refusedOverwrites = 0
             var report = OperationReport(kind: .export, records: jobs.flatMap { job in
                 active.enumerated().map { ordinal, preset in
                     OperationFileRecord(id: job.index * active.count + ordinal, source: job.url, label: preset.name)
@@ -417,7 +422,15 @@ extension AppState {
                             for: wanted, policy: exportRecipe.collision,
                             claimedThisRun: { claimed.contains(IngestLocation.fileIdentity(of: $0)) },
                             existsOnDisk: { FileManager.default.fileExists(atPath: $0.path) },
-                            isOriginal: { originals.contains(IngestLocation.fileIdentity(of: $0)) })
+                            isOriginal: { originals.contains(IngestLocation.fileIdentity(of: $0)) },
+                            isLumenExport: { exportGuard.exports.contains(ExportRecipe.pathKey($0))
+                                && !exportGuard.originals.contains(ExportRecipe.pathKey($0)) })
+                        if exportRecipe.collision == .overwrite,
+                           case .write(let d, let replacing) = placement, d != wanted, !replacing,
+                           !claimed.contains(IngestLocation.fileIdentity(of: wanted)),
+                           FileManager.default.fileExists(atPath: wanted.path) {
+                            refusedOverwrites += 1
+                        }
                         if case .skip = placement {
                             // Not written and not a failure: the file the policy keeps is
                             // already there. Not claimed either, so a second frame wanting
@@ -443,6 +456,12 @@ extension AppState {
                                 // Keep its real identity too so later aliases are renamed.
                                 claimed.insert(IngestLocation.fileIdentity(of: destination))
                                 written += 1
+                                exportGuard.exports.insert(ExportRecipe.pathKey(destination))
+                                if let exportCatalog, let photoID = job.photo.catalogID {
+                                    await exportCatalog.recordExport(photoID: photoID,
+                                                                     recipe: job.recipe,
+                                                                     destination: destination)
+                                }
                                 record.outcome = .delivered
                                 record.actualDestination = destination.path
                                 record.renamed = destination != wanted
@@ -499,6 +518,8 @@ extension AppState {
                     : " (\(renamed) renamed to avoid overwriting)")
                     + (skipped == 0 ? "" : " (\(skipped) skipped, already there)")
                     + (replaced == 0 ? "" : " (\(replaced) replaced)")
+                    + (refusedOverwrites == 0 ? ""
+                        : " (\(refusedOverwrites) not overwritten: original or not a Lumen export)")
                 // Named, not counted: "2 reduced" tells a photographer nothing about
                 // what is missing from a file they are about to send to a client.
                 let reducedNote = reducedFiles == 0 ? ""

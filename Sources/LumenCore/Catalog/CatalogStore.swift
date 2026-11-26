@@ -2109,6 +2109,28 @@ public final class CatalogStore {
                     [], CatalogStore.decodeFolder)
     }
 
+    /// The export log: what Lumen delivered, so Overwrite may replace only these.
+    public func recordExport(photoID: Int64, recipeFingerprint: String,
+                             destination: String, exportedAt: Int64) throws {
+        try db.run("INSERT INTO export_log (photo_id, recipe_fp, destination, exported_at) "
+                   + "VALUES (?, ?, ?, ?);",
+                   [.integer(photoID), .text(recipeFingerprint), .text(destination),
+                    .integer(exportedAt)])
+    }
+
+    public func exportedDestinations() throws -> [String] {
+        try allRows("SELECT DISTINCT destination FROM export_log;", []) { $0.string(0) ?? "" }
+    }
+
+    /// Every catalogued photograph's path, for export's never-overwrite check.
+    public func cataloguedPhotoPaths() throws -> [String] {
+        try allRows("SELECT folder.path, photo.filename FROM photo "
+                    + "JOIN folder ON folder.id = photo.folder_id;", []) {
+            URL(fileURLWithPath: $0.string(0) ?? "")
+                .appendingPathComponent($0.string(1) ?? "").path
+        }
+    }
+
     /// Unmount flips this: browsable, searchable, cullable from cache; nothing errors.
     public func setFolderOnline(_ online: Bool, folderID: Int64) throws {
         try db.run("UPDATE folder SET online = ? WHERE id = ?;",
@@ -5381,6 +5403,12 @@ public final class CatalogStore {
     public func folder(id: Int64) throws -> FolderRow? { throw CatalogError.unavailable }
     public func folder(path: String) throws -> FolderRow? { throw CatalogError.unavailable }
     public func folders() throws -> [FolderRow] { throw CatalogError.unavailable }
+    public func recordExport(photoID: Int64, recipeFingerprint: String,
+                             destination: String, exportedAt: Int64) throws {
+        throw CatalogError.unavailable
+    }
+    public func exportedDestinations() throws -> [String] { throw CatalogError.unavailable }
+    public func cataloguedPhotoPaths() throws -> [String] { throw CatalogError.unavailable }
     public func setFolderOnline(_ online: Bool, folderID: Int64) throws {
         throw CatalogError.unavailable
     }
