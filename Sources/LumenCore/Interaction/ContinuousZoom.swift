@@ -17,4 +17,17 @@ public enum ContinuousZoom {
         guard let nativeLongEdge, nativeLongEdge > 0 else { return renderCap }
         return Swift.min(renderCap, nativeLongEdge)
     }
+
+    /// The long edge a render at `zoom` (device pixels per pixel of the frame
+    /// `fullLongEdge` delivers) asks for: one delivered pixel per device pixel,
+    /// rounded up to `bucket`, never above `fullLongEdge`. Below 1:1 the full ask
+    /// put frames of tens of megapixels on screen at a fraction of that size.
+    public static func zoomedAskLongEdge(fullLongEdge: Int, zoom: Double,
+                                         bucket: Int = DraftResolution.ceilingBucket) -> Int {
+        guard fullLongEdge > 0, zoom.isFinite, zoom > 0, zoom < 1, bucket > 0 else {
+            return fullLongEdge
+        }
+        let needed = (zoom * Double(fullLongEdge) / Double(bucket)).rounded(.up)
+        return Swift.min(fullLongEdge, Swift.max(Int(needed), 1) * bucket)
+    }
 }

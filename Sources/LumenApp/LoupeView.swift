@@ -88,6 +88,10 @@ final class LoupeViewport: ObservableObject {
     private(set) var nativeMagnifyEvents: Int = 0
     private(set) var fallbackMagnifyEvents: Int = 0
 
+    /// Loupe render requests begun and not yet finished or abandoned. 0 means the
+    /// frame on screen answers the current zoom, region and edit (automation driver).
+    var rendersInFlight: Int = 0
+
     /// Before/after presentation. `AppState.showBefore` is the `\` flip; this is the
     /// `Y` / `⌥Y` / `⇧Y` family (docs/12 §B8).
     @Published var beforeMode: BeforeAfterMode = .off
@@ -944,7 +948,8 @@ final class PhotoRenderModel: ObservableObject {
                 // the drafts' cost model reads as "nothing is affordable" — the
                 // rungs would crash and take the FIT drag with them. The rule is
                 // `DraftLadder.learnsFromSettle`, tested in LumenCore.
-                if DraftLadder.learnsFromSettle(
+                // A region's cost is not denominated in whole-frame rungs.
+                if region == nil, DraftLadder.learnsFromSettle(
                         requestedLongEdge: Swift.max(fullLongEdge, 64)) {
                     draftLadder.recordSettle(milliseconds: settleMs,
                                              renderedLongEdge: Swift.max(
@@ -1704,6 +1709,8 @@ struct LoupeView: View {
     @MainActor
     private func renderCurrent(longEdge: Int, region: CGRect?,
                                drawnDevice: Double?) async {
+        viewport.rendersInFlight += 1
+        defer { viewport.rendersInFlight -= 1 }
         // The same framing-stripped recipe the task key carries — see `renderRecipe`.
         let wanted = renderRecipe
         // `drawnDevice` arrives from `body` rather than being recomputed here: it read
@@ -2707,7 +2714,10 @@ struct LoupeView: View {
             // sizes the frame the viewport measures the zoom in (`viewportWorld`), so
             // asking for anything else would make 1:1 something other than one
             // delivered pixel per device pixel.
-            return Swift.max(zoomedFullBasis, 64)
+            // Below 1:1, no more than the panel draws: the frame stays denominated in
+            // the basis (`viewportWorld`), so only sharpness above need is given up.
+            return Swift.max(ContinuousZoom.zoomedAskLongEdge(fullLongEdge: zoomedFullBasis,
+                                                              zoom: layoutZoom), 64)
         }
         let scale = Double(Swift.max(displayScale, 1))
         let longEdge = Double(Swift.max(container.width, container.height)) * scale
