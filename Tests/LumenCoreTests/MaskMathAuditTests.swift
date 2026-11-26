@@ -298,6 +298,38 @@ final class MaskMathAuditTests: XCTestCase {
         }
     }
 
+    /// Duplicate-and-Invert's copy is the source's complement under every Refine, and
+    /// stays one when the source's Refine is edited afterwards.
+    func testDuplicateAndInvertIsTheComplementAndStaysLinked() {
+        let w = 120, h = 80
+        let src = ImageBuffer(width: w, height: h) { u, v in
+            RGB(gray: 0.18 * pow(2, -3 + 6 * u + sin(v * 9)))
+        }
+        func worstDeparture(_ a: Mask, _ b: Mask) -> Double {
+            let masks = [a, b]
+            let pa = MaskRaster.combine(mask: a, size: (width: w, height: h), source: src, masks: masks)
+            let pb = MaskRaster.combine(mask: b, size: (width: w, height: h), source: src, masks: masks)
+            var worst = 0.0
+            for i in 0..<(w * h) { worst = Swift.max(worst, abs(Double(pa.values[i] + pb.values[i]) - 1)) }
+            return worst
+        }
+        for refine in [MaskRefine(edge: 30), MaskRefine(levelsGamma: 2)] {
+            var subject = Mask(name: "subject", components: softStack())
+            subject.refine = refine
+            var toggled = subject
+            toggled.id = UUID().uuidString
+            toggled.invert.toggle()
+            XCTAssertGreaterThan(worstDeparture(subject, toggled), 0.05,
+                                 "\(refine): the toggled copy was expected to show the seam")
+            var copy = Mask.invertedReference(to: subject)
+            copy.id = UUID().uuidString
+            XCTAssertEqual(copy.adjust, subject.adjust)
+            XCTAssertLessThan(worstDeparture(subject, copy), 1e-6, "\(refine)")
+            subject.refine = MaskRefine(feather: 30, edge: -20, blur: 10)
+            XCTAssertLessThan(worstDeparture(subject, copy), 1e-6, "\(refine): not linked")
+        }
+    }
+
     // MARK: - Brush
 
     private func stroke(_ pts: [(Double, Double)], size: Double = 0.06, feather: Double = 50,

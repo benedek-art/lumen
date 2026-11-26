@@ -2632,9 +2632,9 @@ struct MaskPanel: View {
     /// that cannot drift apart, because the second is defined as the first's complement.
     private func duplicateMask(_ id: String, inverting: Bool = false) {
         guard let source = mask(id) else { return }
-        var copy = source
+        // Inverse: a reference, not a toggled invert, which would run before Refine.
+        var copy = inverting ? Mask.invertedReference(to: source) : source
         copy.id = UUID().uuidString
-        if inverting { copy.invert.toggle() }
         copy.name = source.name.isEmpty
             ? (inverting ? "Inverted" : "Copy")
             : source.name + (inverting ? " inverted" : " copy")
