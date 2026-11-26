@@ -1628,6 +1628,8 @@ public enum MaskRaster {
         var x: Double        // pixel coordinates at the rasterization extent
         var y: Double
         var pressure: Double
+        /// Fraction of a spacing this stamp stands for: 1 except the end cap.
+        var span: Double = 1
     }
 
     /// One stroke into the accumulation buffer. Paint is asymptotic to Density and can
@@ -1675,7 +1677,7 @@ public enum MaskRaster {
             guard centre.x.isFinite, centre.y.isFinite else { continue }
             // The first stamp is one stamp at every resolution (a dab is a dab); each
             // later one stands for the nominal stamps laid along the spacing behind it.
-            let stampWeight = stampIndex == 0 ? 1 : weight
+            let stampWeight = stampIndex == 0 ? 1 : weight * centre.span
             // The automask reference is one sample per stamp, not per pixel (docs/08:
             // "per-stamp color-similarity gate against the stamp-center sample"),
             // taken from the denoised stage input rather than the raw signal.
@@ -1851,6 +1853,13 @@ public enum MaskRaster {
             }
             carried += segment - walked
             if out.count >= maxStamps { break }
+        }
+        // The end cap lands on the endpoint at every resolution, carrying the part of
+        // a spacing walked since the last stamp.
+        if out.count < maxStamps, carried > 1e-9 {
+            var last = dense[dense.count - 1]
+            last.span = Num.saturate(carried / spacing)
+            out.append(last)
         }
         return out
     }

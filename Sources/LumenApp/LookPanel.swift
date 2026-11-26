@@ -24,7 +24,7 @@ struct LookPanel: View {
     @EnvironmentObject var state: AppState
     /// This surface shows the edit, so it observes the edit signal —
     /// `AppState.recipes` is deliberately not published (see `EditRevision`).
-    @EnvironmentObject var edits: EditRevision
+    @EnvironmentObject var edits: PanelEditRevision
 
     // Folds inside a section, not the sections themselves: the accordion decides
     // whether Grading is open, these decide whether the rows under one of its headers

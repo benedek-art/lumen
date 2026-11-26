@@ -210,6 +210,8 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "CGDisplayCopyAllDisplayModes", "CGDisplayCopyDisplayMode", "CGDisplaySetDisplayMode",
     "VNRecognizeTextRequest", "VNRecognizedTextObservation", "VNRequestTextRecognitionLevel",
     "THREAD_TIME_CONSTRAINT_POLICY",
+    # The driver's main-thread stall sampler: Mach thread state, dyld, dlsym.
+    "KERN_SUCCESS", "MachO", "ARM_THREAD_STATE64", "Dl_info", "RTLD_NOW",
     # Native APIs used by the audited persistence/export safety regressions.
     "SQLITE_OPEN_READONLY", "RENAME_EXCL", "NSBitmapImageRep",
     # POSIX errno values and open(2) flags: the export's no-overwrite fallback
