@@ -375,7 +375,9 @@ struct HealCanvas: View {
                 let now = normalized(value.location)
                 drag(SpotHandles.dragged(grab.origin, part: grab.part,
                                          dx: Double(now.x - grab.start.x),
-                                         dy: Double(now.y - grab.start.y)), false)
+                                         dy: Double(now.y - grab.start.y),
+                                         sourceWidth: sourcePixels.w,
+                                         sourceHeight: sourcePixels.h), false)
             }
             .onEnded { value in
                 defer {
@@ -388,7 +390,9 @@ struct HealCanvas: View {
                     let now = normalized(value.location)
                     drag(SpotHandles.dragged(grab.origin, part: grab.part,
                                              dx: Double(now.x - grab.start.x),
-                                             dy: Double(now.y - grab.start.y)), true)
+                                             dy: Double(now.y - grab.start.y),
+                                             sourceWidth: sourcePixels.w,
+                                             sourceHeight: sourcePixels.h), true)
                     sliderGestureChanged(false)
                     return
                 }

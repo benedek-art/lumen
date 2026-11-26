@@ -82,8 +82,12 @@ public enum SpotHandles {
     }
 
     /// The spot after a drag of (`dx`, `dy`) source-normalized units on `part`.
-    public static func dragged(_ spot: HealSpot, part: Part,
-                               dx: Double, dy: Double) -> HealSpot {
+    ///
+    /// Given the frame size, a dragged source stops where its disc meets the frame
+    /// edge: past it the render samples clamped edge pixels and pastes them stretched.
+    /// The destination may hang off the frame (dust at the edge).
+    public static func dragged(_ spot: HealSpot, part: Part, dx: Double, dy: Double,
+                               sourceWidth: Int? = nil, sourceHeight: Int? = nil) -> HealSpot {
         var out = spot
         switch part {
         case .destination:
@@ -92,6 +96,14 @@ public enum SpotHandles {
         case .source:
             out.sourceX += dx
             out.sourceY += dy
+            if let sourceWidth, let sourceHeight, sourceWidth > 0, sourceHeight > 0 {
+                let w = Double(sourceWidth), h = Double(sourceHeight)
+                let radius = Num.clamp(spot.radius, HealSpot.radiusRange.lowerBound,
+                                       HealSpot.radiusRange.upperBound) * Swift.max(w, h)
+                let rx = radius / w, ry = radius / h
+                if 2 * rx <= 1 { out.sourceX = Num.clamp(out.sourceX, rx, 1 - rx) }
+                if 2 * ry <= 1 { out.sourceY = Num.clamp(out.sourceY, ry, 1 - ry) }
+            }
         }
         return out
     }
