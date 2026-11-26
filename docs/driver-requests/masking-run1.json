@@ -1,0 +1,5812 @@
+{
+ "suite": "",
+ "scenarios": [
+  {
+   "name": "mk-enter",
+   "description": "Enter and leave masking every way; Delete with no mask; overlay outside masking.",
+   "fixture": "fiducial",
+   "timeoutSeconds": 420,
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop"
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 30
+    },
+    {
+     "do": "state",
+     "name": "develop"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "base"
+    },
+    {
+     "do": "direct",
+     "call": "showGrid"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "grid"
+    },
+    {
+     "do": "key",
+     "key": "m"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "expect",
+     "that": "masking",
+     "eq": true,
+     "note": "M from grid enters masking"
+    },
+    {
+     "do": "expect",
+     "that": "viewMode",
+     "eq": "loupe",
+     "note": "M from grid shows the loupe"
+    },
+    {
+     "do": "state",
+     "name": "m-from-grid",
+     "texts": true
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "m-from-grid"
+    },
+    {
+     "do": "key",
+     "key": "delete"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "delete-no-mask"
+    },
+    {
+     "do": "expect",
+     "that": "app.allPhotos.items.0.flag",
+     "eq": "unflagged",
+     "note": "Delete with no mask must not reject the photo"
+    },
+    {
+     "do": "key",
+     "key": "o"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "state",
+     "name": "o-no-mask"
+    },
+    {
+     "do": "key",
+     "key": "m"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "expect",
+     "that": "masking",
+     "eq": false,
+     "note": "M leaves masking"
+    },
+    {
+     "do": "state",
+     "name": "m-again"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "m-again"
+    },
+    {
+     "do": "key",
+     "key": "m"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "expect",
+     "that": "masking",
+     "eq": false,
+     "note": "Esc leaves masking"
+    },
+    {
+     "do": "state",
+     "name": "esc"
+    },
+    {
+     "do": "key",
+     "key": "m"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "click",
+     "target": "mask-kind/Linear Gradient"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "drag",
+     "target": "viewer.image",
+     "from": [
+      0.3,
+      0.35
+     ],
+     "to": [
+      0.3,
+      0.65
+     ],
+     "duration": 0.6
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "created"
+    },
+    {
+     "do": "state",
+     "name": "created"
+    },
+    {
+     "do": "key",
+     "key": "m"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "expect",
+     "that": "masking",
+     "eq": false,
+     "note": ""
+    },
+    {
+     "do": "expect",
+     "that": "masks.overlayShown",
+     "eq": false,
+     "note": "no overlay outside masking"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "outside"
+    },
+    {
+     "do": "compare",
+     "name": "outsideVsBase",
+     "a": "base",
+     "b": "outside"
+    },
+    {
+     "do": "expect",
+     "that": "compare.outsideVsBase.redShift",
+     "near": 0,
+     "note": "no red tint outside masking"
+    },
+    {
+     "do": "state",
+     "name": "outside"
+    },
+    {
+     "do": "key",
+     "key": "o"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "expect",
+     "that": "masking",
+     "eq": true,
+     "note": "O enters masking"
+    },
+    {
+     "do": "state",
+     "name": "o-enters",
+     "texts": true
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "o-enters"
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Develop",
+      "within": "develop.column"
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "back-button"
+    },
+    {
+     "do": "expect",
+     "that": "masking",
+     "eq": false,
+     "note": "the back button leaves masking"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "back-button"
+    }
+   ]
+  },
+  {
+   "name": "mk-linear",
+   "description": "Linear gradient: draw, move, falloff, swing, rotate, new with cmd; adjust Exposure; overlay rule; O; undo/redo chain; leave.",
+   "fixture": "fiducial",
+   "timeoutSeconds": 420,
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "base"
+    },
+    {
+     "do": "key",
+     "key": "m"
+    },
+    {
+     "do": "waitFor",
+     "that": "masking",
+     "eq": true,
+     "timeout": 5
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "click",
+     "target": "mask-kind/Linear Gradient"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "tile"
+    },
+    {
+     "do": "drag",
+     "target": "viewer.image",
+     "from": [
+      0.25,
+      0.3
+     ],
+     "to": [
+      0.25,
+      0.7
+     ],
+     "duration": 0.6
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "drawn"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "drawn"
+    },
+    {
+     "do": "expect",
+     "that": "masks.overlayShown",
+     "eq": true,
+     "note": "overlay up while creating"
+    },
+    {
+     "do": "drag",
+     "target": "viewer.image",
+     "from": [
+      0.4,
+      0.5
+     ],
+     "to": [
+      0.4,
+      0.6
+     ],
+     "duration": 0.6
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "moved"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "moved"
+    },
+    {
+     "do": "drag",
+     "target": "viewer.image",
+     "from": [
+      0.6,
+      0.4
+     ],
+     "to": [
+      0.6,
+      0.25
+     ],
+     "duration": 0.6
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "falloff"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "falloff"
+    },
+    {
+     "do": "drag",
+     "target": "viewer.image",
+     "from": [
+      0.25,
+      0.8
+     ],
+     "to": [
+      0.45,
+      0.8
+     ],
+     "duration": 0.6
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "swing"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "swing"
+    },
+    {
+     "do": "drag",
+     "target": "viewer.image",
+     "from": [
+      0.1,
+      0.12
+     ],
+     "to": [
+      0.2,
+      0.12
+     ],
+     "duration": 0.6
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "outside-drag"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "outside-drag"
+    },
+    {
+     "do": "drag",
+     "target": "viewer.image",
+     "from": [
+      0.6,
+      0.45
+     ],
+     "to": [
+      0.75,
+      0.6
+     ],
+     "duration": 0.6,
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "cmd-new"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "cmd-new"
+    },
+    {
+     "do": "drag",
+     "target": "viewer.image",
+     "from": [
+      0.15,
+      0.4
+     ],
+     "to": [
+      0.35,
+      0.47
+     ],
+     "duration": 0.6,
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "cmd-shift-new"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "cmd-shift-new"
+    },
+    {
+     "do": "drag",
+     "target": "viewer.image",
+     "from": [
+      0.5,
+      0.3
+     ],
+     "to": [
+      0.5,
+      0.7
+     ],
+     "duration": 0.6,
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "final-geom"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "final-geom"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Exposure#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.75,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-Exposure",
+     "settle": 10
+    },
+    {
+     "do": "expect",
+     "that": "masks.overlayShown",
+     "eq": false,
+     "note": "overlay hides the moment you adjust"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "adjusted"
+    },
+    {
+     "do": "state",
+     "name": "adjusted"
+    },
+    {
+     "do": "expect",
+     "that": "masks.overlayShown",
+     "eq": false,
+     "note": "still hidden with pointer parked"
+    },
+    {
+     "do": "move",
+     "target": "mask-row",
+     "duration": 0.3
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "shot",
+     "name": "hover"
+    },
+    {
+     "do": "expect",
+     "that": "masks.overlayShown",
+     "eq": true,
+     "note": "hover row shows"
+    },
+    {
+     "do": "state",
+     "name": "hover"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "unhover"
+    },
+    {
+     "do": "expect",
+     "that": "masks.overlayShown",
+     "eq": false,
+     "note": "leaving row hides"
+    },
+    {
+     "do": "key",
+     "key": "o"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "o1"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "o1"
+    },
+    {
+     "do": "key",
+     "key": "o"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "o2"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "o2"
+    },
+    {
+     "do": "key",
+     "key": "o"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "o3"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "o3"
+    },
+    {
+     "do": "state",
+     "name": "pre-undo"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "u1"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "u2"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "u3"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "u4"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "u5"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "u6"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "u7"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "u7"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "u8"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "u8"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "shift",
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "r1"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "shift",
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "r2"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "shift",
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "r3"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "shift",
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "r4"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "shift",
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "r5"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "shift",
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "r6"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "shift",
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "r7"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "shift",
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "r8"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "r8"
+    },
+    {
+     "do": "key",
+     "key": "m"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "outside"
+    },
+    {
+     "do": "state",
+     "name": "outside"
+    },
+    {
+     "do": "expect",
+     "that": "masks.overlayShown",
+     "eq": false,
+     "note": "nothing shown outside masking"
+    }
+   ]
+  },
+  {
+   "name": "mk-radial",
+   "description": "Radial: draw, move by off-centre press, rim resize, outside rotate; adjust; expand row; Feather; Rotation; invert key.",
+   "fixture": "fiducial",
+   "timeoutSeconds": 420,
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "base"
+    },
+    {
+     "do": "key",
+     "key": "m"
+    },
+    {
+     "do": "waitFor",
+     "that": "masking",
+     "eq": true,
+     "timeout": 5
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "click",
+     "target": "mask-kind/Radial Gradient"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "drag",
+     "target": "viewer.image",
+     "from": [
+      0.35,
+      0.5
+     ],
+     "to": [
+      0.5,
+      0.75
+     ],
+     "duration": 0.6
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "drawn"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "drawn"
+    },
+    {
+     "do": "drag",
+     "target": "viewer.image",
+     "from": [
+      0.37,
+      0.53
+     ],
+     "to": [
+      0.45,
+      0.53
+     ],
+     "duration": 0.6
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "moved"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "moved"
+    },
+    {
+     "do": "drag",
+     "target": "viewer.image",
+     "from": [
+      0.3,
+      0.15
+     ],
+     "to": [
+      0.3,
+      0.1
+     ],
+     "duration": 0.6
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "outside1"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "outside1"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Exposure#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.75,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-Exposure",
+     "settle": 10
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "adjusted"
+    },
+    {
+     "do": "state",
+     "name": "adjusted"
+    },
+    {
+     "do": "click",
+     "target": "mask-row",
+     "at": [
+      0,
+      0
+     ],
+     "offset": [
+      12,
+      18
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "expanded",
+     "texts": true
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "expanded"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Feather#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Feather#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.0,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-Feather",
+     "settle": 10
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "feather0"
+    },
+    {
+     "do": "state",
+     "name": "feather0",
+     "texts": true
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Feather#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Feather#track",
+     "from": [
+      0.0,
+      0.5
+     ],
+     "to": [
+      1.0,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-Feather",
+     "settle": 10
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "feather100"
+    },
+    {
+     "do": "state",
+     "name": "feather100"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Rotation#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Rotation#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.8,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-Rotation",
+     "settle": 10
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "rot"
+    },
+    {
+     "do": "state",
+     "name": "rot"
+    },
+    {
+     "do": "key",
+     "key": "'"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "inverted"
+    },
+    {
+     "do": "state",
+     "name": "inverted"
+    },
+    {
+     "do": "key",
+     "key": "'"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "uninverted"
+    }
+   ]
+  },
+  {
+   "name": "mk-brush",
+   "description": "Brush: three strokes, undo one, redo, option-erase, keys [ ] shift-] digits A, adjust Exposure, panel brush controls.",
+   "fixture": "fiducial",
+   "timeoutSeconds": 420,
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "base"
+    },
+    {
+     "do": "key",
+     "key": "m"
+    },
+    {
+     "do": "waitFor",
+     "that": "masking",
+     "eq": true,
+     "timeout": 5
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "click",
+     "target": "mask-kind/Brush"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "tile",
+     "texts": true
+    },
+    {
+     "do": "drag",
+     "target": "viewer.image",
+     "from": [
+      0.08,
+      0.3
+     ],
+     "to": [
+      0.6,
+      0.3
+     ],
+     "duration": 0.8
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "state",
+     "name": "s1"
+    },
+    {
+     "do": "drag",
+     "target": "viewer.image",
+     "from": [
+      0.08,
+      0.5
+     ],
+     "to": [
+      0.6,
+      0.5
+     ],
+     "duration": 0.8
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "state",
+     "name": "s2"
+    },
+    {
+     "do": "drag",
+     "target": "viewer.image",
+     "from": [
+      0.08,
+      0.7
+     ],
+     "to": [
+      0.6,
+      0.7
+     ],
+     "duration": 0.8
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "state",
+     "name": "s3"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "three"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "state",
+     "name": "undo1"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "undo1"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "shift",
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "state",
+     "name": "redo1"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "redo1"
+    },
+    {
+     "do": "drag",
+     "target": "viewer.image",
+     "from": [
+      0.35,
+      0.2
+     ],
+     "to": [
+      0.35,
+      0.8
+     ],
+     "duration": 0.8,
+     "modifiers": [
+      "option"
+     ],
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "state",
+     "name": "erased"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "erased"
+    },
+    {
+     "do": "key",
+     "key": "]",
+     "count": 3
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "state",
+     "name": "size-up"
+    },
+    {
+     "do": "key",
+     "key": "["
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "state",
+     "name": "size-down"
+    },
+    {
+     "do": "key",
+     "key": "]",
+     "modifiers": [
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "state",
+     "name": "feather-up"
+    },
+    {
+     "do": "key",
+     "key": "5"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "state",
+     "name": "flow5"
+    },
+    {
+     "do": "expect",
+     "that": "brush.flow",
+     "eq": 50,
+     "note": "5 sets Flow 50 with a brush"
+    },
+    {
+     "do": "expect",
+     "that": "app.allPhotos.items.0.rating",
+     "eq": 0,
+     "note": "5 must not rate the photo"
+    },
+    {
+     "do": "key",
+     "key": "0"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "expect",
+     "that": "brush.flow",
+     "eq": 100,
+     "note": "0 sets Flow 100"
+    },
+    {
+     "do": "key",
+     "key": "a"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "state",
+     "name": "automask"
+    },
+    {
+     "do": "expect",
+     "that": "brush.automask",
+     "eq": true,
+     "note": "A toggles automask"
+    },
+    {
+     "do": "expect",
+     "that": "app.autoAdvance",
+     "eq": true,
+     "note": "A must not toggle auto-advance"
+    },
+    {
+     "do": "key",
+     "key": "a"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Exposure#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.75,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-Exposure",
+     "settle": 10
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "adjusted"
+    },
+    {
+     "do": "state",
+     "name": "adjusted"
+    },
+    {
+     "do": "click",
+     "target": "mask-row",
+     "at": [
+      0,
+      0
+     ],
+     "offset": [
+      12,
+      18
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "expanded",
+     "texts": true
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "expanded"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Size#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Size#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.8,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-Size",
+     "settle": 10
+    },
+    {
+     "do": "state",
+     "name": "size-slider"
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Eraser"
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "state",
+     "name": "eraser-click"
+    },
+    {
+     "do": "drag",
+     "target": "viewer.image",
+     "from": [
+      0.08,
+      0.5
+     ],
+     "to": [
+      0.6,
+      0.5
+     ],
+     "duration": 0.8
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "state",
+     "name": "eraser-stroke"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "eraser-stroke"
+    },
+    {
+     "do": "key",
+     "key": "m"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "key",
+     "key": "m"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "reenter"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "reenter"
+    }
+   ]
+  },
+  {
+   "name": "mk-colourpick",
+   "description": "Colour Pick: armed eyedropper, sample a cell, adjust, exposure independence, Colour Range with Tolerance.",
+   "fixture": "fiducial",
+   "timeoutSeconds": 420,
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "base"
+    },
+    {
+     "do": "key",
+     "key": "m"
+    },
+    {
+     "do": "waitFor",
+     "that": "masking",
+     "eq": true,
+     "timeout": 5
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "click",
+     "target": "mask-kind/Colour Pick"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "armed",
+     "texts": true
+    },
+    {
+     "do": "click",
+     "target": "viewer.image",
+     "at": [
+      0.175,
+      0.2625
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "picked",
+     "texts": true
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "picked"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Exposure#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.75,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-Exposure",
+     "settle": 10
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "adjusted"
+    },
+    {
+     "do": "state",
+     "name": "adjusted"
+    },
+    {
+     "do": "click",
+     "target": "mask-create"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "click",
+     "target": "mask-kind/Colour Range"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "cr-armed",
+     "texts": true
+    },
+    {
+     "do": "click",
+     "target": "viewer.image",
+     "at": [
+      0.3416666666666667,
+      0.3125
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "cr-picked",
+     "texts": true
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "cr-picked"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Exposure#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.25,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-Exposure",
+     "settle": 10
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "cr-adjusted"
+    },
+    {
+     "do": "state",
+     "name": "cr-adjusted",
+     "texts": true
+    },
+    {
+     "do": "click",
+     "target": {
+      "anchor": "mask-row",
+      "index": 1
+     },
+     "at": [
+      0,
+      0
+     ],
+     "offset": [
+      12,
+      18
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "cr-expanded",
+     "texts": true
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "cr-expanded"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Tolerance#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Tolerance#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.9,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-Tolerance",
+     "settle": 10
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "tol90"
+    },
+    {
+     "do": "state",
+     "name": "tol90"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Tolerance#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Tolerance#track",
+     "from": [
+      0.9,
+      0.5
+     ],
+     "to": [
+      0.1,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-Tolerance",
+     "settle": 10
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "tol10"
+    },
+    {
+     "do": "state",
+     "name": "tol10"
+    }
+   ]
+  },
+  {
+   "name": "mk-range",
+   "description": "Brightness Range From/To and Luminosity Level on the fiducial.",
+   "fixture": "fiducial",
+   "timeoutSeconds": 420,
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "base"
+    },
+    {
+     "do": "key",
+     "key": "m"
+    },
+    {
+     "do": "waitFor",
+     "that": "masking",
+     "eq": true,
+     "timeout": 5
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "click",
+     "target": "mask-kind/Brightness Range"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "br",
+     "texts": true
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "br"
+    },
+    {
+     "do": "click",
+     "target": "mask-row",
+     "at": [
+      0,
+      0
+     ],
+     "offset": [
+      12,
+      18
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "br-expanded",
+     "texts": true
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "br-expanded"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/From#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/From#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.85,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-From",
+     "settle": 10
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "br-from"
+    },
+    {
+     "do": "state",
+     "name": "br-from"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Exposure#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.75,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-Exposure",
+     "settle": 10
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "br-adjusted"
+    },
+    {
+     "do": "state",
+     "name": "br-adjusted"
+    },
+    {
+     "do": "click",
+     "target": "mask-create"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "click",
+     "target": "mask-kind/Luminosity"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "lum",
+     "texts": true
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "lum"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Level#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Level#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.9,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-Level",
+     "settle": 10
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "lum-level"
+    },
+    {
+     "do": "state",
+     "name": "lum-level",
+     "texts": true
+    }
+   ]
+  },
+  {
+   "name": "mk-ai-5d",
+   "description": "AI Subject, then People and Background, on a real raw.",
+   "fixture": "raw",
+   "timeoutSeconds": 600,
+   "steps": [
+    {
+     "do": "open",
+     "index": 0,
+     "workspace": "develop",
+     "timeout": 90
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 60
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "base"
+    },
+    {
+     "do": "key",
+     "key": "m"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "masking",
+     "texts": true
+    },
+    {
+     "do": "click",
+     "target": "mask-kind/Subject"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "wait",
+     "seconds": 15
+    },
+    {
+     "do": "state",
+     "name": "subject",
+     "texts": true
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "subject"
+    },
+    {
+     "do": "click",
+     "target": "mask-create"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "click",
+     "target": "mask-kind/People"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "wait",
+     "seconds": 12
+    },
+    {
+     "do": "state",
+     "name": "people",
+     "texts": true
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "people"
+    },
+    {
+     "do": "click",
+     "target": "mask-create"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "click",
+     "target": "mask-kind/Background"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "wait",
+     "seconds": 12
+    },
+    {
+     "do": "state",
+     "name": "background",
+     "texts": true
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "background"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Exposure#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.75,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-Exposure",
+     "settle": 10
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "bg-adjusted"
+    },
+    {
+     "do": "state",
+     "name": "bg-adjusted"
+    }
+   ]
+  },
+  {
+   "name": "mk-ai-a7",
+   "description": "AI Subject, then People and Background, on a real raw.",
+   "fixture": "raw",
+   "timeoutSeconds": 600,
+   "steps": [
+    {
+     "do": "open",
+     "index": 1,
+     "workspace": "develop",
+     "timeout": 90
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 60
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "base"
+    },
+    {
+     "do": "key",
+     "key": "m"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "masking",
+     "texts": true
+    },
+    {
+     "do": "click",
+     "target": "mask-kind/Subject"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "wait",
+     "seconds": 15
+    },
+    {
+     "do": "state",
+     "name": "subject",
+     "texts": true
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "subject"
+    },
+    {
+     "do": "click",
+     "target": "mask-create"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "click",
+     "target": "mask-kind/People"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "wait",
+     "seconds": 12
+    },
+    {
+     "do": "state",
+     "name": "people",
+     "texts": true
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "people"
+    },
+    {
+     "do": "click",
+     "target": "mask-create"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "click",
+     "target": "mask-kind/Background"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "wait",
+     "seconds": 12
+    },
+    {
+     "do": "state",
+     "name": "background",
+     "texts": true
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "background"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Exposure#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.75,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-Exposure",
+     "settle": 10
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "bg-adjusted"
+    },
+    {
+     "do": "state",
+     "name": "bg-adjusted"
+    }
+   ]
+  },
+  {
+   "name": "mk-multiselect",
+   "description": "Two-plus photos selected: masks and strokes go only to the active photo.",
+   "fixture": "raw",
+   "timeoutSeconds": 600,
+   "steps": [
+    {
+     "do": "open",
+     "index": 0,
+     "workspace": "develop",
+     "timeout": 90
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 60
+    },
+    {
+     "do": "menu",
+     "path": "Edit > Select All"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "selected"
+    },
+    {
+     "do": "key",
+     "key": "m"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "click",
+     "target": "mask-kind/Radial Gradient"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "drag",
+     "target": "viewer.image",
+     "from": [
+      0.3,
+      0.4
+     ],
+     "to": [
+      0.45,
+      0.6
+     ],
+     "duration": 0.6
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Exposure#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.75,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-Exposure",
+     "settle": 10
+    },
+    {
+     "do": "state",
+     "name": "radial"
+    },
+    {
+     "do": "click",
+     "target": "mask-create"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "click",
+     "target": "mask-kind/Brush"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "drag",
+     "target": "viewer.image",
+     "from": [
+      0.1,
+      0.8
+     ],
+     "to": [
+      0.6,
+      0.8
+     ],
+     "duration": 0.8
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "brushed",
+     "texts": true
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "brushed"
+    },
+    {
+     "do": "key",
+     "key": "m"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "menu",
+     "path": "Edit > Select None"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "direct",
+     "call": "selectNext"
+    },
+    {
+     "do": "wait",
+     "seconds": 4
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 60
+    },
+    {
+     "do": "state",
+     "name": "next1"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "next1"
+    },
+    {
+     "do": "direct",
+     "call": "selectNext"
+    },
+    {
+     "do": "wait",
+     "seconds": 4
+    },
+    {
+     "do": "state",
+     "name": "next2"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "next2"
+    }
+   ]
+  },
+  {
+   "name": "mk-switch",
+   "description": "Switch photo while masking, paint on the next one, come back; leave masking straight after a stroke.",
+   "fixture": "raw",
+   "timeoutSeconds": 600,
+   "steps": [
+    {
+     "do": "open",
+     "index": 0,
+     "workspace": "develop",
+     "timeout": 90
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 60
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "A-base"
+    },
+    {
+     "do": "key",
+     "key": "m"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "click",
+     "target": "mask-kind/Brush"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "drag",
+     "target": "viewer.image",
+     "from": [
+      0.1,
+      0.5
+     ],
+     "to": [
+      0.6,
+      0.5
+     ],
+     "duration": 0.8
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "A-stroke"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "A-stroke"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Exposure#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.75,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-Exposure",
+     "settle": 10
+    },
+    {
+     "do": "state",
+     "name": "A-adjusted"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 5
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 60
+    },
+    {
+     "do": "state",
+     "name": "B",
+     "texts": true
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "B"
+    },
+    {
+     "do": "drag",
+     "target": "viewer.image",
+     "from": [
+      0.1,
+      0.3
+     ],
+     "to": [
+      0.6,
+      0.3
+     ],
+     "duration": 0.8
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "B-painted",
+     "texts": true
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "B-painted"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 5
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 60
+    },
+    {
+     "do": "state",
+     "name": "A-again",
+     "texts": true
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "A-again"
+    },
+    {
+     "do": "drag",
+     "target": "viewer.image",
+     "from": [
+      0.1,
+      0.7
+     ],
+     "to": [
+      0.6,
+      0.7
+     ],
+     "duration": 0.8
+    },
+    {
+     "do": "key",
+     "key": "m"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "left-after-stroke"
+    },
+    {
+     "do": "key",
+     "key": "m"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "back-in"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "back-in"
+    },
+    {
+     "do": "click",
+     "target": "mask-create"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "click",
+     "target": "mask-kind/Radial Gradient"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "drag",
+     "target": "viewer.image",
+     "from": [
+      0.3,
+      0.3
+     ],
+     "to": [
+      0.4,
+      0.45
+     ],
+     "duration": 0.6
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 5
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 60
+    },
+    {
+     "do": "state",
+     "name": "B2",
+     "texts": true
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "B2"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 5
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 60
+    },
+    {
+     "do": "state",
+     "name": "A3",
+     "texts": true
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "A3"
+    }
+   ]
+  },
+  {
+   "name": "mk-local",
+   "description": "A linear mask over the lower half; each local slider moved then reset; Strength scaling via typed values.",
+   "fixture": "fiducial",
+   "timeoutSeconds": 600,
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "base"
+    },
+    {
+     "do": "key",
+     "key": "m"
+    },
+    {
+     "do": "waitFor",
+     "that": "masking",
+     "eq": true,
+     "timeout": 5
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "click",
+     "target": "mask-kind/Linear Gradient"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "drag",
+     "target": "viewer.image",
+     "from": [
+      0.5,
+      0.45
+     ],
+     "to": [
+      0.5,
+      0.55
+     ],
+     "duration": 0.6
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "created"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure",
+     "at": [
+      0.94,
+      0.5
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "key",
+     "key": "a",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "type",
+     "text": "1"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "exp1"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "exp1"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Strength#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Strength",
+     "at": [
+      0.94,
+      0.5
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "key",
+     "key": "a",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "type",
+     "text": "0"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "str0"
+    },
+    {
+     "do": "state",
+     "name": "str0"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Strength#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Strength",
+     "at": [
+      0.94,
+      0.5
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "key",
+     "key": "a",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "type",
+     "text": "50"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "str50"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Strength#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Strength",
+     "at": [
+      0.94,
+      0.5
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "key",
+     "key": "a",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "type",
+     "text": "200"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "str200"
+    },
+    {
+     "do": "state",
+     "name": "str200"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Strength#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Strength",
+     "at": [
+      0.94,
+      0.5
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "key",
+     "key": "a",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "type",
+     "text": "100"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure",
+     "at": [
+      0.94,
+      0.5
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "key",
+     "key": "a",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "type",
+     "text": "0"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "ref"
+    },
+    {
+     "do": "state",
+     "name": "ref",
+     "texts": true
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Contrast#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Contrast#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.9,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-Contrast",
+     "settle": 10
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "s-Contrast"
+    },
+    {
+     "do": "state",
+     "name": "s-Contrast"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Contrast#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Contrast#track",
+     "at": [
+      0.5,
+      0.5
+     ],
+     "count": 2
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Highlights#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Highlights#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.9,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-Highlights",
+     "settle": 10
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "s-Highlights"
+    },
+    {
+     "do": "state",
+     "name": "s-Highlights"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Highlights#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Highlights#track",
+     "at": [
+      0.5,
+      0.5
+     ],
+     "count": 2
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Shadows#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Shadows#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.9,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-Shadows",
+     "settle": 10
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "s-Shadows"
+    },
+    {
+     "do": "state",
+     "name": "s-Shadows"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Shadows#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Shadows#track",
+     "at": [
+      0.5,
+      0.5
+     ],
+     "count": 2
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Whites#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Whites#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.9,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-Whites",
+     "settle": 10
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "s-Whites"
+    },
+    {
+     "do": "state",
+     "name": "s-Whites"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Whites#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Whites#track",
+     "at": [
+      0.5,
+      0.5
+     ],
+     "count": 2
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Blacks#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Blacks#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.9,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-Blacks",
+     "settle": 10
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "s-Blacks"
+    },
+    {
+     "do": "state",
+     "name": "s-Blacks"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Blacks#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Blacks#track",
+     "at": [
+      0.5,
+      0.5
+     ],
+     "count": 2
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Temp#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Temp#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.9,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-Temp",
+     "settle": 10
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "s-Temp"
+    },
+    {
+     "do": "state",
+     "name": "s-Temp"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Temp#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Temp#track",
+     "at": [
+      0.5,
+      0.5
+     ],
+     "count": 2
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Tint#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Tint#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.9,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-Tint",
+     "settle": 10
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "s-Tint"
+    },
+    {
+     "do": "state",
+     "name": "s-Tint"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Tint#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Tint#track",
+     "at": [
+      0.5,
+      0.5
+     ],
+     "count": 2
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Hue#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Hue#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.9,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-Hue",
+     "settle": 10
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "s-Hue"
+    },
+    {
+     "do": "state",
+     "name": "s-Hue"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Hue#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Hue#track",
+     "at": [
+      0.5,
+      0.5
+     ],
+     "count": 2
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Saturation#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Saturation#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.9,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-Saturation",
+     "settle": 10
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "s-Saturation"
+    },
+    {
+     "do": "state",
+     "name": "s-Saturation"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Saturation#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Saturation#track",
+     "at": [
+      0.5,
+      0.5
+     ],
+     "count": 2
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Vibrance#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Vibrance#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.9,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-Vibrance",
+     "settle": 10
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "s-Vibrance"
+    },
+    {
+     "do": "state",
+     "name": "s-Vibrance"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Vibrance#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Vibrance#track",
+     "at": [
+      0.5,
+      0.5
+     ],
+     "count": 2
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "scroll",
+     "target": "develop.column",
+     "at": [
+      0.5,
+      0.5
+     ],
+     "lines": [
+      0,
+      -30
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "scrolled",
+     "texts": true
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Presence",
+      "within": "develop.column"
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "presence",
+     "texts": true
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Texture#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Texture#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.95,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-Texture",
+     "settle": 10
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "s-Texture"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Texture#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Texture#track",
+     "at": [
+      0.5,
+      0.5
+     ],
+     "count": 2
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Clarity#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Clarity#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.95,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-Clarity",
+     "settle": 10
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "s-Clarity"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Clarity#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Clarity#track",
+     "at": [
+      0.5,
+      0.5
+     ],
+     "count": 2
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Dehaze#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Dehaze#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.95,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-Dehaze",
+     "settle": 10
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "s-Dehaze"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Dehaze#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Dehaze#track",
+     "at": [
+      0.5,
+      0.5
+     ],
+     "count": 2
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Sharpness#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Sharpness#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.95,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-Sharpness",
+     "settle": 10
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "s-Sharpness"
+    },
+    {
+     "do": "state",
+     "name": "s-sharp"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Sharpness#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Sharpness#track",
+     "at": [
+      0.5,
+      0.5
+     ],
+     "count": 2
+    },
+    {
+     "do": "state",
+     "name": "end",
+     "texts": true
+    }
+   ]
+  },
+  {
+   "name": "mk-overlay",
+   "description": "Overlay modes and tints (alt-O, shift-O), the panel Overlay control cycle, hide-then-hover.",
+   "fixture": "fiducial",
+   "timeoutSeconds": 420,
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "base"
+    },
+    {
+     "do": "key",
+     "key": "m"
+    },
+    {
+     "do": "waitFor",
+     "that": "masking",
+     "eq": true,
+     "timeout": 5
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "click",
+     "target": "mask-kind/Radial Gradient"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "drag",
+     "target": "viewer.image",
+     "from": [
+      0.3,
+      0.5
+     ],
+     "to": [
+      0.45,
+      0.7
+     ],
+     "duration": 0.6
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "created"
+    },
+    {
+     "do": "state",
+     "name": "created",
+     "texts": true
+    },
+    {
+     "do": "key",
+     "key": "o",
+     "modifiers": [
+      "option"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "mode1"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "mode1"
+    },
+    {
+     "do": "key",
+     "key": "o",
+     "modifiers": [
+      "option"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "mode2"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "mode2"
+    },
+    {
+     "do": "key",
+     "key": "o",
+     "modifiers": [
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "tint1"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "tint1"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Exposure#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.7,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-Exposure",
+     "settle": 10
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "adjusted"
+    },
+    {
+     "do": "state",
+     "name": "adjusted"
+    },
+    {
+     "do": "click",
+     "target": "mask-row",
+     "at": [
+      0,
+      0
+     ],
+     "offset": [
+      68,
+      54
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "ctl1"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "ctl1"
+    },
+    {
+     "do": "click",
+     "target": "mask-row",
+     "at": [
+      0,
+      0
+     ],
+     "offset": [
+      68,
+      54
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "ctl2"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "ctl2"
+    },
+    {
+     "do": "move",
+     "target": "mask-row",
+     "duration": 0.3
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "shot",
+     "name": "hidden-hover"
+    },
+    {
+     "do": "state",
+     "name": "hidden-hover"
+    },
+    {
+     "do": "click",
+     "target": "mask-row",
+     "at": [
+      0,
+      0
+     ],
+     "offset": [
+      68,
+      54
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "ctl3"
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "ctl3"
+    },
+    {
+     "do": "move",
+     "target": "mask-row",
+     "duration": 0.3
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "shot",
+     "name": "auto-hover"
+    },
+    {
+     "do": "state",
+     "name": "auto-hover"
+    }
+   ]
+  },
+  {
+   "name": "mk-algebra",
+   "description": "Radial, then Subtract a linear and Intersect; component op segmented; Another Mask.",
+   "fixture": "fiducial",
+   "timeoutSeconds": 420,
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 40
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "base"
+    },
+    {
+     "do": "key",
+     "key": "m"
+    },
+    {
+     "do": "waitFor",
+     "that": "masking",
+     "eq": true,
+     "timeout": 5
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "click",
+     "target": "mask-kind/Radial Gradient"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "drag",
+     "target": "viewer.image",
+     "from": [
+      0.35,
+      0.5
+     ],
+     "to": [
+      0.55,
+      0.85
+     ],
+     "duration": 0.6
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Exposure#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.75,
+      0.5
+     ],
+     "duration": 0.6,
+     "id": "sl-Exposure",
+     "settle": 10
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "radial-only"
+    },
+    {
+     "do": "state",
+     "name": "radial-only"
+    },
+    {
+     "do": "click",
+     "target": "mask-row",
+     "at": [
+      0,
+      0
+     ],
+     "offset": [
+      12,
+      18
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "expanded",
+     "texts": true
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "expanded"
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Subtract"
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "sub-board",
+     "texts": true
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "sub-board"
+    },
+    {
+     "do": "click",
+     "target": {
+      "anchor": "mask-kind/Linear Gradient",
+      "index": 0
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "drag",
+     "target": "viewer.image",
+     "from": [
+      0.35,
+      0.45
+     ],
+     "to": [
+      0.35,
+      0.55
+     ],
+     "duration": 0.6
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "state",
+     "name": "subtracted",
+     "texts": true
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "subtracted"
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Intersect"
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "intersect",
+     "texts": true
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "intersect"
+    },
+    {
+     "do": "click",
+     "target": "mask-create"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "click",
+     "target": "mask-kind/Linear Gradient"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "drag",
+     "target": "viewer.image",
+     "from": [
+      0.8,
+      0.3
+     ],
+     "to": [
+      0.8,
+      0.6
+     ],
+     "duration": 0.6
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "click",
+     "target": "mask-create"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "click",
+     "target": "mask-kind/Another Mask"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "ref",
+     "texts": true
+    },
+    {
+     "do": "move",
+     "target": "sidebar",
+     "at": [
+      0.5,
+      0.92
+     ],
+     "duration": 0.15
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "shot",
+     "name": "ref"
+    }
+   ]
+  }
+ ],
+ "ref": "claude/loving-cray-d58nrb-integration",
+ "config": "release",
+ "strict": false,
+ "note": "masking tester run 1"
+}
