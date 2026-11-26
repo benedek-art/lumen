@@ -4788,27 +4788,29 @@ public final class CatalogStore {
                 // frame number is the most common filename search there is, and the
                 // LIKE fallback finds it; the filename substring keeps the two agreeing.
                 criteria.append("(photo.id IN (SELECT rowid FROM cache.photo_fts "
-                                + "WHERE photo_fts MATCH ?) OR photo.filename LIKE ?)")
+                                + "WHERE photo_fts MATCH ?) OR photo.filename LIKE ? ESCAPE '\\')")
                 parameters.append(.text(match))
-                parameters.append(.text("%" + text.trimmingCharacters(in: .whitespaces) + "%"))
+                parameters.append(.text(CatalogStore.likeContains(
+                    text.trimmingCharacters(in: .whitespaces))))
             } else {
-                // Fallback when FTS5 is not compiled in. Still fully parameterized:
-                // any % or _ the user typed simply widens their own match.
+                // Fallback when FTS5 is not compiled in. Still fully parameterized, and
+                // literal: `_` and `%` are characters of the search, not wildcards.
                 criteria.append("""
-                (photo.filename LIKE ? OR photo.ext LIKE ? OR photo.camera LIKE ?
-                 OR photo.lens LIKE ? OR photo.job LIKE ?
+                (photo.filename LIKE ? ESCAPE '\\' OR photo.ext LIKE ? ESCAPE '\\'
+                 OR photo.camera LIKE ? ESCAPE '\\'
+                 OR photo.lens LIKE ? ESCAPE '\\' OR photo.job LIKE ? ESCAPE '\\'
                  OR EXISTS (SELECT 1 FROM photo_keyword pk
                              WHERE pk.photo_id = photo.id AND pk.keyword_id IN (
                                WITH RECURSIVE hit(id) AS (
-                                 SELECT id FROM keyword WHERE name LIKE ?
+                                 SELECT id FROM keyword WHERE name LIKE ? ESCAPE '\\'
                                  UNION SELECT keyword_id FROM keyword_synonym
-                                        WHERE synonym LIKE ?
+                                        WHERE synonym LIKE ? ESCAPE '\\'
                                  UNION SELECT k.id FROM keyword k
                                          JOIN hit ON k.parent_id = hit.id
                                )
                                SELECT id FROM hit)))
                 """)
-                let pattern = "%" + text + "%"
+                let pattern = CatalogStore.likeContains(text)
                 // Five columns, then a keyword's name and its synonyms — the same
                 // words, ancestors included, that the FTS row indexes.
                 for _ in 0..<7 { parameters.append(.text(pattern)) }
@@ -4895,6 +4897,14 @@ public final class CatalogStore {
         }
         return "ORDER BY (\(expression) IS NULL), \(expression) \(direction), "
             + "photo.id \(direction)"
+    }
+
+    /// A LIKE pattern matching `text` as a literal substring, for `ESCAPE '\'`.
+    private static func likeContains(_ text: String) -> String {
+        let escaped = text.replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "%", with: "\\%")
+            .replacingOccurrences(of: "_", with: "\\_")
+        return "%" + escaped + "%"
     }
 
     private static func placeholders(_ count: Int) -> String {
