@@ -676,7 +676,9 @@ final class PhotoRenderModel: ObservableObject {
               /// `EditRevision.value` as the request was made, for the timeline. Nil
               /// keeps a surface out of it.
               editRevision: Int? = nil,
-              gestureInFlight: () -> Bool = { false }) async {
+              gestureInFlight: () -> Bool = { false },
+              /// Whether the gesture that last ended was a drag rather than a key press.
+              lastGestureWasDrag: () -> Bool = { false }) async {
 
         currentRequestURL = url
         // The tick moves only in `AppState.flushSliderGesture` — a release, a photo
@@ -689,6 +691,8 @@ final class PhotoRenderModel: ObservableObject {
         let samePhotograph = imageURL == url
         let previousRequestWasMidGesture = lastRequestWasMidGesture
         lastRequestWasMidGesture = gestureInFlight()
+        let dragRelease = isSettleAsk && samePhotograph && region == nil
+            && lastGestureWasDrag()
         // The hand came up: let the ladder spend any headroom the gesture banked. It
         // is held during the drag because a rung earned back under a moving hand is a
         // visible change of sharpness; here it is one change, at rest, invisible.
@@ -854,53 +858,61 @@ final class PhotoRenderModel: ObservableObject {
             // cancels this task on every event, and the coordinator drops a cancelled
             // task's request before rendering it. The pump renders and lands the frame
             // on its own task; this only waits to learn that its request is done with.
-            _ = await drafts.submit(
+            // Taken now: a release's settle must outrank this draft, never the reverse.
+            let ticket = PhotoRenderModel.nextGeneration()
+            let submitDraft: @MainActor () async -> Bool = { [self] in await drafts.submit(
                 request,
                 render: Self.draftRender(request, coordinator: coordinator,
-                                         strokeSets: strokeSets,
-                                         generation: PhotoRenderModel.nextGeneration()),
+                                         strokeSets: strokeSets, generation: ticket),
                 land: { [self] rendered, successorWaiting in
                     self.landDraft(rendered, request: request,
                                    draftRequested: draftRequested,
                                    midGesture: midGesture, editRevision: editRevision,
                                    decodeDivisor: decodeDivisor,
                                    successorWaiting: successorWaiting)
-                })
-            guard !Task.isCancelled else { return }
+                }) }
+            // A drag's release at fit settles at once: no event is coming to coalesce,
+            // and the settle's newer generation outranks a draft not yet started.
+            if dragRelease {
+                Task { @MainActor in _ = await submitDraft() }
+            } else {
+                _ = await submitDraft()
+                guard !Task.isCancelled else { return }
 
-            // The debounce, and nothing but the debounce: everything after this point
-            // still has to happen inside the deadline, so the wait is the part of the
-            // budget that buys the least and is kept the smallest.
-            //
-            // Longer for a DISCRETE edit (an arrow press, a VoiceOver step), counted
-            // from the request, so a burst of presses coalesces here rather than in a
-            // settle the actor cannot cancel.
-            let discreteEdit = RefineBudget.isDiscreteEdit(
-                isSettleAsk: isSettleAsk, needsDraft: needsDraft,
-                samePhotograph: samePhotograph,
-                previousRequestWasMidGesture: previousRequestWasMidGesture)
-            let elapsed = DispatchTime.now().uptimeNanoseconds &- requestStarted
-            try? await Task.sleep(nanoseconds: RefineBudget.loupe.debounceNanoseconds(
-                discreteEdit: discreteEdit, elapsed: elapsed))
+                // The debounce, and nothing but the debounce: everything after this point
+                // still has to happen inside the deadline, so the wait is the part of the
+                // budget that buys the least and is kept the smallest.
+                //
+                // Longer for a DISCRETE edit (an arrow press, a VoiceOver step), counted
+                // from the request, so a burst of presses coalesces here rather than in a
+                // settle the actor cannot cancel.
+                let discreteEdit = RefineBudget.isDiscreteEdit(
+                    isSettleAsk: isSettleAsk, needsDraft: needsDraft,
+                    samePhotograph: samePhotograph,
+                    previousRequestWasMidGesture: previousRequestWasMidGesture)
+                let elapsed = DispatchTime.now().uptimeNanoseconds &- requestStarted
+                try? await Task.sleep(nanoseconds: RefineBudget.loupe.debounceNanoseconds(
+                    discreteEdit: discreteEdit, elapsed: elapsed))
 
-            // The button is still down but the hand has rested on this value for the
-            // whole debounce: a draft that was reduced is redone at its full size, so
-            // a pause shows the value sharp without waiting for the release.
-            if sizedEdge < fullEdge, !Task.isCancelled,
-               latestGeneration == draftGeneration, gestureInFlight() {
-                let sharp = draftRequest(longEdge: fullEdge)
-                _ = await drafts.submit(
-                    sharp,
-                    render: Self.draftRender(sharp, coordinator: coordinator,
-                                             strokeSets: strokeSets,
-                                             generation: PhotoRenderModel.nextGeneration()),
-                    land: { [self] rendered, successorWaiting in
-                        self.landDraft(rendered, request: sharp,
-                                       draftRequested: draftRequested,
-                                       midGesture: midGesture, editRevision: editRevision,
-                                       decodeDivisor: 1,
-                                       successorWaiting: successorWaiting)
-                    })
+                // The button is still down but the hand has rested on this value for the
+                // whole debounce: a draft that was reduced is redone at its full size, so
+                // a pause shows the value sharp without waiting for the release.
+                if sizedEdge < fullEdge, !Task.isCancelled,
+                   latestGeneration == draftGeneration, gestureInFlight() {
+                    let sharp = draftRequest(longEdge: fullEdge)
+                    _ = await drafts.submit(
+                        sharp,
+                        render: Self.draftRender(sharp, coordinator: coordinator,
+                                                 strokeSets: strokeSets,
+                                                 generation: PhotoRenderModel.nextGeneration()),
+                        land: { [self] rendered, successorWaiting in
+                            self.landDraft(rendered, request: sharp,
+                                           draftRequested: draftRequested,
+                                           midGesture: midGesture, editRevision: editRevision,
+                                           decodeDivisor: 1,
+                                           successorWaiting: successorWaiting)
+                        })
+                }
             }
         }
         guard !Task.isCancelled, latestGeneration == draftGeneration else { return }
@@ -1806,7 +1818,8 @@ struct LoupeView: View {
                          // Asked at the moment the settle would start rather than at
                          // load time, so a release landing mid-draft settles at once
                          // instead of waiting for the tick's fresh task.
-                         gestureInFlight: { state.sliderGestureActive })
+                         gestureInFlight: { state.sliderGestureActive },
+                         lastGestureWasDrag: { state.lastGestureWasDrag })
     }
 
     /// The before rendition, evaluated through the same pipeline as the edit so the

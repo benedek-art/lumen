@@ -4329,9 +4329,15 @@ final class AppState: ObservableObject {
         closeSliderGesture()
     }
 
+    /// Whether the gesture that last closed lasted long enough to be a drag (a key
+    /// press opens and closes in one call). Read by the loupe at the release.
+    private(set) var lastGestureWasDrag = false
+    private var gestureOpenedAt = Date.distantPast
+
     private func openSliderGesture() {
         lastGestureEventAt = Date()
         if !sliderGestureActive {
+            gestureOpenedAt = Date()
             sliderGestureActive = true
             gestureEpoch &+= 1
             armGestureWatchdog()
@@ -4348,6 +4354,7 @@ final class AppState: ObservableObject {
         // Any close releases the panels, whatever closed it.
         releasePanelsAfterSettle()
         guard sliderGestureActive else { return }
+        lastGestureWasDrag = Date().timeIntervalSince(gestureOpenedAt) > 0.1
         sliderGestureActive = false
         gestureWatchdog?.cancel()
         gestureWatchdog = nil
