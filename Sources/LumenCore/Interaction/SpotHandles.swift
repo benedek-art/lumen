@@ -54,15 +54,31 @@ public enum SpotHandles {
     }
 
     /// A source to show the instant a spot is placed, before the search answers: two
-    /// and a half radii to the right, or to the left when that would leave the frame.
+    /// and a half radii to the right, left, below or above, the first whose disc fits in
+    /// the frame. The search finds nothing for a spot too large for any candidate, so
+    /// this can be the source that renders: a disc off the frame would paste the edge
+    /// pixels stretched. When none fits, the in-frame disc farthest from the spot.
     /// Never the destination itself, which would render as nothing and read as broken.
     public static func provisionalSource(for spot: HealSpot, sourceWidth: Int,
                                          sourceHeight: Int) -> (x: Double, y: Double) {
         let w = Double(Swift.max(sourceWidth, 1)), h = Double(Swift.max(sourceHeight, 1))
-        let offset = 2.5 * spot.radius * Swift.max(w, h) / w
-        let right = spot.x + offset
-        let x = right + spot.radius * Swift.max(w, h) / w <= 1 ? right : spot.x - offset
-        return (x, spot.y)
+        let edge = Swift.max(w, h)
+        let rx = spot.radius * edge / w, ry = spot.radius * edge / h
+        let ox = 2.5 * rx, oy = 2.5 * ry
+        func fits(_ p: (x: Double, y: Double)) -> Bool {
+            p.x - rx >= 0 && p.x + rx <= 1 && p.y - ry >= 0 && p.y + ry <= 1
+        }
+        let beside = [(spot.x + ox, spot.y), (spot.x - ox, spot.y),
+                      (spot.x, spot.y + oy), (spot.x, spot.y - oy)]
+        if let p = beside.first(where: fits) { return p }
+        guard 2 * rx <= 1, 2 * ry <= 1 else { return (spot.x - ox, spot.y) }
+        let cy = Num.clamp(spot.y, ry, 1 - ry), cx = Num.clamp(spot.x, rx, 1 - rx)
+        let inFrame = [(rx, cy), (1 - rx, cy), (cx, ry), (cx, 1 - ry)]
+        func distance(_ p: (x: Double, y: Double)) -> Double {
+            hypot((p.x - spot.x) * w, (p.y - spot.y) * h)
+        }
+        let farthest = inFrame.max { distance($0) < distance($1) }!
+        return distance(farthest) > 0 ? farthest : (spot.x - ox, spot.y)
     }
 
     /// The spot after a drag of (`dx`, `dy`) source-normalized units on `part`.
