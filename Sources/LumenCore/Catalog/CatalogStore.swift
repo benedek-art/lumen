@@ -2399,7 +2399,35 @@ public final class CatalogStore {
         while try missing.step() {
             probe.candidateSizes.insert(missing.int(0))
         }
+        // A folder renamed or moved in Finder: its rows are never rescanned, so never
+        // `missing`, and only a signature can carry them to the new path.
+        for vanished in try vanishedFolderIDs() where vanished != folderID {
+            let sizes = try db.prepare(
+                "SELECT DISTINCT file_size FROM photo WHERE folder_id = ? "
+                + "AND quick_sig IS NOT NULL AND quick_sig <> '';")
+            try sizes.bind(1, SQLiteValue.integer(vanished))
+            while try sizes.step() { probe.candidateSizes.insert(sizes.int(0)) }
+        }
         return probe
+    }
+
+    /// Registered folders gone from a disk that is still present. The nearest existing
+    /// ancestor must not be `/` or `/Volumes`, so an unmounted volume's folder does not
+    /// count: a copy of its files elsewhere is a second photograph.
+    private func vanishedFolderIDs() throws -> [Int64] {
+        try folders().filter { CatalogStore.hasVanished($0.path) }.map(\.id)
+    }
+
+    static func hasVanished(_ path: String) -> Bool {
+        let manager = FileManager.default
+        var ancestor = URL(fileURLWithPath: path).standardizedFileURL
+        guard !manager.fileExists(atPath: ancestor.path) else { return false }
+        repeat {
+            let parent = ancestor.deletingLastPathComponent()
+            if parent.path == ancestor.path { return false }
+            ancestor = parent
+        } while !manager.fileExists(atPath: ancestor.path)
+        return ancestor.path != "/" && ancestor.path != "/Volumes"
     }
 
     /// Reconciles one folder against a directory listing (docs/15 §15.9, the cold-start
@@ -2559,6 +2587,8 @@ public final class CatalogStore {
                 if let sig = row.sig, !sig.isEmpty { goneBySignature[sig] = row.id }
             }
             var consumed: Set<Int64> = []
+            let vanished = newFiles.contains { $0.quickSig?.isEmpty == false }
+                ? try self.vanishedFolderIDs().filter { $0 != folderID } : []
 
             for file in newFiles {
                 var relocatedID: Int64? = nil
@@ -2570,6 +2600,14 @@ public final class CatalogStore {
                         + "ORDER BY id LIMIT 1;", [.text(sig)]),
                         !consumed.contains(candidate) {
                         relocatedID = candidate
+                    } else if !vanished.isEmpty {
+                        let rows = try self.db.prepare(
+                            "SELECT id FROM photo WHERE quick_sig = ? AND folder_id IN ("
+                            + CatalogStore.placeholders(vanished.count) + ") ORDER BY id;")
+                        try rows.bindAll([.text(sig)] + vanished.map { .integer($0) })
+                        while relocatedID == nil, try rows.step() {
+                            if !consumed.contains(rows.int(0)) { relocatedID = rows.int(0) }
+                        }
                     }
                 }
                 if let id = relocatedID {
