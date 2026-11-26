@@ -272,9 +272,23 @@ final class CullAdvanceTests: XCTestCase {
         XCTAssertEqual(CullAdvance.dispatchKey(typed: "p", unshifted: "p", shift: true), "p")
         // ⇧= is the zoom key "+"; "=" is not a decision key, so it is left alone.
         XCTAssertEqual(CullAdvance.dispatchKey(typed: "+", unshifted: "=", shift: true), "+")
-        XCTAssertEqual(CullAdvance.dispatchKey(typed: "{", unshifted: "[", shift: true), "{")
         XCTAssertEqual(CullAdvance.dispatchKey(typed: "!", unshifted: "1", shift: false), "!")
         XCTAssertEqual(CullAdvance.dispatchKey(typed: "!", unshifted: nil, shift: true), "!")
+        // ⇧/ is the reference key "?", not the Heal re-pick "/".
+        XCTAssertEqual(CullAdvance.dispatchKey(typed: "?", unshifted: "/", shift: true), "?")
+    }
+
+    /// ⇧[ and ⇧] are brush feather (the dispatcher's bracket case reads ⇧ itself), and
+    /// they arrive as "{" and "}", which no case claimed, so feather had no key.
+    func testShiftedBracketsDispatchAsTheBracket() {
+        XCTAssertEqual(CullAdvance.dispatchKey(typed: "{", unshifted: "[", shift: true), "[")
+        XCTAssertEqual(CullAdvance.dispatchKey(typed: "}", unshifted: "]", shift: true), "]")
+        let pairs: [(Character, Character)] = [("{", "["), ("}", "]")]
+        for (typed, unshifted) in pairs {
+            let key = CullAdvance.dispatchKey(typed: typed, unshifted: unshifted, shift: true)
+            XCTAssertTrue(KeyGrammar.dispatchedKeys.contains(String(key)),
+                          "⇧\(unshifted) dispatches as \(key), which the dispatcher does not claim")
+        }
     }
 
     func testRepeatIsNavigationOnlyWhenEachPressMovesOn() {

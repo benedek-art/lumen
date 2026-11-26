@@ -88,12 +88,9 @@ struct FilterBar: View {
         HStack(spacing: 8) {
             textFilter
             filterButton
-            // Clear stays OUT of the popover on purpose. It carries ⌘\ (docs/10 §10.8,
-            // "one key back to everything"), and a `.keyboardShortcut` on a view that
-            // is not in the hierarchy is not registered — so filing it inside a popover
-            // would leave the shortcut in the source, still passing `KeyGrammarTests`
-            // which reads these as text, and dead in the app. It is also the one filter
-            // action worth a click without opening anything.
+            // Clear stays out of the popover: it is the one filter action worth a click
+            // without opening anything. Its ⌘\ is Library ▸ Clear Filter, because this
+            // bar leaves the hierarchy at Lights Out `out`.
             if state.filter.isActive { clearButton }
             Spacer(minLength: 8)
             sortMenu
@@ -148,7 +145,6 @@ struct FilterBar: View {
             .buttonStyle(.plain)
             .font(.lumenCaption)
             .foregroundStyle(Lumen.secondaryText)
-            .keyboardShortcut("\\", modifiers: [.command])
             .help("Clear the filter (⌘\\)")
     }
 

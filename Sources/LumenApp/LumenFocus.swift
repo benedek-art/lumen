@@ -192,6 +192,20 @@ enum TextEditingFocus {
         guard isActive else { return false }
         return NSApp.sendAction(#selector(NSTextView.selectAll(_:)), to: nil, from: nil)
     }
+
+    /// ⌘Z and ⇧⌘Z. True whenever a text field has the keyboard, answered or not: the
+    /// photo history must never be what a typing hand undoes.
+    static func undo() -> Bool {
+        guard isActive else { return false }
+        _ = NSApp.sendAction(Selector(("undo:")), to: nil, from: nil)
+        return true
+    }
+
+    static func redo() -> Bool {
+        guard isActive else { return false }
+        _ = NSApp.sendAction(Selector(("redo:")), to: nil, from: nil)
+        return true
+    }
 }
 
 // MARK: - Asking for the keyboard

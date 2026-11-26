@@ -48,6 +48,10 @@ struct CullCommands: Commands {
             Group {
                 Button("Filters On / Off") { state.toggleFiltersEnabled() }
                     .keyboardShortcut("l", modifiers: [.command])
+                // Here rather than on the filter bar's Clear button, which Lights Out
+                // `out` takes out of the hierarchy along with its shortcut.
+                Button("Clear Filter") { state.filter = LibraryFilter() }
+                    .keyboardShortcut("\\", modifiers: [.command])
                 Divider()
                 // Each shows one flag and nothing else moves; the same chord again
                 // takes the flag criterion off, like the sidebar's rows.

@@ -40,10 +40,13 @@ public enum CullAdvance {
     /// `typed` is the lowercased character the event reports with Shift still applied;
     /// `unshifted` is the same key with no modifiers. With Shift held and an unshifted
     /// character that is a decision key, the decision key wins ("!" becomes "1"). Every
-    /// other press is dispatched as typed.
+    /// other press is dispatched as typed — except the brackets, whose ⇧ form ("{", "}")
+    /// is brush feather and is read by the bracket case itself.
     public static func dispatchKey(typed: Character, unshifted: Character?,
                                    shift: Bool) -> Character {
-        guard shift, let unshifted, decisionKeys.contains(unshifted) else { return typed }
+        guard shift, let unshifted,
+              decisionKeys.contains(unshifted) || unshifted == "[" || unshifted == "]"
+        else { return typed }
         return unshifted
     }
 

@@ -176,6 +176,10 @@ public enum KeyGrammar {
             KeyRow(keys: "⇧O", action: "Cycle the overlay colour: red, green, white, black"),
             KeyRow(keys: "⌥O", action: "Cycle the six overlay modes"),
             KeyRow(keys: "'", action: "Invert the selected mask component"),
+            KeyRow(keys: "[ ] ⇧[ ⇧]",
+                   action: "While masking with a brush: brush size / feather"),
+            KeyRow(keys: "0–9", action: "While masking with a brush: flow, 1 = 10% … 0 = 100%"),
+            KeyRow(keys: "A", action: "While masking with a brush: automask"),
             // The crop saves as you go (owner, pass 4), so R closing the tool IS the
             // "commit" — the Return-commits binding is retired with the Done button it
             // sat on, and Escape stays the way back (`CropTool.revert`).

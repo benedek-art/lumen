@@ -355,13 +355,17 @@ private struct LumenCommands: Commands {
             }
 
             CommandGroup(replacing: .undoRedo) {
+                // Replacing `.undoRedo` removed AppKit's own items, so inside a text
+                // field these offer the chord to the field first, like ⌘C below.
                 Button(commands.undoLabel.map { "Undo \($0)" } ?? "Undo") {
+                    if TextEditingFocus.undo() { return }
                     state.undo()
                 }
                 .keyboardShortcut("z", modifiers: [.command])
                 .disabled(!commands.canUndo)
 
                 Button(commands.redoLabel.map { "Redo \($0)" } ?? "Redo") {
+                    if TextEditingFocus.redo() { return }
                     state.redo()
                 }
                 .keyboardShortcut("z", modifiers: [.command, .shift])
