@@ -1,0 +1,37 @@
+[
+ {
+  "name": "T9: {seq} follows shooting order across a folder rollover (DSC09998 gets 0001)",
+  "ok": false,
+  "detail": "[('DCIM/101MSDCF/DSC00001.ARW', '0001-DSC00001.ARW'), ('DCIM/101MSDCF/DSC00002.ARW', '0002-DSC00002.ARW'), ('DCIM/100MSDCF/DSC09998.ARW', '0003-DSC09998.ARW'), ('DCIM/100MSDCF/DSC09999.ARW', '0004-DSC09999.ARW')]"
+ },
+ {
+  "name": "T12: vanished frame reported failed, others verified, not allVerified",
+  "ok": true,
+  "detail": "{'IMG_0001.CR3': 'verified', 'IMG_0002.CR3': 'verified', 'IMG_0003.CR3': 'failed', 'IMG_0004.CR3': 'verified', 'IMG_0005.CR3': 'verified'}"
+ },
+ {
+  "name": "T12: summary names the failure",
+  "ok": true,
+  "detail": "Ingested 4 of 5 frames \u2014 1 failed \u2014 IMG_0003.CR3 \u2192 primary: could not be read from the source: The operation could not be completed. The file doesn\u2019t exist."
+ },
+ {
+  "name": "T12: no partial/hidden files",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "T13: no partial or hidden file left on the full primary",
+  "ok": true,
+  "detail": "[('IMG_0001.CR3', 3000000), ('IMG_0002.CR3', 3000000), ('IMG_0003.CR3', 3000000), ('IMG_0004.CR3', 3000000)]"
+ },
+ {
+  "name": "T13: backup received every frame intact",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "T13: run not reported as fully verified; summary names the full disk",
+  "ok": true,
+  "detail": "Ingested 4 of 5 frames \u2014 1 failed \u2014 IMG_0005.CR3 \u2192 primary: could not be written to the destination: The operation could not be completed. There isn\u2019t enough space."
+ }
+]

@@ -1,0 +1,175 @@
+[
+ {
+  "name": "ingest-sheet-journeys",
+  "fixture": "raw",
+  "timeoutSeconds": 290,
+  "description": "NOT RUN (prepared after driver gained sheet capture). Open the ingest sheet, record the rename field's text on open, choose $PHOTOS as source and $OUT/primary + $OUT/backup as destinations through the real open panels, ingest with verify, check files on both destinations; then type {seq4} and use the repair button; X/P under the sheet do nothing.",
+  "steps": [
+   {
+    "do": "open",
+    "index": 0,
+    "workspace": "cull"
+   },
+   {
+    "do": "key",
+    "key": "i",
+    "modifiers": [
+     "cmd",
+     "shift"
+    ]
+   },
+   {
+    "do": "waitFor",
+    "that": "windows.sheet",
+    "eq": true,
+    "timeout": 8
+   },
+   {
+    "do": "wait",
+    "seconds": 0.8
+   },
+   {
+    "do": "shot",
+    "name": "01-ingest-open",
+    "region": "window"
+   },
+   {
+    "do": "listTargets",
+    "name": "ingest"
+   },
+   {
+    "do": "state",
+    "name": "ingest-open",
+    "ax": true
+   },
+   {
+    "do": "key",
+    "key": "x"
+   },
+   {
+    "do": "key",
+    "key": "p"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "expect",
+    "that": "app.primarySelection.flag",
+    "eq": "unflagged",
+    "note": "X/P under the sheet do nothing"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "*/Choose a card or folder",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "click",
+    "target": "menuitem/Choose Folder\u2026"
+   },
+   {
+    "do": "filePanel",
+    "folder": "$PHOTOS",
+    "confirm": "direct"
+   },
+   {
+    "do": "wait",
+    "seconds": 1.5
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "button/Choose\u2026",
+     "index": 0,
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "filePanel",
+    "folder": "$OUT/primary",
+    "confirm": "direct"
+   },
+   {
+    "do": "click",
+    "target": "toggle/Backup copy"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "button/Choose\u2026",
+     "index": 1,
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "filePanel",
+    "folder": "$OUT/backup",
+    "confirm": "direct"
+   },
+   {
+    "do": "wait",
+    "seconds": 0.5
+   },
+   {
+    "do": "shot",
+    "name": "02-ready",
+    "region": "window"
+   },
+   {
+    "do": "listTargets",
+    "name": "ready"
+   },
+   {
+    "do": "click",
+    "target": {
+     "name": "button/Ingest",
+     "within": "sheet"
+    }
+   },
+   {
+    "do": "wait",
+    "seconds": 15
+   },
+   {
+    "do": "shot",
+    "name": "03-done",
+    "region": "window"
+   },
+   {
+    "do": "state",
+    "name": "done",
+    "ax": true
+   },
+   {
+    "do": "files",
+    "id": "prim",
+    "dir": "$OUT/primary"
+   },
+   {
+    "do": "files",
+    "id": "back",
+    "dir": "$OUT/backup"
+   },
+   {
+    "do": "expect",
+    "that": "steps.prim.count",
+    "eq": 3
+   },
+   {
+    "do": "expect",
+    "that": "steps.back.count",
+    "eq": 3
+   },
+   {
+    "do": "expect",
+    "that": "steps.prim.bytes",
+    "eq": "steps.back.bytes",
+    "note": "backup identical in size"
+   }
+  ]
+ }
+]

@@ -1,0 +1,15 @@
+  [t9] Ingested 4 frames, every copy verified.
+  t9 seq assignment: [('DCIM/101MSDCF/DSC00001.ARW', '0001-DSC00001.ARW'), ('DCIM/101MSDCF/DSC00002.ARW', '0002-DSC00002.ARW'), ('DCIM/100MSDCF/DSC09998.ARW', '0003-DSC09998.ARW'), ('DCIM/100MSDCF/DSC09999.ARW', '0004-DSC09999.ARW')]
+FAIL T9: {seq} follows shooting order across a folder rollover (DSC09998 gets 0001) :: [('DCIM/101MSDCF/DSC00001.ARW', '0001-DSC00001.ARW'), ('DCIM/101MSDCF/DSC00002.ARW', '0002-DSC00002.ARW'), ('DCIM/100MSDCF/DSC09998.ARW', '0003-DSC09998.ARW'), ('DCIM/100MSDCF/DSC09999.ARW', '0004-DSC09999.ARW')]
+  [t12] Ingested 4 of 5 frames — 1 failed — IMG_0003.CR3 → primary: could not be read from the source: The operation could not be completed. The file doesn’t exist.
+  t12 outcomes: {'IMG_0001.CR3': 'verified', 'IMG_0002.CR3': 'verified', 'IMG_0003.CR3': 'failed', 'IMG_0004.CR3': 'verified', 'IMG_0005.CR3': 'verified'}
+PASS T12: vanished frame reported failed, others verified, not allVerified :: {'IMG_0001.CR3': 'verified', 'IMG_0002.CR3': 'verified', 'IMG_0003.CR3': 'failed', 'IMG_0004.CR3': 'verified', 'IMG_0005.CR3': 'verified'}
+PASS T12: summary names the failure :: Ingested 4 of 5 frames — 1 failed — IMG_0003.CR3 → primary: could not be read from the source: The operation could not be completed. The file doesn’t exist.
+PASS T12: no partial/hidden files
+  [t13] Ingested 4 of 5 frames — 1 failed — IMG_0005.CR3 → primary: could not be written to the destination: The operation could not be completed. There isn’t enough space.
+  t13 primary files: [('IMG_0001.CR3', 3000000), ('IMG_0002.CR3', 3000000), ('IMG_0003.CR3', 3000000), ('IMG_0004.CR3', 3000000)]
+PASS T13: no partial or hidden file left on the full primary :: [('IMG_0001.CR3', 3000000), ('IMG_0002.CR3', 3000000), ('IMG_0003.CR3', 3000000), ('IMG_0004.CR3', 3000000)]
+PASS T13: backup received every frame intact
+PASS T13: run not reported as fully verified; summary names the full disk :: Ingested 4 of 5 frames — 1 failed — IMG_0005.CR3 → primary: could not be written to the destination: The operation could not be completed. There isn’t enough space.
+
+6/7 checks passed

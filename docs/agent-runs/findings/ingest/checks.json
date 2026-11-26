@@ -1,0 +1,142 @@
+[
+ {
+  "name": "T1: source tree byte-, size- and mtime-identical after ingest, no new entries",
+  "ok": true,
+  "detail": "set()"
+ },
+ {
+  "name": "T1: sha256(dest)==sha256(source) for all 32 landed copies",
+  "ok": true,
+  "detail": "[]"
+ },
+ {
+  "name": "T1: every scanned photo has a verified primary AND backup",
+  "ok": true,
+  "detail": "16 scanned"
+ },
+ {
+  "name": "T1: allVerified (would unlock eject)",
+  "ok": true,
+  "detail": "Ingested 16 frames, every copy verified."
+ },
+ {
+  "name": "T1: backup tree has the same names as primary",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "T1: backup bytes identical to primary",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "T1: no .part / hidden files left in destinations",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "T1: destination keeps the source file's modification date",
+  "ok": false,
+  "detail": "0/16 kept; e.g. src Mon Nov 24 16:01:59 2025 dst Thu Nov 26 03:59:32 2026"
+ },
+ {
+  "name": "T1: each RAW+JPEG pair lands under one stem",
+  "ok": true,
+  "detail": "{}"
+ },
+ {
+  "name": "T2: {seq4} is flagged as unknown token (sheet blocks Start)",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "T2: {seq:4} renders 4-digit counter",
+  "ok": true,
+  "detail": "['20261126-0001-C0001T01.JPG', '20261126-0002-DSC00001.ARW']"
+ },
+ {
+  "name": "T3: pre-existing stranger file not overwritten",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "T3: sha256(dest)==sha256(source) for all 16 landed copies",
+  "ok": true,
+  "detail": "[]"
+ },
+ {
+  "name": "T3: no two frames share one destination file",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "T3: every scanned frame landed",
+  "ok": true,
+  "detail": "Ingested 16 frames, every copy verified. \u00b7 5 renamed to avoid overwriting"
+ },
+ {
+  "name": "T3: RAW+JPEG pairs keep one stem through collision renames",
+  "ok": true,
+  "detail": "{'/tmp/claude-0/-home-user-lumen/63dc02cf-1633-5d17-8701-2cd062529dad/scratchpad/ingestwork/card1/PRIVATE/M4ROOT/THMBNL/C0001T01': {'C0001T01'}, '/tmp/claude-0/-home-user-lumen/63dc02cf-1633-5d17-8701-2cd062529dad/scratchpad/ingestwork/card1/DCIM/100MSDCF/DSC00001': {'DSC00001-1'}, '/tmp/claude-0/-home-user-lumen/63dc02cf-1633-5d17-8701-2cd062529dad/scratchpad/ingestwork/card1/DCIM/101MSDCF/DSC00001': {'DSC00001-2'}, '/tmp/claude-0/-home-user-lumen/63dc02cf-1633-5d17-8701-2cd062529dad/scratchpad/ingestwork/card1/DCIM/100MSDCF/DSC00002': {'DSC00002'}, '/tmp/claude-0/-home-user-lumen/63dc02cf-1633-5d17-8701-2cd062529dad/scratchpad/ingestwork/card1/DCIM/101MSDCF/DSC00002': {'DSC00002-1'}, '/tmp/claude-0/-home-user-lumen/63dc02cf-1633-5d17-8701-2cd062529dad/scratchpad/ingestwork/card1/DCIM/100MSDCF/DSC00003': {'DSC00003'}, '/tmp/claude-0/-home-user-lumen/63dc02cf-1633-5d17-8701-2cd062529dad/scratchpad/ingestwork/card1/DCIM/101MSDCF/DSC00003': {'DSC00003-1'}, '/tmp/claude-0/-home-user-lumen/63dc02cf-1633-5d17-8701-2cd062529dad/scratchpad/ingestwork/card1/DCIM/100MSDCF/DSC00004': {'DSC00004'}, '/tmp/claude-0/-home-user-lumen/63dc02cf-1633-5d17-8701-2cd062529dad/scratchpad/ingestwork/card1/DCIM/100MSDCF/DSC00005': {'DSC00005'}, '/tmp/claude-0/-home-user-lumen/63dc02cf-1633-5d17-8701-2cd062529dad/scratchpad/ingestwork/card1/DCIM/100MSDCF/DSC00006': {'DSC00006'}, '/tmp/claude-0/-home-user-lumen/63dc02cf-1633-5d17-8701-2cd062529dad/scratchpad/ingestwork/card1/DCIM/100MSDCF/DSC00007': {'DSC00007'}, '/tmp/claude-0/-home-user-lumen/63dc02cf-1633-5d17-8701-2cd062529dad/scratchpad/ingestwork/card1/DCIM/100MSDCF/DSC00008': {'DSC00008'}}"
+ },
+ {
+  "name": "T4: stop reported as cancelled",
+  "ok": true,
+  "detail": "Stopped after 9 of 16 frames \u2014 nothing was left half-written."
+ },
+ {
+  "name": "T4: no .part or hidden files after stop",
+  "ok": true,
+  "detail": "[]"
+ },
+ {
+  "name": "T4: every file on disk after stop is a reported, verified copy",
+  "ok": true,
+  "detail": "set()"
+ },
+ {
+  "name": "T4a: sha256(dest)==sha256(source) for all 18 landed copies",
+  "ok": true,
+  "detail": "[]"
+ },
+ {
+  "name": "T4: no destination file is shorter than its source",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "T4b: sha256(dest)==sha256(source) for all 32 landed copies",
+  "ok": true,
+  "detail": "[]"
+ },
+ {
+  "name": "T4: re-run completes, already-copied frames reported alreadyPresent (not recopied)",
+  "ok": true,
+  "detail": "18 alreadyPresent, 14 verified; Ingested 16 frames, every copy verified. \u00b7 18 already on disk"
+ },
+ {
+  "name": "T4: after re-run, primary holds exactly one copy per frame",
+  "ok": true,
+  "detail": "16"
+ },
+ {
+  "name": "T5: re-ingest after in-camera delete does not duplicate already-ingested frames",
+  "ok": false,
+  "detail": "[['20261126-0002-IMG_0003.CR3', '20261126-0003-IMG_0003.CR3'], ['20261126-0003-IMG_0004.CR3', '20261126-0004-IMG_0004.CR3'], ['20261126-0004-IMG_0005.CR3', '20261126-0005-IMG_0005.CR3'], ['20261126-0005-IMG_0006.CR3', '20261126-0006-IMG_0006.CR3']]"
+ },
+ {
+  "name": "T6: choosing the card itself as primary is refused (source must not be written)",
+  "ok": false,
+  "detail": "['2026', '2026/20261126', '2026/20261126/20261126-0001-DSC_0001.NEF', '2026/20261126/20261126-0002-DSC_0002.NEF', '2026/20261126/20261126-0003-DSC_0003.NEF']"
+ },
+ {
+  "name": "T6: second run on that card does not ingest its own earlier copies as new frames",
+  "ok": false,
+  "detail": "scanned 6: Ingested 6 frames, every copy verified."
+ },
+ {
+  "name": "T8: backup on the SAME volume as primary is refused or warned about",
+  "ok": false,
+  "detail": "st_dev primary=65024 backup=65024; summary='Ingested 16 frames, every copy verified.'"
+ }
+]

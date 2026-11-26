@@ -1,0 +1,30 @@
+PASS seeded 12 photos
+PASS album count after B on 5 then on 3 overlapping = 6 (no double count)
+  note: two albums named "Selects" can coexist: ["Selects", "Selects"]
+PASS rename album
+PASS remove 1 from album -> 5
+PASS deleting an album leaves all 12 photos
+PASS smart album 3★+ counts 4
+PASS rating a 5th photo 5★ makes the smart album count 5
+PASS hierarchical keyword on photo 3
+PASS remove from mixed selection removes only where present
+  keyword query via synonym 'Kioto' counts: 10
+  'travel/japan/kyoto' typed with slashes is stored as: ["travel/japan/kyoto"]
+PASS stack has 6 members
+  collapsed-tops query count: 7 (12 photos, one 6-stack)
+  album 'Keepers' count with 2 of its members inside a collapsed stack: 5
+  after reopen collections: ["3 stars[smart] target=false", "Keepers[manual] target=true"]
+PASS relaunch: renamed album survives
+PASS relaunch: deleted album stays deleted (by name)
+  note: deleted album id 2; smart album created after it got id 2 (rowid reuse: true)
+PASS relaunch: target album survives
+PASS relaunch: album membership survives (5)
+PASS relaunch: smart album survives
+PASS relaunch: keywords survive
+PASS relaunch: synonyms survive
+PASS relaunch: stack, pick and collapsed survive
+PASS unstack dissolves
+PASS unstack keeps all photos
+PASS album count follows a removed photo (5 -> 4)
+
+21/21 catalog checks passed

@@ -1,0 +1,53 @@
+  [t1] summary: Ingested 16 frames, every copy verified.
+PASS T1: source tree byte-, size- and mtime-identical after ingest, no new entries
+PASS T1: sha256(dest)==sha256(source) for all 32 landed copies
+PASS T1: every scanned photo has a verified primary AND backup :: 16 scanned
+PASS T1: allVerified (would unlock eject) :: Ingested 16 frames, every copy verified.
+PASS T1: backup tree has the same names as primary
+PASS T1: backup bytes identical to primary
+PASS T1: no .part / hidden files left in destinations
+  scanned: ['DCIM/100MSDCF/DSC00001.ARW', 'DCIM/100MSDCF/DSC00002.ARW', 'DCIM/100MSDCF/DSC00002.JPG', 'DCIM/100MSDCF/DSC00003.ARW', 'DCIM/100MSDCF/DSC00004.ARW', 'DCIM/100MSDCF/DSC00005.ARW', 'DCIM/100MSDCF/DSC00005.JPG', 'DCIM/100MSDCF/DSC00006.ARW', 'DCIM/100MSDCF/DSC00007.ARW', 'DCIM/100MSDCF/DSC00007.JPG', 'DCIM/100MSDCF/DSC00008.ARW', 'DCIM/101MSDCF/DSC00001.ARW', 'DCIM/101MSDCF/DSC00002.ARW', 'DCIM/101MSDCF/DSC00002.JPG', 'DCIM/101MSDCF/DSC00003.ARW', 'PRIVATE/M4ROOT/THMBNL/C0001T01.JPG']
+  on card but NOT ingested: ['DCIM/100MSDCF/._DSC00001.ARW', 'DCIM/100MSDCF/DSC00003.WAV', 'DCIM/100MSDCF/DSC00003.XMP', 'DCIM/100MSDCF/DSC00009.MOV', 'PRIVATE/M4ROOT/CLIP/C0001.MP4']
+  primary tree: ['2026/20261126 Wedding/20261126-0001-C0001T01.JPG', '2026/20261126 Wedding/20261126-0002-DSC00001.ARW', '2026/20261126 Wedding/20261126-0003-DSC00001.ARW', '2026/20261126 Wedding/20261126-0004-DSC00002.ARW', '2026/20261126 Wedding/20261126-0004-DSC00002.JPG', '2026/20261126 Wedding/20261126-0005-DSC00002.ARW', '2026/20261126 Wedding/20261126-0005-DSC00002.JPG', '2026/20261126 Wedding/20261126-0006-DSC00003.ARW', '2026/20261126 Wedding/20261126-0007-DSC00003.ARW', '2026/20261126 Wedding/20261126-0008-DSC00004.ARW', '2026/20261126 Wedding/20261126-0009-DSC00005.ARW', '2026/20261126 Wedding/20261126-0009-DSC00005.JPG', '2026/20261126 Wedding/20261126-0010-DSC00006.ARW', '2026/20261126 Wedding/20261126-0011-DSC00007.ARW', '2026/20261126 Wedding/20261126-0011-DSC00007.JPG', '2026/20261126 Wedding/20261126-0012-DSC00008.ARW']
+FAIL T1: destination keeps the source file's modification date :: 0/16 kept; e.g. src Mon Nov 24 16:01:59 2025 dst Thu Nov 26 03:59:32 2026
+PASS T1: each RAW+JPEG pair lands under one stem
+  [t2-date-seq4-orig] summary: Ingested 16 frames, every copy verified. · 4 renamed to avoid overwriting
+  template '{date}-{seq4}-{orig}': unknown=['seq4'] first names=['20261126--C0001T01.JPG', '20261126--DSC00001-1.ARW', '20261126--DSC00001.ARW', '20261126--DSC00002-1.ARW']
+  [t2-date-seq_4-orig] summary: Ingested 16 frames, every copy verified.
+  template '{date}-{seq:4}-{orig}': unknown=[] first names=['20261126-0001-C0001T01.JPG', '20261126-0002-DSC00001.ARW', '20261126-0003-DSC00001.ARW', '20261126-0004-DSC00002.ARW']
+  [t2-seq-orig] summary: Ingested 16 frames, every copy verified.
+  template '{seq}-{orig}': unknown=[] first names=['0001-C0001T01.JPG', '0002-DSC00001.ARW', '0003-DSC00001.ARW', '0004-DSC00002.ARW']
+  [t2-seq_2_orig] summary: Ingested 16 frames, every copy verified.
+  template '{seq:2}_{orig}': unknown=[] first names=['01_C0001T01.JPG', '02_DSC00001.ARW', '03_DSC00001.ARW', '04_DSC00002.ARW']
+PASS T2: {seq4} is flagged as unknown token (sheet blocks Start)
+PASS T2: {seq:4} renders 4-digit counter :: ['20261126-0001-C0001T01.JPG', '20261126-0002-DSC00001.ARW']
+  [t3] summary: Ingested 16 frames, every copy verified. · 5 renamed to avoid overwriting
+PASS T3: pre-existing stranger file not overwritten
+PASS T3: sha256(dest)==sha256(source) for all 16 landed copies
+PASS T3: no two frames share one destination file
+PASS T3: every scanned frame landed :: Ingested 16 frames, every copy verified. · 5 renamed to avoid overwriting
+  t3 tree: ['C0001T01.JPG', 'DSC00001-1.ARW', 'DSC00001-2.ARW', 'DSC00001.ARW', 'DSC00002-1.ARW', 'DSC00002-1.JPG', 'DSC00002.ARW', 'DSC00002.JPG', 'DSC00003-1.ARW', 'DSC00003.ARW', 'DSC00004.ARW', 'DSC00005.ARW', 'DSC00005.JPG', 'DSC00006.ARW', 'DSC00007.ARW', 'DSC00007.JPG', 'DSC00008.ARW']
+PASS T3: RAW+JPEG pairs keep one stem through collision renames :: {'/tmp/claude-0/-home-user-lumen/63dc02cf-1633-5d17-8701-2cd062529dad/scratchpad/ingestwork/card1/PRIVATE/M4ROOT/THMBNL/C0001T01': {'C0001T01'}, '/tmp/claude-0/-home-user-lumen/63dc02cf-1633-5d17-8701-2cd062529dad/scratchpad/ingestwork/card1/DCIM/100MSDCF/DSC00001': {'DSC00001-1'}, '/tmp/claude-0/-home-user-lumen/63dc02cf-1633-5d17-8701-2cd062529dad/scratchpad/ingestwork/card1/DCIM/101MSDCF/DSC00001': {'DSC00001-2'}, '/tmp/claude-0/-home-user-lumen/63dc02cf-1633-5d17-8701-2cd062529dad/scratchpad/ingestwork/card1/DCIM/100MSDCF/DSC00002': {'DSC00002'}, '/tmp/claude-0/-home-user-lumen/63dc02cf-1633-5d17-8701-2cd062529dad/scratchpad/ingestwork/card1/DCIM/101MSDCF/DSC00002': {'DSC00002-1'}, '/tmp/claude-0/-home-user-lumen/63dc02cf-1633-5d17-8701-2cd062529dad/scratchpad/ingestwork/card1/DCIM/100MSDCF/DSC00003': {'DSC00003'}, '/tmp/claude-0/-home-user-lumen/63dc02cf-1633-5d17-8701-2cd062529dad/scratchpad/ingestwork/card1/DCIM/101MSDCF/DSC00003': {'DSC00003-1'}, '/tmp/claude-0/-home-user-lumen/63dc02cf-1633-5d17-8701-2cd062529dad/scratchpad/ingestwork/card1/DCIM/100MSDCF/DSC00004': {'DSC00004'}, '/tmp/claude-0/-home-user-lumen/63dc02cf-1633-5d17-8701-2cd062529dad/scratchpad/ingestwork/card1/DCIM/100MSDCF/DSC00005': {'DSC00005'}, '/tmp/claude-0/-home-user-lumen/63dc02cf-1633-5d17-8701-2cd062529dad/scratchpad/ingestwork/card1/DCIM/100MSDCF/DSC00006': {'DSC00006'}, '/tmp/claude-0/-home-user-lumen/63dc02cf-1633-5d17-8701-2cd062529dad/scratchpad/ingestwork/card1/DCIM/100MSDCF/DSC00007': {'DSC00007'}, '/tmp/claude-0/-home-user-lumen/63dc02cf-1633-5d17-8701-2cd062529dad/scratchpad/ingestwork/card1/DCIM/100MSDCF/DSC00008': {'DSC00008'}}
+  [t4a] summary: Stopped after 9 of 16 frames — nothing was left half-written.
+PASS T4: stop reported as cancelled :: Stopped after 9 of 16 frames — nothing was left half-written.
+PASS T4: no .part or hidden files after stop
+PASS T4: every file on disk after stop is a reported, verified copy
+PASS T4a: sha256(dest)==sha256(source) for all 18 landed copies
+PASS T4: no destination file is shorter than its source
+  [t4b] summary: Ingested 16 frames, every copy verified. · 18 already on disk
+PASS T4b: sha256(dest)==sha256(source) for all 32 landed copies
+PASS T4: re-run completes, already-copied frames reported alreadyPresent (not recopied) :: 18 alreadyPresent, 14 verified; Ingested 16 frames, every copy verified. · 18 already on disk
+PASS T4: after re-run, primary holds exactly one copy per frame :: 16
+  [t5a] summary: Ingested 6 frames, every copy verified.
+  [t5b] summary: Ingested 7 frames, every copy verified. · 1 already on disk
+  t5 tree: ['20261126-0001-IMG_0001.CR3', '20261126-0002-IMG_0002.CR3', '20261126-0002-IMG_0003.CR3', '20261126-0003-IMG_0003.CR3', '20261126-0003-IMG_0004.CR3', '20261126-0004-IMG_0004.CR3', '20261126-0004-IMG_0005.CR3', '20261126-0005-IMG_0005.CR3', '20261126-0005-IMG_0006.CR3', '20261126-0006-IMG_0006.CR3', '20261126-0006-IMG_0007.CR3', '20261126-0007-IMG_0008.CR3']
+FAIL T5: re-ingest after in-camera delete does not duplicate already-ingested frames :: [['20261126-0002-IMG_0003.CR3', '20261126-0003-IMG_0003.CR3'], ['20261126-0003-IMG_0004.CR3', '20261126-0004-IMG_0004.CR3'], ['20261126-0004-IMG_0005.CR3', '20261126-0005-IMG_0005.CR3'], ['20261126-0005-IMG_0006.CR3', '20261126-0006-IMG_0006.CR3']]
+  [t6a] summary: Ingested 3 frames, every copy verified.
+FAIL T6: choosing the card itself as primary is refused (source must not be written) :: ['2026', '2026/20261126', '2026/20261126/20261126-0001-DSC_0001.NEF', '2026/20261126/20261126-0002-DSC_0002.NEF', '2026/20261126/20261126-0003-DSC_0003.NEF']
+  [t6b] summary: Ingested 6 frames, every copy verified.
+FAIL T6: second run on that card does not ingest its own earlier copies as new frames :: scanned 6: Ingested 6 frames, every copy verified.
+  [t7] summary: Ingested 2 frames, every copy verified.
+  t7 outcomes: [('A.ARW', 'verified'), ('EMPTY.ARW', 'verified')]
+FAIL T8: backup on the SAME volume as primary is refused or warned about :: st_dev primary=65024 backup=65024; summary='Ingested 16 frames, every copy verified.'
+
+23/28 checks passed
