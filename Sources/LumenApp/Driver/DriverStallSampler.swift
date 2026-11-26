@@ -87,10 +87,36 @@ final class DriverStallSampler: @unchecked Sendable {
         current = nil
         let rows = finished
         let published = publishRows()
+        let profiles = profileRows()
         let pending = appAddresses.sorted()
         let names = symbolNames
         lock.unlock()
-        write(rows, symbols: names, publishes: published, resolving: Self.atos(pending))
+        write(rows, symbols: names, publishes: published, profiles: profiles,
+              resolving: Self.atos(pending))
+    }
+
+    // MARK: Profiles
+
+    private var profileKey: String?
+    private var profileStackIDs: [[UInt]: Int] = [:]
+    private var profileStackList: [[UInt]] = []
+    private var profileSamples: [String: [(t: Double, stack: Int, busy: Bool)]] = [:]
+
+    /// Samples the main thread continuously, busy or not, under `key` until nil.
+    func profile(_ key: String?) {
+        lock.lock()
+        profileKey = key
+        lock.unlock()
+    }
+
+    /// Called with `lock` held.
+    private func profileRows() -> [String: Any] {
+        [
+            "stacks": profileStackList.map { $0.prefix(120).map { index(of: symbol($0)) } },
+            "steps": profileSamples.mapValues { samples in
+                samples.map { [$0.t, $0.stack, $0.busy ? 1 : 0] as [Any] }
+            },
+        ]
     }
 
     // MARK: Publishes
@@ -162,11 +188,13 @@ final class DriverStallSampler: @unchecked Sendable {
             }
             let start = turnStart
             let serial = turnSerial
+            let profiling = profileKey
             if let open = current, open.serial != serial || start == nil {
                 close(open)
                 current = nil
             }
-            guard let start, now - start > threshold else {
+            let stalled = start.map { now - $0 > threshold } ?? false
+            guard stalled || profiling != nil else {
                 lock.unlock()
                 continue
             }
@@ -175,6 +203,18 @@ final class DriverStallSampler: @unchecked Sendable {
             guard depth > 0 else { continue }
             let stack = Array(UnsafeBufferPointer(start: buffer, count: depth))
             lock.lock()
+            if let key = profiling {
+                let id = profileStackIDs[stack] ?? {
+                    profileStackIDs[stack] = profileStackList.count
+                    profileStackList.append(stack)
+                    return profileStackList.count - 1
+                }()
+                profileSamples[key, default: []].append((now, id, start != nil))
+            }
+            guard let start, stalled else {
+                lock.unlock()
+                continue
+            }
             if current == nil {
                 current = Stall(serial: serial, start: start, firstSample: now,
                                 lastSample: now)
@@ -194,9 +234,9 @@ final class DriverStallSampler: @unchecked Sendable {
         #if arch(arm64)
         var state = arm_thread_state64_t()
         var count = mach_msg_type_number_t(
-            MemoryLayout<arm_thread_state64_t>.size / MemoryLayout<natural_t>.size)
+            MemoryLayout<arm_thread_state64_t>.size / MemoryLayout<UInt32>.size)
         let read = withUnsafeMutablePointer(to: &state) {
-            $0.withMemoryRebound(to: natural_t.self, capacity: Int(count)) {
+            $0.withMemoryRebound(to: UInt32.self, capacity: Int(count)) {
                 thread_get_state(mainThread, thread_state_flavor_t(ARM_THREAD_STATE64),
                                  $0, &count)
             }
@@ -209,9 +249,9 @@ final class DriverStallSampler: @unchecked Sendable {
         #elseif arch(x86_64)
         var state = x86_thread_state64_t()
         var count = mach_msg_type_number_t(
-            MemoryLayout<x86_thread_state64_t>.size / MemoryLayout<natural_t>.size)
+            MemoryLayout<x86_thread_state64_t>.size / MemoryLayout<UInt32>.size)
         let read = withUnsafeMutablePointer(to: &state) {
-            $0.withMemoryRebound(to: natural_t.self, capacity: Int(count)) {
+            $0.withMemoryRebound(to: UInt32.self, capacity: Int(count)) {
                 thread_get_state(mainThread, thread_state_flavor_t(x86_THREAD_STATE64),
                                  $0, &count)
             }
@@ -302,6 +342,7 @@ final class DriverStallSampler: @unchecked Sendable {
 
     private func write(_ rows: [[String: Any]], symbols table: [String],
                        publishes: [[String: Any]] = [],
+                       profiles: [String: Any] = [:],
                        resolving names: [String: String] = [:]) {
         var resolved = rows
         let symbolTable = table.map { names[$0] ?? $0 }
@@ -315,6 +356,7 @@ final class DriverStallSampler: @unchecked Sendable {
             resolved = rows.map { row in row.mapValues(swap) }
         }
         DriverJSON.write(["stalls": resolved, "symbols": symbolTable, "publishes": publishes,
+                          "profiles": profiles,
                           "thresholdMs": threshold * 1000, "intervalMs": interval * 1000],
                          to: out.appendingPathComponent("stalls.json"))
     }

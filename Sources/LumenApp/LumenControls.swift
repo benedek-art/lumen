@@ -1211,6 +1211,7 @@ struct LumenSlider: View {
                             // mid-drag could split in two.
                             onEditingChanged?(true)
                             sliderGestureChanged(true)
+                            sliderDragHold(true)
                             let thumbX = fraction * Double(width)
                             if SliderDrag.grabsThumb(
                                 pressX: Double(drag.startLocation.x), thumbX: thumbX) {
@@ -1219,6 +1220,7 @@ struct LumenSlider: View {
                                 dragStartValue = geometryOfDrag.valueAtPress(
                                     x: Double(drag.startLocation.x))
                                 value = dragStartValue
+                                redraw &+= 1
                             }
                             // The gesture's gearbox, opened at the press. Coarse it is
                             // arithmetically identical to the old direct call — see

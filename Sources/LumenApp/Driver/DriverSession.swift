@@ -207,6 +207,8 @@ final class DriverSession {
                                       "t0": began]
             if let note = step.string("note") { row["note"] = note }
             var stop = false
+            if step.verb == "drag" { stallSampler?.profile("\(index) \(step.id)") }
+            defer { stallSampler?.profile(nil) }
             do {
                 let detail = try await perform(step)
                 for (key, value) in detail { row[key] = value }
