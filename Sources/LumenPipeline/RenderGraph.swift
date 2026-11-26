@@ -1034,8 +1034,9 @@ public struct RenderGraph {
                                              [lum, baseFine, Float(k)])
             }
             if let gained,
-               let combined = KernelLibrary.apply(KernelLibrary.multiply,
-                                                  extent: out.extent, [out, gained]) {
+               let combined = Self.balancedRatio(
+                out, ratio: gained,
+                sigma: DetailEngine.textureBalanceSigma(longEdge: longEdge)) {
                 out = combined
             }
         }
@@ -1474,7 +1475,7 @@ public struct RenderGraph {
                 [lum, blurred, fine, structure.magnitude, Float(amount), Float(detail),
                  Float(masking), Float(halo), Float(LumenLog.range)]),
               let out = Self.balancedLumaRatio(
-                image, delta: delta,
+                image, delta: delta, limit: DetailEngine.sharpenLimitEV,
                 sigma: DetailEngine.sharpenBalanceSigma(radius: radius, longEdge: longEdge))
         else {
             let filter = CIFilter.unsharpMask()
@@ -1486,19 +1487,27 @@ public struct RenderGraph {
         return out
     }
 
-    /// `DetailEngine.applyBalancedLumaRatio`: the delta as a luminance ratio that keeps
-    /// the scene-linear mean over a `sigma` neighbourhood.
-    static func balancedLumaRatio(_ image: CIImage, delta: CIImage,
+    /// `DetailEngine.applyBalancedLumaRatio`: an EV delta applied as a luminance ratio
+    /// that keeps the scene-linear mean over a `sigma` neighbourhood.
+    static func balancedLumaRatio(_ image: CIImage, delta: CIImage, limit: Double,
                                   sigma: Double) -> CIImage? {
-        let limit = Float(DetailEngine.sharpenLimitEV)
+        guard let one = Self.constant(RGB(gray: 1), extent: image.extent),
+              let ratio = KernelLibrary.apply(KernelLibrary.lumaRatio, extent: image.extent,
+                                              [one, delta, Float(limit)])
+        else { return nil }
+        return Self.balancedRatio(image, ratio: ratio, sigma: sigma)
+    }
+
+    /// `image × ratio` (ratio in r), balanced as `balancedLumaRatio` describes.
+    static func balancedRatio(_ image: CIImage, ratio: CIImage, sigma: Double) -> CIImage? {
         let w = RGBColorSpace.rec2020.luminanceWeights
         guard let energy = KernelLibrary.apply(
-                KernelLibrary.sharpenEnergy, extent: image.extent,
-                [image, delta, limit, CIVector(x: w.r, y: w.g, z: w.b)]),
+                KernelLibrary.ratioEnergy, extent: image.extent,
+                [image, ratio, CIVector(x: w.r, y: w.g, z: w.b)]),
               let spread = Self.gaussianBlur(energy, sigma: sigma)
         else { return nil }
-        return KernelLibrary.apply(KernelLibrary.sharpenBalance, extent: image.extent,
-                                   [image, delta, spread, limit])
+        return KernelLibrary.apply(KernelLibrary.ratioBalance, extent: image.extent,
+                                   [image, ratio, spread, Float(DetailEngine.renormFloor)])
     }
 
     /// The GPU twin of `SpatialOps.fineDetailBand`: the two-scale band a
