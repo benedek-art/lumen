@@ -1,1 +1,10 @@
-{"manifests": "smoke", "lane": "both", "shards": 2, "drift": "none", "label": "warm-check"}
+{"lane": "macos", "drift": "none", "label": "parity-probe-1", "probe": true,
+ "manifest": {"name": "parity", "defaults": {"longEdge": 1536, "tile": 400},
+  "jobs": [
+   {"id": "cmp", "photos": ["6929", "5812", "chart:greyRamp", "chart:colorChecker"],
+    "compare": ["settled", "export"],
+    "variants": [{"label": "minus2", "recipe": {"develop.tone.exposure": -2}}]},
+   {"id": "fail", "photos": ["6929", "5812"], "paths": ["export"],
+    "variants": [{"label": "contrast50", "recipe": {"develop.tone.contrast": 50}},
+                 {"label": "texture50", "recipe": {"develop.detail.texture": 50}}]}
+  ]}}
