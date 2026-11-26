@@ -94,6 +94,7 @@ final class DriverSession {
     var window: NSWindow?
     var input: DriverInput?
     let heartbeat = DriverHeartbeat()
+    var stallSampler: DriverStallSampler?
 
     var frames: [DriverFrame] = []
     var samples: [DriverSample] = []
@@ -172,6 +173,12 @@ final class DriverSession {
 
         startWatchdog()
         installRunLoopObserver()
+        let stallMs = (parsed["stallSampleMs"] as? NSNumber)?.doubleValue ?? 100
+        if stallMs > 0 {
+            let sampler = DriverStallSampler(out: outDir, thresholdMs: stallMs, intervalMs: 3)
+            sampler.start()
+            stallSampler = sampler
+        }
 
         do {
             try await setUpWindow()
@@ -356,8 +363,10 @@ final class DriverSession {
         heartbeat.touch()
         if activity == .afterWaiting {
             runLoopWokeAt = now
+            stallSampler?.turnBegan(at: now)
             return
         }
+        stallSampler?.turnEnded()
         let busy = (now - runLoopWokeAt) * 1000
         if busy > 25 {
             hitches.append((t: now, ms: busy))
@@ -470,6 +479,7 @@ final class DriverSession {
             code = 0
         }
         DriverJSON.write(snapshot(), to: outDir.appendingPathComponent("state-final.json"))
+        stallSampler?.finish()
         writeReport(status: status)
         DriverTimeline.shared.add("end", ["status": status])
         DriverTimeline.shared.flush()
