@@ -1,0 +1,1440 @@
+{
+ "suite": "",
+ "scenarios": [
+  {
+   "name": "sb-albums",
+   "fixture": "raw",
+   "timeoutSeconds": 280,
+   "description": "Album create, B without/with target, target, count, rename (Return), rename cancelled (Esc), delete keeps photos, 60-char name at sidebar width",
+   "steps": [
+    {
+     "do": "open",
+     "index": 0,
+     "workspace": "cull"
+    },
+    {
+     "do": "key",
+     "key": "g",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "state",
+     "name": "00-start",
+     "texts": true
+    },
+    {
+     "do": "shot",
+     "name": "00-start"
+    },
+    {
+     "do": "click",
+     "target": "grid",
+     "at": [
+      0.5,
+      0.95
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "menu",
+     "path": "Edit > Select All"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "key",
+     "key": "b",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "No target album yet \u2014 make one in the sidebar first",
+     "note": "B with no target album"
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "New album",
+      "within": "sidebar"
+     },
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "type",
+     "text": "Selects"
+    },
+    {
+     "do": "key",
+     "key": "return",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "expect",
+     "that": "app.collections.count",
+     "eq": 1,
+     "note": "Return in New album creates one album"
+    },
+    {
+     "do": "shot",
+     "name": "01-created"
+    },
+    {
+     "do": "state",
+     "name": "01-created",
+     "texts": true
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Selects",
+      "within": "sidebar"
+     },
+     "button": "right",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "shot",
+     "name": "02-context-menu"
+    },
+    {
+     "do": "key",
+     "key": "down",
+     "via": "hid"
+    },
+    {
+     "do": "key",
+     "key": "return",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "expect",
+     "that": "app.collections.items.0.isTarget",
+     "eq": true,
+     "note": "Make Target Album (first context item)"
+    },
+    {
+     "do": "click",
+     "target": "grid",
+     "at": [
+      0.5,
+      0.95
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "menu",
+     "path": "Edit > Select All"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "key",
+     "key": "b",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "Added 3 photos to Selects"
+    },
+    {
+     "do": "expect",
+     "that": "app.collections.items.0.count",
+     "eq": 3,
+     "note": "album count after B on 3"
+    },
+    {
+     "do": "key",
+     "key": "b",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "expect",
+     "that": "app.collections.items.0.count",
+     "eq": 3,
+     "note": "B again does not double count"
+    },
+    {
+     "do": "shot",
+     "name": "03-after-B"
+    },
+    {
+     "do": "state",
+     "name": "03-after-B",
+     "texts": true
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Selects",
+      "within": "sidebar"
+     },
+     "button": "right",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "key",
+     "key": "down",
+     "via": "hid",
+     "count": 3,
+     "interval": 0.08
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "shot",
+     "name": "04-menu-rename-highlight"
+    },
+    {
+     "do": "key",
+     "key": "return",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "shot",
+     "name": "05-rename-field"
+    },
+    {
+     "do": "key",
+     "key": "delete",
+     "via": "hid",
+     "count": 12,
+     "interval": 0.08
+    },
+    {
+     "do": "type",
+     "text": "Keepers"
+    },
+    {
+     "do": "key",
+     "key": "return",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "expect",
+     "that": "app.collections.items.0.name",
+     "eq": "Keepers",
+     "note": "inline rename commits on Return"
+    },
+    {
+     "do": "expect",
+     "that": "app.collections.items.0.count",
+     "eq": 3,
+     "note": "rename keeps membership"
+    },
+    {
+     "do": "shot",
+     "name": "06-renamed"
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Keepers",
+      "within": "sidebar"
+     },
+     "button": "right",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "key",
+     "key": "down",
+     "via": "hid",
+     "count": 3,
+     "interval": 0.08
+    },
+    {
+     "do": "key",
+     "key": "return",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "type",
+     "text": "XYZ"
+    },
+    {
+     "do": "key",
+     "key": "escape",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "expect",
+     "that": "app.collections.items.0.name",
+     "eq": "Keepers",
+     "note": "Esc cancels the rename"
+    },
+    {
+     "do": "shot",
+     "name": "07-after-esc"
+    },
+    {
+     "do": "state",
+     "name": "07-after-esc",
+     "texts": true
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Keepers",
+      "within": "sidebar"
+     },
+     "button": "right",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "key",
+     "key": "down",
+     "via": "hid",
+     "count": 4,
+     "interval": 0.08
+    },
+    {
+     "do": "key",
+     "key": "return",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "shot",
+     "name": "08-delete-confirm"
+    },
+    {
+     "do": "state",
+     "name": "08-delete-confirm",
+     "texts": true
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Keep",
+      "within": "sidebar"
+     },
+     "offset": [
+      38,
+      0
+     ],
+     "via": "hid",
+     "note": "the Delete button right of Keep"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "expect",
+     "that": "app.collections.count",
+     "eq": 0,
+     "note": "album deleted"
+    },
+    {
+     "do": "expect",
+     "that": "photo.count",
+     "eq": 3,
+     "note": "photos still there"
+    },
+    {
+     "do": "shot",
+     "name": "09-deleted"
+    },
+    {
+     "do": "state",
+     "name": "09-deleted",
+     "texts": true
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "New album",
+      "within": "sidebar"
+     },
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "type",
+     "text": "Wedding of Alexandra and Maximilian at the Old Harbour Lighthouse"
+    },
+    {
+     "do": "key",
+     "key": "return",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "New album",
+      "within": "sidebar"
+     },
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "type",
+     "text": "Selects"
+    },
+    {
+     "do": "key",
+     "key": "return",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "New album",
+      "within": "sidebar"
+     },
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "type",
+     "text": "Selects"
+    },
+    {
+     "do": "key",
+     "key": "return",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "expect",
+     "that": "app.collections.count",
+     "eq": 3,
+     "note": "long name + two albums named Selects"
+    },
+    {
+     "do": "shot",
+     "name": "10-long-and-duplicate-names"
+    },
+    {
+     "do": "state",
+     "name": "10-final",
+     "texts": true
+    }
+   ]
+  },
+  {
+   "name": "sb-keywords",
+   "fixture": "raw",
+   "timeoutSeconds": 240,
+   "description": "Shift-Cmd-K with sidebar hidden shows it and focuses the field; typing a hierarchy containing p/x/u must not cull; keyword lands on all 3; synonym; remove from selection",
+   "steps": [
+    {
+     "do": "open",
+     "index": 0,
+     "workspace": "cull"
+    },
+    {
+     "do": "key",
+     "key": "g",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "click",
+     "target": "grid",
+     "at": [
+      0.5,
+      0.95
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "menu",
+     "path": "Edit > Select All"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "key",
+     "key": "s",
+     "via": "hid",
+     "modifiers": [
+      "option",
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "expect",
+     "that": "app.sidebarVisible",
+     "eq": false,
+     "note": "Opt-Cmd-S hides the sidebar"
+    },
+    {
+     "do": "key",
+     "key": "k",
+     "via": "hid",
+     "modifiers": [
+      "shift",
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "expect",
+     "that": "app.sidebarVisible",
+     "eq": true,
+     "note": "Shift-Cmd-K shows the sidebar"
+    },
+    {
+     "do": "shot",
+     "name": "01-after-shift-cmd-k"
+    },
+    {
+     "do": "type",
+     "text": "Travel > Japan > Kyoto pxu"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "expect",
+     "that": "app.selection.count",
+     "eq": 3,
+     "note": "typing does not change the selection"
+    },
+    {
+     "do": "state",
+     "name": "02-typed",
+     "texts": true
+    },
+    {
+     "do": "shot",
+     "name": "02-typed"
+    },
+    {
+     "do": "key",
+     "key": "return",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "Keyworded 3 photos \"Travel > Japan > Kyoto pxu\""
+    },
+    {
+     "do": "shot",
+     "name": "03-keyworded"
+    },
+    {
+     "do": "state",
+     "name": "03-keyworded",
+     "texts": true
+    },
+    {
+     "do": "expect",
+     "that": "app.allPhotos.items.0.flag",
+     "eq": "unflagged",
+     "note": "p/x/u typed into the field did not cull photo 1"
+    },
+    {
+     "do": "expect",
+     "that": "app.allPhotos.items.1.flag",
+     "eq": "unflagged"
+    },
+    {
+     "do": "expect",
+     "that": "app.allPhotos.items.2.flag",
+     "eq": "unflagged"
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Kyoto",
+      "within": "sidebar"
+     },
+     "button": "right",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "key",
+     "key": "down",
+     "via": "hid"
+    },
+    {
+     "do": "key",
+     "key": "return",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "type",
+     "text": "Kioto"
+    },
+    {
+     "do": "key",
+     "key": "return",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "\"Kioto\" now finds Travel > Japan > Kyoto pxu"
+    },
+    {
+     "do": "shot",
+     "name": "04-synonym"
+    },
+    {
+     "do": "state",
+     "name": "04-synonym",
+     "texts": true
+    },
+    {
+     "do": "click",
+     "target": "filterbar",
+     "at": [
+      0.15,
+      0.5
+     ],
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "type",
+     "text": "Kioto"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "expect",
+     "that": "photo.count",
+     "eq": 3,
+     "note": "searching the synonym finds all three"
+    },
+    {
+     "do": "shot",
+     "name": "05-search-synonym"
+    },
+    {
+     "do": "state",
+     "name": "05-search",
+     "texts": true
+    }
+   ]
+  },
+  {
+   "name": "sb-stacks",
+   "fixture": "raw",
+   "timeoutSeconds": 240,
+   "description": "Cmd-G with sidebar hidden, Stack section, collapse/expand, promote, Shift-Cmd-G with sidebar hidden",
+   "steps": [
+    {
+     "do": "open",
+     "index": 0,
+     "workspace": "cull"
+    },
+    {
+     "do": "key",
+     "key": "g",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 1
+    },
+    {
+     "do": "click",
+     "target": "grid",
+     "at": [
+      0.5,
+      0.95
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "menu",
+     "path": "Edit > Select All"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "key",
+     "key": "s",
+     "via": "hid",
+     "modifiers": [
+      "option",
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "key",
+     "key": "g",
+     "via": "hid",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "Stacked 3 frames",
+     "note": "Cmd-G works with the sidebar hidden"
+    },
+    {
+     "do": "shot",
+     "name": "01-stacked-hidden"
+    },
+    {
+     "do": "state",
+     "name": "01-stacked",
+     "texts": true
+    },
+    {
+     "do": "key",
+     "key": "s",
+     "via": "hid",
+     "modifiers": [
+      "option",
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Stack",
+      "within": "sidebar"
+     },
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "shot",
+     "name": "02-stack-section"
+    },
+    {
+     "do": "state",
+     "name": "02-stack-section",
+     "texts": true
+    },
+    {
+     "do": "expect",
+     "that": "app.primaryStack.memberCount",
+     "eq": 3
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Stack",
+      "within": "sidebar"
+     },
+     "via": "hid",
+     "note": "maybe already open; second click toggles"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "shot",
+     "name": "02b-stack-section"
+    },
+    {
+     "do": "state",
+     "name": "02b-stack-section",
+     "texts": true
+    },
+    {
+     "do": "click",
+     "target": "grid",
+     "at": [
+      0.5,
+      0.95
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "03-second-frame",
+     "texts": true
+    },
+    {
+     "do": "shot",
+     "name": "03-second-frame"
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Promote to Pick",
+      "within": "sidebar"
+     },
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "expect",
+     "that": "app.primaryStack.isPick",
+     "eq": true,
+     "note": "promote makes this frame the pick"
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Stack",
+      "within": "sidebar"
+     },
+     "via": "hid",
+     "note": "Expand/Collapse"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.2
+    },
+    {
+     "do": "state",
+     "name": "04-after-promote",
+     "texts": true
+    },
+    {
+     "do": "shot",
+     "name": "04-after-promote"
+    },
+    {
+     "do": "key",
+     "key": "s",
+     "via": "hid",
+     "modifiers": [
+      "option",
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "key",
+     "key": "g",
+     "via": "hid",
+     "modifiers": [
+      "shift",
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "expect",
+     "that": "status",
+     "eq": "Unstacked",
+     "note": "Shift-Cmd-G works with the sidebar hidden"
+    },
+    {
+     "do": "expect",
+     "that": "photo.count",
+     "eq": 3
+    },
+    {
+     "do": "shot",
+     "name": "05-unstacked"
+    },
+    {
+     "do": "state",
+     "name": "05-unstacked",
+     "texts": true
+    }
+   ]
+  },
+  {
+   "name": "sb-flagrows",
+   "fixture": "raw",
+   "timeoutSeconds": 200,
+   "description": "Picked/Unflagged/Rejected counts and lists; photo leaving the filter while in loupe",
+   "steps": [
+    {
+     "do": "open",
+     "index": 0,
+     "workspace": "cull"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "direct",
+     "call": "showLoupe"
+    },
+    {
+     "do": "key",
+     "key": "p",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "00-after-p",
+     "texts": true
+    },
+    {
+     "do": "open",
+     "index": 1,
+     "workspace": "cull"
+    },
+    {
+     "do": "key",
+     "key": "x",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "key",
+     "key": "g",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "shot",
+     "name": "01-counts"
+    },
+    {
+     "do": "state",
+     "name": "01-counts",
+     "texts": true
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Picked",
+      "within": "sidebar"
+     },
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "expect",
+     "that": "photo.count",
+     "eq": 1,
+     "note": "Picked lists one"
+    },
+    {
+     "do": "shot",
+     "name": "02-picked"
+    },
+    {
+     "do": "state",
+     "name": "02-picked",
+     "texts": true
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Rejected",
+      "within": "sidebar"
+     },
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "expect",
+     "that": "photo.count",
+     "eq": 1,
+     "note": "Rejected lists one"
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Unflagged",
+      "within": "sidebar"
+     },
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "expect",
+     "that": "photo.count",
+     "eq": 1,
+     "note": "Unflagged lists one"
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Picked",
+      "within": "sidebar"
+     },
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "click",
+     "target": "grid",
+     "at": [
+      0.12,
+      0.15
+     ],
+     "count": 2,
+     "via": "hid",
+     "note": "open the picked photo in loupe"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "03-loupe-picked",
+     "texts": true
+    },
+    {
+     "do": "shot",
+     "name": "03-loupe-picked"
+    },
+    {
+     "do": "key",
+     "key": "u",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "shot",
+     "name": "04-after-unflag"
+    },
+    {
+     "do": "state",
+     "name": "04-after-unflag",
+     "texts": true
+    }
+   ]
+  },
+  {
+   "name": "sb-smart",
+   "fixture": "raw",
+   "timeoutSeconds": 200,
+   "hangSeconds": 40,
+   "description": "Save filter (picks) as smart album through the NSAlert, count updates live when another photo is picked",
+   "steps": [
+    {
+     "do": "open",
+     "index": 0,
+     "workspace": "cull"
+    },
+    {
+     "do": "key",
+     "key": "p",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "key",
+     "key": "g",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "menu",
+     "path": "Library > Show Picks Only"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "expect",
+     "that": "photo.count",
+     "eq": 1
+    },
+    {
+     "do": "shot",
+     "name": "01-picks-filter"
+    },
+    {
+     "do": "state",
+     "name": "01-picks-filter",
+     "texts": true
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Save Filter as Smart Album",
+      "within": "sidebar"
+     },
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.0
+    },
+    {
+     "do": "shot",
+     "name": "02-alert-maybe"
+    },
+    {
+     "do": "key",
+     "key": "return",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.0
+    },
+    {
+     "do": "expect",
+     "that": "app.collections.count",
+     "eq": 1,
+     "note": "smart album saved"
+    },
+    {
+     "do": "expect",
+     "that": "app.collections.items.0.count",
+     "eq": 1
+    },
+    {
+     "do": "shot",
+     "name": "03-saved"
+    },
+    {
+     "do": "state",
+     "name": "03-saved",
+     "texts": true
+    },
+    {
+     "do": "menu",
+     "path": "Library > Filters On / Off"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.2
+    },
+    {
+     "do": "open",
+     "index": 2,
+     "workspace": "cull"
+    },
+    {
+     "do": "key",
+     "key": "p",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "key",
+     "key": "g",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "expect",
+     "that": "app.collections.items.0.count",
+     "eq": 2,
+     "note": "smart album count follows a new pick"
+    },
+    {
+     "do": "shot",
+     "name": "04-live-count"
+    },
+    {
+     "do": "state",
+     "name": "04-live-count",
+     "texts": true
+    }
+   ]
+  },
+  {
+   "name": "ingest-sheet-keys",
+   "fixture": "raw",
+   "timeoutSeconds": 150,
+   "description": "File > Ingest from Card opens the sheet; X, P and 3 pressed while it is up must not touch the photo behind; Esc closes",
+   "steps": [
+    {
+     "do": "open",
+     "index": 0,
+     "workspace": "cull"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "menu",
+     "path": "File > Ingest from Card\u2026"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "eq": "ingest",
+     "note": "sheet is up"
+    },
+    {
+     "do": "state",
+     "name": "01-sheet-up",
+     "texts": true
+    },
+    {
+     "do": "shot",
+     "name": "01-sheet-up"
+    },
+    {
+     "do": "key",
+     "key": "x",
+     "via": "hid"
+    },
+    {
+     "do": "key",
+     "key": "p",
+     "via": "hid"
+    },
+    {
+     "do": "key",
+     "key": "3",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "expect",
+     "that": "app.primarySelection.flag",
+     "eq": "unflagged",
+     "note": "X/P under the sheet do nothing"
+    },
+    {
+     "do": "expect",
+     "that": "app.primarySelection.rating",
+     "eq": 0,
+     "note": "3 under the sheet does nothing"
+    },
+    {
+     "do": "state",
+     "name": "02-after-keys",
+     "texts": true
+    },
+    {
+     "do": "key",
+     "key": "escape",
+     "via": "hid"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "exists": false,
+     "note": "Esc closes the sheet"
+    },
+    {
+     "do": "state",
+     "name": "03-closed",
+     "texts": true
+    },
+    {
+     "do": "shot",
+     "name": "03-closed"
+    }
+   ]
+  }
+ ],
+ "ref": "claude/loving-cray-d58nrb-integration",
+ "config": "release",
+ "strict": false,
+ "note": "test-ingest sidebar batch 1"
+}
