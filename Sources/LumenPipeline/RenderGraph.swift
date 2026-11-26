@@ -63,7 +63,8 @@ public struct RenderGraph {
     /// Rasterized mask alphas keyed by mask id, supplied by the mask cache. Missing
     /// entries simply mean that mask does not contribute this frame.
     public var maskImages: [String: CIImage] = [:]
-    /// The film grain plate, tiled, supplied by the film stage's cache.
+    /// The film grain field (`grainPlate(_:extent:longEdge:toFrame:)`), supplied by the
+    /// caller.
     public var grainPlate: CIImage?
     /// THE EXPORT PATH IS GRAINING THIS FRAME ITSELF, after the resize — so this graph
     /// must not.
@@ -331,19 +332,6 @@ public struct RenderGraph {
         // here AND again there — two independent noise fields at √2 the amplitude, on
         // the delivered file only. So the fallback is gated on `isCreative`, which is
         // false for exactly the case that defers.
-        //
-        // The cost of that gate, stated rather than hidden: a creative grain on an
-        // EXPORT is laid down here, at the decode's resolution, and then resampled by
-        // the export's resize. `plateScale` already anchors the footprint to the render's
-        // own long edge so the pattern lands at the same relative size either way, and
-        // `testFilmGrainHasTheSameAmplitudeAtEveryRenderSize` measures the amplitude cost
-        // of a 3x downsample at about 4% of σ — but the half-pixel floor
-        // `plateScale` enforces is divided straight past by a resample, so a heavily
-        // downsized delivery carries a pattern finer than the model allows. The fix is
-        // one line in `PipelineRenderer.exportedImage` — the same deferral the film path
-        // already has, reading `plan.grain` instead of `plan.filmChain` — and it belongs
-        // in that file, which is not this change's to edit. Until then this is where a
-        // creative grain lands, and it is right for every preview and every 1:1 view.
         if let grain = plan.grain, grain.amount > 0, !defersGrain {
             if let plate = grainPlate {
                 image = applyGrain(image, plate: plate, grain: grain)
@@ -1822,160 +1810,39 @@ public struct RenderGraph {
             ?? image
     }
 
-    /// A tiled plate for ANY grain — a stock's or the Effects panel's — packed the way
-    /// `lumenGrain` reads it.
+    /// The grain field for ANY grain — a stock's or the Effects panel's — packed the way
+    /// `lumenGrain` reads it: `n / plateEncodeScale + 0.5` per layer.
     ///
-    /// THERE WAS A SECOND COPY OF THIS, in `PipelineRenderer`, for the film path. Same
-    /// generator, same seeds, same packing, same tiling, same 128 — a duplicate that
-    /// this comment used to describe as producing identical bytes "by construction".
-    /// It stopped being true the moment the plate learned to band-limit itself
-    /// (C2-01b): the reference renderer and this builder skipped the octaves a render
-    /// cannot resolve, and the film path's copy did not, so a stock's GPU grain went
-    /// back to carrying the aliasing the fix had just removed — on the export path as
-    /// well as the preview. Nothing failed, because the test that pinned the two
-    /// builders together compares the UNLIMITED plates and both are still unlimited
-    /// when you ask them that way.
+    /// Generated per pixel by `lumenGrainField`, the GPU twin of `GrainField.value`,
+    /// rather than tiled from a texture: the tile had a period (the grain repeated every
+    /// `128 × plateScale` px) and its scaled copies left transparent texels at every tile
+    /// edge, which decoded to −4σ of density — a bright seam every period on every export.
     ///
-    /// So there is one builder now. `GrainPlan.film` makes a plan out of a `FilmChain`
-    /// and the film path comes through here.
-    ///
-    /// This is the same construction `PipelineRenderer.grainPlate` used to perform for a film
-    /// stock, and the duplication is deliberate and bounded rather than accidental: the
-    /// film builder lives in a file this change does not own, and the alternative was
-    /// either to ship a creative grain that renders on the CPU reference and silently
-    /// does nothing on the shipping path — the exact "built but unwired" defect this
-    /// codebase keeps convicting itself of — or to leave the GPU without a plate at all.
-    /// What is NOT duplicated is anything that could disagree about the grain itself:
-    /// the noise comes from `GrainPlan.plate`, which is `FilmGrainProfile.plate` with the
-    /// profile's own seed and persistence; the packing constant is
-    /// `FilmGrainProfile.plateEncodeScale`, the one the kernel divides back out; the cell
-    /// size is `GrainPlan.plateScale`. Those four are the whole of what a plate IS, and
-    /// each of them has a paragraph in `FilmLab.swift` about the day it was written twice
-    /// with two values.
-    ///
-    /// WHEN `PipelineRenderer` IS NEXT OPEN, this should become the one builder and its
-    /// twin should call it with `GrainPlan.film(chain)`. The two produce identical bytes
-    /// for a film profile by construction — same generator, same seeds, same encode
-    /// scale, same 128 — and `GrainPlateTests` in LumenCore pins the pixel packing so
-    /// that a merge of the two cannot quietly change one.
-    ///
-    /// No `saturate` on the stored value, for the reason the film builder gives: the
-    /// texture is RGBAf and a clamp to 0…1 would flatten the 3.4% of the plate beyond
-    /// ±2σ, which is precisely the strongest grains.
-    static func grainPlate(_ grain: GrainPlan, extent: CGRect,
-                           longEdge: Int) -> CIImage? {
-        let size = GrainPlan.plateSize
-        guard extent.width > 0, extent.height > 0 else { return nil }
-
-        /// Scale one plate to its cell size, tile it over the plane, and ANCHOR the
-        /// lattice to the TOP of the frame.
-        ///
-        /// The anchoring is the one line here that is not obvious, and it is a fix.
-        /// `ImageBuffer` is top-down while Core Image's extent is bottom-up, so image
-        /// row `y` renders at `y_CI = maxY − 1 − y`; the plate is built from a top-down
-        /// array through the same `CIImage(bitmapData:)`, so its row 0 lands at the TOP
-        /// of the plate's own extent; and `affineTile` repeats that extent from the CI
-        /// ORIGIN. Compose those three and the GPU read plate row `(128 − h + y) mod 128`
-        /// where `ReferenceRenderer.applyGrain` reads row `y` — the same row only when
-        /// the frame's height happened to be a multiple of 128, which is why nothing
-        /// noticed. Measured on a 160×96 frame at exactly one plate texel per render
-        /// pixel, the two renderers differed by 0.16699 at (16, 0) against a parity
-        /// bound of 1e-3, while the 128-row frame agreed to 1e-6.
-        ///
-        /// A TRANSLATION and not a mirror: the image and the plate cross the
-        /// top-down/bottom-up boundary in the same direction, so `y`'s coefficient
-        /// survives with its sign and only the offset moves. That is what makes this
-        /// one number rather than a flip of the stored array.
-        ///
-        /// Anchoring the lattice to `extent.maxY` puts a tile's top edge on the frame's
-        /// top edge, which is where the plate's own row 0 lives — so top-down row `y`
-        /// reads plate row `y`, which is what the reference reads. Taken modulo one tile
-        /// period because the tiling is periodic and a small offset keeps the sampler's
-        /// coordinates near the frame: `maxY − period ≡ maxY (mod period)`.
-        ///
-        /// It moves rows only. x carries no flip and the lattice already starts where
-        /// the frame does, which is why the 160-wide fixture — chosen so the tile WRAPS
-        /// in x — was exact before this and stays exact after it.
-        func tiled(_ plate: CIImage, scale: Double) -> CIImage {
-            let scaled = plate.transformed(
-                by: CGAffineTransform(scaleX: CGFloat(scale), y: CGFloat(scale)))
-            let tiler = CIFilter.affineTile()
-            tiler.inputImage = scaled
-            tiler.transform = .identity
-            let repeated = tiler.outputImage ?? scaled
-            let period = Double(size) * scale
-            guard period.isFinite, period > 0 else { return repeated }
-            let offset = Double(extent.maxY).truncatingRemainder(dividingBy: period)
-            // An infinite extent — which `CIImage.extent` is entitled to be — makes the
-            // remainder NaN, and a NaN translation would take the whole plate with it.
-            guard offset.isFinite, offset != 0 else { return repeated }
-            return repeated.transformed(
-                by: CGAffineTransform(translationX: 0, y: CGFloat(offset)))
+    /// `toFrame` maps this image's Core Image coordinates to the top-down position, in
+    /// pixels at `longEdge`, on the uncropped frame the viewer grains; nil means this
+    /// image is that frame. Same frame position, same grain.
+    static func grainPlate(_ grain: GrainPlan, extent: CGRect, longEdge: Int,
+                           toFrame: CGAffineTransform? = nil) -> CIImage? {
+        guard !extent.isInfinite, extent.width > 0, extent.height > 0 else { return nil }
+        let map = toFrame ?? CGAffineTransform(a: 1, b: 0, c: 0, d: -1,
+                                               tx: -extent.minX, ty: extent.maxY)
+        func vector(_ v: [Double]) -> CIVector {
+            CIVector(x: CGFloat(v[0]), y: CGFloat(v[1]), z: CGFloat(v[2]), w: CGFloat(v[3]))
         }
-
-        /// One layer's tile: its noise in `channel`, zero elsewhere, so the three sum to
-        /// a packed RGB plate. Alpha rides on the red tile alone — addition compositing
-        /// adds alpha too, and three opaque tiles would sum to 3.
-        func tile(channel: Int) -> CIImage? {
-            // BAND-LIMITED to the resolution this plate is about to be sampled at, and
-            // through the SAME `plateScale` call `ReferenceRenderer` makes, because the
-            // two plates have to be identical bytes or gpu-parity fails (C2-01b).
-            let values = grain.plate(
-                channel: channel,
-                renderPixelsPerCell: grain.plateScale(longEdgePixels: longEdge,
-                                                      channel: channel))
-            var pixels = [Float](repeating: 0, count: size * size * 4)
-            for i in 0..<(size * size) {
-                pixels[i * 4 + channel] =
-                    Float(Double(values[i]) / FilmGrainProfile.plateEncodeScale + 0.5)
-                pixels[i * 4 + 3] = channel == 0 ? 1 : 0
-            }
-            let data = pixels.withUnsafeBufferPointer { Data(buffer: $0) }
-            let image = CIImage(bitmapData: data, bytesPerRow: size * 16,
-                                size: CGSize(width: size, height: size),
-                                format: .RGBAf, colorSpace: nil)
-            return tiled(image,
-                         scale: grain.plateScale(longEdgePixels: longEdge,
-                                                 channel: channel))
+        var texels: [CGFloat] = []
+        var layers: [Any] = []
+        for channel in 0..<3 {
+            let scale = grain.plateScale(longEdgePixels: longEdge, channel: channel)
+            let field = grain.field(channel: channel, renderPixelsPerCell: scale)
+            texels.append(CGFloat(1 / scale))
+            layers += [vector(field.weights), vector(field.offsetX),
+                       vector(field.offsetY), vector(field.salt)]
         }
-
-        if grain.profile.monochrome {
-            // One field written to all three channels. A black-and-white photograph has
-            // no dye layers to grain independently, and three decorrelated fields on one
-            // would be coloured speckle on a picture with no colour in it.
-            let values = grain.plate(
-                channel: 0,
-                renderPixelsPerCell: grain.plateScale(longEdgePixels: longEdge,
-                                                      channel: 0))
-            var pixels = [Float](repeating: 1, count: size * size * 4)
-            for i in 0..<(size * size) {
-                let v = Float(Double(values[i]) / FilmGrainProfile.plateEncodeScale + 0.5)
-                pixels[i * 4] = v
-                pixels[i * 4 + 1] = v
-                pixels[i * 4 + 2] = v
-            }
-            let data = pixels.withUnsafeBufferPointer { Data(buffer: $0) }
-            let image = CIImage(bitmapData: data, bytesPerRow: size * 16,
-                                size: CGSize(width: size, height: size),
-                                format: .RGBAf, colorSpace: nil)
-            return tiled(image,
-                         scale: grain.plateScale(longEdgePixels: longEdge, channel: 0))
-                .cropped(to: extent)
-        }
-
-        guard let red = tile(channel: 0), let green = tile(channel: 1),
-              let blue = tile(channel: 2) else { return nil }
-        // Addition compositing is exact rather than approximate here: it works on
-        // premultiplied colour, and premultiplying by an alpha of 1 or 0 leaves the one
-        // contributing channel of each tile untouched.
-        func add(_ a: CIImage, _ b: CIImage) -> CIImage? {
-            let filter = CIFilter.additionCompositing()
-            filter.inputImage = a
-            filter.backgroundImage = b
-            return filter.outputImage
-        }
-        guard let rg = add(red, green), let packed = add(rg, blue) else { return nil }
-        return packed.cropped(to: extent)
+        let arguments: [Any] = [CIVector(x: map.a, y: map.b, z: map.c, w: map.d),
+                                CIVector(x: map.tx, y: map.ty),
+                                CIVector(x: texels[0], y: texels[1], z: texels[2])] + layers
+        return KernelLibrary.applyGenerator(KernelLibrary.grainField, extent: extent,
+                                            arguments)
     }
 
     // MARK: - Shaper helpers

@@ -1019,8 +1019,10 @@ public final class PipelineRenderer {
         // recipes with different HDR white targets do NOT share a master and the
         // sharing has to be keyed on that. It also needs measuring on a Mac before
         // anyone claims a number for it.
+        let formed = image.extent
         let cropped = Self.applyGeometry(image, recipe: recipe)
         let extent = cropped.extent
+        var toDelivered = Self.geometryTransform(formed, recipe: recipe)
         if exportRecipe.resizeMode == .none {
             // "Don't resize" means the resampler DOES NOT RUN — scale is exactly 1
             // by construction, not by arithmetic (docs/31 round one §11). The old
@@ -1043,6 +1045,9 @@ public final class PipelineRenderer {
             image = Self.applyGeometry(image, recipe: recipe,
                                        scaleTo: Swift.max(target.width, target.height),
                                        allowUpscale: exportRecipe.allowUpscale)
+            toDelivered = Self.geometryTransform(
+                formed, recipe: recipe, scaleTo: Swift.max(target.width, target.height),
+                allowUpscale: exportRecipe.allowUpscale)
         }
         // Grain, on the grid that is DELIVERED — which is why `makeGraph` was asked to
         // withhold the plate above.
@@ -1089,9 +1094,17 @@ public final class PipelineRenderer {
         // two cases were never different: one `GrainPlan`, one plate builder, one
         // kernel, and `plateLongEdge` is the uncropped equivalent of this delivery for
         // both of them.
+        // At the FRAME positions the viewer grains (decode coordinates, top-down, at
+        // `plateLongEdge`), so a native-size export carries the 1:1 viewer's grains
+        // wherever the crop puts them.
+        let frameScale = CGFloat(plateLongEdge) / CGFloat(Swift.max(longEdge, 1))
+        let toFrame = toDelivered.inverted()
+            .concatenating(CGAffineTransform(a: 1, b: 0, c: 0, d: -1,
+                                             tx: -formed.minX, ty: formed.maxY))
+            .concatenating(CGAffineTransform(scaleX: frameScale, y: frameScale))
         if let grain = plan.grain, grain.amount > 0,
            let plate = RenderGraph.grainPlate(grain, extent: image.extent,
-                                              longEdge: plateLongEdge) {
+                                              longEdge: plateLongEdge, toFrame: toFrame) {
             image = graph.applyGrain(image, plate: plate, grain: grain)
         }
         image = Self.applyOutputSharpen(image, exportRecipe.sharpen,
@@ -2764,6 +2777,34 @@ public final class PipelineRenderer {
         }
         return out.transformed(by: CGAffineTransform(
             translationX: -out.extent.origin.x, y: -out.extent.origin.y))
+    }
+
+    /// The affine `applyGeometry` applies, from `extent`'s coordinates to the delivered
+    /// image's. Mirrors its arithmetic line for line; the export uses it to lay grain at
+    /// the frame positions the viewer grains.
+    static func geometryTransform(_ extent: CGRect, recipe: Recipe,
+                                  scaleTo maxLongEdge: Int? = nil,
+                                  allowUpscale: Bool = false) -> CGAffineTransform {
+        let toOrigin = CGAffineTransform(translationX: -extent.minX, y: -extent.minY)
+        let rects = geometryRects(recipe.develop.geometry, sourceSize: extent.size)
+        let target = rects.target
+        var scale: CGFloat = 1
+        if let maxLongEdge {
+            let long = Swift.max(target.width, target.height)
+            if long > 0 {
+                let wanted = CGFloat(maxLongEdge) / long
+                scale = allowUpscale ? wanted : Swift.min(1, wanted)
+            }
+        }
+        let combined = rects.orientation.concatenating(
+            CGAffineTransform(scaleX: scale, y: scale))
+        let moved = CGRect(origin: .zero, size: extent.size).applying(combined)
+        let scaledTarget = target.applying(CGAffineTransform(scaleX: scale, y: scale))
+        let clipped = scaledTarget.intersection(moved)
+        let delivered = (!clipped.isNull && clipped.width >= 1 && clipped.height >= 1)
+            ? clipped : moved
+        return toOrigin.concatenating(combined).concatenating(
+            CGAffineTransform(translationX: -delivered.minX, y: -delivered.minY))
     }
 
     // MARK: - Resampling

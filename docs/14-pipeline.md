@@ -470,6 +470,15 @@ recorded here because they are pipeline structure:
   wiring that never ran. The physical envelope is identical either way; what the tap point
   changes is that grain reads the print's density, not the negative's pre-print density. Never
   a constant-σ RGB overlay — that is LR's model, the thing this one exists to beat.
+  **As built (Nov 2026)**, the noise is not a tiled plate: it is a frame-anchored field
+  (`GrainField`: four octaves of value noise on an integer-hashed lattice with no period
+  inside any frame), evaluated per pixel by both paths (`lumenGrainField` on the GPU, exact
+  lattice values in float32). The tile it replaced repeated every `128 × plateScale` px and
+  its GPU copy seamed at every tile edge. **Same grain across scales** means the same field at
+  the same position on the uncropped negative: the viewer grains the decoded frame, the export
+  grains the delivered grid at the frame positions its geometry maps back to, so a native-size
+  export carries the 1:1 viewer's grains wherever it is cropped; smaller renders show the
+  band-limited (finest octaves dropped) version of that field.
 - **Push/Pull** — one parameter that swaps/interpolates adjacent baked LUTs (curve steepening +
   crossover) while scaling grain amount and plate scale.
 
@@ -576,7 +585,7 @@ classical stages) with halo overlap and discards the aprons on stitching. Declar
 | S8 LLF clarity | pyramid support | computed per-tile with pyramid-depth apron |
 | S13 halation | **global** | proxy-field rule (below) |
 | S8 dehaze airlight | **global** | statistic frozen from proxy pass |
-| S14 grain plates | 0 | pointwise plate lookup |
+| S14 grain field | 0 | pointwise field evaluation |
 | S16 geometry | 3 px × warp scale | Lanczos-3 footprint |
 
 **The proxy-field rule** for global-support ops: any operation whose result depends on pixels

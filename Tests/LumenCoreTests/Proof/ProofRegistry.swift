@@ -1161,7 +1161,10 @@ enum ProofRegistry {
             // back. The fraction it declares is now 81% of its authority against 37%,
             // which is high and is what a boundary control on a random field looks like
             // when its randomness is one-dimensional.
-            declaredReversal: 21.183,
+            //
+            // 21.183 → 18.184 when the tiled plate became a non-repeating field (Nov
+            // 2026): the same sweep over a different draw of the noise.
+            declaredReversal: 18.184,
             apply: { r, v in
                 var film = portra()
                 film.grain = FilmGrain(size: v, amount: 100)
@@ -1497,7 +1500,14 @@ enum ProofRegistry {
             // because this is one luminance field where that one is a stock's dye
             // layers. Declared, not asserted away: if it ever climbs, the record moves
             // and the reversal test says so at 1.05x.
-            declaredReversal: 14.623,
+            //
+            // 14.623 → 31.300 when the tiled plate became a non-repeating field (Nov
+            // 2026). The tile repeated every 128 texels, so on this 4096 px frame each
+            // size was ~1000 copies of one small patch and the sweep compared patch
+            // statistics; the field is one draw across the whole frame, and its size
+            // sweep wanders as a random field's does. Flat-grey σ per Amount moved
+            // −2…−8% on the shipping path, all within the old seams' own inflation.
+            declaredReversal: 31.300,
             // Amount at full: a size control on a field with no grain in it is the
             // INVALID PROBE docs/20 §P2 names, not a dead control.
             apply: { r, v in r.look.grain = CreativeGrain(amount: 100, size: v) }),

@@ -650,6 +650,61 @@ public enum KernelLibrary {
     }
     """
 
+    /// `GrainField.value` per pixel, three layers, packed for `lumenGrain`. A generator:
+    /// `m`, `t` map the destination to the frame position (`RenderGraph.grainPlate`).
+    /// The lattice hash is integer arithmetic below 2^24, so float32 is exact; the
+    /// quotient in `lumenGrainReduce` is corrected rather than trusted, so an approximate
+    /// division cannot move a lattice value.
+    static let grainFieldSource = """
+    float lumenGrainReduce(float v) {
+        float r = v - 4091.0 * floor(v / 4091.0);
+        r = (r < 0.0) ? r + 4091.0 : r;
+        return (r >= 4091.0) ? r - 4091.0 : r;
+    }
+    float lumenGrainCube(float v) {
+        float r = lumenGrainReduce(v);
+        return lumenGrainReduce(lumenGrainReduce(r * r) * r);
+    }
+    float lumenGrainLattice(float x, float y, float salt) {
+        float h = lumenGrainCube(lumenGrainCube(lumenGrainCube(lumenGrainCube(x) + y)
+                                                + x + salt));
+        return (h + 0.5) * (2.0 / 4091.0) - 1.0;
+    }
+    float lumenGrainOctave(vec2 p, float inv, float w, float ox, float oy, float salt) {
+        if (w == 0.0) { return 0.0; }
+        vec2 f = p * inv;
+        vec2 i = floor(f);
+        vec2 t = f - i;
+        vec2 s = t * t * (3.0 - 2.0 * t);
+        float cx = i.x + ox;
+        float cy = i.y + oy;
+        float v00 = lumenGrainLattice(cx, cy, salt);
+        float v10 = lumenGrainLattice(cx + 1.0, cy, salt);
+        float v01 = lumenGrainLattice(cx, cy + 1.0, salt);
+        float v11 = lumenGrainLattice(cx + 1.0, cy + 1.0, salt);
+        float a = v00 + (v10 - v00) * s.x;
+        float b = v01 + (v11 - v01) * s.x;
+        return w * (a + (b - a) * s.y);
+    }
+    float lumenGrainLayer(vec2 p, float texels, vec4 w, vec4 ox, vec4 oy, vec4 salt) {
+        return lumenGrainOctave(p, texels / 16.0, w.x, ox.x, oy.x, salt.x)
+             + lumenGrainOctave(p, texels / 8.0, w.y, ox.y, oy.y, salt.y)
+             + lumenGrainOctave(p, texels / 4.0, w.z, ox.z, oy.z, salt.z)
+             + lumenGrainOctave(p, texels / 2.0, w.w, ox.w, oy.w, salt.w);
+    }
+    kernel vec4 lumenGrainField(vec4 m, vec2 t, vec3 texels,
+                                vec4 wR, vec4 xR, vec4 yR, vec4 sR,
+                                vec4 wG, vec4 xG, vec4 yG, vec4 sG,
+                                vec4 wB, vec4 xB, vec4 yB, vec4 sB) {
+        vec2 dc = destCoord();
+        vec2 p = vec2(m.x * dc.x + m.z * dc.y + t.x, m.y * dc.x + m.w * dc.y + t.y);
+        vec3 n = vec3(lumenGrainLayer(p, texels.r, wR, xR, yR, sR),
+                      lumenGrainLayer(p, texels.g, wG, xG, yG, sG),
+                      lumenGrainLayer(p, texels.b, wB, xB, yB, sB));
+        return vec4(n / \(Float(FilmGrainProfile.plateEncodeScale)) + vec3(0.5), 1.0);
+    }
+    """
+
     // MARK: - S3, profiled classical noise reduction
 
     /// Scene-linear → the variance-stabilized plane the shrinkage runs in, expressed
@@ -1150,6 +1205,7 @@ public enum KernelLibrary {
     // them an extent and nothing else.
     public static let maskLinear = makeGeneral(maskLinearSource)
     public static let maskRadial = makeGeneral(maskRadialSource)
+    public static let grainField = makeGeneral(grainFieldSource)
     public static let maskFold = make(maskFoldSource)
     public static let maskInvert = make(maskInvertSource)
     public static let grain = make(grainSource)
@@ -1233,7 +1289,7 @@ public enum KernelLibrary {
             // GPU path. It was in NEITHER, which is the fifth instance of exactly the
             // defect the comment on `unavailableMaskKernels` below describes.
             ("blendMask", blendMask), ("blendMaskMode", blendMaskMode),
-            ("grain", grain), ("vignette", vignette),
+            ("grain", grain), ("grainField", grainField), ("vignette", vignette),
             ("detailGain", detailGain), ("dehaze", dehaze), ("addGlow", addGlow),
             ("sharpenDelta", sharpenDelta), ("lumaRatio", lumaRatio),
             ("subtract", subtract), ("thresholdMask", thresholdMask), ("detailRemap", detailRemap),

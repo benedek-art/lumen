@@ -1,1 +1,20 @@
-{"manifests": "smoke", "lane": "both", "shards": 2, "drift": "none", "label": "warm-check"}
+{"lane": "macos", "drift": "none", "label": "grain-fix-2",
+ "manifest": {"name": "grain-fix",
+  "defaults": {"longEdge": 1536, "paths": ["export"], "tile": 400},
+  "jobs": [
+   {"id": "film-grain-seams", "photos": ["chart:flatGrey", "6929"],
+    "grid": {"x": {"path": "look.filmLab.grain.amount", "label": "grain", "values": [40, 100]},
+             "y": {"path": "look.filmLab.stock", "label": "stock",
+                   "values": ["lumen/portra400", "lumen/gold200", "lumen/ektar100",
+                              "lumen/velvia50", "lumen/cine250d", "lumen/trix400"]}}},
+   {"id": "creative-grain-seams", "photos": ["chart:flatGrey"],
+    "sweep": {"path": "look.grain.amount", "label": "grain", "values": [40, 100], "neutral": 0}},
+   {"id": "grain-1to1", "photos": ["6929", "chart:flatGrey"], "crop": [0.4, 0.4, 0.1, 0.1],
+    "compare": ["settled", "export"], "tile": 360,
+    "sweep": {"path": "look.grain.amount", "label": "grain", "values": [25, 50, 100], "neutral": 0}},
+   {"id": "film-grain-1to1", "photos": ["6929"], "crop": [0.4, 0.4, 0.1, 0.1],
+    "compare": ["settled", "export"], "tile": 360,
+    "grid": {"x": {"path": "look.filmLab.grain.amount", "label": "grain", "values": [0, 50, 100]},
+             "y": {"path": "look.filmLab.stock", "label": "stock",
+                   "values": ["lumen/portra400", "lumen/trix400"]}}}
+  ]}}
