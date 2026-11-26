@@ -195,7 +195,8 @@ final class IngestCopyTests: XCTestCase {
                       + report.summary)
         XCTAssertEqual(report.filesAttempted, 2)
         XCTAssertTrue(report.failures.isEmpty, report.summary)
-        XCTAssertEqual(report.summary, "Ingested 2 frames, every copy verified.")
+        XCTAssertEqual(report.summary, "Ingested 2 frames, every copy verified."
+                       + " · primary and backup are on the same volume; one disk failure loses both")
 
         for volume in [primary!, backup!] {
             let landed = volume.appendingPathComponent("2026/20260902 wedding/DSCF0001.RAF")
