@@ -25,10 +25,36 @@ public enum RenderError: Error {
     case decodeFailed
     case renderFailed
     case unsupportedFormat(String)
-    case writeFailed(URL)
+    /// The encoder refused. `reason` is the encoder's own error, never dropped: a bare
+    /// "write failed" hid a GPU render failure behind a filesystem-sounding name.
+    case writeFailed(URL, reason: String)
     /// An export refused because the GPU path cannot form a picture. Carries the names
     /// of the kernels that failed to compile, so the caller can say which.
     case kernelsUnavailable([String])
+}
+
+extension RenderError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .decodeFailed: return "The RAW file could not be decoded."
+        case .renderFailed: return "The picture could not be rendered."
+        case .unsupportedFormat(let what): return "Unsupported format: \(what)."
+        case .writeFailed(let url, let reason):
+            return "\(url.lastPathComponent) could not be written: \(reason)"
+        case .kernelsUnavailable(let names):
+            return "The GPU stages \(names.joined(separator: ", ")) are unavailable."
+        }
+    }
+
+    /// An `NSError` in one line, domain and code included, with any underlying error.
+    static func describe(_ error: Error) -> String {
+        let ns = error as NSError
+        var text = "\(ns.localizedDescription) (\(ns.domain) \(ns.code))"
+        if let underlying = ns.userInfo[NSUnderlyingErrorKey] as? Error {
+            text += "; " + describe(underlying)
+        }
+        return text
+    }
 }
 
 /// What a renderer believes about its kernels.
@@ -1543,7 +1569,7 @@ public final class PipelineRenderer {
             // are handled by one unconditional removal, and `try?` because a temp that
             // was never created is not a second failure to report over the first.
             try? FileManager.default.removeItem(at: partial)
-            throw RenderError.writeFailed(destination)
+            throw RenderError.writeFailed(destination, reason: RenderError.describe(error))
         }
 
         do {

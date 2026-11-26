@@ -461,6 +461,7 @@ extension AppState {
                                 record.outcome = .failed
                                 record.detail = error.localizedDescription
                                 let reason = ExclusivePublish.statusReason(for: error)
+                                    ?? (error as? RenderError)?.errorDescription
                                 failures.append(job.url.lastPathComponent + " → "
                                                     + exportRecipe.name
                                                     + (reason.map { ": " + $0 } ?? ""))
