@@ -1335,7 +1335,8 @@ struct LumenSlider: View {
                 // between a readout and an instrument.
                 Text(formatted)
                     .font(isScrubbing ? .lumenNumericStrong : .lumenNumeric)
-                    .contentTransition(.numericText())
+                    // Under a moving hand every sample would start another count.
+                    .contentTransition(isDragging || isScrubbing ? .identity : .numericText())
                     .foregroundStyle(isModified ? Lumen.primaryText : Lumen.secondaryText)
                     .contentShape(Rectangle())
                     .onTapGesture {
