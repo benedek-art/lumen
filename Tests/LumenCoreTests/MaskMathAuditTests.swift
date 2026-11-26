@@ -405,6 +405,13 @@ final class MaskMathAuditTests: XCTestCase {
         a.whites = 30; a.blacks = -20; a.temp = 40; a.tint = -25; a.hue = 30
         a.sat = 50; a.vibrance = -30; a.texture = 40; a.clarity = -30; a.dehaze = 25
         a.sharpness = 60; a.colorTint = [0.9, 0.4, 0.2]; a.colorTintStrength = 50
+        a.curve = CurveSet(point: [[0, 0], [0.5, 0.72], [1, 1]])
+        var wheels = GradingWheels()
+        wheels.shadows = Wheel(hue: 210, sat: 60, lum: 20)
+        wheels.high = Wheel(hue: 40, sat: 40, lum: -10)
+        a.wheels = wheels
+        a.pointColors = [PointColor(sample: [0.3, 0.2, 0.1], range: 80,
+                                    shift: HSLShift(h: 30, s: 40, l: 20))]
         return a
     }
 
