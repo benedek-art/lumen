@@ -581,11 +581,16 @@ final class PhotoRenderModel: ObservableObject {
     }
 
     /// Draft renders: one in flight, the newest waiting (`FramePump`, LumenCore).
-    private let drafts = LatestWinsPump<DraftRequest>()
+    private let drafts = RenderAheadPump<DraftRequest, DraftRender>()
+
+    /// What a draft's render hands its landing.
+    private struct DraftRender {
+        let result: RenderResult?
+        let started: UInt64
+    }
 
     /// Draft sizing while a gesture moves a control the RAW decoder reads.
     private var decodeDrag = DecodeDrag()
-
     /// The edit revision of the frame on screen, where the surface reports one.
     private(set) var shownEditRevision: Int?
 
@@ -843,13 +848,18 @@ final class PhotoRenderModel: ObservableObject {
             // cancels this task on every event, and the coordinator drops a cancelled
             // task's request before rendering it. The pump renders and lands the frame
             // on its own task; this only waits to learn that its request is done with.
-            _ = await drafts.submit(request) { [self] successorWaiting in
-                await self.renderDraft(request, draftRequested: draftRequested,
-                                       coordinator: coordinator, strokeSets: strokeSets,
-                                       midGesture: midGesture, editRevision: editRevision,
-                                       decodeDivisor: decodeDivisor,
-                                       successorWaiting: successorWaiting)
-            }
+            _ = await drafts.submit(
+                request,
+                render: Self.draftRender(request, coordinator: coordinator,
+                                         strokeSets: strokeSets,
+                                         generation: PhotoRenderModel.nextGeneration()),
+                land: { [self] rendered, successorWaiting in
+                    self.landDraft(rendered, request: request,
+                                   draftRequested: draftRequested,
+                                   midGesture: midGesture, editRevision: editRevision,
+                                   decodeDivisor: decodeDivisor,
+                                   successorWaiting: successorWaiting)
+                })
             guard !Task.isCancelled else { return }
 
             // The debounce, and nothing but the debounce: everything after this point
@@ -873,15 +883,18 @@ final class PhotoRenderModel: ObservableObject {
             if sizedEdge < fullEdge, !Task.isCancelled,
                latestGeneration == draftGeneration, gestureInFlight() {
                 let sharp = draftRequest(longEdge: fullEdge)
-                _ = await drafts.submit(sharp) { [self] successorWaiting in
-                    await self.renderDraft(sharp, draftRequested: draftRequested,
-                                           coordinator: coordinator,
-                                           strokeSets: strokeSets,
-                                           midGesture: midGesture,
-                                           editRevision: editRevision,
-                                           decodeDivisor: 1,
-                                           successorWaiting: successorWaiting)
-                }
+                _ = await drafts.submit(
+                    sharp,
+                    render: Self.draftRender(sharp, coordinator: coordinator,
+                                             strokeSets: strokeSets,
+                                             generation: PhotoRenderModel.nextGeneration()),
+                    land: { [self] rendered, successorWaiting in
+                        self.landDraft(rendered, request: sharp,
+                                       draftRequested: draftRequested,
+                                       midGesture: midGesture, editRevision: editRevision,
+                                       decodeDivisor: 1,
+                                       successorWaiting: successorWaiting)
+                    })
             }
         }
         guard !Task.isCancelled, latestGeneration == draftGeneration else { return }
@@ -1015,41 +1028,44 @@ final class PhotoRenderModel: ObservableObject {
         }
     }
 
-    /// One draft, from the render lane to the screen. Runs on the pump's task, which
-    /// nothing cancels: a frame that has been rendered lands, subject only to
-    /// `FrameDelivery.shouldShow` (still this photograph, newer than what is up).
+    /// One draft's render, run by the pump off the main actor. The generation is taken
+    /// at submission, so tickets reach the coordinator in submission order.
+    private static func draftRender(_ request: DraftRequest, coordinator: RenderCoordinator,
+                                    strokeSets: [String: BrushStrokeSet],
+                                    generation: UInt64) -> () async -> DraftRender {
+        {
+            // Stamped when the render is handed to the coordinator: time spent waiting
+            // behind the frame in flight is not this frame's cost.
+            let started = DispatchTime.now().uptimeNanoseconds
+            let result = await coordinator.render(url: request.url, recipe: request.recipe,
+                                                  maxLongEdge: request.longEdge,
+                                                  draft: true,
+                                                  generation: generation,
+                                                  strokeSets: strokeSets,
+                                                  showingUncropped: request.showingUncropped,
+                                                  softProof: request.softProof,
+                                                  region: request.region,
+                                                  edrWhiteTarget: request.edrWhiteTarget)
+            return DraftRender(result: result, started: started)
+        }
+    }
+
+    /// One draft, from the render lane to the screen, on the main actor. A frame that
+    /// has been rendered lands, subject only to `FrameDelivery.shouldShow` (still this
+    /// photograph, newer than what is up).
     @MainActor
-    private func renderDraft(_ request: DraftRequest, draftRequested: Int,
-                             coordinator: RenderCoordinator,
-                             strokeSets: [String: BrushStrokeSet],
-                             midGesture: Bool, editRevision: Int?,
-                             decodeDivisor: Int,
-                             successorWaiting: @MainActor () -> Bool) async -> Bool {
-        // A photograph the viewer has left would be refused by `shouldShow` anyway.
-        guard request.url == currentRequestURL else { return false }
-        // Stamped when the render is handed to the coordinator, not when the request
-        // was made: time spent waiting behind the frame in flight is not this frame's
-        // cost, and the ladder must not be charged for it.
-        let draftStarted = DispatchTime.now().uptimeNanoseconds
-        LatencyHUD.shared.noteTimeline(.start, revision: editRevision)
-        // The ticket is taken here, at the start, so tickets reach the coordinator in
-        // order whatever was submitted while the previous frame rendered.
-        let draft = await coordinator.render(url: request.url, recipe: request.recipe,
-                                             maxLongEdge: request.longEdge,
-                                             draft: true,
-                                             generation: PhotoRenderModel.nextGeneration(),
-                                             strokeSets: strokeSets,
-                                             showingUncropped: request.showingUncropped,
-                                             softProof: request.softProof,
-                                             region: request.region,
-                                             edrWhiteTarget: request.edrWhiteTarget)
-        guard let draft else { return false }
+    private func landDraft(_ rendered: DraftRender, request: DraftRequest,
+                           draftRequested: Int, midGesture: Bool, editRevision: Int?,
+                           decodeDivisor: Int, successorWaiting: Bool) -> Bool {
+        let draftStarted = rendered.started
+        LatencyHUD.shared.noteTimeline(.start, revision: editRevision, at: draftStarted)
+        guard let draft = rendered.result else { return false }
         let landedAt = DispatchTime.now().uptimeNanoseconds
         let draftMs = Double(landedAt - draftStarted) / 1e6
         let period = lastDraftAt.map { Double(landedAt - $0) / 1e6 }
         // The loop is saturated when a newer request was already waiting as this frame
-        // landed — and, for the interval to be the machine's, as the previous one did.
-        let saturated = successorWaiting()
+        // finished — and, for the interval to be the machine's, as the previous one did.
+        let saturated = successorWaiting
         let handWasWaiting = DraftLadder.loopWasSaturated(
             thisFrameCancelled: saturated,
             previousFrameCancelled: lastDraftWasSaturated)

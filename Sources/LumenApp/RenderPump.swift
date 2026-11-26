@@ -74,4 +74,86 @@ final class LatestWinsPump<Value: Equatable> {
     }
 }
 
+/// `LatestWinsPump` for drafts, with the render started off the main actor: when a
+/// render finishes, the newest waiting request starts at once and the finished frame
+/// lands on the main actor beside it, so a busy main thread delays the picture but
+/// not the next render.
+final class RenderAheadPump<Value: Equatable, Output>: @unchecked Sendable {
+
+    /// The render itself; runs on no particular actor.
+    typealias Render = () async -> Output
+    /// Puts a finished render on screen. Returns whether it landed. `successorWaiting`
+    /// is whether a newer request was queued when the render finished.
+    typealias Land = @MainActor (_ output: Output, _ successorWaiting: Bool) -> Bool
+
+    private let lock = NSLock()
+    private var machine = FramePump<Value>()
+    private var queued: [UInt64: (render: Render, land: Land)] = [:]
+    private var waiters: [UInt64: [CheckedContinuation<Bool, Never>]] = [:]
+
+    /// As `LatestWinsPump.submit`: returns once this request's frame has landed or
+    /// been refused (true if it landed), or once a newer request replaced it.
+    @MainActor
+    func submit(_ value: Value, render: @escaping Render, land: @escaping Land) async -> Bool {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            lock.lock()
+            let admission = machine.submit(value)
+            var dropped: [CheckedContinuation<Bool, Never>] = []
+            if let superseded = admission.superseded {
+                queued[superseded] = nil
+                dropped = waiters.removeValue(forKey: superseded) ?? []
+            }
+            waiters[admission.ticket, default: []].append(continuation)
+            switch admission.turn {
+            case .starts: break
+            case .waits: queued[admission.ticket] = (render, land)
+            case .joins: break
+            }
+            lock.unlock()
+            for waiter in dropped { waiter.resume(returning: false) }
+            if admission.turn == .starts { start(admission.ticket, render, land) }
+        }
+    }
+
+    private func start(_ first: UInt64, _ firstRender: @escaping Render,
+                       _ firstLand: @escaping Land) {
+        Task.detached(priority: .userInitiated) { [self] in
+            var ticket = first
+            var job = (render: firstRender, land: firstLand)
+            while true {
+                let output = await job.render()
+                lock.lock()
+                let successorWaiting = machine.hasPending
+                var next = machine.finish()
+                var skipped: [CheckedContinuation<Bool, Never>] = []
+                while let candidate = next, queued[candidate] == nil {
+                    skipped += waiters.removeValue(forKey: candidate) ?? []
+                    next = machine.finish()
+                }
+                let following = next.flatMap { ticket in
+                    queued.removeValue(forKey: ticket).map { (ticket, $0) }
+                }
+                lock.unlock()
+                for waiter in skipped { waiter.resume(returning: false) }
+                let finished = ticket
+                let land = job.land
+                Task { @MainActor [self] in
+                    let landed = land(output, successorWaiting)
+                    self.release(finished, landed: landed)
+                }
+                guard let following else { return }
+                ticket = following.0
+                job = following.1
+            }
+        }
+    }
+
+    private func release(_ ticket: UInt64, landed: Bool) {
+        lock.lock()
+        let done = waiters.removeValue(forKey: ticket) ?? []
+        lock.unlock()
+        for waiter in done { waiter.resume(returning: landed) }
+    }
+}
+
 #endif

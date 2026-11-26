@@ -142,10 +142,11 @@ final class LatencyHUD: ObservableObject {
                       renderMilliseconds: Double? = nil,
                       laneMilliseconds: Double? = nil,
                       name: String? = nil,
-                      mainMilliseconds: Double? = nil) {
+                      mainMilliseconds: Double? = nil,
+                      at nanoseconds: UInt64? = nil) {
         guard timelineEnabled, let revision else { return }
         let stamp = InteractionTimeline.Stamp(
-            kind: kind, nanoseconds: DispatchTime.now().uptimeNanoseconds,
+            kind: kind, nanoseconds: nanoseconds ?? DispatchTime.now().uptimeNanoseconds,
             revision: revision, draft: draft, longEdge: longEdge,
             renderMilliseconds: renderMilliseconds,
             laneMilliseconds: laneMilliseconds,
