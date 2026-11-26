@@ -29,11 +29,13 @@ name: UI layout
 
 on:
   push:
-    branches: ["**"]
+    branches-ignore: ["claude/loving-cray-d58nrb-test-*", "claude/loving-cray-d58nrb-driver"]
     # Same rule as `ci.yml`: a docs-only push must not start a macOS run. Runner minutes
     # are the scarce resource here, and a status note has never moved a panel inset.
     paths-ignore:
       - "docs/**"
+      - "driver/**"
+      - "renderlab/**"
   workflow_dispatch:
 
 # One run per branch, newest wins — the same shape `ci.yml` uses and for the same reason:
