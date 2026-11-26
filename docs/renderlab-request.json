@@ -1,1 +1,1 @@
-{"manifests": "creative-stack", "lane": "both", "shards": 8, "label": "creative-2"}
+{"manifests": "smoke", "lane": "both", "shards": 2, "drift": "drift-sample", "label": "warm-drift"}

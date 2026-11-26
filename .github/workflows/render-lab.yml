@@ -126,6 +126,7 @@ jobs:
           key: renderlab-build-${{ runner.os }}-${{ github.sha }}
           restore-keys: renderlab-build-${{ runner.os }}-
       - name: Build (release, with tests)
+        id: build
         shell: bash
         run: |
           start=$(date +%s)
@@ -190,6 +191,7 @@ jobs:
           key: renderlab-build-${{ runner.os }}-${{ github.sha }}
           restore-keys: renderlab-build-${{ runner.os }}-
       - name: Build (release, with tests)
+        id: build
         shell: bash
         run: |
           start=$(date +%s)
@@ -227,10 +229,10 @@ jobs:
           status=$?
           grep -E "^renderlab: |error:" lab.log | grep -v "RENDERLAB_TABLE" | tail -400
           echo "render seconds: $(( $(date +%s) - start ))" | tee -a "$GITHUB_STEP_SUMMARY"
-          python3 renderlab/lab.py table renderlab-out/shipping | tee -a "$GITHUB_STEP_SUMMARY"
+          python3 renderlab/lab.py table renderlab-out/shipping | tee -a "$GITHUB_STEP_SUMMARY" || true
           exit $status
       - name: Reference against shipping drift
-        if: needs.plan.outputs.drift != ''
+        if: always() && steps.build.outcome == 'success' && needs.plan.outputs.drift != ''
         shell: bash
         env:
           LUMEN_RENDERLAB_PHOTOS: ${{ env.PHOTOS }}
@@ -293,6 +295,7 @@ jobs:
           key: renderlab-build-${{ runner.os }}-${{ github.sha }}
           restore-keys: renderlab-build-${{ runner.os }}-
       - name: Build (release, with tests)
+        id: build
         shell: bash
         run: |
           export PATH="/opt/swift/usr/bin:$PATH"
@@ -363,8 +366,9 @@ jobs:
         shell: bash
         run: |
           python3 renderlab/lab.py merge report shards/*/renderlab-out shipping/renderlab-out
-          python3 renderlab/lab.py table report | tee -a "$GITHUB_STEP_SUMMARY"
+          python3 renderlab/lab.py table report | tee -a "$GITHUB_STEP_SUMMARY" || true
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: renderlab-report
           path: report/

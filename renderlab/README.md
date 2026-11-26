@@ -190,6 +190,19 @@ Scale matters for grain, NR, sharpening, capture sharpening, texture and halatio
 at 1:1 (`crop` on the shipping path, crop plates on reference). At a downsized frame NR is
 scaled by the decode factor squared and can fall below its threshold and do nothing.
 
+## 6b. Cost (measured on hosted runners, Nov 2026)
+
+- macOS `shipping`: build 4–6 min cold (release, with tests); renders: a 33 MP ARW export at
+  1536 px ≈ 10 s (full-resolution decode each time), 24 MP NEF ≈ 3.5–5 s, charts ≈ 0.4–1 s,
+  viewer `settled` frames 0.1–1.4 s; proof-core (200 renders) 18.7 min, creative-stack (360
+  renders, many 1:1 crops) 18.7 min. Plates for 4 RAWs: 45 s after the build.
+- Linux `reference`: build ≈ 3.5 min (release); 8 shards of creative-stack rendered in
+  20–40 s each. In a 4-core container: ≈ 0.35 s per 768 px chart render, ≈ 1.3 s per
+  1536 px render (charts and plates mixed). One job per runner: the 65³ table bake already
+  uses every core (`--lut 33` is ~8× cheaper and approximates the viewer's table).
+- `renderlab-out` artifacts are large (≈ 300 MB per 200 renders); per-render PNGs are kept
+  so an agent can crop them at 1:1.
+
 ## 7. Not reachable yet
 
 Masks (brush, AI subject/sky, linear/radial gradients: the patch accepts `masks` JSON but
