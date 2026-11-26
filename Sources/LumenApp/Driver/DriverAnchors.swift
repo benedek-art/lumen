@@ -19,6 +19,8 @@ final class DriverAnchors {
         var frame: CGRect
         var visible: Bool
         weak var window: NSWindow?
+        /// Inside a sheet or popover, whether or not its window is known yet.
+        var presented = false
     }
 
     private let lock = NSLock()
@@ -32,11 +34,12 @@ final class DriverAnchors {
         return nextToken
     }
 
-    func noteAnchor(id: String, token: Int, frame: CGRect) {
+    func noteAnchor(id: String, token: Int, frame: CGRect, presented: Bool = false) {
         lock.lock()
         defer { lock.unlock() }
         let window = entries[token]?.window
-        entries[token] = Entry(id: id, frame: frame, visible: true, window: window)
+        entries[token] = Entry(id: id, frame: frame, visible: true, window: window,
+                               presented: presented)
     }
 
     func noteWindow(token: Int, window: NSWindow?) {
@@ -106,14 +109,17 @@ private struct DriverAnchorModifier: ViewModifier {
                 Color.clear
                     .onAppear {
                         DriverAnchors.shared.noteAnchor(id: id, token: token,
-                                                 frame: proxy.frame(in: .global))
+                                                 frame: proxy.frame(in: .global),
+                                                 presented: presented)
                     }
                     .onChange(of: proxy.frame(in: .global)) { _, frame in
-                        DriverAnchors.shared.noteAnchor(id: id, token: token, frame: frame)
+                        DriverAnchors.shared.noteAnchor(id: id, token: token, frame: frame,
+                                                 presented: presented)
                     }
                     .onChange(of: id) { _, newID in
                         DriverAnchors.shared.noteAnchor(id: newID, token: token,
-                                                 frame: proxy.frame(in: .global))
+                                                 frame: proxy.frame(in: .global),
+                                                 presented: presented)
                     }
                     .onDisappear { DriverAnchors.shared.hide(token: token) }
             }

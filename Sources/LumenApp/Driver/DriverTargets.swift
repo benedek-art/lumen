@@ -23,10 +23,18 @@ extension DriverSession {
     func liveAnchors() -> [(id: String, rect: CGRect, window: NSWindow?)] {
         guard let input else { return [] }
         typealias Live = (id: String, rect: CGRect, window: NSWindow?)
+        // A presented view whose window was not recorded is in the frontmost presentation.
+        var frontmost: NSWindow?
+        if let window {
+            let presentation = DriverWindows.list(main: window).first {
+                $0.role == "sheet" || $0.role == "popover"
+            }
+            frontmost = presentation?.window
+        }
         return DriverAnchors.shared.live().compactMap { (entry) -> Live? in
-            if let other = entry.window, !other.isVisible { return nil }
-            return (entry.id, input.windowFrameRect(fromGlobal: entry.frame, in: entry.window),
-                    entry.window)
+            let home = entry.window ?? (entry.presented ? frontmost : nil)
+            if let other = home, !other.isVisible { return nil }
+            return (entry.id, input.windowFrameRect(fromGlobal: entry.frame, in: home), home)
         }
     }
 
