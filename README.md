@@ -47,6 +47,8 @@ The owner has run it on a Mac four times (2026-08-23 ×2, and sessions A and B o
 2026-08-26) against his own RAW folders, recorded in `docs/audit/`, docs/19 and
 `docs/sessions/`: the app launches, decodes, culls, edits and exports. The first
 sessions' defects (slow sliders, the temperature scale, the inverted tint) were fixed
+(Tint's axis was still skewed: +Tint rendered blue-violet and −Tint yellow-olive until
+white balance moved to the DNG/Lightroom convention, where + is magenta and − green)
 and session A re-verified the tone controls by hand (MAC-04 closed); session B's
 findings — the pastel overexposure and the notchy drags — were root-caused and fixed
 with independent-implementation proof (docs/26). `docs/23-master-plan.md` is the

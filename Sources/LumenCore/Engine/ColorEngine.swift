@@ -980,10 +980,10 @@ public struct ColorEngine: Sendable {
 
     /// Vectorscope skin-band membership in 0…1: how much this colour reads as skin.
     /// The Skin tools' selection and the scope read this. Vibrance/Saturation's
-    /// `protectSkin` attenuation reads `skinProtectionWeight` instead: the same hue band
-    /// and plausibility, but a gentler log-chroma gate (see `protectLoChroma`), so for
-    /// skin hues between C 0.006 and 0.06 the guardrail protects more than this weight
-    /// selects. At C ≥ 0.06 the two agree.
+    /// `protectSkin` attenuation reads `skinProtectionWeight` instead: the same
+    /// plausibility, a gentler log-chroma gate (see `protectLoChroma`), and a hue window
+    /// that reaches further toward yellow (`protectYellowDegrees`) for golden and olive
+    /// skin.
     public static func skinWeight(_ c: RGB,
                                   context: OKLabTransform.Context = OKLabTransform.working) -> Double {
         guard c.isFinite else { return 0 }
@@ -997,21 +997,37 @@ public struct ColorEngine: Sendable {
 
     /// How much Protect Skin spares this colour: `skinWeight` with its chroma gate
     /// swapped for the log-chroma `protectLoChroma…protectHiChroma` ramp, so the
-    /// attenuation can never fold chroma order (see those constants). Selection is
-    /// still `skinWeight`'s; only the strength of the guard eases in more gently.
+    /// attenuation can never fold chroma order (see those constants), and its band
+    /// extended on the yellow side under a tighter chroma ceiling.
     static func skinProtectionWeight(_ c: RGB,
                                      context: OKLabTransform.Context = OKLabTransform.working)
         -> Double {
         guard c.isFinite else { return 0 }
         let lch = context.toLCh(c)
         guard lch.C.isFinite, lch.L.isFinite else { return 0 }
-        let offAxis = abs(Num.hueDelta(skinLineDegrees, lch.h))
-        let inBand = 1 - Num.smoothstep(skinBandDegrees, skinBandDegrees * 1.5, offAxis)
+        let offAxis = Num.hueDelta(skinLineDegrees, lch.h)
+        let inBand = offAxis < 0
+            ? 1 - Num.smoothstep(skinBandDegrees, skinBandDegrees * 1.5, -offAxis)
+            : 1 - Num.smoothstep(protectYellowDegrees, protectYellowFadeDegrees, offAxis)
         guard inBand > 0 else { return 0 }
         let gate = Num.smoothstep(Foundation.log(protectLoChroma), Foundation.log(protectHiChroma),
                                   Foundation.log(Swift.max(lch.C, 1e-9)))
-        return Num.saturate(inBand * gate * plausibility(L: lch.L, C: lch.C))
+        let extension_ = Num.smoothstep(skinBandDegrees, skinBandDegrees * 2, offAxis)
+        let ceiling = 1 - Num.smoothstep(protectYellowChroma.lowerBound,
+                                         protectYellowChroma.upperBound, lch.C)
+        return Num.saturate(inBand * gate * plausibility(L: lch.L, C: lch.C)
+                                * Num.mix(1, ceiling, extension_))
     }
+
+    /// Protect Skin's window on the yellow side of the skin line, in degrees: full to
+    /// +34° (90.4°), gone by +40°. The ±10° selection band stops at 66.4°, and the
+    /// published Monk scale's golden, olive and tan tones sit at 70–85° in OKLCh (74–89°
+    /// rendered), so Vibrance doubled their chroma under a guard that never saw them.
+    public static let protectYellowDegrees: Double = 34
+    public static let protectYellowFadeDegrees: Double = 40
+    /// Chroma ceiling in that extension: skin tops out near C 0.10, oranges and yellows
+    /// that are not skin sit at 0.14 and up, so they keep their Vibrance.
+    public static let protectYellowChroma: ClosedRange<Double> = 0.10...0.15
 
     /// Skin is a *plausible* colour, not just an angle: crushed blacks, blown highlights
     /// and fire-engine chroma sit on the I-bar too, and unifying them is the failure the

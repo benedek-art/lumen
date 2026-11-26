@@ -691,9 +691,9 @@ enum SliderInventory {
         // citation — is the register row itself, so the two sites named a sentence and
         // each other. A row whose citation has drifted still measures a real geometry,
         // so the suite stayed green while naming the wrong line to whoever went looking.
-        SliderSpec("Midtones", "ZonesPanel.swift:158", .developDisclosure, -3...3,
+        SliderSpec("Midtones", "ZonesPanel.swift:162", .developDisclosure, -3...3,
                    hard: -5...5, step: 0.05, decimals: 2),
-        SliderSpec("Global", "ZonesPanel.swift:187", .developDisclosure, -3...3,
+        SliderSpec("Global", "ZonesPanel.swift:191", .developDisclosure, -3...3,
                    hard: -5...5, step: 0.05, decimals: 2),
     ]
 }

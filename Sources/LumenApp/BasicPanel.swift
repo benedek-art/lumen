@@ -321,8 +321,8 @@ struct BasicPanel: View {
         display: WhiteBalanceEngine.AsShotDisplay) -> String? {
         let shown = display.tint
         guard shown > 0 else { return nil }
-        let effective = ColorTemperature.clampedTint(kelvin: display.temperature,
-                                                     tint: shown)
+        let effective = WhiteBalanceEngine.clampedTint(kelvin: display.temperature,
+                                                       tint: shown)
         guard effective < shown - 0.5 else { return nil }
         return "Magenta is bounded by physics at +\(Int(effective.rounded())) for "
             + "\(Int(display.temperature.rounded())) K — the render uses that value."

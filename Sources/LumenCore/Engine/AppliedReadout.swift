@@ -46,12 +46,13 @@ public enum AppliedReadout {
 
     /// Nil while the Zones register renders exactly what it asks for.
     ///
-    /// No floor under the engine's report. Measured with Darks alone at the default
-    /// pivots, the clamp is idle through +1.25 EV and its first band (+1.5 EV) is
-    /// already 1.03 EV wide and 0.08 EV off — there is no stretch of numerical dust to
-    /// hide, and a floor would be a second definition of "flattened".
+    /// No floor under the engine's report: a floor would be a second definition of
+    /// "flattened".
     public static func zoneFlattening(tone: Tone, zones: Zones) -> ZoneFlattening? {
-        let engine = ToneEngine(tone: tone, zones: zones)
+        zoneFlattening(engine: ToneEngine(tone: tone, zones: zones))
+    }
+
+    static func zoneFlattening(engine: ToneEngine) -> ZoneFlattening? {
         guard let f = engine.zoneFlattening() else { return nil }
         let caption = "Flattened: input \(ev(f.lowEV))…\(ev(f.highEV)) EV renders as one "
             + "tone, up to \(magnitude(f.worstEV)) EV from what the zones ask."
@@ -59,6 +60,21 @@ public enum AppliedReadout {
                               lowX: engine.normalizedAxis(f.lowEV),
                               highX: engine.normalizedAxis(f.highEV),
                               caption: caption)
+    }
+
+    /// The line under the Zones strip while `ToneEngine.projectZoneEV` moved any zone
+    /// off its slider; nil while every zone renders as set.
+    public static func zoneEasingCaption(tone: Tone, zones: Zones) -> String? {
+        let engine = ToneEngine(tone: tone, zones: zones)
+        let requested = ToneEngine.requestedZoneEV(zones)
+        let names = ["Darks", "Shadows", "Midtones", "Lights", "Brights"]
+        var parts: [String] = []
+        for i in 0..<names.count where abs(engine.appliedZoneEV[i] - requested[i]) >= 0.005 {
+            parts.append("\(names[i]) \(ev(engine.appliedZoneEV[i])) of \(ev(requested[i]))")
+        }
+        guard !parts.isEmpty else { return nil }
+        return "Applied here: " + parts.joined(separator: ", ")
+            + " EV — kept in order so no brighter tone renders darker."
     }
 
     // MARK: - The four zonal Tone sliders

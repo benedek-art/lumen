@@ -28,44 +28,57 @@ final class AppliedReadoutTests: XCTestCase {
         return zones
     }
 
+    /// The register as requested, without `projectZoneEV`: the only way left to reach
+    /// the clamp the flattening readout reports.
+    private func unprojected(_ zones: Zones, tone: Tone = Tone()) -> ToneEngine {
+        ToneEngine(unprojectedTone: tone, zones: zones)
+    }
+
     func testAnUntouchedRegisterShowsNothing() {
         XCTAssertNil(AppliedReadout.zoneFlattening(tone: Tone(), zones: Zones()))
-        // Below the clamp's onset the register renders what it asks for, and says so by
-        // saying nothing. Darks alone first flattens between +1.25 and +1.5 EV.
-        XCTAssertNil(AppliedReadout.zoneFlattening(tone: Tone(), zones: darks(1.25)))
+        XCTAssertNil(AppliedReadout.zoneFlattening(engine: unprojected(darks(1.25))))
+        // The projected register keeps the clamp idle even at Darks +4.
+        XCTAssertNil(AppliedReadout.zoneFlattening(tone: Tone(), zones: darks(4)))
+        XCTAssertNil(AppliedReadout.zoneEasingCaption(tone: Tone(), zones: Zones()))
+        XCTAssertNil(AppliedReadout.zoneEasingCaption(tone: Tone(), zones: darks(0.75)))
+    }
+
+    /// A zone the projection moved is named with what it renders and what it asked for.
+    func testAMovedZoneIsNamedWithItsAppliedEV() throws {
+        var zones = Zones()
+        zones.shadow.ev = 3
+        let caption = try XCTUnwrap(AppliedReadout.zoneEasingCaption(tone: Tone(), zones: zones))
+        let applied = ToneEngine(zones: zones).appliedZoneEV
+        XCTAssertTrue(caption.contains("Shadows \(AppliedReadout.ev(applied[1])) of +3.00"),
+                      caption)
+        XCTAssertTrue(caption.contains("Midtones"), caption)
+        XCTAssertFalse(caption.contains("Darks"), caption)
     }
 
     /// The readout IS the engine's report — not a parallel computation that could drift
     /// from the bake — placed on the strip through the engine's own axis.
-    ///
-    /// SUBSTITUTION: make `zoneFlattening(tone:zones:)` return nil and the unwrap of the
-    /// readout fails here, as do the two tests below that unwrap it.
     func testDarksPlusFourIsNamedInEVAndPlacedOnTheStrip() throws {
-        let zones = darks(4)
-        let engine = ToneEngine(tone: Tone(), zones: zones)
+        let engine = unprojected(darks(4))
         let report = try XCTUnwrap(engine.zoneFlattening())
-        let readout = try XCTUnwrap(AppliedReadout.zoneFlattening(tone: Tone(), zones: zones),
+        let readout = try XCTUnwrap(AppliedReadout.zoneFlattening(engine: engine),
                                     "Darks +4 EV flattens 3.85 EV of input and the "
-                                        + "panel's readout said nothing")
+                                        + "readout said nothing")
         XCTAssertEqual(readout.flattening, report)
         XCTAssertEqual(readout.lowX, engine.normalizedAxis(report.lowEV))
         XCTAssertEqual(readout.highX, engine.normalizedAxis(report.highEV))
         XCTAssertLessThan(readout.lowX, readout.highX)
-        // The audit's own numbers, as the photographer reads them.
         XCTAssertTrue(readout.caption.contains("\u{2212}3.77…+0.08 EV"), readout.caption)
         XCTAssertTrue(readout.caption.contains("2.20 EV"), readout.caption)
     }
 
     /// The strip's x axis is `normalizedAxis` at the LIVE anchors, and Whites and Blacks
-    /// move them. A readout placed through the default anchors would mark the wrong
-    /// tones the moment either slider moved.
+    /// move them.
     func testThePlacementFollowsTheAnchorsWhitesAndBlacksMove() throws {
-        let zones = darks(4)
-        let plain = try XCTUnwrap(AppliedReadout.zoneFlattening(tone: Tone(), zones: zones))
+        let plain = try XCTUnwrap(AppliedReadout.zoneFlattening(engine: unprojected(darks(4))))
         let moved = Tone(whites: -60, blacks: 60)
-        let engine = ToneEngine(tone: moved, zones: zones)
+        let engine = unprojected(darks(4), tone: moved)
         let report = try XCTUnwrap(engine.zoneFlattening())
-        let readout = try XCTUnwrap(AppliedReadout.zoneFlattening(tone: moved, zones: zones))
+        let readout = try XCTUnwrap(AppliedReadout.zoneFlattening(engine: engine))
         XCTAssertEqual(readout.lowX, engine.normalizedAxis(report.lowEV))
         XCTAssertEqual(readout.highX, engine.normalizedAxis(report.highEV))
         XCTAssertNotEqual(readout.lowX, plain.lowX, accuracy: 1e-3)
@@ -73,8 +86,8 @@ final class AppliedReadoutTests: XCTestCase {
 
     /// A wider request flattens a wider band, and the readout grows with it.
     func testTheMarkGrowsWithTheRequest() throws {
-        let two = try XCTUnwrap(AppliedReadout.zoneFlattening(tone: Tone(), zones: darks(2)))
-        let four = try XCTUnwrap(AppliedReadout.zoneFlattening(tone: Tone(), zones: darks(4)))
+        let two = try XCTUnwrap(AppliedReadout.zoneFlattening(engine: unprojected(darks(2))))
+        let four = try XCTUnwrap(AppliedReadout.zoneFlattening(engine: unprojected(darks(4))))
         XCTAssertGreaterThan(four.highX - four.lowX, two.highX - two.lowX)
     }
 
@@ -95,6 +108,9 @@ final class AppliedReadoutTests: XCTestCase {
                       "the flattened band is not handed to the strip")
         XCTAssertTrue(rows.contains("if let flattened { Text(flattened.caption)"),
                       "the flattened band is not named under the strip")
+        XCTAssertTrue(rows.contains("if let eased = AppliedReadout.zoneEasingCaption(tone: "
+                                    + "recipe.develop.tone, zones: zones) { Text(eased)"),
+                      "the Zones panel does not name the zones the projection moved")
 
         let strip = try Scan.between("struct ZonePivotStrip: View {", "private func handle(",
                                      in: source)

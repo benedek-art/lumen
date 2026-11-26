@@ -15,8 +15,10 @@
 // so "tint" is not the same axis in the two models either. RawCorpusTests pins Apple's
 // convention against this type on every corpus file.
 //
-// This type is the conversion only. Which convention the white-balance engine speaks is
-// decided in `WhiteBalanceEngine` / `ColorTemperature`, not here.
+// It is also the convention the white-balance stage renders in (`renderChromaticity`):
+// Lightroom's numbers, Apple's as-shot pair, and tint along the isotherm, so Tint is
+// green↔magenta at right angles to Temperature in uv. The guard below bounds both
+// ends of the tint axis by the same two tests `ColorTemperature` applied to its own.
 //
 // FAITHFUL, NOT TIDIED. The table is the SDK's, including its row 325 u = 0.24702,
 // which breaks the table's smooth u progression (steps of 0.00763, 0.00692, 0.00889;
@@ -168,4 +170,99 @@ public enum DNGTemperature {
     public static func temperatureAndTint(for chroma: Chromaticity) -> (kelvin: Double, tint: Double) {
         temperatureAndTint(x: chroma.x, y: chroma.y)
     }
+}
+
+// MARK: - The render's white-balance model
+
+extension DNGTemperature {
+
+    /// How much of a tint-zero illuminant's CAT16 cone response a tinted one must keep.
+    /// `ColorTemperature.tintConeFloor`'s criterion, applied to this model's tint axis.
+    public static let tintConeFloor: Double = 0.15
+
+    /// The neutral the monotone bound is measured against.
+    public static let referenceKelvin: Double = 5500
+
+    /// The chromaticity the white-balance stage adapts with: `chromaticity` at the tint
+    /// `clampedTint` allows.
+    public static func renderChromaticity(kelvin: Double, tint: Double) -> Chromaticity {
+        chromaticity(kelvin: kelvin, tint: clampedTint(kelvin: kelvin, tint: tint))
+    }
+
+    /// `tint` bounded on both sides by `tintLimits(kelvin:)`.
+    public static func clampedTint(kelvin: Double, tint: Double) -> Double {
+        guard tint != 0, tint.isFinite, kelvin.isFinite, kelvin > 0 else {
+            return tint.isFinite ? tint : 0
+        }
+        let limits = tintLimits(kelvin: kelvin)
+        return Num.clamp(tint, -limits.green, limits.magenta)
+    }
+
+    /// The largest tint either way the render honours at `kelvin`: the illuminant keeps
+    /// `tintConeFloor` of its cone response, and a 0.18 neutral adapted from it to the
+    /// reference keeps three non-negative channels and keeps moving the way the slider
+    /// says (OKLab `a` rising toward magenta, falling toward green). Memoized per Kelvin.
+    public static func tintLimits(kelvin: Double) -> (magenta: Double, green: Double) {
+        limitLock.lock()
+        if let held = limitCache[kelvin] {
+            limitLock.unlock()
+            return held
+        }
+        limitLock.unlock()
+        let limits = (magenta: limit(kelvin: kelvin, sign: 1),
+                      green: limit(kelvin: kelvin, sign: -1))
+        limitLock.lock()
+        if limitCache.count >= 4096 { limitCache.removeAll() }
+        limitCache[kelvin] = limits
+        limitLock.unlock()
+        return limits
+    }
+
+    private static let limitLock = NSLock()
+    private static var limitCache: [Double: (magenta: Double, green: Double)] = [:]
+
+    /// Hard end of the tint range.
+    static let tintCeiling: Double = 300
+
+    private static func limit(kelvin: Double, sign: Double) -> Double {
+        let base = cone(kelvin: kelvin, tint: 0)
+        guard base.r > 0, base.g > 0, base.b > 0 else { return tintCeiling }
+        let probe = 0.25
+        func admissible(_ amount: Double) -> Bool {
+            let c = cone(kelvin: kelvin, tint: sign * amount)
+            guard c.r >= tintConeFloor * base.r, c.g >= tintConeFloor * base.g,
+                  c.b >= tintConeFloor * base.b else { return false }
+            guard let here = renderedA(kelvin: kelvin, tint: sign * amount),
+                  let ahead = renderedA(kelvin: kelvin, tint: sign * (amount + probe))
+            else { return false }
+            return sign * (ahead - here) >= 0
+        }
+        if admissible(tintCeiling) { return tintCeiling }
+        var lo = 0.0
+        var hi = tintCeiling
+        for _ in 0..<40 {
+            let mid = (lo + hi) / 2
+            if admissible(mid) { lo = mid } else { hi = mid }
+        }
+        return lo
+    }
+
+    private static func cone(kelvin: Double, tint: Double) -> RGB {
+        ChromaticAdaptation.cat16.apply(chromaticity(kelvin: kelvin, tint: tint).xyz())
+    }
+
+    /// OKLab `a` of a 0.18 neutral adapted from (kelvin, tint) to the reference; nil when
+    /// a channel goes negative or non-finite.
+    private static func renderedA(kelvin: Double, tint: Double) -> Double? {
+        let adaptation = ChromaticAdaptation.adapt(
+            from: chromaticity(kelvin: kelvin, tint: tint).xyz(),
+            to: chromaticity(kelvin: referenceKelvin, tint: 0).xyz(),
+            cone: ChromaticAdaptation.cat16)
+        let out = (workingFromXYZ * adaptation * workingToXYZ).apply(RGB(gray: LumenLog.midGrey))
+        guard out.isFinite, out.minComponent >= 0 else { return nil }
+        return OKLabTransform.working.toLab(out).a
+    }
+
+    private static let workingToXYZ: Mat3 = RGBColorSpace.rec2020.toXYZ
+    private static let workingFromXYZ: Mat3 = RGBColorSpace.rec2020.fromXYZ
 }

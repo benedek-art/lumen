@@ -48,8 +48,9 @@ public struct WhiteBalanceEngine: Sendable {
         if asShot.kelvin == target.kelvin && asShot.tint == target.tint {
             return .identity
         }
-        let source = ColorTemperature.chromaticity(kelvin: target.kelvin, tint: target.tint)
-        let destination = ColorTemperature.chromaticity(kelvin: asShot.kelvin, tint: asShot.tint)
+        let source = DNGTemperature.renderChromaticity(kelvin: target.kelvin, tint: target.tint)
+        let destination = DNGTemperature.renderChromaticity(kelvin: asShot.kelvin,
+                                                            tint: asShot.tint)
         let xyzAdapt = ChromaticAdaptation.adapt(from: source.xyz(), to: destination.xyz(),
                                                  cone: ChromaticAdaptation.cat16)
         return space.fromXYZ * xyzAdapt * space.toXYZ
@@ -61,8 +62,8 @@ public struct WhiteBalanceEngine: Sendable {
         asShot.kelvin == target.kelvin && asShot.tint == target.tint
     }
 
-    /// The tint the render actually uses at the current target: `target.tint` with
-    /// its magenta half bounded by `ColorTemperature.tintLimit(kelvin:)`.
+    /// The tint the render actually uses at the current target: `target.tint` bounded
+    /// by `DNGTemperature.tintLimits(kelvin:)`.
     ///
     /// Surfaced for the same reason `ToneEngine.effectiveHighlights` is: the engine
     /// has clamped this correctly since the tint guard landed and told nobody, so on
@@ -70,7 +71,12 @@ public struct WhiteBalanceEngine: Sendable {
     /// which reads as a broken control unless the UI can say "bounded by physics
     /// here". The panel reads this and badges when it diverges from the slider.
     public var effectiveTint: Double {
-        ColorTemperature.clampedTint(kelvin: target.kelvin, tint: target.tint)
+        Self.clampedTint(kelvin: target.kelvin, tint: target.tint)
+    }
+
+    /// What `tint` is worth at `kelvin` in the model this stage renders.
+    public static func clampedTint(kelvin: Double, tint: Double) -> Double {
+        DNGTemperature.clampedTint(kelvin: kelvin, tint: tint)
     }
 
     // MARK: - What the Temp/Tint rows show while the recipe says "as shot"
@@ -321,7 +327,7 @@ public struct WhiteBalanceEngine: Sendable {
         // same contract. Pixel-identical: `chromaticity` clamps to exactly this.
         let kelvin = Num.clamp(bestK, ColorTemperature.minKelvin, ColorTemperature.maxKelvin)
         return (kelvin,
-                ColorTemperature.clampedTint(kelvin: kelvin, tint: Num.clamp(bestT, -300, 300)))
+                clampedTint(kelvin: kelvin, tint: Num.clamp(bestT, -300, 300)))
     }
 }
 

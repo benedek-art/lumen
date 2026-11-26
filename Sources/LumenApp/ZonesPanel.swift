@@ -118,12 +118,9 @@ struct ZonesPanel: View {
     /// The register's rows with no header of their own: exactly what the section always
     /// wrapped, and the whole of what a caller supplying its own header wants.
     private var rows: some View {
-        // Astra AI-07. The register is the power tool and is deliberately not limited;
-        // its only guard is the bake's forward clamp, which keeps the response monotone
-        // by rendering a band of input tones as ONE value. The engine measures that band
-        // (`ToneEngine.zoneFlattening`), and this is where the photographer hears it —
-        // marked on the strip at the tones it covers, and named under it in EV. Nil on
-        // every combination that renders what it asks for, so the strip stays clean.
+        // Astra AI-07. `ToneEngine.projectZoneEV` keeps neighbouring zones in order and
+        // the caption below names any zone it moved; the bake's forward clamp is the
+        // backstop, and the band it flattens, if any, is marked on the strip.
         let flattened = AppliedReadout.zoneFlattening(tone: recipe.develop.tone,
                                                       zones: zones)
         return VStack(alignment: .leading, spacing: Lumen.rowGap) {
@@ -142,6 +139,13 @@ struct ZonesPanel: View {
                            })
             if let flattened {
                 Text(flattened.caption)
+                    .font(.lumenCaption)
+                    .foregroundStyle(Lumen.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let eased = AppliedReadout.zoneEasingCaption(tone: recipe.develop.tone,
+                                                            zones: zones) {
+                Text(eased)
                     .font(.lumenCaption)
                     .foregroundStyle(Lumen.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)

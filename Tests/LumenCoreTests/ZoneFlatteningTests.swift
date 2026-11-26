@@ -1,29 +1,29 @@
 // ZoneFlatteningTests.swift
 //
-// Astra AI-07: the Zones panel has no limiter of its own. Its only guard is the forward
-// clamp in `ToneEngine.bakeGainLUT`, which keeps the response monotone by rendering a
-// whole band of input tones as one output value — and nothing measured how wide that
-// band is, so nothing could tell the photographer. `zoneFlattening` is that measurement.
-// These tests pin what it reports on the audit's own trigger, and that it reports
-// nothing where the six tone sliders' solved limits already keep the clamp idle.
+// Astra AI-07: the forward clamp in `ToneEngine.bakeGainLUT` keeps the response monotone
+// by rendering a whole band of input tones as one output value, and `zoneFlattening`
+// measures that band. It was the Zones register's only limiter; `projectZoneEV` now is,
+// so the audit's trigger is measured on the unprojected probe, and the register itself
+// is pinned to never reach the clamp.
 
 import XCTest
 @testable import LumenCore
 
 final class ZoneFlatteningTests: XCTestCase {
 
+    /// Darks alone, applied as requested: the response the clamp used to flatten.
     private func darks(_ ev: Double) -> ToneEngine {
         var zones = Zones()
         zones.dark.ev = ev
-        return ToneEngine(zones: zones)
+        return ToneEngine(unprojectedTone: Tone(), zones: zones)
     }
 
     func testAnUntouchedToneStackFlattensNothing() {
         XCTAssertNil(ToneEngine().zoneFlattening())
     }
 
-    /// The audit's trigger: default pivots, Darks alone. Measured on Linux against the
-    /// 1024-sample bake the renderer uses.
+    /// The audit's trigger: default pivots, Darks alone, unprojected. Measured on Linux
+    /// against the 1024-sample bake.
     func testDarksAloneFlattensTheBandTheAuditMeasured() throws {
         let expected: [(ev: Double, low: Double, high: Double, worst: Double)] = [
             (2, -3.531, -1.795, 0.421),
@@ -80,5 +80,62 @@ final class ZoneFlatteningTests: XCTestCase {
                                  + "contrast \(c) reached the clamp: \(String(describing: f))")
             }
         } } } }
+    }
+
+    /// The tester's plateau (grey ramp Shadows +2 rendered −2, −1 and 0 EV as 116 / 131 /
+    /// 129; Shadows +3 as 175 / 174 / 175): every single zone and every adjacent pair
+    /// at ±1…±5 EV now renders without the clamp and keeps at least
+    /// `zoneMinimumSlopeFraction` of the identity's slope across the pivots.
+    func testTheZonesRegisterKeepsTonesApartAcrossItsRange() {
+        let paths: [WritableKeyPath<Zones, ZoneAdjust>] =
+            [\.dark, \.shadow, \.mid, \.light, \.bright]
+        let values: [Double] = [-5, -3, -2, -1.25, 1.25, 2, 3, 5]
+        var cases: [Zones] = []
+        for p in paths { for v in values { var z = Zones(); z[keyPath: p].ev = v; cases.append(z) } }
+        for i in 0..<(paths.count - 1) { for v in values {
+            var z = Zones(); z[keyPath: paths[i]].ev = v; z[keyPath: paths[i + 1]].ev = -v
+            cases.append(z)
+        } }
+        let floor = ToneEngine.zoneMinimumSlopeFraction - 1e-6
+        for zones in cases {
+            let engine = ToneEngine(zones: zones)
+            XCTAssertNil(engine.zoneFlattening(), "\(ToneEngine.requestedZoneEV(zones))")
+            var t = -4.0
+            while t < 4 {
+                let a = t + engine.stops(at: t)
+                let b = t + 0.05 + engine.stops(at: t + 0.05)
+                XCTAssertGreaterThanOrEqual((b - a) / 0.05, floor,
+                                            "\(ToneEngine.requestedZoneEV(zones)) at \(t) EV")
+                t += 0.05
+            }
+        }
+    }
+
+    /// Inside the limit nothing moves; past it the slider keeps moving the picture.
+    func testTheProjectionIsExactInsideItsLimitAndStillMovesPastIt() {
+        var small = Zones()
+        small.shadow.ev = 0.75
+        small.light.ev = -0.5
+        XCTAssertEqual(ToneEngine(zones: small).appliedZoneEV, [0, 0.75, 0, -0.5, 0])
+        var previous = -Double.infinity
+        for v in stride(from: 1.0, through: 5.0, by: 0.25) {
+            var z = Zones()
+            z.shadow.ev = v
+            let applied = ToneEngine(zones: z).appliedZoneEV
+            XCTAssertGreaterThan(applied[1], previous + 0.05, "Shadows \(v) stopped moving")
+            XCTAssertLessThanOrEqual(applied[1], v + 1e-12)
+            previous = applied[1]
+        }
+    }
+
+    /// The projection is a least-squares one: a single violating pair moves to its mean
+    /// plus and minus half the allowed drop.
+    func testAViolatingPairMovesToItsMean() {
+        let out = ToneEngine.projectZoneEV([0, 3, 0, 0, 0], drop: [1, 1, 1, 1])
+        XCTAssertEqual(out[0], 0)
+        XCTAssertEqual(out[1], 2, accuracy: 1e-12)
+        XCTAssertEqual(out[2], 1, accuracy: 1e-12)
+        XCTAssertEqual(out[3], 0)
+        XCTAssertEqual(out[4], 0)
     }
 }

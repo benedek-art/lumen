@@ -491,12 +491,14 @@ enum ExactColorTwin {
         // Skin membership and the tonal rolloff read the stage input, never the output.
         var skin: Float = 0
         if finite(l) {
-            let off = abs(hueDelta(56.4, l.z))
-            let inBand = 1 - smoothstep(10, 15, off)
+            let off = hueDelta(56.4, l.z)
+            let inBand = off < 0 ? 1 - smoothstep(10, 15, -off) : 1 - smoothstep(34, 40, off)
             if inBand > 0 {
                 let plaus = min(max(smoothstep(0.05, 0.20, l.x) * (1 - smoothstep(0.85, 0.98, l.x))
                                     * (1 - smoothstep(0.16, 0.26, l.y)), 0), 1)
-                skin = min(max(inBand * protectGate(l.y) * plaus, 0), 1)
+                let ext = smoothstep(10, 20, off)
+                let ceiling = 1 - smoothstep(0.10, 0.15, l.y)
+                skin = min(max(inBand * protectGate(l.y) * plaus * (1 + (ceiling - 1) * ext), 0), 1)
             }
         }
         let protection = 1 - p.z * skin
@@ -858,12 +860,15 @@ public enum ExactColorKernelSource {
                 if (lumenFinite(vec3(J0, l.y, 0.0))) {
                     float skin = 0.0;
                     if (lumenFinite(l)) {
-                        float off = abs(lumenHueDelta(56.4, l.z));
-                        float inBand = 1.0 - lumenSmooth(10.0, 15.0, off);
+                        float off = lumenHueDelta(56.4, l.z);
+                        float inBand = off < 0.0 ? 1.0 - lumenSmooth(10.0, 15.0, -off)
+                                                 : 1.0 - lumenSmooth(34.0, 40.0, off);
                         if (inBand > 0.0) {
                             float plaus = min(max(lumenSmooth(0.05, 0.20, l.x) * (1.0 - lumenSmooth(0.85, 0.98, l.x))
                                                   * (1.0 - lumenSmooth(0.16, 0.26, l.y)), 0.0), 1.0);
-                            skin = min(max(inBand * lumenProtectGate(l.y) * plaus, 0.0), 1.0);
+                            float ext = lumenSmooth(10.0, 20.0, off);
+                            float ceiling = 1.0 - lumenSmooth(0.10, 0.15, l.y);
+                            skin = min(max(inBand * lumenProtectGate(l.y) * plaus * (1.0 + (ceiling - 1.0) * ext), 0.0), 1.0);
                         }
                     }
                     float protection = 1.0 - p.z * skin;

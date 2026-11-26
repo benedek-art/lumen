@@ -250,7 +250,14 @@ public struct ToneEngine: Sendable {
         if highlights < 0 || whites < 0 { eased = Swift.min(eased, upper) }
         if shadows > 0 || blacks > 0 { eased = Swift.min(eased, lower) }
         self.zonalScale = eased
+        self.appliedZoneEV = Self.requestedZoneEV(zones)
+        self.appliedZoneEV = Self.projectZoneEV(appliedZoneEV, drop: zoneDrops())
     }
+
+    /// The Zones register's five EVs as rendered (Darks … Brights). Equal to the request
+    /// unless two neighbours ask for more than their crossfade can carry in order; then
+    /// `projectZoneEV` moves them, together, to the nearest pair that keeps tones apart.
+    public private(set) var appliedZoneEV: [Double]
 
     /// The smallest scale any window is actually being held to — 1.0 when every slider
     /// is applied exactly.
@@ -456,6 +463,7 @@ public struct ToneEngine: Sendable {
         self.effectiveWhites = effectiveWhites
         self.effectiveBlacks = effectiveBlacks
         self.zonalScale = zonalScale
+        self.appliedZoneEV = Self.requestedZoneEV(zones)
     }
 
     /// The four zonal windows, at the amounts actually applied.
@@ -676,13 +684,115 @@ public struct ToneEngine: Sendable {
 
     /// Per-zone exposure from the Zones panel, in stops.
     public func zonePanelStops(_ t: Double) -> Double {
-        let ev = [zones.dark.ev, zones.shadow.ev, zones.mid.ev, zones.light.ev, zones.bright.ev]
+        let ev = appliedZoneEV
         guard ev.contains(where: { $0 != 0 }) || zones.global.ev != 0 else { return 0 }
-        // Pivots arrive from a sidecar or a catalog row, so their count is untrusted;
-        // `exposureStops` requires one per zone and traps otherwise, in release too.
-        let pivots = zones.pivots.count == ev.count ? zones.pivots : Zones.defaultPivots
-        return ZoneWeights.exposureStops(x: normalizedAxis(t), pivots: pivots,
+        return ZoneWeights.exposureStops(x: normalizedAxis(t), pivots: zonePivots,
                                          zoneEV: ev, globalEV: zones.global.ev)
+    }
+
+    /// Pivots arrive from a sidecar or a catalog row, so their count is untrusted;
+    /// `exposureStops` requires one per zone and traps otherwise, in release too.
+    var zonePivots: [Double] {
+        zones.pivots.count == 5 ? zones.pivots : Zones.defaultPivots
+    }
+
+    /// The register applied exactly as requested, without `projectZoneEV`: the
+    /// response the bake's backstop used to flatten. A probe for tests; never renders.
+    init(unprojectedTone tone: Tone, zones: Zones) {
+        self.init(tone: tone, zones: zones)
+        self.appliedZoneEV = Self.requestedZoneEV(zones)
+    }
+
+    static func requestedZoneEV(_ zones: Zones) -> [Double] {
+        [zones.dark.ev, zones.shadow.ev, zones.mid.ev, zones.light.ev, zones.bright.ev]
+            .map { $0.isFinite ? $0 : 0 }
+    }
+
+    // MARK: - Zones: keeping tones in order
+
+    /// The least local contrast the Zones register may leave between two pivots, as a
+    /// fraction of the slope the rest of the tone stack has there.
+    ///
+    /// Adjacent pivots sit 2 EV apart, so a zone pushed 2 EV past its neighbour lands its
+    /// own pivot on the neighbour's and no crossfade can keep those tones apart; past
+    /// about 1.25 EV the raised cosine already folds them. The forward clamp in the bake
+    /// then rendered whole stops as one tone. Now the requested EVs are projected (least
+    /// squares, `projectZoneEV`) onto the set whose crossfades keep this much slope, and
+    /// inside that set they are applied exactly.
+    public static let zoneMinimumSlopeFraction: Double = 0.3
+
+    /// Sampling step for the rest of the stack's slope between two pivots, in EV.
+    static let zoneSlopeStepEV: Double = 0.05
+
+    /// How far each zone may sit BELOW the one under it, in EV, before the crossfade
+    /// between their pivots drops the response's slope under `zoneMinimumSlopeFraction`
+    /// of the rest of the stack's. A raised cosine of height `d` over `w` EV is steepest
+    /// at `π d / 2w`, so the budget `(1 − f)·m` buys `d = (1 − f)·m·2w/π`.
+    func zoneDrops() -> [Double] {
+        let pivots = zonePivots
+        let span = whiteAnchorEV - blackAnchorEV
+        var drops = [Double](repeating: 0, count: pivots.count - 1)
+        guard span > 0, appliedZoneEV.contains(where: { $0 != 0 }) else { return drops }
+        let step = Self.zoneSlopeStepEV
+        for i in 0..<(pivots.count - 1) {
+            let a = blackAnchorEV + Num.saturate(pivots[i]) * span
+            let b = blackAnchorEV + Num.saturate(pivots[i + 1]) * span
+            guard b > a else { continue }
+            var least = Double.infinity
+            var t = a
+            var previous = contrastMapped(t) + zonalStops(t)
+            while t < b {
+                let next = Swift.min(t + step, b)
+                let value = contrastMapped(next) + zonalStops(next)
+                least = Swift.min(least, (value - previous) / (next - t))
+                previous = value
+                t = next
+            }
+            guard least.isFinite, least > 0 else { continue }
+            drops[i] = (1 - Self.zoneMinimumSlopeFraction) * least * (b - a) * 2 / .pi
+        }
+        return drops
+    }
+
+    /// Least-squares projection of `requested` onto `o[i+1] ≥ o[i] − drop[i]`.
+    ///
+    /// With `c` the running sum of `drop`, the constraint is "`o + c` never falls", so
+    /// this is isotonic regression (pool adjacent violators) on `requested + c`: the
+    /// zones in a violating run move together to their mean, which is continuous in the
+    /// sliders, so a slider past the limit keeps moving the picture at a reduced rate.
+    /// Zones no constraint touches keep their requested value bit for bit.
+    static func projectZoneEV(_ requested: [Double], drop: [Double]) -> [Double] {
+        let n = requested.count
+        guard n > 1, drop.count == n - 1 else { return requested }
+        guard (0..<(n - 1)).contains(where: { requested[$0 + 1] < requested[$0] - drop[$0] })
+        else { return requested }
+        var offset = [Double](repeating: 0, count: n)
+        for i in 1..<n { offset[i] = offset[i - 1] + drop[i - 1] }
+        var means: [Double] = []
+        var sizes: [Int] = []
+        for i in 0..<n {
+            means.append(requested[i] + offset[i])
+            sizes.append(1)
+            while means.count > 1, means[means.count - 2] > means[means.count - 1] {
+                let a = means.count - 2
+                let b = means.count - 1
+                let size = sizes[a] + sizes[b]
+                means[a] = (means[a] * Double(sizes[a]) + means[b] * Double(sizes[b]))
+                    / Double(size)
+                sizes[a] = size
+                means.removeLast()
+                sizes.removeLast()
+            }
+        }
+        var out = requested
+        var start = 0
+        for (mean, size) in zip(means, sizes) {
+            if size > 1 {
+                for k in start..<(start + size) { out[k] = mean - offset[k] }
+            }
+            start += size
+        }
+        return out
     }
 
     /// Total gain in stops applied by S7 at zonal coordinate `t`.
@@ -703,10 +813,8 @@ public struct ToneEngine: Sendable {
     /// log-encodes it, and fetches this. One texture fetch replaces the whole panel.
     public func bakeGainLUT(size: Int = 1024) -> LUT1D {
         // The forward clamp below is a BACKSTOP, not the mechanism. `solveZonalLimits`
-        // has already made the response monotone; this catches what it deliberately
-        // does not cover — the Zones panel, which is the explicit power tool and would
-        // stop being one if it were limited — and the fact that this samples the log
-        // shaper's domain rather than the solver's sweep.
+        // and `projectZoneEV` have already made the response monotone; this catches the
+        // fact that this samples the log shaper's domain rather than their sweeps.
         //
         // It is worth saying why it is not the mechanism, because for one round it was.
         // A clamp removes the slider coupling too, and costs flat patches instead:
@@ -783,12 +891,10 @@ public struct ToneEngine: Sendable {
 
     /// Where the bake's forward clamp flattened the tone response, if anywhere.
     ///
-    /// Astra AI-07. The clamp is the Zones panel's only limiter, and it limits by
-    /// rendering a band of input tones as ONE output value: Darks +2 EV at the default
-    /// pivots flattens 1.74 EV of input (−3.53…−1.80 EV) and Darks +4 EV flattens
-    /// 3.85 EV, where the rendered tone sits up to 2.20 EV away from what the slider
-    /// asked for. Texture inside that band is gone, and nothing said so. This is the
-    /// measurement a panel needs to say so; it changes no pixel.
+    /// Astra AI-07. The clamp limits by rendering a band of input tones as ONE output
+    /// value. It was the Zones panel's only limiter (Darks +2 EV flattened 1.74 EV of
+    /// input); `projectZoneEV` now keeps the register off it, so this reports only
+    /// what the backstop still catches. It changes no pixel.
     public struct Flattening: Equatable, Sendable {
         /// Darkest and brightest input tone, in EV from mid-grey, that the clamp moved.
         public var lowEV: Double
@@ -800,8 +906,7 @@ public struct ToneEngine: Sendable {
         public var widthEV: Double { highEV - lowEV }
     }
 
-    /// `nil` when the clamp in `bakeGainLUT` moved nothing — every recipe the six
-    /// tone sliders alone can produce, by `solveZonalLimits`.
+    /// `nil` when the clamp in `bakeGainLUT` moved nothing.
     public func zoneFlattening(size: Int = 1024) -> Flattening? {
         let curve = clampedResponse(size: size)
         var low = Double.nan, high = Double.nan, worst = 0.0, moved = 0
@@ -907,6 +1012,25 @@ public struct AutoTone: Sendable {
     public static let faceTargetEV: Double = -0.35
     public static let sceneTargetEV: Double = -0.6
 
+    /// How bright median metering may LIFT the frame's top 0.5%, in EV. Half a stop
+    /// above where the Highlights branch starts recovering, so a lift never leans on
+    /// more than Highlights −25 to undo itself.
+    public static let liftHighlightCeilingEV: Double = 3.5
+    /// The ceiling on a low-key frame, where the median sits this far below the
+    /// brightest tones (`lowKeyGapEV`): the subject is already exposed and the dark
+    /// majority is the backdrop, so median metering would turn black into grey.
+    /// Nikon 5812: median −3.87 EV under highlights at +1.98 asked for Exposure +3.27.
+    public static let lowKeyHighlightCeilingEV: Double = 2.0
+    public static let lowKeyGapEV: ClosedRange<Double> = 4.5...6.0
+
+    /// The lift ceiling for this frame: `liftHighlightCeilingEV`, easing to
+    /// `lowKeyHighlightCeilingEV` as the median falls `lowKeyGapEV` below the top 0.5%.
+    static func liftCeilingEV(_ stats: Statistics) -> Double {
+        let gap = stats.percentileEV(0.995) - stats.percentileEV(0.5)
+        let lowKey = Num.smoothstep(lowKeyGapEV.lowerBound, lowKeyGapEV.upperBound, gap)
+        return Num.mix(liftHighlightCeilingEV, lowKeyHighlightCeilingEV, lowKey)
+    }
+
     /// Compute slider values. Every value returned is inside its slider's range and
     /// lands in the UI as a normal, undoable edit.
     public static func suggest(from stats: Statistics) -> Tone {
@@ -914,9 +1038,16 @@ public struct AutoTone: Sendable {
 
         // Exposure places the subject: faces if we have them, otherwise the frame's
         // median, which is robust to the specular highlights that fool mean-metering.
+        // A median lift stops where it would push the brightest tones past
+        // `liftCeilingEV`: a dark median under bright highlights is a low-key frame.
         let anchor = stats.faceMeanEV ?? stats.percentileEV(0.5)
         let target = stats.faceMeanEV != nil ? faceTargetEV : sceneTargetEV
-        t.exposure = Num.clamp(target - anchor, -5, 5)
+        var exposure = target - anchor
+        if stats.faceMeanEV == nil, exposure > 0 {
+            exposure = Swift.min(exposure, Swift.max(0, liftCeilingEV(stats)
+                                                        - stats.percentileEV(0.995)))
+        }
+        t.exposure = Num.clamp(exposure, -5, 5)
 
         // Highlights recover only what is actually near clipping after that exposure.
         let hi = stats.percentileEV(0.995) + t.exposure

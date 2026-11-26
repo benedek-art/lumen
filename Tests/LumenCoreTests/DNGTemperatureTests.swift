@@ -117,4 +117,43 @@ final class DNGTemperatureTests: XCTestCase {
         XCTAssertLessThan(worstTint, 2e-3)
         XCTAssertLessThan(worstXY, 2e-5)
     }
+
+    // MARK: - The render
+
+    /// OKLab hue and chroma of a 0.18 neutral through the white-balance stage.
+    private func rendered(asShot: (Double, Double), target: (Double, Double)) -> (h: Double, c: Double) {
+        let engine = WhiteBalanceEngine(asShotKelvin: asShot.0, asShotTint: asShot.1,
+                                        targetKelvin: target.0, targetTint: target.1)
+        let lab = OKLabTransform.working.toLab(engine.apply(RGB(gray: 0.18)))
+        return (Num.wrapHue(atan2(lab.b, lab.a) * 180 / .pi), (lab.a * lab.a + lab.b * lab.b).squareRoot())
+    }
+
+    /// Tint renders in Lightroom's convention: + magenta, − green, about equally strong,
+    /// and well away from the Temperature axis. Tester's finding, with the old
+    /// constant-u tint: +150 rendered hue ~295 (blue-violet), −150 ~115 (yellow-olive),
+    /// + 2.2x stronger, both within ~30° of Temperature. Measured with this model:
+    /// +150 → 312°, −150 → 151°, chroma 0.117 vs 0.093; Temperature runs 78° ↔ 257°.
+    func testTintRendersMagentaAndGreenAcrossTemperature() {
+        let magenta = rendered(asShot: (5500, 0), target: (5500, 150))
+        let green = rendered(asShot: (5500, 0), target: (5500, -150))
+        let warm = rendered(asShot: (5500, 0), target: (7000, 0))
+        let cool = rendered(asShot: (5500, 0), target: (4500, 0))
+        XCTAssertTrue((300...345).contains(magenta.h), "+Tint rendered hue \(magenta.h)")
+        XCTAssertTrue((125...165).contains(green.h), "−Tint rendered hue \(green.h)")
+        XCTAssertLessThan(max(magenta.c, green.c) / min(magenta.c, green.c), 1.4)
+        let tintAxis = Num.wrapHue((magenta.h + Num.wrapHue(green.h + 180)) / 2)
+        let tempAxis = Num.wrapHue((cool.h + Num.wrapHue(warm.h + 180)) / 2)
+        XCTAssertGreaterThan(abs(Num.hueDelta(tempAxis, tintAxis)), 55,
+                             "tint axis \(tintAxis)° against temperature \(tempAxis)°")
+    }
+
+    /// Apple's as-shot pair is in this convention, so a Temp/Tint edit equal to it is
+    /// the identity, and the guard never clamps a daylight-range tint.
+    func testTheGuardLeavesTheShippedRangeAloneInDaylight() {
+        for kelvin in stride(from: 5500.0, through: 50000, by: 500) {
+            XCTAssertEqual(WhiteBalanceEngine.clampedTint(kelvin: kelvin, tint: 150), 150)
+            XCTAssertEqual(WhiteBalanceEngine.clampedTint(kelvin: kelvin, tint: -150), -150)
+        }
+        XCTAssertLessThan(WhiteBalanceEngine.clampedTint(kelvin: 2000, tint: 150), 10)
+    }
 }
