@@ -1,0 +1,148 @@
+{
+ "suite": "repro-pinch-zoom.json zoom-one-to-one.json",
+ "scenarios": [
+  {
+   "name": "zoom-one-to-one-sharp",
+   "description": "zoom-one-to-one, waiting for the loupe to finish its render (loupe.rendersInFlight == 0) before the 1:1 shot.",
+   "fixture": "fiducial",
+   "via": "hid",
+   "timeoutSeconds": 240,
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop"
+    },
+    {
+     "do": "move",
+     "target": "viewer",
+     "at": [
+      0.4,
+      0.45
+     ],
+     "duration": 0.2
+    },
+    {
+     "do": "shot",
+     "name": "fit"
+    },
+    {
+     "do": "click",
+     "id": "in",
+     "target": "viewer",
+     "at": [
+      0.4,
+      0.45
+     ],
+     "count": 2
+    },
+    {
+     "do": "waitFor",
+     "that": "viewport.zoom",
+     "eq": 1,
+     "timeout": 5,
+     "note": "double-click at fit goes to 1:1"
+    },
+    {
+     "do": "shot",
+     "name": "one-to-one-first",
+     "after": 0.3
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 60
+    },
+    {
+     "do": "waitFor",
+     "that": "loupe.rendersInFlight",
+     "eq": 0,
+     "timeout": 30,
+     "note": "the render for 1:1 has landed"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "shot",
+     "name": "one-to-one",
+     "also": "cacheDisplay"
+    },
+    {
+     "do": "state",
+     "name": "one-to-one"
+    },
+    {
+     "do": "expect",
+     "that": "shots.one-to-one.lumaSD",
+     "gt": 10,
+     "note": "there is a picture on screen at 1:1, not a blank"
+    },
+    {
+     "do": "click",
+     "id": "out",
+     "target": "viewer",
+     "at": [
+      0.4,
+      0.45
+     ],
+     "count": 2
+    },
+    {
+     "do": "waitFor",
+     "that": "viewport.zoom",
+     "eq": 0,
+     "timeout": 5,
+     "note": "double-click at 1:1 goes back to fit"
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 60
+    },
+    {
+     "do": "shot",
+     "name": "fit-again",
+     "also": "cacheDisplay"
+    },
+    {
+     "do": "expect",
+     "that": "shots.fit-again.lumaSD",
+     "gt": 10,
+     "note": "the picture is back at fit (as composited on screen)"
+    },
+    {
+     "do": "expect",
+     "that": "shots.fit-again.cacheDisplay.lumaSD",
+     "gt": 10,
+     "note": "the picture is back at fit (as AppKit draws the view tree)"
+    }
+   ],
+   "witness": [
+    {
+     "that": "shots.one-to-one.located",
+     "eq": true,
+     "note": "the fiducial is visible at 1:1"
+    },
+    {
+     "that": "shots.one-to-one.scale",
+     "near": 1.0,
+     "tol": 0.02,
+     "note": "1:1 is one point per image pixel on a 1x display"
+    },
+    {
+     "that": "drift.fit.one-to-one",
+     "lt": 2,
+     "note": "the double-clicked point stays under the pointer"
+    },
+    {
+     "that": "shots.fit-again.claimErrorPt",
+     "lt": 2
+    }
+   ]
+  }
+ ],
+ "ref": "0d9337f1741e3a9a871eeeaf6357911c775ed6ab",
+ "config": "release",
+ "strict": false,
+ "note": "fix-zoom: ask capped below 1:1"
+}
