@@ -2115,8 +2115,13 @@ struct LoupeView: View {
         .frame(width: drawn.width, height: drawn.height)
         .driverAnchor("viewer.image")
         .scaleEffect(stretch)
-        .offset(offset)
-        .frame(width: container.width, height: container.height)
+        // Placed by a render transform, not by centring and `.offset`: layout snaps
+        // those to device pixels, so the picture sat up to half a pixel from where
+        // `ViewerViewport` anchors the cursor, which 1:1 magnifies to several pixels.
+        .transformEffect(CGAffineTransform(
+            translationX: (container.width - drawn.width) / 2 + offset.width,
+            y: (container.height - drawn.height) / 2 + offset.height))
+        .frame(width: container.width, height: container.height, alignment: .topLeading)
         .background {
             // Container-sized, and placed by arithmetic rather than by the transforms
             // above: `EDRPreview.plateRect` is `.scaleEffect(stretch).offset(offset)`
