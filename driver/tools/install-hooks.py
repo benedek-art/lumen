@@ -85,6 +85,65 @@ HOOKS = [
      '        .help("Create a new mask — every kind, on one board")\n',
      '        .help("Create a new mask — every kind, on one board")\n'
      '        .driverAnchor("mask-create")\n', False),
+    # Names for the shared controls, each appended to an existing line so no line moves.
+    ("LumenControls.swift", '.driverAnchor("section/" + title)',
+     "        .animation(Lumen.motionState, value: hovering)\n        .padding(.top, topRhythm)\n",
+     '        .animation(Lumen.motionState, value: hovering).driverAnchor("section/" + title)\n'
+     "        .padding(.top, topRhythm)\n", False),
+    ("LumenControls.swift", '.driverAnchor("segment/" + option.label)',
+     "                .lumenClickCursor()\n            }\n        }\n"
+     "        // One group, so the options read as a set",
+     '                .lumenClickCursor().driverAnchor("segment/" + option.label)\n            }\n'
+     "        }\n        // One group, so the options read as a set", False),
+    ("LumenControls.swift", '.driverAnchor("toggle/" + title)',
+     "        .accessibilityAction { if isEnabled { isOn.toggle() } }\n",
+     '        .accessibilityAction { if isEnabled { isOn.toggle() } }.driverAnchor("toggle/" + title)\n',
+     False),
+    ("LumenMenu.swift", '.driverAnchor("menu/" + title)',
+     "        .help(help ?? title)\n",
+     '        .help(help ?? title).driverAnchor("menu/" + title)\n', False),
+    ("LumenMenu.swift", '.driverAnchor("menuitem/" + title)',
+     "        .onHover { hovering = $0 }\n        .animation(Lumen.motionState, value: hovering)\n"
+     "    }\n}\n",
+     "        .onHover { hovering = $0 }\n"
+     '        .animation(Lumen.motionState, value: hovering).driverAnchor("menuitem/" + title)\n'
+     "    }\n}\n", False),
+    ("LumenMenu.swift", '.driverAnchor("picker/" + title)',
+     "                        selection = option.value\n                    }\n                }\n"
+     "            }\n            Spacer(minLength: 0)\n",
+     "                        selection = option.value\n                    }\n                }\n"
+     '            }.driverAnchor("picker/" + title)\n            Spacer(minLength: 0)\n', False),
+    ("SettingsSubsetSheet.swift", '.driverAnchor("checkbox/" + group.title)',
+     "                    LumenCheckbox(isOn: binding(for: group))\n",
+     '                    LumenCheckbox(isOn: binding(for: group)).driverAnchor("checkbox/" + group.title)\n',
+     False),
+    ("FilmstripView.swift", '.driverAnchor("filmstrip-cell/"',
+     "                                      loader: state.thumbnails)\n",
+     "                                      loader: state.thumbnails)"
+     '.driverAnchor("filmstrip-cell/" + photo.filename)\n', False),
+    ("GridView.swift", '.driverAnchor("grid-cell/"',
+     "                                      loader: state.thumbnails)\n",
+     "                                      loader: state.thumbnails)"
+     '.driverAnchor("grid-cell/" + photo.filename)\n', False),
+    ("ContentView.swift", '.driverAnchor("source/" + title)',
+     '        .accessibilityLabel(Text("\\(title), \\(count) photograph\\(count == 1 ? "" : "s")"))\n',
+     '        .accessibilityLabel(Text("\\(title), \\(count) photograph\\(count == 1 ? "" : "s")"))'
+     '.driverAnchor("source/" + title)\n', False),
+    ("DevelopColumn.swift", '.driverAnchor("rail/" + workspace.title)',
+     '        .help("\\(workspace.title) (⌘\\(workspace.shortcutDigit))")\n',
+     '        .help("\\(workspace.title) (⌘\\(workspace.shortcutDigit))")'
+     '.driverAnchor("rail/" + workspace.title)\n', False),
+    ("ViewerOverlays.swift", '.driverAnchor("crop-corner/"',
+     '                .help("Drag to reframe from this corner.")\n',
+     '                .help("Drag to reframe from this corner.")'
+     '.driverAnchor("crop-corner/" + handle.rawValue)\n', False),
+    ("ViewerOverlays.swift", '.driverAnchor("crop-edge/"',
+     '                .help("Drag to move this edge on its own.")\n',
+     '                .help("Drag to move this edge on its own.")'
+     '.driverAnchor("crop-edge/" + handle.rawValue)\n', False),
+    ("HealCanvas.swift", '.driverAnchor("heal.canvas")',
+     "        .gesture(press)\n        .lumenPickCursor(true)\n",
+     '        .gesture(press)\n        .lumenPickCursor(true).driverAnchor("heal.canvas")\n', False),
 ]
 
 

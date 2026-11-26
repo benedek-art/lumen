@@ -93,44 +93,55 @@ extension DriverSession {
 
     // MARK: Targets
 
-    /// A step's target as a rectangle in window-frame points (origin top-left).
-    func resolveFrame(_ target: Any?) throws -> CGRect {
-        guard let input, let window else { throw DriverError("no window") }
+    /// A step's target as a rectangle in main-window points (origin top-left). Anything
+    /// in a sheet, popover or panel is in the same coordinates.
+    func resolveFrame(_ target: Any?) async throws -> CGRect {
+        guard let input else { throw DriverError("no window") }
+        lastTarget = [:]
         if target == nil || target is NSNull {
             return CGRect(origin: input.cursor, size: .zero)
         }
         if let name = target as? String {
-            if name == "window" {
-                return CGRect(origin: .zero, size: window.frame.size)
-            }
-            if name == "cursor" {
-                return CGRect(origin: input.cursor, size: .zero)
-            }
-            return try anchorFrame(id: name, index: 0, within: nil)
+            return try await resolveName(name, index: 0, within: nil)
         }
         guard let spec = target as? [String: Any] else {
             throw DriverError("target must be a string or an object")
         }
+        let index = (spec["index"] as? NSNumber)?.intValue ?? 0
         if let point = spec["point"] as? [Any], point.count == 2,
            let x = (point[0] as? NSNumber)?.doubleValue,
            let y = (point[1] as? NSNumber)?.doubleValue {
             return CGRect(x: x, y: y, width: 0, height: 0)
         }
-        if let id = spec["anchor"] as? String {
-            return try anchorFrame(id: id,
-                                   index: (spec["index"] as? NSNumber)?.intValue ?? 0,
-                                   within: spec["within"] as? String)
+        if let role = spec["window"] as? String {
+            guard let rect = windowRect(role: role, index: index) else {
+                throw DriverError("no \(role) window index \(index) is open")
+            }
+            return rect
+        }
+        if let id = spec["anchor"] as? String ?? spec["name"] as? String {
+            return try await resolveName(id, index: index, within: spec["within"])
         }
         if let label = spec["ax"] as? String {
-            let matches = DriverAccessibility.find(label: label,
-                                                   role: spec["role"] as? String,
-                                                   in: window)
-            let index = (spec["index"] as? NSNumber)?.intValue ?? 0
+            let role = spec["role"] as? String
+            var container: CGRect?
+            if let within = spec["within"], !(within is NSNull) {
+                container = try await resolveFrame(within)
+            }
+            let snapshot = await DriverAX.snapshot()
+            let matches = axMatches("*/" + label, nodes: snapshot.nodes).filter { node in
+                if let role, node.role != role, node.kind != role { return false }
+                guard let container else { return true }
+                let r = axRect(node)
+                return container.insetBy(dx: -2, dy: -2).contains(CGPoint(x: r.midX, y: r.midY))
+            }
             guard index < matches.count else {
                 throw DriverError("no accessibility element labelled \"\(label)\" "
-                                      + "(found \(matches.count))")
+                                      + "(found \(matches.count))"
+                                      + (snapshot.error.map { ": \($0)" } ?? ""))
             }
-            return input.windowFrameRect(fromScreen: matches[index].frame)
+            lastTarget = ["source": "ax", "name": matches[index].name]
+            return axRect(matches[index])
         }
         if let wanted = spec["text"] as? String {
             // What a person would do: find the words on screen.
@@ -147,42 +158,25 @@ extension DriverSession {
                       let w = row["w"] as? Double, let h = row["h"] as? Double else { return nil }
                 return CGRect(x: x, y: y, width: w, height: h)
             }
-            if let within = spec["within"] as? String {
-                let container = try anchorFrame(id: within, index: 0, within: nil)
+            if let within = spec["within"], !(within is NSNull) {
+                let container = try await resolveFrame(within)
                 frames = frames.filter { container.insetBy(dx: -2, dy: -2).contains($0) }
             }
-            let index = (spec["index"] as? NSNumber)?.intValue ?? 0
             guard index < frames.count else {
                 throw DriverError("the text \"\(wanted)\" is not on screen "
                                       + "(found \(frames.count))")
             }
+            lastTarget = ["source": "text", "name": wanted]
             return frames[index]
         }
-        throw DriverError("target needs one of: anchor, text, point")
-    }
-
-    private func anchorFrame(id: String, index: Int, within: String?) throws -> CGRect {
-        guard let input else { throw DriverError("no window") }
-        var frames = DriverAnchors.shared.frames(id: id)
-        if let within {
-            guard let container = DriverAnchors.shared.frames(id: within).first else {
-                throw DriverError("no anchor \"\(within)\" on screen")
-            }
-            frames = frames.filter { container.insetBy(dx: -1, dy: -1).contains($0) }
-        }
-        guard index < frames.count else {
-            let known = DriverAnchors.shared.all().map { $0.id }
-            let unique = Array(Set(known)).sorted().joined(separator: ", ")
-            throw DriverError("no anchor \"\(id)\" index \(index) on screen "
-                                  + "(\(frames.count) found). On screen: \(unique)")
-        }
-        return input.windowFrameRect(fromGlobal: frames[index])
+        throw DriverError("target needs one of: name, anchor, ax, text, point, window")
     }
 
     /// `at` is a fraction of the target frame (default its centre); `offset` is points.
     func resolvePoint(_ step: DriverStep, target: String = "target", at: String = "at",
                       offset: String = "offset") async throws -> CGPoint {
         let frame = try await settledFrame(step.raw[target])
+        if !lastTarget.isEmpty { values["lastTarget"] = lastTarget }
         let fraction = step.doubles(at) ?? [0.5, 0.5]
         let shift = step.doubles(offset) ?? [0, 0]
         guard fraction.count == 2, shift.count == 2 else {
@@ -220,11 +214,15 @@ extension DriverSession {
         case "expect": return expect(step)
         case "shot": return try await shot(step)
         case "compare": return try compare(step)
-        case "state": return dumpState(step)
+        case "state": return await dumpState(step)
         case "mark":
             DriverTimeline.shared.add("mark", ["name": step.string("name") ?? step.id])
             return [:]
         case "probe": return await probe(step)
+        case "listTargets", "list-targets": return await listTargets(step)
+        case "press": return try await press(step)
+        case "filePanel": return try await filePanel(step)
+        case "files": return files(step)
         case "menu": return try await menu(step)
         case "scrollTo": return try await scrollTo(step)
         case "move", "click", "drag", "scroll", "swipe", "pinch", "smartMagnify", "key",
@@ -306,8 +304,8 @@ extension DriverSession {
         var stuck = 0
         for attempt in 0..<60 {
             input.refreshGeometry()
-            let container = try resolveFrame(containerID)
-            let target = try? resolveFrame(step.raw["target"])
+            let container = try await resolveFrame(containerID)
+            let target = try? await resolveFrame(step.raw["target"])
             let aim = container.minY + container.height * 0.4
             var distance = 300.0
             if let target {
@@ -339,14 +337,13 @@ extension DriverSession {
     /// A target's frame once it has stopped moving: panels animate in, and a frame read
     /// mid-animation is somewhere the control no longer is.
     func settledFrame(_ target: Any?) async throws -> CGRect {
-        var frame = try resolveFrame(target)
-        // Only named views move; a point is a point, and OCR is too slow to repeat.
-        let spec = target as? [String: Any]
-        let named = target is String || spec?["anchor"] != nil
-        guard named, (target as? String) != "cursor" else { return frame }
+        var frame = try await resolveFrame(target)
+        // Only anchors are cheap enough to watch; a point is a point, and OCR and the
+        // accessibility tree are too slow to repeat.
+        guard lastTarget["source"] as? String == "anchor" else { return frame }
         for _ in 0..<25 {
             await sleep(0.06)
-            let again = try resolveFrame(target)
+            let again = try await resolveFrame(target)
             if abs(again.minX - frame.minX) < 0.5, abs(again.minY - frame.minY) < 0.5,
                abs(again.width - frame.width) < 0.5, abs(again.height - frame.height) < 0.5 {
                 return again
@@ -618,6 +615,8 @@ extension DriverSession {
         let samplesBefore = samples.count
         let hitchesBefore = hitches.count
         let receivedBefore = endEvent.isEmpty ? 0 : input.receivedCount(endEvent)
+        let pressBefore = input.receivedCount(endEvent == "rightMouseUp" ? "rightMouseDown"
+                                                                         : "leftMouseDown")
         var film: DriverFilm?
         if let hz = step.double("film"), let window {
             let region = anchorRect(step.string("filmRegion") ?? "viewer")
@@ -660,6 +659,13 @@ extension DriverSession {
         if !endEvent.isEmpty {
             delivered = await wait(timeout: step.double("deliveryTimeout") ?? 2) {
                 input.receivedCount(endEvent) > receivedBefore
+            }
+            // An AppKit control (a bordered button, a pop-up) tracks the press in its own
+            // loop, which takes the release before the app's monitor can see it.
+            let press = endEvent == "rightMouseUp" ? "rightMouseDown" : "leftMouseDown"
+            if !delivered, endEvent.hasSuffix("MouseUp"), input.receivedCount(press) > pressBefore {
+                delivered = true
+                out["releaseTracked"] = true
             }
         }
         // One more turn so the handler of the last event has run and been sampled.

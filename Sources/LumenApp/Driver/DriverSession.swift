@@ -4,6 +4,7 @@
 #if os(macOS)
 
 import AppKit
+import Combine
 import LumenCore
 import SwiftUI
 
@@ -94,6 +95,9 @@ final class DriverSession {
     var window: NSWindow?
     var input: DriverInput?
     let heartbeat = DriverHeartbeat()
+    var stallSampler: DriverStallSampler?
+    private var publishSinks: [AnyCancellable] = []
+    private var watchedModels: Set<ObjectIdentifier> = []
 
     var frames: [DriverFrame] = []
     var samples: [DriverSample] = []
@@ -116,6 +120,8 @@ final class DriverSession {
     var startedAt = DriverClock.now()
     lazy var machine: [String: Any] = DriverMachine.facts()
     var displayNote = ""
+    /// How the last target was found: `source` anchor, ax, window or text, and its name.
+    var lastTarget: [String: Any] = [:]
 
     init(state: AppState, scenarioPath: String) {
         self.state = state
@@ -172,6 +178,13 @@ final class DriverSession {
 
         startWatchdog()
         installRunLoopObserver()
+        let stallMs = (parsed["stallSampleMs"] as? NSNumber)?.doubleValue ?? 100
+        if stallMs > 0 {
+            let sampler = DriverStallSampler(out: outDir, thresholdMs: stallMs, intervalMs: 3)
+            sampler.start()
+            stallSampler = sampler
+            watchPublishes()
+        }
 
         do {
             try await setUpWindow()
@@ -196,6 +209,8 @@ final class DriverSession {
                                       "t0": began]
             if let note = step.string("note") { row["note"] = note }
             var stop = false
+            if step.verb == "drag" { stallSampler?.profile("\(index) \(step.id)") }
+            defer { stallSampler?.profile(nil) }
             do {
                 let detail = try await perform(step)
                 for (key, value) in detail { row[key] = value }
@@ -304,7 +319,38 @@ final class DriverSession {
 
     // MARK: Hooks
 
+    private func watch<Object: ObservableObject>(_ name: String, _ object: Object) {
+        publishSinks.append(object.objectWillChange.sink { [weak self] _ in
+            // These objects publish on the main thread only.
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.stallSampler?.notePublish(
+                    name, duringDrag: self.heartbeat.read().verb == "drag")
+            }
+        })
+    }
+
+    private func watchPublishes() {
+        watch("AppState", state)
+        watch("EditRevision", state.edits)
+        watch("HistoryStack", state.history)
+        watch("ThumbnailLoader", state.thumbnails)
+        watch("LatencyHUD", LatencyHUD.shared)
+        watch("PanelLayout", PanelLayout.shared)
+        watch("LoupeViewport", LoupeViewport.shared)
+        watch("ModifierKeys", ModifierKeys.shared)
+        watch("EDRDisplay", EDRDisplay.shared)
+        watch("MaskBrushStore", MaskBrushStore.shared)
+        watch("CropTool", CropTool.shared)
+        watch("HealTool", HealTool.shared)
+        watch("CaptureInfoDisplay", CaptureInfoDisplay.shared)
+    }
+
     func noteFrame(_ result: RenderResult, recipe: Recipe, model: AnyObject) {
+        if stallSampler != nil, let render = model as? PhotoRenderModel,
+           watchedModels.insert(ObjectIdentifier(render)).inserted {
+            watch("PhotoRenderModel#\(watchedModels.count)", render)
+        }
         let frame = DriverFrame(
             t: DriverClock.now(), recipe: recipe, isDraft: result.isDraft,
             width: result.image.width, height: result.image.height,
@@ -356,8 +402,10 @@ final class DriverSession {
         heartbeat.touch()
         if activity == .afterWaiting {
             runLoopWokeAt = now
+            stallSampler?.turnBegan(at: now)
             return
         }
+        stallSampler?.turnEnded()
         let busy = (now - runLoopWokeAt) * 1000
         if busy > 25 {
             hitches.append((t: now, ms: busy))
@@ -470,6 +518,7 @@ final class DriverSession {
             code = 0
         }
         DriverJSON.write(snapshot(), to: outDir.appendingPathComponent("state-final.json"))
+        stallSampler?.finish()
         writeReport(status: status)
         DriverTimeline.shared.add("end", ["status": status])
         DriverTimeline.shared.flush()

@@ -210,6 +210,15 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "CGDisplayCopyAllDisplayModes", "CGDisplayCopyDisplayMode", "CGDisplaySetDisplayMode",
     "VNRecognizeTextRequest", "VNRecognizedTextObservation", "VNRequestTextRecognitionLevel",
     "THREAD_TIME_CONSTRAINT_POLICY",
+    # Its accessibility client and window list (sheets, popovers, panels).
+    "AXUIElement", "AXValueGetTypeID", "AXUIElementGetTypeID", "AXValue", "AXValueGetType",
+    "AXValueGetValue", "CFArray", "AXError", "AXUIElementCreateApplication",
+    "AXUIElementSetMessagingTimeout", "AXUIElementCopyMultipleAttributeValues",
+    "AXCopyMultipleAttributeOptions", "AXUIElementPerformAction", "NSTemporaryDirectory",
+    "CGWindowLevelForKey", "NSColorPanel", "NSPanel", "CGWindowListOption",
+    "CGWindowListCopyWindowInfo", "NSDictionary",
+    # The driver's main-thread stall sampler: Mach thread state, dyld, dlsym.
+    "KERN_SUCCESS", "MachO", "ARM_THREAD_STATE64", "Dl_info", "RTLD_NOW",
     # Native APIs used by the audited persistence/export safety regressions.
     "SQLITE_OPEN_READONLY", "RENAME_EXCL", "NSBitmapImageRep",
     # POSIX errno values and open(2) flags: the export's no-overwrite fallback
