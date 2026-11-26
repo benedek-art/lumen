@@ -158,7 +158,7 @@ final class KeyDispatcher {
         let unshifted = shift
             ? event.characters(byApplyingModifiers: [])?.lowercased().first : nil
         let key = CullAdvance.dispatchKey(typed: typed, unshifted: unshifted, shift: shift)
-        let forced = CullAdvance.isForced(key: key, shift: shift,
+        let forced = CullAdvance.isForced(key: key, unshifted: unshifted, shift: shift,
                                           capsLock: flags.contains(.capsLock))
 
         // Ignore auto-repeat for the toggles where repeat would be nonsense, but keep
@@ -172,9 +172,9 @@ final class KeyDispatcher {
         // it was allowed for: flag, move to the next frame, flag again. The comment above
         // was describing the second case and the code was permitting both.
         // A forced press advances too, so its repeat is navigation for the same reason.
+        // A repeat that would not move (last frame, multi-selection) is refused.
         if event.isARepeat && !"[]".contains(key) {
-            guard CullAdvance.allowsRepeat(key: key, autoAdvance: state.autoAdvance,
-                                           forced: forced) else { return false }
+            guard state.cullRepeatMovesOn(key: key, forced: forced) else { return false }
         }
 
         switch key {

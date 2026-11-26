@@ -31,8 +31,16 @@ public enum CullAdvance {
     }
 
     /// Whether a press is a forced advance: Shift or Caps Lock held on a decision key.
-    public static func isForced(key: Character, shift: Bool, capsLock: Bool) -> Bool {
-        (shift || capsLock) && decisionKeys.contains(key)
+    ///
+    /// Shift counts only when the unshifted key is that decision key. On a layout that
+    /// needs Shift to type the digit at all (French AZERTY: ⇧& is "1"), Shift is how
+    /// the rating is typed, not a request to move on. `unshifted` nil: Shift counts.
+    public static func isForced(key: Character, unshifted: Character?, shift: Bool,
+                                capsLock: Bool) -> Bool {
+        guard decisionKeys.contains(key) else { return false }
+        if capsLock { return true }
+        guard shift else { return false }
+        return unshifted.map { $0 == key } ?? true
     }
 
     /// The key a press should be dispatched as.
@@ -47,11 +55,26 @@ public enum CullAdvance {
         return unshifted
     }
 
-    /// Whether a key-repeat of `key` may act. Decision keys toggle, so repeating them is
-    /// only navigation when each press also moves on; otherwise holding P flips
-    /// pick/unpick at the repeat rate. `-` stays out, as it was before Shift existed.
-    public static func allowsRepeat(key: Character, autoAdvance: Bool, forced: Bool) -> Bool {
+    /// Whether a key-repeat of `key` may act. Decision keys toggle, so a repeat is only
+    /// allowed when this press will move the cursor on; a repeat that stays (last frame,
+    /// multi-selection, end of a comparison, cursor outside the roll) flips the decision
+    /// it just made. `-` stays out, as it was before Shift existed.
+    ///
+    /// - Parameters:
+    ///   - advance: `CullTargeting.advance` with Shift counted as auto-advance on.
+    ///   - rollCursor: the cursor's index in the shown roll, nil when it is not in it.
+    ///   - rollCount: how many photos the roll shows.
+    public static func allowsRepeat(key: Character, advance: CullTargeting.Advance,
+                                    rollCursor: Int?, rollCount: Int) -> Bool {
         guard "pxu0123456789".contains(key) else { return false }
-        return autoAdvance || forced
+        switch advance {
+        case .stay:
+            return false
+        case .withinComparison:
+            return true
+        case .nextInRoll:
+            guard let rollCursor, rollCursor >= 0 else { return false }
+            return rollCursor + 1 < rollCount
+        }
     }
 }
