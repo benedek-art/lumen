@@ -1,0 +1,271 @@
+{
+ "suite": "",
+ "scenarios": [
+  {
+   "name": "ef-pill",
+   "fixture": "fiducial",
+   "timeoutSeconds": 200,
+   "description": "Click the empty part of a slider's value pill and type: does the field open, or do the digits rate the photo?",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Contrast#track"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "state",
+     "name": "d00"
+    },
+    {
+     "do": "shot",
+     "name": "d00"
+    },
+    {
+     "do": "click",
+     "target": "slider/Contrast",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -30,
+      0
+     ],
+     "note": "click the left part of the Contrast value pill (not on the digit)"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "shot",
+     "name": "d01-after-pill-click"
+    },
+    {
+     "do": "type",
+     "text": "3"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "d02-after-typing-3"
+    },
+    {
+     "do": "shot",
+     "name": "d02"
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.tone.contrast",
+     "eq": 3,
+     "note": "typing 3 after clicking the pill sets Contrast 3"
+    },
+    {
+     "do": "click",
+     "target": "slider/Contrast",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -9,
+      0
+     ],
+     "note": "click on the digit itself"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "shot",
+     "name": "d03-after-digit-click"
+    },
+    {
+     "do": "type",
+     "text": "40"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "d04-after-typing-40"
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.tone.contrast",
+     "eq": 40,
+     "note": "clicking on the digit opens the field"
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -30,
+      0
+     ],
+     "note": "same pill position on Exposure, whose readout 0.00 is wider"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "shot",
+     "name": "d05-exposure-pill-click"
+    },
+    {
+     "do": "type",
+     "text": "1"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "d06-exposure"
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.tone.exposure",
+     "eq": 1
+    }
+   ]
+  },
+  {
+   "name": "pill-edges",
+   "fixture": "fiducial",
+   "timeoutSeconds": 200,
+   "description": "Click 4 pt inside the left end and 3 pt inside the right end of the Contrast pill, then type.",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Contrast#track"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "click",
+     "target": "slider/Contrast",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -48,
+      0
+     ],
+     "note": "4 pt inside the pill's left end"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "shot",
+     "name": "e01-left-end"
+    },
+    {
+     "do": "type",
+     "text": "7"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.0
+    },
+    {
+     "do": "state",
+     "name": "e02"
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.tone.contrast",
+     "eq": 7
+    },
+    {
+     "do": "click",
+     "target": "slider/Contrast",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -3,
+      0
+     ],
+     "note": "3 pt inside the pill's right end"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "type",
+     "text": "12"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.0
+    },
+    {
+     "do": "state",
+     "name": "e03"
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.tone.contrast",
+     "eq": 12
+    }
+   ]
+  }
+ ],
+ "ref": "b02d0b7751618f0dbc14652b7d6a11949164d925",
+ "config": "release",
+ "strict": false,
+ "note": ""
+}
