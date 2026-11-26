@@ -258,12 +258,26 @@ final class CullAdvanceTests: XCTestCase {
     }
 
     func testForcedIsShiftOrCapsLockOnADecisionKey() {
-        XCTAssertTrue(CullAdvance.isForced(key: "p", shift: true, capsLock: false))
-        XCTAssertTrue(CullAdvance.isForced(key: "3", shift: false, capsLock: true))
-        XCTAssertTrue(CullAdvance.isForced(key: "-", shift: true, capsLock: false))
-        XCTAssertFalse(CullAdvance.isForced(key: "p", shift: false, capsLock: false))
-        XCTAssertFalse(CullAdvance.isForced(key: "o", shift: true, capsLock: false),
+        XCTAssertTrue(CullAdvance.isForced(key: "p", unshifted: "p", shift: true, capsLock: false))
+        XCTAssertTrue(CullAdvance.isForced(key: "3", unshifted: nil, shift: false, capsLock: true))
+        XCTAssertTrue(CullAdvance.isForced(key: "-", unshifted: "-", shift: true, capsLock: false))
+        XCTAssertTrue(CullAdvance.isForced(key: "1", unshifted: "1", shift: true, capsLock: false),
+                      "US ⇧1 arrives as \"!\" and dispatches as 1: forced")
+        XCTAssertFalse(CullAdvance.isForced(key: "p", unshifted: nil, shift: false, capsLock: false))
+        XCTAssertFalse(CullAdvance.isForced(key: "o", unshifted: "o", shift: true, capsLock: false),
                        "⇧O cycles the overlay colour; it is not a decision")
+    }
+
+    /// French AZERTY types the digits WITH Shift (⇧& is "1"). Counting that Shift as a
+    /// forced advance moved the cursor on after every rating, auto-advance off or not.
+    func testShiftThatTypesTheDigitIsNotAForcedAdvance() {
+        let key = CullAdvance.dispatchKey(typed: "1", unshifted: "&", shift: true)
+        XCTAssertEqual(key, "1")
+        XCTAssertFalse(CullAdvance.isForced(key: key, unshifted: "&", shift: true,
+                                            capsLock: false))
+        XCTAssertTrue(CullAdvance.isForced(key: key, unshifted: "&", shift: true,
+                                           capsLock: true),
+                      "Caps Lock still forces the advance")
     }
 
     func testShiftedDigitsDispatchAsTheDigit() {
@@ -277,12 +291,58 @@ final class CullAdvanceTests: XCTestCase {
         XCTAssertEqual(CullAdvance.dispatchKey(typed: "!", unshifted: nil, shift: true), "!")
     }
 
+    /// The advance a repeat would get, resolved the way `advanceIfNeeded` resolves it.
+    private func step(_ surface: CullTargeting.Surface = .grid, autoAdvance: Bool,
+                      forced: Bool = false, selectionCount: Int = 1,
+                      comparisonCursor: Int? = nil,
+                      comparisonCount: Int = 0) -> CullTargeting.Advance {
+        CullTargeting.advance(on: surface, autoAdvance: autoAdvance || forced,
+                              selectionCount: selectionCount,
+                              comparisonCursor: comparisonCursor,
+                              comparisonCount: comparisonCount)
+    }
+
     func testRepeatIsNavigationOnlyWhenEachPressMovesOn() {
-        XCTAssertTrue(CullAdvance.allowsRepeat(key: "p", autoAdvance: true, forced: false))
-        XCTAssertTrue(CullAdvance.allowsRepeat(key: "4", autoAdvance: false, forced: true))
-        XCTAssertFalse(CullAdvance.allowsRepeat(key: "p", autoAdvance: false, forced: false))
-        XCTAssertFalse(CullAdvance.allowsRepeat(key: "g", autoAdvance: true, forced: true))
-        XCTAssertFalse(CullAdvance.allowsRepeat(key: "-", autoAdvance: true, forced: true))
+        XCTAssertTrue(CullAdvance.allowsRepeat(key: "p", advance: step(autoAdvance: true),
+                                               rollCursor: 3, rollCount: 10))
+        XCTAssertTrue(CullAdvance.allowsRepeat(key: "4",
+                                               advance: step(autoAdvance: false, forced: true),
+                                               rollCursor: 3, rollCount: 10))
+        XCTAssertFalse(CullAdvance.allowsRepeat(key: "p", advance: step(autoAdvance: false),
+                                                rollCursor: 3, rollCount: 10))
+        XCTAssertFalse(CullAdvance.allowsRepeat(key: "g",
+                                                advance: step(autoAdvance: true, forced: true),
+                                                rollCursor: 3, rollCount: 10))
+        XCTAssertFalse(CullAdvance.allowsRepeat(key: "-",
+                                                advance: step(autoAdvance: true, forced: true),
+                                                rollCursor: 3, rollCount: 10))
+    }
+
+    /// Holding X with auto-advance on: every repeat that does not move toggles the frame
+    /// it just decided, so the decision ends as the parity of how long the key was held.
+    func testARepeatThatCannotMoveOnNeverActs() {
+        // The last frame of the roll.
+        XCTAssertFalse(CullAdvance.allowsRepeat(key: "x", advance: step(autoAdvance: true),
+                                                rollCursor: 9, rollCount: 10),
+                       "a held X at the last frame flips reject/unflag at the repeat rate")
+        // A grid multi-selection never advances.
+        XCTAssertFalse(CullAdvance.allowsRepeat(
+            key: "p", advance: step(autoAdvance: true, selectionCount: 12),
+            rollCursor: 3, rollCount: 40),
+            "a held P over twelve selected photos flips all twelve")
+        // The cursor's frame has left the roll (rejected under an Unflagged filter).
+        XCTAssertFalse(CullAdvance.allowsRepeat(key: "x", advance: step(autoAdvance: true),
+                                                rollCursor: nil, rollCount: 40))
+        // The last frame of a six-frame survey.
+        XCTAssertFalse(CullAdvance.allowsRepeat(
+            key: "3", advance: step(.survey, autoAdvance: true, selectionCount: 6,
+                                    comparisonCursor: 5, comparisonCount: 6),
+            rollCursor: 20, rollCount: 40))
+        // Inside a survey with frames still to go, the repeat walks the comparison.
+        XCTAssertTrue(CullAdvance.allowsRepeat(
+            key: "3", advance: step(.survey, autoAdvance: true, selectionCount: 6,
+                                    comparisonCursor: 2, comparisonCount: 6),
+            rollCursor: 20, rollCount: 40))
     }
 
     func testDecisionKeysAreDispatcherKeys() {
@@ -310,7 +370,10 @@ final class CullSelectionSourcePins: XCTestCase {
     func testTheDispatcherRoutesShiftThroughTheRule() throws {
         let keymap = try appSource("Keymap.swift")
         XCTAssertTrue(keymap.contains("CullAdvance.dispatchKey("))
-        XCTAssertTrue(keymap.contains("CullAdvance.allowsRepeat("))
+        XCTAssertTrue(keymap.contains("state.cullRepeatMovesOn(key: key, forced: forced)"))
+        let targets = try appSource("AppStateCullTargets.swift")
+        XCTAssertTrue(targets.contains("CullAdvance.allowsRepeat(key: key, advance: "
+                                       + "cullAdvanceStep(forced: forced).0"))
         for call in ["setFlag(.pick, forceAdvance: forced)",
                      "setFlag(.reject, forceAdvance: forced)",
                      "setFlag(.unflagged, forceAdvance: forced)",

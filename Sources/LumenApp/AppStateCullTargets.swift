@@ -48,6 +48,21 @@ extension AppState {
     /// the comparison, or decided to stay); false hands over to `advanceIfNeeded`'s
     /// step through the roll.
     func advanceHandledByCullRule(forced: Bool = false) -> Bool {
+        let (step, set) = cullAdvanceStep(forced: forced)
+        switch step {
+        case .nextInRoll:
+            return false
+        case .stay:
+            return true
+        case .withinComparison(let index):
+            if set.indices.contains(index) { moveCursor(to: set[index]) }
+            return true
+        }
+    }
+
+    /// Where a cull decision made now would send the cursor, and the comparison set it
+    /// was resolved against.
+    func cullAdvanceStep(forced: Bool) -> (CullTargeting.Advance, [PhotoItem]) {
         let surface = cullSurface
         let set: [PhotoItem] = surface.isComparing ? comparisonSet : []
         let cursor: Int?
@@ -61,15 +76,14 @@ extension AppState {
                                          selectionCount: selection.count,
                                          comparisonCursor: cursor,
                                          comparisonCount: set.count)
-        switch step {
-        case .nextInRoll:
-            return false
-        case .stay:
-            return true
-        case .withinComparison(let index):
-            if set.indices.contains(index) { moveCursor(to: set[index]) }
-            return true
-        }
+        return (step, set)
+    }
+
+    /// Whether a key-repeat of a decision key would move on (`CullAdvance.allowsRepeat`).
+    func cullRepeatMovesOn(key: Character, forced: Bool) -> Bool {
+        CullAdvance.allowsRepeat(key: key, advance: cullAdvanceStep(forced: forced).0,
+                                 rollCursor: primarySelection.flatMap { rollIndex(of: $0) },
+                                 rollCount: photos.count)
     }
 
     // MARK: Pane clicks

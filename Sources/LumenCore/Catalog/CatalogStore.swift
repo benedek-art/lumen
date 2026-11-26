@@ -2235,12 +2235,27 @@ public final class CatalogStore {
             let previews = try self.previews(photoID: id)
             try self.db.run("DELETE FROM album_photo   WHERE photo_id = ?;", [.integer(id)])
             try self.db.run("DELETE FROM photo_keyword WHERE photo_id = ?;", [.integer(id)])
+            let stackID = try self.db.scalarInt(
+                "SELECT stack_id FROM stack_member WHERE photo_id = ?;", [.integer(id)])
             try self.db.run("DELETE FROM stack_member  WHERE photo_id = ?;", [.integer(id)])
             try self.db.run("DELETE FROM history       WHERE photo_id = ?;", [.integer(id)])
             try self.db.run("DELETE FROM export_log    WHERE photo_id = ?;", [.integer(id)])
             try self.db.run("DELETE FROM edit          WHERE photo_id = ?;", [.integer(id)])
             try self.db.run("UPDATE stack SET pick_photo_id = NULL WHERE pick_photo_id = ?;",
                             [.integer(id)])
+            // A collapsed stack shows only its pick: losing it must re-pick from the
+            // survivors, or every one of them leaves the collapsed grid.
+            if let stackID {
+                if let survivor = try self.db.scalarInt(
+                    "SELECT photo_id FROM stack_member WHERE stack_id = ? "
+                    + "ORDER BY position ASC LIMIT 1;", [.integer(stackID)]) {
+                    try self.db.run("UPDATE stack SET pick_photo_id = ? "
+                                    + "WHERE id = ? AND pick_photo_id IS NULL;",
+                                    [.integer(survivor), .integer(stackID)])
+                } else {
+                    try self.db.run("DELETE FROM stack WHERE id = ?;", [.integer(stackID)])
+                }
+            }
             try self.db.run("DELETE FROM cache.preview      WHERE photo_id = ?;", [.integer(id)])
             try self.db.run("DELETE FROM cache.artifact     WHERE photo_id = ?;", [.integer(id)])
             try self.db.run("DELETE FROM cache.raw_stats    WHERE photo_id = ?;", [.integer(id)])
@@ -4841,27 +4856,29 @@ public final class CatalogStore {
                 // frame number is the most common filename search there is, and the
                 // LIKE fallback finds it; the filename substring keeps the two agreeing.
                 criteria.append("(photo.id IN (SELECT rowid FROM cache.photo_fts "
-                                + "WHERE photo_fts MATCH ?) OR photo.filename LIKE ?)")
+                                + "WHERE photo_fts MATCH ?) OR photo.filename LIKE ? ESCAPE '\\')")
                 parameters.append(.text(match))
-                parameters.append(.text("%" + text.trimmingCharacters(in: .whitespaces) + "%"))
+                parameters.append(.text(CatalogStore.likeContains(
+                    text.trimmingCharacters(in: .whitespaces))))
             } else {
-                // Fallback when FTS5 is not compiled in. Still fully parameterized:
-                // any % or _ the user typed simply widens their own match.
+                // Fallback when FTS5 is not compiled in. Still fully parameterized, and
+                // literal: `_` and `%` are characters of the search, not wildcards.
                 criteria.append("""
-                (photo.filename LIKE ? OR photo.ext LIKE ? OR photo.camera LIKE ?
-                 OR photo.lens LIKE ? OR photo.job LIKE ?
+                (photo.filename LIKE ? ESCAPE '\\' OR photo.ext LIKE ? ESCAPE '\\'
+                 OR photo.camera LIKE ? ESCAPE '\\'
+                 OR photo.lens LIKE ? ESCAPE '\\' OR photo.job LIKE ? ESCAPE '\\'
                  OR EXISTS (SELECT 1 FROM photo_keyword pk
                              WHERE pk.photo_id = photo.id AND pk.keyword_id IN (
                                WITH RECURSIVE hit(id) AS (
-                                 SELECT id FROM keyword WHERE name LIKE ?
+                                 SELECT id FROM keyword WHERE name LIKE ? ESCAPE '\\'
                                  UNION SELECT keyword_id FROM keyword_synonym
-                                        WHERE synonym LIKE ?
+                                        WHERE synonym LIKE ? ESCAPE '\\'
                                  UNION SELECT k.id FROM keyword k
                                          JOIN hit ON k.parent_id = hit.id
                                )
                                SELECT id FROM hit)))
                 """)
-                let pattern = "%" + text + "%"
+                let pattern = CatalogStore.likeContains(text)
                 // Five columns, then a keyword's name and its synonyms — the same
                 // words, ancestors included, that the FTS row indexes.
                 for _ in 0..<7 { parameters.append(.text(pattern)) }
@@ -4948,6 +4965,14 @@ public final class CatalogStore {
         }
         return "ORDER BY (\(expression) IS NULL), \(expression) \(direction), "
             + "photo.id \(direction)"
+    }
+
+    /// A LIKE pattern matching `text` as a literal substring, for `ESCAPE '\'`.
+    private static func likeContains(_ text: String) -> String {
+        let escaped = text.replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "%", with: "\\%")
+            .replacingOccurrences(of: "_", with: "\\_")
+        return "%" + escaped + "%"
     }
 
     private static func placeholders(_ count: Int) -> String {
