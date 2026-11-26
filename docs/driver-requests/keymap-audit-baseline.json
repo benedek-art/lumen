@@ -1,0 +1,1043 @@
+{
+ "suite": "",
+ "scenarios": [
+  {
+   "name": "keymap-undo-while-typing",
+   "description": "Cmd-Z pressed while the palette's text field has the keyboard must not undo the photograph's last edit (the Edit menu replaces AppKit's Undo item for every context). Also: Escape closes the palette.",
+   "fixture": "fiducial",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "drag",
+     "id": "exposure",
+     "target": "slider/Exposure#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.7,
+      0.5
+     ],
+     "duration": 0.6,
+     "settle": 10
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.tone.exposure",
+     "gt": 0.1,
+     "note": "setup: an edit exists"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "key",
+     "key": "k",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "waitFor",
+     "that": "app.showControlPalette",
+     "eq": true,
+     "timeout": 5
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "type",
+     "text": "abc"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "after-cmd-z"
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.tone.exposure",
+     "gt": 0.1,
+     "note": "Cmd-Z in a text field must not undo the photo's Exposure edit"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "expect",
+     "that": "app.showControlPalette",
+     "eq": false,
+     "note": "Escape closes the palette"
+    }
+   ]
+  },
+  {
+   "name": "keymap-printer-lights",
+   "description": "The printer-light keys: bare , . step the master while the rows are on screen; the modifier variants step one trim each; and a '.' typed into a text field must stay in the text field.",
+   "fixture": "fiducial",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "grade"
+    },
+    {
+     "do": "key",
+     "key": "k",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "waitFor",
+     "that": "app.showControlPalette",
+     "eq": true,
+     "timeout": 5
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "type",
+     "text": "printer"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "grading-open"
+    },
+    {
+     "do": "shot",
+     "name": "grading-open"
+    },
+    {
+     "do": "key",
+     "key": "."
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "expect",
+     "that": "recipe.look.printerLights.master",
+     "eq": 1,
+     "note": "bare . steps the master up one point"
+    },
+    {
+     "do": "key",
+     "key": ".",
+     "modifiers": [
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "expect",
+     "that": "recipe.look.printerLights.b",
+     "eq": 1,
+     "note": "shift-. steps the blue trim (KeyGrammar, the row's tooltip)"
+    },
+    {
+     "do": "key",
+     "key": ".",
+     "modifiers": [
+      "ctrl"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "expect",
+     "that": "recipe.look.printerLights.r",
+     "eq": 1,
+     "note": "ctrl-. steps the red trim"
+    },
+    {
+     "do": "key",
+     "key": ".",
+     "modifiers": [
+      "option"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "expect",
+     "that": "recipe.look.printerLights.g",
+     "eq": 1,
+     "note": "option-. steps the green trim"
+    },
+    {
+     "do": "state",
+     "name": "after-steps"
+    },
+    {
+     "do": "key",
+     "key": "k",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "waitFor",
+     "that": "app.showControlPalette",
+     "eq": true,
+     "timeout": 5
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "type",
+     "text": "a.b.c"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "state",
+     "name": "typed-dots"
+    },
+    {
+     "do": "shot",
+     "name": "typed-dots"
+    },
+    {
+     "do": "expect",
+     "that": "recipe.look.printerLights.master",
+     "le": 1,
+     "note": "a '.' typed into the palette field must not step the master printer light"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    }
+   ]
+  },
+  {
+   "name": "keymap-clear-filter-lights-out",
+   "description": "Cmd-backslash clears the filter. It is attached to the filter bar's Clear button, which Lights Out 'out' removes from the hierarchy.",
+   "fixture": "fiducial",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop"
+    },
+    {
+     "do": "key",
+     "key": "p"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "key",
+     "key": "p",
+     "modifiers": [
+      "cmd",
+      "option"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "app.filter.flags.count",
+     "eq": 1,
+     "note": "setup: picks-only filter is on"
+    },
+    {
+     "do": "key",
+     "key": "\\",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "app.filter.flags.count",
+     "eq": 0,
+     "note": "control: with the filter bar up, Cmd-backslash clears"
+    },
+    {
+     "do": "key",
+     "key": "p",
+     "modifiers": [
+      "cmd",
+      "option"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "key",
+     "key": "l"
+    },
+    {
+     "do": "key",
+     "key": "l"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "app.lightsOut",
+     "eq": "out"
+    },
+    {
+     "do": "expect",
+     "that": "app.filter.flags.count",
+     "eq": 1,
+     "note": "setup: filter on again at Lights Out"
+    },
+    {
+     "do": "key",
+     "key": "\\",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "state",
+     "name": "lights-out-clear"
+    },
+    {
+     "do": "expect",
+     "that": "app.filter.flags.count",
+     "eq": 0,
+     "note": "Cmd-backslash still clears the filter at Lights Out 'out'"
+    }
+   ]
+  },
+  {
+   "name": "keymap-menu-enablement",
+   "description": "Menu items whose title or enabled state reads AppState directly from a Commands body that observes only CommandState: Paste Look and Paste Without Masks after a copy, the sidebar and assessment titles after their chords.",
+   "fixture": "fiducial",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop"
+    },
+    {
+     "do": "state",
+     "name": "menus-before"
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "option"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "expect",
+     "that": "menu.Edit > Paste Look.enabled",
+     "eq": true,
+     "note": "after Copy Look, Paste Look (opt-cmd-V) is enabled"
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "expect",
+     "that": "menu.Edit > Paste Settings Without Masks.enabled",
+     "eq": true,
+     "note": "after Copy Settings, shift-cmd-V is enabled"
+    },
+    {
+     "do": "key",
+     "key": "s",
+     "modifiers": [
+      "cmd",
+      "option"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "expect",
+     "that": "app.sidebarVisible",
+     "eq": false,
+     "note": "setup: opt-cmd-S hid the sidebar"
+    },
+    {
+     "do": "expect",
+     "that": "menu.View > Show Sidebar.enabled",
+     "eq": true,
+     "note": "the item now reads Show Sidebar"
+    },
+    {
+     "do": "key",
+     "key": "b",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "expect",
+     "that": "menu.View > Assessment Surround (on).enabled",
+     "eq": true,
+     "note": "the item's title says it is on"
+    },
+    {
+     "do": "state",
+     "name": "menus-after"
+    }
+   ]
+  },
+  {
+   "name": "keymap-brush-feather",
+   "description": "With a brush selected in masking, ] grows the brush and shift-] raises feather (shift-[ arrives as '{').",
+   "fixture": "fiducial",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop"
+    },
+    {
+     "do": "key",
+     "key": "m"
+    },
+    {
+     "do": "waitFor",
+     "that": "masking",
+     "eq": true,
+     "timeout": 5
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "click",
+     "target": "mask-kind/Brush"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "drag",
+     "id": "paint",
+     "target": "viewer",
+     "from": [
+      0.3,
+      0.4
+     ],
+     "to": [
+      0.6,
+      0.5
+     ],
+     "duration": 0.6
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "brush-painted"
+    },
+    {
+     "do": "expect",
+     "that": "masks.count",
+     "eq": 1,
+     "note": "setup: a brush mask exists"
+    },
+    {
+     "do": "key",
+     "key": "]"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "expect",
+     "that": "brush.size",
+     "gt": 0.051,
+     "note": "control: ] grows the brush"
+    },
+    {
+     "do": "key",
+     "key": "]",
+     "modifiers": [
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "expect",
+     "that": "brush.feather",
+     "gt": 51,
+     "note": "shift-] raises feather by 10"
+    },
+    {
+     "do": "key",
+     "key": "[",
+     "modifiers": [
+      "shift"
+     ]
+    },
+    {
+     "do": "key",
+     "key": "[",
+     "modifiers": [
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "expect",
+     "that": "brush.feather",
+     "lt": 49,
+     "note": "shift-[ lowers feather"
+    },
+    {
+     "do": "expect",
+     "that": "app.inspectionHold",
+     "exists": false,
+     "note": "no inspection hold was started instead"
+    },
+    {
+     "do": "state",
+     "name": "brush-end"
+    }
+   ]
+  },
+  {
+   "name": "keymap-backslash-in-grid",
+   "description": "Bare backslash is before/after in the loupe (docs/12 Develop scope). Pressed in the grid it must not arm a hidden before view that the next E opens on.",
+   "fixture": "fiducial",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop"
+    },
+    {
+     "do": "key",
+     "key": "g"
+    },
+    {
+     "do": "waitFor",
+     "that": "viewMode",
+     "eq": "grid",
+     "timeout": 5
+    },
+    {
+     "do": "key",
+     "key": "\\"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "expect",
+     "that": "app.showBefore",
+     "eq": false,
+     "note": "backslash in the grid does not toggle the loupe's before view"
+    },
+    {
+     "do": "key",
+     "key": "e"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "shot",
+     "name": "loupe-after-backslash"
+    },
+    {
+     "do": "expect",
+     "that": "app.showBefore",
+     "eq": false,
+     "note": "E opens the loupe on the edited picture"
+    }
+   ]
+  },
+  {
+   "name": "keymap-space-in-survey",
+   "description": "Space toggles the LOUPE's zoom; in Survey (and Compare) that zoom is not drawn, so the press is invisible and the next E opens at 1:1 with the arrows panning.",
+   "fixture": "fiducial",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop"
+    },
+    {
+     "do": "expect",
+     "that": "viewport.zoom",
+     "eq": 0
+    },
+    {
+     "do": "key",
+     "key": "n"
+    },
+    {
+     "do": "waitFor",
+     "that": "viewMode",
+     "eq": "survey",
+     "timeout": 5
+    },
+    {
+     "do": "key",
+     "key": "space"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "expect",
+     "that": "loupe.zoom",
+     "eq": 0,
+     "note": "Space in Survey does not move the hidden loupe zoom"
+    },
+    {
+     "do": "key",
+     "key": "e"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "expect",
+     "that": "viewport.zoom",
+     "eq": 0,
+     "note": "E after Space-in-Survey opens the loupe at fit"
+    }
+   ]
+  },
+  {
+   "name": "keymap-invert-outside-masking",
+   "description": "The ' key inverts the selected mask component (docs/12: masking scope). With the mask editor closed it must not silently invert a mask on the photo.",
+   "fixture": "fiducial",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop"
+    },
+    {
+     "do": "key",
+     "key": "m"
+    },
+    {
+     "do": "waitFor",
+     "that": "masking",
+     "eq": true,
+     "timeout": 5
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "click",
+     "target": "mask-kind/Linear Gradient"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "drag",
+     "id": "place",
+     "target": "viewer",
+     "from": [
+      0.5,
+      0.25
+     ],
+     "to": [
+      0.5,
+      0.75
+     ],
+     "duration": 0.6
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "expect",
+     "that": "masks.count",
+     "eq": 1,
+     "note": "setup: a mask exists"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "drag",
+     "id": "adjust",
+     "target": "slider/Exposure#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.8,
+      0.5
+     ],
+     "duration": 0.6,
+     "settle": 10
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "waitFor",
+     "that": "masking",
+     "eq": false,
+     "timeout": 5
+    },
+    {
+     "do": "move",
+     "target": "viewer",
+     "at": [
+      0.1,
+      0.5
+     ],
+     "duration": 0.2
+    },
+    {
+     "do": "wait",
+     "seconds": 2.0
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 15
+    },
+    {
+     "do": "shot",
+     "name": "before-quote"
+    },
+    {
+     "do": "state",
+     "name": "before-quote"
+    },
+    {
+     "do": "key",
+     "key": "'"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 15
+    },
+    {
+     "do": "shot",
+     "name": "after-quote"
+    },
+    {
+     "do": "state",
+     "name": "after-quote"
+    },
+    {
+     "do": "compare",
+     "name": "quote",
+     "a": "before-quote",
+     "b": "after-quote"
+    },
+    {
+     "do": "expect",
+     "that": "compare.quote.meanAbs",
+     "lt": 1,
+     "note": "pixels: ' outside the mask editor leaves the picture alone"
+    },
+    {
+     "do": "expect",
+     "that": "recipe.masks.0.components.0.invert",
+     "exists": false,
+     "note": "the component is not inverted"
+    }
+   ]
+  },
+  {
+   "name": "keymap-crop-x-and-o",
+   "description": "docs/12: inside the crop tool X flips and O / shift-O cycle the crop overlays. Here X is the cull Reject and O enters masking. Records what each does.",
+   "fixture": "fiducial",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop"
+    },
+    {
+     "do": "key",
+     "key": "r"
+    },
+    {
+     "do": "waitFor",
+     "that": "loupe.showCrop",
+     "eq": true,
+     "timeout": 5
+    },
+    {
+     "do": "key",
+     "key": "x"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "crop-after-x"
+    },
+    {
+     "do": "expect",
+     "that": "loupe.showCrop",
+     "eq": true,
+     "note": "X inside the crop tool keeps the tool"
+    },
+    {
+     "do": "key",
+     "key": "o"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "crop-after-o"
+    },
+    {
+     "do": "expect",
+     "that": "masking",
+     "eq": false,
+     "note": "O inside the crop tool does not open the mask editor"
+    },
+    {
+     "do": "expect",
+     "that": "loupe.showCrop",
+     "eq": true,
+     "note": "O inside the crop tool keeps the tool"
+    }
+   ]
+  },
+  {
+   "name": "keymap-chord-behind-sheet",
+   "description": "Bare keys stand down while a sheet is up. A menu chord does not: shift-cmd-R with the Export sheet open.",
+   "fixture": "fiducial",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "drag",
+     "id": "exposure",
+     "target": "slider/Exposure#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.7,
+      0.5
+     ],
+     "duration": 0.6,
+     "settle": 10
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.tone.exposure",
+     "gt": 0.1,
+     "note": "setup: an edit exists"
+    },
+    {
+     "do": "key",
+     "key": "e",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "eq": "export",
+     "note": "setup: the Export sheet is up"
+    },
+    {
+     "do": "key",
+     "key": "r",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "behind-sheet"
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.tone.exposure",
+     "gt": 0.1,
+     "note": "Reset Settings does not reach the photo behind the Export sheet"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "key",
+     "key": "/",
+     "modifiers": [
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "eq": "keyReference",
+     "note": "? opens the keyboard reference"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "expect",
+     "that": "app.activeSheet",
+     "ne": "keyReference",
+     "note": "Escape closes the keyboard reference"
+    },
+    {
+     "do": "state",
+     "name": "end"
+    }
+   ]
+  }
+ ],
+ "ref": "claude/loving-cray-d58nrb-integration",
+ "config": "release",
+ "strict": false,
+ "note": "keymap audit baseline"
+}
