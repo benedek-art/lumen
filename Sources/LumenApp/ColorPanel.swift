@@ -42,7 +42,7 @@ struct ColorPanel: View {
     @EnvironmentObject var state: AppState
     /// This surface shows the edit, so it observes the edit signal —
     /// `AppState.recipes` is deliberately not published (see `EditRevision`).
-    @EnvironmentObject var edits: EditRevision
+    @EnvironmentObject var edits: PanelEditRevision
 
     // Band selection lives on `AppState`, not here, because the eyedropper resolves on
     // the render actor and has to write its answer somewhere this panel will see it.

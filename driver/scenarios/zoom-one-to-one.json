@@ -12,6 +12,7 @@
     {"do": "waitFor", "that": "viewport.zoom", "eq": 1, "timeout": 5, "note": "double-click at fit goes to 1:1"},
     {"do": "shot", "name": "one-to-one-first", "after": 0.3},
     {"do": "waitSettled", "timeout": 60},
+    {"do": "waitFor", "that": "loupe.rendersInFlight", "eq": 0, "timeout": 30, "note": "(branches that count them) the 1:1 region render has landed; waitSettled alone accepts the fit frame"},
     {"do": "shot", "name": "one-to-one", "also": "cacheDisplay"},
     {"do": "state", "name": "one-to-one"},
     {"do": "expect", "that": "shots.one-to-one.lumaSD", "gt": 10, "note": "there is a picture on screen at 1:1, not a blank"},

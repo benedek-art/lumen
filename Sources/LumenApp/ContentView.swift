@@ -220,6 +220,7 @@ struct ContentView: View {
         // unconditionally on each pass. Today the global re-body hides that; the
         // moment AppState moves to `@Observable` it would BECOME the bug.
         .environment(\.sliderGestureChanged, state.sliderGestureSink)
+        .environment(\.sliderDragHold, state.sliderDragHoldSink)
         // The focus half of the same story (docs/28 Phase 7): a slider reports taking
         // and losing keyboard focus so `KeyDispatcher` hands the arrows back. Stored on
         // the state for the same reason as the gesture sink — a closure built here would

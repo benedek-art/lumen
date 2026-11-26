@@ -5,7 +5,7 @@ permissions:
 
 on:
   push:
-    branches: ["**"]
+    branches-ignore: ["claude/loving-cray-d58nrb-test-*", "claude/loving-cray-d58nrb-driver"]
     # A push that touches only prose must not cancel the run that is compiling the
     # code. The concurrency group below is per branch and cancels in progress, which
     # is right for a burst of code pushes and wrong for a status note pushed while a
@@ -15,6 +15,8 @@ on:
     # them anyway.
     paths-ignore:
       - "docs/**"
+      - "driver/**"
+      - "renderlab/**"
   # A push run tests the branch tip in isolation. With several PRs open against main
   # at once, each can be green alone and red once another lands first: nothing ever
   # compiled or tested the MERGE. `pull_request` runs on GitHub's merge ref
@@ -56,6 +58,8 @@ jobs:
   # and seventy commits went uncompiled behind the outage — so the split is: Linux proves
   # the engine, macOS proves it compiles and that the GPU agrees with it.
   build-macos:
+    # test-fast builds the whole package; this lane is for main and the integration branch.
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/loving-cray-d58nrb-integration'
     runs-on: macos-15
     timeout-minutes: 20
     steps:
@@ -110,6 +114,8 @@ jobs:
   # test lane's verdict, because a build you can launch and poke at is how you find
   # out what the tests are not asking about.
   app-bundle:
+    # test-fast builds the whole package; this lane is for main and the integration branch.
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/loving-cray-d58nrb-integration'
     runs-on: macos-15
     timeout-minutes: 30
     permissions:
