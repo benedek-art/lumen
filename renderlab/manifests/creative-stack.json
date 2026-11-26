@@ -14,7 +14,7 @@
        {"label": "ai 100 (stand-in)", "recipe": {"develop.denoise.mode": "ai", "develop.denoise.amount": 100}}
      ]},
     {"id": "capture-sharpen-1to1", "photo": "6929", "crop": [0.45, 0.45, 0.1, 0.1], "compare": ["settled", "export"],
-     "tile": 360, "recipe": {"develop.detail.capture.auto": false},
+     "tile": 360, "recipe": {"develop.detail.capture.auto": true},
      "sweep": {"path": "develop.detail.capture.amount", "values": [25, 50, 100], "neutral": 0}},
     {"id": "sharpen-1to1", "photos": ["6929", "5812"], "crop": [0.45, 0.45, 0.1, 0.1], "compare": ["settled", "export"],
      "tile": 360, "sweep": {"path": "develop.detail.sharpen.amount", "values": [40, 80, 150], "neutral": 0}},

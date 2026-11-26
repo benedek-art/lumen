@@ -223,22 +223,31 @@ public enum KernelLibrary {
     }
     """
 
-    /// Scene-linear luminance before (r) and after (g) a luminance ratio: the planes
+    /// `Y^power` before (r) and after (g) a luminance ratio: the planes
     /// `DetailEngine.applyBalancedLumaRatio` blurs.
     static let ratioEnergySource = """
-    kernel vec4 lumenRatioEnergy(__sample image, __sample ratio, vec3 w) {
+    kernel vec4 lumenRatioEnergy(__sample image, __sample ratio, vec3 w, float power) {
         float y = max(dot(image.rgb, w), 0.0);
-        return vec4(y, y * ratio.r, 0.0, 1.0);
+        float yk = max(y * ratio.r, 1e-10);
+        y = max(y, 1e-10);
+        return vec4(pow(y, power), pow(yk, power), 0.0, 1.0);
     }
     """
 
-    /// The ratio renormalised by the blurred `energy` neighbourhood:
-    /// `DetailEngine.applyBalancedLumaRatio`.
+    /// The ratio renormalised by the blurred `energy` neighbourhood, then with its
+    /// darkening compressed above `floorEV`: `DetailEngine.applyBalancedLumaRatio`.
     static let ratioBalanceSource = """
     kernel vec4 lumenRatioBalance(__sample image, __sample ratio, __sample energy,
-                                  float floorY) {
-        float m = clamp((energy.r + floorY) / (energy.g + floorY), 0.25, 4.0);
-        return vec4(image.rgb * (ratio.r * m), image.a);
+                                  vec3 w, float power, float floorY, float floorEV) {
+        float m = pow((energy.r + floorY) / (energy.g + floorY), 1.0 / power);
+        float k = ratio.r * clamp(m, 0.25, 4.0);
+        if (k < 1.0 && floorEV > -500.0) {
+            float y = max(dot(image.rgb, w), 1e-10);
+            float headroom = log2(y / 0.18) - floorEV;
+            float kept = headroom > 0.0 ? headroom * (1.0 - exp(log2(k) / headroom)) : 0.0;
+            k = exp2(-kept);
+        }
+        return vec4(image.rgb * k, image.a);
     }
     """
 

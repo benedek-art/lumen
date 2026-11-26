@@ -122,7 +122,8 @@ public enum ReferenceRenderer {
         // double-sharpened.
         if detail.sharpen.amount > 0, let node = decomposition {
             image = DetailEngine.applySharpen(image, params: detail.sharpen,
-                                              decomposition: node)
+                                              decomposition: node,
+                                              blackAnchorEV: plan.tone.blackAnchorEV)
         }
 
         // S13 — vignette in scene-linear, then halation: the lens vignettes the light

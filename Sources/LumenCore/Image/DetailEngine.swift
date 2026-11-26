@@ -376,7 +376,16 @@ public struct DetailEngine: Sendable {
         let remapped = localLaplacian(input, pyramid: pyramid, amount: a,
                                       sigma: clarityDetailEV, midtoneEV: clarityMidtoneEV)
         let delta = remapped.zip(input) { $0 - $1 }
-        return applyLumaRatio(image, deltaEV: delta, limit: 4)
+        return applyBalancedLumaRatio(image, deltaEV: delta, limit: 4,
+                                      sigma: clarityBalanceSigma(longEdge: Swift.max(w, h)),
+                                      space: d.space)
+    }
+
+    /// Clarity's renormalisation neighbourhood (see `applyBalancedLumaRatio`): twice the
+    /// GPU path's mid-band radius, so a region keeps its level and only its local
+    /// contrast moves.
+    public static func clarityBalanceSigma(longEdge: Int) -> Double {
+        Swift.max(0.04 * Double(longEdge), 16)
     }
 
     // MARK: - Dehaze
@@ -576,7 +585,8 @@ public struct DetailEngine: Sendable {
     /// the cache (an approximation the shared-stack budget buys, and one that only shifts
     /// the fine band's weighting).
     public static func applySharpen(_ image: ImageBuffer, params: ManualSharpen,
-                                    decomposition d: Decomposition) -> ImageBuffer {
+                                    decomposition d: Decomposition,
+                                    blackAnchorEV: Double = -9) -> ImageBuffer {
         let amount = Num.clamp(params.amount, 0, 150) / 100
         guard amount > 0 else { return image }
         let w = image.width
@@ -647,7 +657,18 @@ public struct DetailEngine: Sendable {
         return applyBalancedLumaRatio(
             image, deltaEV: delta, limit: sharpenLimitEV,
             sigma: sharpenBalanceSigma(radius: radius, longEdge: Swift.max(w, h)),
-            space: d.space)
+            space: d.space, floorEV: blackAnchorEV + sharpenFloorMarginEV)
+    }
+
+    /// Sharpening never darkens a pixel to within this many EV of the display black.
+    public static let sharpenFloorMarginEV: Double = 0.5
+
+    /// Darkening by `loss` EV, compressed so that a pixel `headroom` EV above the floor
+    /// approaches the floor but never reaches it: `headroom · (1 − e^(−loss/headroom))`.
+    /// Near-identity for a pixel far above the floor; zero for one at or below it.
+    public static func flooredLoss(_ loss: Double, headroom: Double) -> Double {
+        guard loss > 0, headroom > 0 else { return 0 }
+        return headroom * (1 - exp(-loss / headroom))
     }
 
     /// Largest per-pixel sharpening change, in EV.
@@ -664,17 +685,20 @@ public struct DetailEngine: Sendable {
     }
 
     /// `image × 2^delta` (as a luminance ratio), renormalised so that every `sigma`
-    /// neighbourhood keeps its scene-linear mean luminance.
+    /// neighbourhood keeps its mean of `Y^renormPower`, then, with `floorEV`, kept off
+    /// the display black (`flooredLoss`).
     ///
     /// A log-domain delta applied as a ratio does not conserve light: across an edge or
     /// through dense texture the bright side's ratio multiplies a large value and the
     /// dark side's a small one, so the frame gained light with Amount (+21% on the
-    /// detail chart at 150). The correction `G(Y) / G(Y·k)` is smooth at `sigma`, so it
-    /// moves a neighbourhood's level without undoing the contrast inside it.
+    /// detail chart at 150). The correction is smooth at `sigma`, so it moves a
+    /// neighbourhood's level without undoing the contrast inside it.
     static func applyBalancedLumaRatio(_ image: ImageBuffer, deltaEV: Plane, limit: Double,
-                                       sigma: Double, space: RGBColorSpace) -> ImageBuffer {
+                                       sigma: Double, space: RGBColorSpace,
+                                       floorEV: Double? = nil) -> ImageBuffer {
         let w = image.width
         let h = image.height
+        let p = renormPower
         let lum = image.luminancePlane(space: space)
         var ratio = Plane(width: w, height: h)
         var base = Plane(width: w, height: h)
@@ -684,8 +708,8 @@ public struct DetailEngine: Sendable {
                 let k = pow(2.0, Num.clamp(deltaEV[x, y], -limit, limit))
                 let l = Swift.max(lum[x, y], 0)
                 ratio[x, y] = k
-                base[x, y] = l
-                moved[x, y] = l * k
+                base[x, y] = pow(Swift.max(l, 1e-10), p)
+                moved[x, y] = pow(Swift.max(l * k, 1e-10), p)
             }
         }
         let before = SpatialOps.gaussianBlur(base, sigma: sigma)
@@ -693,14 +717,24 @@ public struct DetailEngine: Sendable {
         var out = image
         for y in 0..<h {
             for x in 0..<w {
-                let m = Num.clamp((before[x, y] + renormFloor) / (after[x, y] + renormFloor),
-                                  0.25, 4)
-                let k = ratio[x, y] * m
+                let m = pow((before[x, y] + renormFloor) / (after[x, y] + renormFloor), 1 / p)
+                var k = ratio[x, y] * Num.clamp(m, 0.25, 4)
+                if let floorEV, k < 1 {
+                    let headroom = Num.safeLog2(Swift.max(lum[x, y], 0) / 0.18) - floorEV
+                    k = pow(2.0, -flooredLoss(-log2(k), headroom: headroom))
+                }
                 if k != 1 { out[x, y] = image[x, y] * k }
             }
         }
         return out
     }
+
+    /// The renormalisation keeps the local mean of `Y^renormPower`, slightly short of
+    /// scene-linear light (1): the delivered mean is read after a compressive display
+    /// transform, which by itself darkens added local contrast. Measured on the
+    /// reference path, Amount 150 moved the displayed mean by −1.2% (6929) and −0.7%
+    /// (detail chart) at 1, and by +2.0% and +3.5% at 0.5.
+    public static let renormPower: Double = 0.9
 
     /// Keeps the renormalisation finite where a neighbourhood is black.
     public static let renormFloor: Double = 1e-6

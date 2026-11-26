@@ -233,7 +233,8 @@ public struct RenderGraph {
         // S12 — creative sharpening, after local so masked clarity is not
         // double-sharpened.
         if plan.detail.sharpen.amount > 0 {
-            image = Self.applySharpen(image, plan.detail.sharpen, longEdge: options.longEdge)
+            image = Self.applySharpen(image, plan.detail.sharpen, longEdge: options.longEdge,
+                                      blackAnchorEV: plan.tone.blackAnchorEV)
         }
 
         // S13 — vignette, then halation: the lens vignettes the light before it
@@ -1069,8 +1070,9 @@ public struct RenderGraph {
                  Float(DetailEngine.clarityDetailEV), Float(LumenLog.encode(0.18)),
                  Float(LumenLog.range), Float(DetailEngine.clarityMidtoneEV)])
             if let gain,
-               let combined = KernelLibrary.apply(KernelLibrary.multiply,
-                                                  extent: out.extent, [out, gain]) {
+               let combined = Self.balancedRatio(
+                out, ratio: gain,
+                sigma: DetailEngine.clarityBalanceSigma(longEdge: longEdge)) {
                 out = combined
             }
         }
@@ -1419,7 +1421,7 @@ public struct RenderGraph {
     /// dropping the stage: a soft picture is a better failure than a stage that
     /// silently does nothing.
     static func applySharpen(_ image: CIImage, _ sharpen: ManualSharpen,
-                             longEdge: Int) -> CIImage {
+                             longEdge: Int, blackAnchorEV: Double = -9) -> CIImage {
         let amount = Num.clamp(sharpen.amount, 0, 150) / 100
         guard amount > 0 else { return image }
         let radius = Num.clamp(sharpen.radius, 0.5, 3.0)
@@ -1476,7 +1478,8 @@ public struct RenderGraph {
                  Float(masking), Float(halo), Float(LumenLog.range)]),
               let out = Self.balancedLumaRatio(
                 image, delta: delta, limit: DetailEngine.sharpenLimitEV,
-                sigma: DetailEngine.sharpenBalanceSigma(radius: radius, longEdge: longEdge))
+                sigma: DetailEngine.sharpenBalanceSigma(radius: radius, longEdge: longEdge),
+                floorEV: blackAnchorEV + DetailEngine.sharpenFloorMarginEV)
         else {
             let filter = CIFilter.unsharpMask()
             filter.inputImage = image.clampedToExtent()
@@ -1490,24 +1493,29 @@ public struct RenderGraph {
     /// `DetailEngine.applyBalancedLumaRatio`: an EV delta applied as a luminance ratio
     /// that keeps the scene-linear mean over a `sigma` neighbourhood.
     static func balancedLumaRatio(_ image: CIImage, delta: CIImage, limit: Double,
-                                  sigma: Double) -> CIImage? {
+                                  sigma: Double, floorEV: Double? = nil) -> CIImage? {
         guard let one = Self.constant(RGB(gray: 1), extent: image.extent),
               let ratio = KernelLibrary.apply(KernelLibrary.lumaRatio, extent: image.extent,
                                               [one, delta, Float(limit)])
         else { return nil }
-        return Self.balancedRatio(image, ratio: ratio, sigma: sigma)
+        return Self.balancedRatio(image, ratio: ratio, sigma: sigma, floorEV: floorEV)
     }
 
     /// `image × ratio` (ratio in r), balanced as `balancedLumaRatio` describes.
-    static func balancedRatio(_ image: CIImage, ratio: CIImage, sigma: Double) -> CIImage? {
+    static func balancedRatio(_ image: CIImage, ratio: CIImage, sigma: Double,
+                              floorEV: Double? = nil) -> CIImage? {
         let w = RGBColorSpace.rec2020.luminanceWeights
+        let weights = CIVector(x: w.r, y: w.g, z: w.b)
+        let power = Float(DetailEngine.renormPower)
         guard let energy = KernelLibrary.apply(
                 KernelLibrary.ratioEnergy, extent: image.extent,
-                [image, ratio, CIVector(x: w.r, y: w.g, z: w.b)]),
+                [image, ratio, weights, power]),
               let spread = Self.gaussianBlur(energy, sigma: sigma)
         else { return nil }
         return KernelLibrary.apply(KernelLibrary.ratioBalance, extent: image.extent,
-                                   [image, ratio, spread, Float(DetailEngine.renormFloor)])
+                                   [image, ratio, spread, weights, power,
+                                    Float(DetailEngine.renormFloor),
+                                    Float(floorEV ?? -1000)])
     }
 
     /// The GPU twin of `SpatialOps.fineDetailBand`: the two-scale band a
