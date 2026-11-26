@@ -54,7 +54,7 @@ struct MaskPanel: View {
     @EnvironmentObject var state: AppState
     /// This surface shows the edit, so it observes the edit signal —
     /// `AppState.recipes` is deliberately not published (see `EditRevision`).
-    @EnvironmentObject var edits: EditRevision
+    @EnvironmentObject var edits: PanelEditRevision
 
     /// Brush parameters are session state, not recipe state: each stroke records its own
     /// size/feather/flow/density/flags into the blob as it is drawn, so the panel and the

@@ -539,6 +539,8 @@ struct LumenSlider: View {
     /// The photograph being edited. When it changes, focus and an open readout field
     /// are let go rather than carried onto the next frame.
     @Environment(\.sliderSubject) private var sliderSubject
+    /// Holds the panels' edit signal for the drag, so this row redraws itself instead.
+    @Environment(\.sliderDragHold) private var sliderDragHold
 
     /// What double-clicking the label should do, when writing `defaultValue` is not it.
     ///
@@ -558,6 +560,8 @@ struct LumenSlider: View {
     var accessibilityName: String? = nil
 
     @State private var isDragging = false
+    /// Bumped per committed sample while the panels are held, and read by `body`.
+    @State private var redraw = 0
     @State private var dragStartValue: Double = 0
     /// The gesture's gearbox: ⇧ makes the drag fine, and this is what stops the thumb
     /// jumping at the moment the modifier changes. See `FineDrag` in LumenCore, where
@@ -617,6 +621,7 @@ struct LumenSlider: View {
                                                              performanceTime: .now)
         }
         value = next
+        if isDragging || isScrubbing { redraw &+= 1 }
     }
 
     /// The readout is a second, finer track.
@@ -637,6 +642,7 @@ struct LumenSlider: View {
 
     var body: some View {
         HStack(spacing: 6) {
+            let _ = redraw
             // An untitled row does not reserve the label column, and that is a fix
             // rather than a nicety. The grading wheels' lightness bar is a `LumenSlider`
             // with an empty title inside a 108-point column: reserving 94 for a label
@@ -1228,6 +1234,7 @@ struct LumenSlider: View {
                         // closer — the rest of the drag would otherwise persist and
                         // re-bin the scopes on every mouse event.
                         sliderGestureChanged(true)
+                        sliderDragHold(true)
                         let travelled = Double(drag.location.x - drag.startLocation.x)
                         // ⇧ read off the live AppKit modifier flags rather than from the
                         // gesture, because SwiftUI's `DragGesture.Value` carries no
@@ -1283,6 +1290,7 @@ struct LumenSlider: View {
                         isDragging = false
                         onEditingChanged?(false)
                         sliderGestureChanged(false)
+                        sliderDragHold(false)
                     }
             )
             // No `.onTapGesture(count: 2)` here any more: behind a minimumDistance-0
@@ -1358,6 +1366,7 @@ struct LumenSlider: View {
                                 // Every sample, as on the track: re-latch if something
                                 // closed the gesture under a held button.
                                 sliderGestureChanged(true)
+                                sliderDragHold(true)
                                 let travelled = Double(drag.location.x
                                                        - drag.startLocation.x)
                                 let out = scrubGearbox.resolving(
@@ -1379,6 +1388,7 @@ struct LumenSlider: View {
                                 isScrubbing = false
                                 onEditingChanged?(false)
                                 sliderGestureChanged(false)
+                                sliderDragHold(false)
                             }
                     )
                     .help("Drag to adjust, click to type — ⇧ for fine")

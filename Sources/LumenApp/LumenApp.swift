@@ -98,6 +98,7 @@ struct LumenApp: App {
                 // between two mouse events. `EditRevision`'s header has the rule for
                 // any view added later that reads a recipe.
                 .environmentObject(state.edits)
+                .environmentObject(state.panelEdits)
                 // Neutral dark chrome, always: the surround must not bias a colour
                 // judgement about the photograph (docs/00 Law 7).
                 .preferredColorScheme(.dark)

@@ -39,6 +39,11 @@ private struct SliderFocusKey: EnvironmentKey {
     static let defaultValue: (Bool) -> Void = { _ in }
 }
 
+/// A `LumenSlider` drag in flight, for `AppState.sliderDragHoldSink`. No-op default.
+private struct SliderDragHoldKey: EnvironmentKey {
+    static let defaultValue: (Bool) -> Void = { _ in }
+}
+
 /// One ⌥-scroll tick on a slider row, named by the row's own identity, so
 /// `AppState.sliderWheelTick(owner:)` can hold the latch for the burst and close it after
 /// the wheel goes quiet. Same no-op default as the two hooks above.
@@ -66,6 +71,11 @@ extension EnvironmentValues {
     var sliderGestureChanged: (Bool) -> Void {
         get { self[SliderGestureKey.self] }
         set { self[SliderGestureKey.self] = newValue }
+    }
+
+    var sliderDragHold: (Bool) -> Void {
+        get { self[SliderDragHoldKey.self] }
+        set { self[SliderDragHoldKey.self] = newValue }
     }
 
     var sliderFocusChanged: (Bool) -> Void {

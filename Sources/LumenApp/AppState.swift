@@ -1474,7 +1474,7 @@ final class AppState: ObservableObject {
     /// the signal now, and its header has the whole argument, including the rule for
     /// any view added later that reads a recipe.
     var recipes: [URL: Recipe] = [:] {
-        didSet { edits.bump(); sourceMutationRevision &+= 1 }
+        didSet { edits.bump(); panelEdits.bump(); sourceMutationRevision &+= 1 }
     }
 
     /// The invalidation the twelve edit-facing views subscribe to. Hung off `recipes`'
@@ -1483,6 +1483,7 @@ final class AppState: ObservableObject {
     /// mode — a panel that renders once and then silently stops following the
     /// photograph — is not one a test in this repository would catch.
     let edits = EditRevision()
+    let panelEdits = PanelEditRevision()
 
     @Published var showBefore = false
     /// What the next click on the image is FOR, if anything. The picker overlay only
@@ -4217,6 +4218,11 @@ final class AppState: ObservableObject {
         self?.sliderGesture(active: active)
     }
 
+    /// A `LumenSlider` drag holds the panels' edit signal (`PanelEditRevision`).
+    lazy var sliderDragHoldSink: (Bool) -> Void = { [weak self] held in
+        self?.panelEdits.hold(held)
+    }
+
     /// Slider keyboard focus, and DELIBERATELY NOT `@Published`.
     ///
     /// Only `KeyDispatcher` reads it, imperatively, at key-down time — no view renders
@@ -4316,6 +4322,8 @@ final class AppState: ObservableObject {
         // Ends every mask gesture, including one whose release was dropped and a wheel
         // burst, which never sends its `false`.
         sendMaskOverlay(.gesturesEnded)
+        // Any close releases the panels, whatever closed it.
+        panelEdits.hold(false)
         guard sliderGestureActive else { return }
         sliderGestureActive = false
         gestureWatchdog?.cancel()
