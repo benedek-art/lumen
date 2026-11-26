@@ -1,0 +1,1820 @@
+{
+ "suite": "",
+ "scenarios": [
+  {
+   "name": "ef-paste2",
+   "fixture": "raw",
+   "timeoutSeconds": 600,
+   "description": "Copy/Paste Settings, Copy Settings\u2026 defaults, paste onto three selected, and undo after switching photo, between real RAWs.",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "5D-12MP.CR2",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 2.0
+    },
+    {
+     "do": "state",
+     "name": "p00-B"
+    },
+    {
+     "do": "open",
+     "photo": "XH2-40MP.RAF",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 2.0
+    },
+    {
+     "do": "state",
+     "name": "p00-C"
+    },
+    {
+     "do": "open",
+     "photo": "A7IV-33MP.ARW",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 2.0
+    },
+    {
+     "do": "state",
+     "name": "p01-A"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Temp#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Temp#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.62,
+      0.5
+     ],
+     "duration": 0.5
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -9,
+      0
+     ],
+     "note": "click Exposure readout on its digits"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "type",
+     "text": "1.25"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Clarity#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Clarity",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -9,
+      0
+     ],
+     "note": "click Clarity readout on its digits"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "type",
+     "text": "30"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "key",
+     "key": "r"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Angle#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Angle",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -9,
+      0
+     ],
+     "note": "click Angle readout on its digits"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "type",
+     "text": "5"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "key",
+     "key": "2",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "key",
+     "key": "m"
+    },
+    {
+     "do": "waitFor",
+     "that": "masking",
+     "eq": true,
+     "timeout": 5
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "click",
+     "target": "mask-kind/Linear Gradient"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "drag",
+     "target": "viewer",
+     "from": [
+      0.5,
+      0.2
+     ],
+     "to": [
+      0.5,
+      0.6
+     ],
+     "duration": 0.6
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "key",
+     "key": "q"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "click",
+     "target": "viewer",
+     "at": [
+      0.3,
+      0.35
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "key",
+     "key": "q"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "p02-A-edited"
+    },
+    {
+     "do": "shot",
+     "name": "p02"
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "open",
+     "photo": "5D-12MP.CR2",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "key",
+     "key": "v",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "p03-B-paste-all"
+    },
+    {
+     "do": "shot",
+     "name": "p03"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "p04-B-undo"
+    },
+    {
+     "do": "open",
+     "photo": "A7IV-33MP.ARW",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "state",
+     "name": "p05-copied-default"
+    },
+    {
+     "do": "open",
+     "photo": "5D-12MP.CR2",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "key",
+     "key": "v",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "p06-B-paste-default"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "p07-B-undo"
+    },
+    {
+     "do": "open",
+     "photo": "A7IV-33MP.ARW",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "key",
+     "key": "c",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "key",
+     "key": "a",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "p08-selall"
+    },
+    {
+     "do": "key",
+     "key": "v",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "p09-pasted-all3"
+    },
+    {
+     "do": "open",
+     "photo": "5D-12MP.CR2",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "p10-B-after-multipaste"
+    },
+    {
+     "do": "open",
+     "photo": "XH2-40MP.RAF",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "p11-C-after-multipaste"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "p12-C-after-one-undo"
+    },
+    {
+     "do": "open",
+     "photo": "5D-12MP.CR2",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "p13-B-after-one-undo"
+    },
+    {
+     "do": "open",
+     "photo": "A7IV-33MP.ARW",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -9,
+      0
+     ],
+     "note": "click Exposure readout on its digits"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "type",
+     "text": "2"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "state",
+     "name": "p14-A-exp2"
+    },
+    {
+     "do": "open",
+     "photo": "5D-12MP.CR2",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "p15-B-before-undo"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "p16-B-after-undo"
+    },
+    {
+     "do": "shot",
+     "name": "p16"
+    },
+    {
+     "do": "open",
+     "photo": "A7IV-33MP.ARW",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "p17-A-after-undo-on-B"
+    }
+   ]
+  },
+  {
+   "name": "ef-presets2",
+   "fixture": "raw",
+   "timeoutSeconds": 600,
+   "description": "Auto and Reset on a RAW with undo; a develop preset saved, applied by menu and by \u2318K, undone; Sync Settings\u2026 defaults.",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "5D-12MP.CR2",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 2.0
+    },
+    {
+     "do": "state",
+     "name": "r00-B"
+    },
+    {
+     "do": "open",
+     "photo": "A7IV-33MP.ARW",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 2.0
+    },
+    {
+     "do": "state",
+     "name": "r01-A"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Temp#track"
+    },
+    {
+     "do": "drag",
+     "target": "slider/Temp#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.62,
+      0.5
+     ],
+     "duration": 0.5
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -9,
+      0
+     ],
+     "note": "click Exposure readout on its digits"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "type",
+     "text": "1"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Clarity#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Clarity",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -9,
+      0
+     ],
+     "note": "click Clarity readout on its digits"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "type",
+     "text": "25"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "r02-A-edited"
+    },
+    {
+     "do": "key",
+     "key": "a",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "r03-auto"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "r04-auto-undo"
+    },
+    {
+     "do": "key",
+     "key": "r",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "r05-reset"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "r06-reset-undo"
+    },
+    {
+     "do": "key",
+     "key": "n",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "type",
+     "text": "Warm"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 3.0
+    },
+    {
+     "do": "state",
+     "name": "r07-saved"
+    },
+    {
+     "do": "open",
+     "photo": "5D-12MP.CR2",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 3.0
+    },
+    {
+     "do": "state",
+     "name": "r08-B-before"
+    },
+    {
+     "do": "menu",
+     "path": "Photo > Develop Presets > Warm",
+     "allowDisabled": true
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "r09-B-preset-menu"
+    },
+    {
+     "do": "key",
+     "key": "k",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.6
+    },
+    {
+     "do": "type",
+     "text": "Warm"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "shot",
+     "name": "r10-palette"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "r11-B-preset-palette"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "r12-B-undo1"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "r13-B-undo2"
+    },
+    {
+     "do": "open",
+     "photo": "A7IV-33MP.ARW",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "key",
+     "key": "a",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "key",
+     "key": "s",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "r14-synced"
+    },
+    {
+     "do": "open",
+     "photo": "5D-12MP.CR2",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "r15-B-synced"
+    },
+    {
+     "do": "open",
+     "photo": "XH2-40MP.RAF",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "r16-C-synced"
+    }
+   ]
+  },
+  {
+   "name": "ef-multi2",
+   "fixture": "raw",
+   "timeoutSeconds": 400,
+   "description": "With three photos selected: Clarity typed, crop Angle typed \u2014 which photos change.",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "A7IV-33MP.ARW",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "key",
+     "key": "a",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "m00-selall"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Clarity#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Clarity",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -9,
+      0
+     ],
+     "note": "click Clarity readout on its digits"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "type",
+     "text": "20"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "state",
+     "name": "m01-clarity"
+    },
+    {
+     "do": "key",
+     "key": "r"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Angle#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Angle",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -9,
+      0
+     ],
+     "note": "click Angle readout on its digits"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "type",
+     "text": "4"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "key",
+     "key": "2",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "m02-angle"
+    },
+    {
+     "do": "open",
+     "photo": "5D-12MP.CR2",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "m03-B"
+    },
+    {
+     "do": "open",
+     "photo": "XH2-40MP.RAF",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "m04-C"
+    }
+   ]
+  },
+  {
+   "name": "ef-snap2",
+   "fixture": "fiducial",
+   "timeoutSeconds": 300,
+   "description": "History rows (back to As opened, forward), named snapshot save and restore and undo.",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -9,
+      0
+     ],
+     "note": "click Exposure readout on its digits"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "type",
+     "text": "0.5"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -9,
+      0
+     ],
+     "note": "click Exposure readout on its digits"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "type",
+     "text": "1"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Contrast#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Contrast",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -9,
+      0
+     ],
+     "note": "click Contrast readout on its digits"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "type",
+     "text": "20"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "s00"
+    },
+    {
+     "do": "scroll",
+     "target": "develop.column",
+     "at": [
+      0.5,
+      0.5
+     ],
+     "lines": [
+      0,
+      -12
+     ],
+     "count": 12,
+     "interval": 0.05
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "History",
+      "within": "develop.column"
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "scroll",
+     "target": "develop.column",
+     "at": [
+      0.5,
+      0.5
+     ],
+     "lines": [
+      0,
+      -12
+     ],
+     "count": 12,
+     "interval": 0.05
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "s01",
+     "texts": true
+    },
+    {
+     "do": "shot",
+     "name": "s01"
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "As open",
+      "within": "develop.column"
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "s02-asopened",
+     "texts": true
+    },
+    {
+     "do": "shot",
+     "name": "s02"
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Contrast",
+      "within": "develop.column"
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "s03-forward",
+     "texts": true
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "As open",
+      "within": "develop.column"
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Snapshot name",
+      "within": "develop.column"
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "type",
+     "text": "BEFORE"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Save",
+      "within": "develop.column"
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "s04-saved",
+     "texts": true
+    },
+    {
+     "do": "shot",
+     "name": "s04"
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Contrast",
+      "within": "develop.column"
+     }
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "s05-forward-again"
+    },
+    {
+     "do": "scroll",
+     "target": "develop.column",
+     "at": [
+      0.5,
+      0.5
+     ],
+     "lines": [
+      0,
+      12
+     ],
+     "count": 14,
+     "interval": 0.05
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -9,
+      0
+     ],
+     "note": "click Exposure readout on its digits"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "type",
+     "text": "1.5"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "s06-new-edit"
+    },
+    {
+     "do": "scroll",
+     "target": "develop.column",
+     "at": [
+      0.5,
+      0.5
+     ],
+     "lines": [
+      0,
+      -12
+     ],
+     "count": 12,
+     "interval": 0.05
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8
+    },
+    {
+     "do": "state",
+     "name": "s07",
+     "texts": true
+    },
+    {
+     "do": "shot",
+     "name": "s07"
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Named",
+      "within": "develop.column"
+     },
+     "at": [
+      0.2,
+      0.5
+     ],
+     "offset": [
+      0,
+      50
+     ],
+     "note": "the snapshot row under the Named snapshots title"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.5
+    },
+    {
+     "do": "state",
+     "name": "s08-restored",
+     "texts": true
+    },
+    {
+     "do": "shot",
+     "name": "s08"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "s09-restore-undone"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "s10-sidecar"
+    }
+   ]
+  },
+  {
+   "name": "ef-pill",
+   "fixture": "fiducial",
+   "timeoutSeconds": 200,
+   "description": "Click the empty part of a slider's value pill and type: does the field open, or do the digits rate the photo?",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Contrast#track"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "state",
+     "name": "d00"
+    },
+    {
+     "do": "shot",
+     "name": "d00"
+    },
+    {
+     "do": "click",
+     "target": "slider/Contrast",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -30,
+      0
+     ],
+     "note": "click the left part of the Contrast value pill (not on the digit)"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "shot",
+     "name": "d01-after-pill-click"
+    },
+    {
+     "do": "type",
+     "text": "3"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "d02-after-typing-3"
+    },
+    {
+     "do": "shot",
+     "name": "d02"
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.tone.contrast",
+     "eq": 3,
+     "note": "typing 3 after clicking the pill sets Contrast 3"
+    },
+    {
+     "do": "click",
+     "target": "slider/Contrast",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -9,
+      0
+     ],
+     "note": "click on the digit itself"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "shot",
+     "name": "d03-after-digit-click"
+    },
+    {
+     "do": "type",
+     "text": "40"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "d04-after-typing-40"
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.tone.contrast",
+     "eq": 40,
+     "note": "clicking on the digit opens the field"
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -30,
+      0
+     ],
+     "note": "same pill position on Exposure, whose readout 0.00 is wider"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "shot",
+     "name": "d05-exposure-pill-click"
+    },
+    {
+     "do": "type",
+     "text": "1"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "d06-exposure"
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.tone.exposure",
+     "eq": 1
+    }
+   ]
+  },
+  {
+   "name": "ef-pill-raw",
+   "fixture": "raw",
+   "timeoutSeconds": 200,
+   "description": "The same pill click on a RAW roll with auto-advance on: where do the typed digits and the next edit go?",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "A7IV-33MP.ARW",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "state",
+     "name": "q00"
+    },
+    {
+     "do": "shot",
+     "name": "q00"
+    },
+    {
+     "do": "click",
+     "target": "slider/Contrast",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -30,
+      0
+     ],
+     "note": "click the left part of the Contrast value pill"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "type",
+     "text": "25"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 3.0
+    },
+    {
+     "do": "state",
+     "name": "q01"
+    },
+    {
+     "do": "shot",
+     "name": "q01"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "click",
+     "target": "slider/Exposure",
+     "at": [
+      1.0,
+      0.5
+     ],
+     "offset": [
+      -9,
+      0
+     ],
+     "note": "click Exposure readout on its digits"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.4
+    },
+    {
+     "do": "type",
+     "text": "0.7"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "wait",
+     "seconds": 2.5
+    },
+    {
+     "do": "state",
+     "name": "q02-next-edit-lands-where"
+    }
+   ]
+  }
+ ],
+ "ref": "",
+ "config": "release",
+ "strict": false,
+ "note": "editflow tester run 3"
+}
