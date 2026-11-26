@@ -1,0 +1,713 @@
+{
+ "suite": "",
+ "scenarios": [
+  {
+   "name": "cullrate-cull",
+   "fixture": "raw",
+   "stallSampleMs": 40,
+   "timeoutSeconds": 400,
+   "description": "culling at key-repeat speed in cull: next/previous photo must not stall the main thread",
+   "steps": [
+    {
+     "do": "open",
+     "index": 0,
+     "workspace": "cull",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "click",
+     "target": "grid",
+     "at": [
+      0,
+      0
+     ],
+     "offset": [
+      90,
+      70
+     ],
+     "note": "take keyboard focus from whatever text field the grid opened with"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "key",
+     "key": "e",
+     "count": 1,
+     "interval": 0.04
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 60
+    },
+    {
+     "do": "mark",
+     "name": "burst"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 2,
+     "interval": 0.04,
+     "id": "cull-r0"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 2,
+     "interval": 0.04,
+     "id": "cull-l0"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 2,
+     "interval": 0.04,
+     "id": "cull-r1"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 2,
+     "interval": 0.04,
+     "id": "cull-l1"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 2,
+     "interval": 0.04,
+     "id": "cull-r2"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 2,
+     "interval": 0.04,
+     "id": "cull-l2"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 2,
+     "interval": 0.04,
+     "id": "cull-r3"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 2,
+     "interval": 0.04,
+     "id": "cull-l3"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 2,
+     "interval": 0.04,
+     "id": "cull-r4"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 2,
+     "interval": 0.04,
+     "id": "cull-l4"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 2,
+     "interval": 0.04,
+     "id": "cull-r5"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 2,
+     "interval": 0.04,
+     "id": "cull-l5"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 2,
+     "interval": 0.04,
+     "id": "cull-r6"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 2,
+     "interval": 0.04,
+     "id": "cull-l6"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 2,
+     "interval": 0.04,
+     "id": "cull-r7"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 2,
+     "interval": 0.04,
+     "id": "cull-l7"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "mark",
+     "name": "end-of-list"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 12,
+     "interval": 0.04,
+     "id": "hold-right"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "eq": 2,
+     "note": "holding right stops on the last photo"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 12,
+     "interval": 0.04,
+     "id": "hold-left"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "eq": 0,
+     "note": "holding left stops on the first photo"
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 60
+    },
+    {
+     "do": "state",
+     "name": "end"
+    }
+   ]
+  },
+  {
+   "name": "cullrate-develop",
+   "fixture": "raw",
+   "stallSampleMs": 40,
+   "timeoutSeconds": 400,
+   "description": "culling at key-repeat speed in develop: next/previous photo must not stall the main thread",
+   "steps": [
+    {
+     "do": "open",
+     "index": 0,
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 60
+    },
+    {
+     "do": "mark",
+     "name": "burst"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 2,
+     "interval": 0.04,
+     "id": "deve-r0"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 2,
+     "interval": 0.04,
+     "id": "deve-l0"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 2,
+     "interval": 0.04,
+     "id": "deve-r1"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 2,
+     "interval": 0.04,
+     "id": "deve-l1"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 2,
+     "interval": 0.04,
+     "id": "deve-r2"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 2,
+     "interval": 0.04,
+     "id": "deve-l2"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 2,
+     "interval": 0.04,
+     "id": "deve-r3"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 2,
+     "interval": 0.04,
+     "id": "deve-l3"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 2,
+     "interval": 0.04,
+     "id": "deve-r4"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 2,
+     "interval": 0.04,
+     "id": "deve-l4"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 2,
+     "interval": 0.04,
+     "id": "deve-r5"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 2,
+     "interval": 0.04,
+     "id": "deve-l5"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 2,
+     "interval": 0.04,
+     "id": "deve-r6"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 2,
+     "interval": 0.04,
+     "id": "deve-l6"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 2,
+     "interval": 0.04,
+     "id": "deve-r7"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 2,
+     "interval": 0.04,
+     "id": "deve-l7"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "mark",
+     "name": "end-of-list"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 12,
+     "interval": 0.04,
+     "id": "hold-right"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "eq": 2,
+     "note": "holding right stops on the last photo"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 12,
+     "interval": 0.04,
+     "id": "hold-left"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "eq": 0,
+     "note": "holding left stops on the first photo"
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 60
+    },
+    {
+     "do": "state",
+     "name": "end"
+    }
+   ]
+  },
+  {
+   "name": "cullrate-grid",
+   "fixture": "raw",
+   "stallSampleMs": 40,
+   "timeoutSeconds": 400,
+   "description": "culling at key-repeat speed in cull: next/previous photo must not stall the main thread",
+   "steps": [
+    {
+     "do": "open",
+     "index": 0,
+     "workspace": "cull",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "click",
+     "target": "grid",
+     "at": [
+      0,
+      0
+     ],
+     "offset": [
+      90,
+      70
+     ],
+     "note": "take keyboard focus from whatever text field the grid opened with"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "mark",
+     "name": "burst"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 2,
+     "interval": 0.04,
+     "id": "grid-r0"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 2,
+     "interval": 0.04,
+     "id": "grid-l0"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 2,
+     "interval": 0.04,
+     "id": "grid-r1"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 2,
+     "interval": 0.04,
+     "id": "grid-l1"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 2,
+     "interval": 0.04,
+     "id": "grid-r2"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 2,
+     "interval": 0.04,
+     "id": "grid-l2"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 2,
+     "interval": 0.04,
+     "id": "grid-r3"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 2,
+     "interval": 0.04,
+     "id": "grid-l3"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 2,
+     "interval": 0.04,
+     "id": "grid-r4"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 2,
+     "interval": 0.04,
+     "id": "grid-l4"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 2,
+     "interval": 0.04,
+     "id": "grid-r5"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 2,
+     "interval": 0.04,
+     "id": "grid-l5"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 2,
+     "interval": 0.04,
+     "id": "grid-r6"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 2,
+     "interval": 0.04,
+     "id": "grid-l6"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 2,
+     "interval": 0.04,
+     "id": "grid-r7"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 2,
+     "interval": 0.04,
+     "id": "grid-l7"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "mark",
+     "name": "end-of-list"
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 12,
+     "interval": 0.04,
+     "id": "hold-right"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "eq": 2,
+     "note": "holding right stops on the last photo"
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 12,
+     "interval": 0.04,
+     "id": "hold-left"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "eq": 0,
+     "note": "holding left stops on the first photo"
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 60
+    },
+    {
+     "do": "state",
+     "name": "end"
+    }
+   ]
+  },
+  {
+   "name": "cullrate-pick",
+   "fixture": "raw",
+   "stallSampleMs": 40,
+   "timeoutSeconds": 400,
+   "description": "culling at key-repeat speed in cull: next/previous photo must not stall the main thread",
+   "steps": [
+    {
+     "do": "open",
+     "index": 0,
+     "workspace": "cull",
+     "timeout": 60
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0
+    },
+    {
+     "do": "click",
+     "target": "grid",
+     "at": [
+      0,
+      0
+     ],
+     "offset": [
+      90,
+      70
+     ],
+     "note": "take keyboard focus from whatever text field the grid opened with"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "key",
+     "key": "e",
+     "count": 1,
+     "interval": 0.04
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 60
+    },
+    {
+     "do": "key",
+     "key": "right",
+     "count": 2,
+     "interval": 0.04
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "key",
+     "key": "p",
+     "count": 6,
+     "interval": 0.05,
+     "id": "pick-at-end"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "expect",
+     "that": "photo.index",
+     "eq": 2,
+     "note": "picking the last photo stays on it"
+    },
+    {
+     "do": "key",
+     "key": "x",
+     "count": 4,
+     "interval": 0.05,
+     "id": "reject-at-end"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5
+    },
+    {
+     "do": "key",
+     "key": "left",
+     "count": 2,
+     "interval": 0.04
+    },
+    {
+     "do": "key",
+     "key": "3",
+     "count": 3,
+     "interval": 0.05,
+     "id": "rate-rapid"
+    },
+    {
+     "do": "waitSettled",
+     "timeout": 60
+    },
+    {
+     "do": "state",
+     "name": "end"
+    }
+   ]
+  }
+ ],
+ "ref": "",
+ "config": "release",
+ "strict": false,
+ "note": "stall sampler: culling at key-repeat speed"
+}
