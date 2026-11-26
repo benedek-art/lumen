@@ -20,12 +20,9 @@ extension DriverSession {
         return flat
     }
 
-    /// The first on-screen frame of an anchor, in window-frame points.
+    /// The first on-screen frame of an anchor, in main-window points.
     func anchorRect(_ id: String) -> CGRect? {
-        guard let input, let frame = DriverAnchors.shared.frames(id: id).first else {
-            return nil
-        }
-        return input.windowFrameRect(fromGlobal: frame)
+        anchorRects(id: id).first
     }
 
     /// Everything `expect` and `state` can read. Keys are documented in driver/README.md.
@@ -110,6 +107,18 @@ extension DriverSession {
             ]
             out["window"] = windowState
             out["cursor"] = DriverJSON.point(input.cursor)
+            let listed = DriverWindows.list(main: window)
+            var windows: [String: Any] = [
+                "count": listed.count,
+                "roles": listed.map { $0.role }.joined(separator: ","),
+                "key": listed.first { $0.isKey }?.role ?? "",
+                "list": listed.enumerated().map { $0.element.json(index: $0.offset) },
+            ]
+            for role in ["sheet", "popover", "alert", "filePanel", "colors", "panel", "menu"] {
+                windows[role] = listed.contains { $0.role == role }
+            }
+            windows["sheetTitle"] = listed.first { $0.role == "sheet" }?.title ?? ""
+            out["windows"] = windows
         }
         return out
     }
@@ -135,8 +144,7 @@ extension DriverSession {
 
     /// Recognized text on a fresh screenshot, in window-frame points.
     func screenTexts() -> [[String: Any]] {
-        guard let window, let input,
-              let image = DriverCapture.image(window: window, method: captureMethod)
+        guard let window, let input, let image = captureImage(method: captureMethod).image
         else { return [] }
         input.refreshGeometry()
         let scale = Double(image.width) / Double(Swift.max(window.frame.width, 1))
@@ -149,21 +157,32 @@ extension DriverSession {
         }
     }
 
-    func dumpState(_ step: DriverStep) -> [String: Any] {
+    func dumpState(_ step: DriverStep) async -> [String: Any] {
         var dump = snapshot()
         for (key, value) in reflectedState() { dump[key] = value }
         dump["menus"] = DriverReflect.menus()
         dump["sidecar"] = sidecar()
         if step.bool("texts") == true { dump["texts"] = screenTexts() }
         var anchors: [[String: Any]] = []
-        if let input {
-            for anchor in DriverAnchors.shared.all() {
-                var row = DriverJSON.rect(input.windowFrameRect(fromGlobal: anchor.frame))
-                row["id"] = anchor.id
-                anchors.append(row)
-            }
+        for anchor in liveAnchors() {
+            var row = DriverJSON.rect(anchor.rect)
+            row["id"] = anchor.id
+            if let other = anchor.window, other !== window { row["inWindow"] = other.title }
+            anchors.append(row)
         }
         dump["anchors"] = anchors
+        if step.bool("ax") == true {
+            let snapshot = await DriverAX.snapshot()
+            dump["ax"] = snapshot.nodes.filter { !$0.label.isEmpty }.prefix(3000).map { (node) -> [String: Any] in
+                var row = DriverJSON.rect(axRect(node))
+                row["name"] = node.name
+                row["role"] = node.role
+                row["enabled"] = node.enabled
+                if !node.value.isEmpty { row["value"] = String(node.value.prefix(80)) }
+                return row
+            }
+            if let error = snapshot.error { dump["axError"] = error }
+        }
         let name = step.string("name") ?? step.id
         DriverJSON.write(dump, to: outDir.appendingPathComponent("state-\(name).json"))
         return ["file": "state-\(name).json"]
@@ -298,18 +317,45 @@ extension DriverSession {
 
     // MARK: Screenshots
 
+    /// The main window as `method` captures it; with `windowList`, every sheet, popover,
+    /// panel and menu over it composited in.
+    func captureImage(method: DriverCapture.Method) -> (image: CGImage?, extra: [DriverWindowInfo]) {
+        guard let window else { return (nil, []) }
+        var extra: [DriverWindowInfo] = []
+        if method == .windowList {
+            let image = DriverWindows.composite(main: window, extra: &extra)
+            return (image, extra)
+        }
+        return (DriverCapture.image(window: window, method: method), [])
+    }
+
     func takeShot(name: String, group: String?, keep: Bool) async throws -> [String: Any] {
         guard let window, let input else { throw DriverError("no window") }
         input.refreshGeometry()
         var method = captureMethod
-        var image = DriverCapture.image(window: window, method: method)
-        if image == nil, method != .cacheDisplay {
+        var captured = captureImage(method: method)
+        if captured.image == nil, method != .cacheDisplay {
             method = .cacheDisplay
-            image = DriverCapture.image(window: window, method: method)
+            captured = captureImage(method: method)
         }
-        guard let image else { throw DriverError("no capture method produced an image") }
+        guard let image = captured.image else {
+            throw DriverError("no capture method produced an image")
+        }
         let file = "shots/\(name).png"
         DriverCapture.write(image, to: outDir.appendingPathComponent(file))
+        var windowRows: [[String: Any]] = []
+        let bounds = CGRect(origin: .zero, size: window.frame.size)
+        for (index, other) in captured.extra.enumerated() {
+            var row = other.json(index: index)
+            // A window that reaches past the main window's edges is also saved whole.
+            if !bounds.insetBy(dx: -1, dy: -1).contains(other.frame),
+               let alone = DriverWindows.single(other) {
+                let extraFile = "shots/\(name).\(other.role)\(index).png"
+                DriverCapture.write(alone, to: outDir.appendingPathComponent(extraFile))
+                row["file"] = extraFile
+            }
+            windowRows.append(row)
+        }
         let scale = Double(image.width) / Double(Swift.max(window.frame.width, 1))
         var row: [String: Any] = [
             "name": name, "file": file, "t": DriverClock.now(), "method": method.rawValue,
@@ -323,6 +369,7 @@ extension DriverSession {
             "overlay": state.soloMaskOverlay != nil,
         ]
         if let group { row["group"] = group }
+        if !windowRows.isEmpty { row["windows"] = windowRows }
         if let viewer = anchorRect("viewer") { row["viewer"] = DriverJSON.rect(viewer) }
         if let imageRect = anchorRect("viewer.image") {
             row["image"] = DriverJSON.rect(imageRect)
@@ -366,7 +413,7 @@ extension DriverSession {
             // `also`: the same moment by another capture method, to tell what the app
             // drew from what the window server composited.
             if let name2 = step.string("also"), let method = DriverCapture.Method(rawValue: name2),
-               let window, let second = DriverCapture.image(window: window, method: method) {
+               let window, let second = captureImage(method: method).image {
                 DriverCapture.write(second, to: outDir.appendingPathComponent(
                     "shots/\(name).\(name2).png"))
                 if let other = DriverPixels(second) {

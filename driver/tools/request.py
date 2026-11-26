@@ -28,6 +28,7 @@ branch's old tip and can start every other workflow too.
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -41,6 +42,37 @@ def git(*args, env=None, stdin=None):
     if out.returncode != 0:
         sys.exit(f"git {' '.join(args)}: {out.stderr.strip()}")
     return out.stdout.strip()
+
+
+def resolve_ref(ref, remote):
+    """A branch, tag or SHA (short or full) as the full 40-character commit SHA, so the
+    run tests exactly the commit meant now, and the lane can fetch it."""
+    if not ref or re.fullmatch(r"[0-9a-f]{40}", ref):
+        return ref
+    name = ref[len("origin/"):] if ref.startswith("origin/") else ref
+    listed = subprocess.run(["git", "ls-remote", remote, f"refs/heads/{name}", f"refs/tags/{name}",
+                             f"refs/tags/{name}^{{}}"], capture_output=True, text=True)
+    if listed.returncode == 0 and listed.stdout.strip():
+        lines = listed.stdout.strip().splitlines()
+        # An annotated tag lists its object and then the commit it points at (^{}).
+        peeled = [line for line in lines if line.endswith("^{}")]
+        return (peeled or lines)[0].split()[0]
+    if re.fullmatch(r"[0-9a-f]{4,39}", ref):
+        local = subprocess.run(["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
+                               capture_output=True, text=True)
+        if local.returncode == 0 and local.stdout.strip():
+            return local.stdout.strip()
+        repo = os.environ.get("DRIVER_REPO", "benedek-art/lumen")
+        api = subprocess.run(["curl", "-sS", "--fail", "-m", "30",
+                              f"https://api.github.com/repos/{repo}/commits/{ref}"],
+                             capture_output=True, text=True)
+        if api.returncode == 0:
+            try:
+                return json.loads(api.stdout)["sha"]
+            except (ValueError, KeyError):
+                pass
+    sys.exit(f"--ref {ref}: no such branch, tag or commit on {remote} (fetch it, or give a "
+             "longer SHA)")
 
 
 def main():
@@ -73,15 +105,22 @@ def main():
         scenarios += data if isinstance(data, list) else [data]
     if not args.suite and not scenarios:
         sys.exit("nothing to run: give --suite and/or --scenario")
+    ref = resolve_ref(args.ref, args.remote)
+    if ref != args.ref:
+        print(f"--ref {args.ref} is {ref}", file=sys.stderr)
     name = args.name or time.strftime("%Y%m%d-%H%M%S") + "-" + os.urandom(3).hex()
     if not all(c.isalnum() or c in "-_." for c in name):
         sys.exit("--name takes letters, digits, - _ . only")
-    request = {"suite": args.suite, "scenarios": scenarios, "ref": args.ref,
+    request = {"suite": args.suite, "scenarios": scenarios, "ref": ref,
                "config": args.config, "strict": args.strict, "note": args.note}
+    if ref != args.ref:
+        request["refName"] = args.ref
     blob = git("hash-object", "-w", "--stdin", stdin=json.dumps(request, indent=1) + "\n")
     message = f"Driver request: {name}\n"
     if args.note:
         message += f"\n{args.note}\n"
+    if ref:
+        message += f"\nTesting {args.ref}" + (f" ({ref})" if ref != args.ref else "") + "\n"
     trailers = os.environ.get("DRIVER_COMMIT_TRAILERS", "").strip()
     if trailers:
         message += f"\n{trailers}\n"

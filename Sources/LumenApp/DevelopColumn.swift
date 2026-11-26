@@ -112,7 +112,7 @@ struct WorkspaceRail: View {
         .lumenClickCursor()
         // The chord, in the tooltip, because a switcher that teaches its own shortcut
         // is how a photographer stops using the switcher.
-        .help("\(workspace.title) (⌘\(workspace.shortcutDigit))")
+        .help("\(workspace.title) (⌘\(workspace.shortcutDigit))").driverAnchor("rail/" + workspace.title)
     }
 
     /// The door wears the selected fill while masking — the strip this replaces never

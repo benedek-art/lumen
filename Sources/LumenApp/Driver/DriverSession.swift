@@ -120,6 +120,8 @@ final class DriverSession {
     var startedAt = DriverClock.now()
     lazy var machine: [String: Any] = DriverMachine.facts()
     var displayNote = ""
+    /// How the last target was found: `source` anchor, ax, window or text, and its name.
+    var lastTarget: [String: Any] = [:]
 
     init(state: AppState, scenarioPath: String) {
         self.state = state

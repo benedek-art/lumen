@@ -308,8 +308,8 @@ extension DriverSession {
         out["accessibility"] = accessibility
 
         var anchors: [[String: Any]] = []
-        for anchor in DriverAnchors.shared.all() {
-            var row = DriverJSON.rect(input.windowFrameRect(fromGlobal: anchor.frame))
+        for anchor in liveAnchors() {
+            var row = DriverJSON.rect(anchor.rect)
             row["id"] = anchor.id
             anchors.append(row)
         }

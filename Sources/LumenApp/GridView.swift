@@ -63,7 +63,7 @@ struct GridView: View {
                                       // A field read off the roll entry, not a lookup:
                                       // this closure re-runs on every cull keystroke.
                                       attention: photo.attention,
-                                      loader: state.thumbnails)
+                                      loader: state.thumbnails).driverAnchor("grid-cell/" + photo.filename)
                                 // ONE tap handler, not a count-2 gesture racing a
                                 // simultaneous count-1. See `handleCellClick` for the
                                 // trace of why the pair "sometimes" lost the second

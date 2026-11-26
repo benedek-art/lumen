@@ -21,6 +21,10 @@ final class DriverInput {
         var frame: CGRect = .zero
         var number: Int = 0
         var primaryHeight: CGFloat = 0
+        /// The app's windows on screen, front to back, with Cocoa screen frames: where an
+        /// in-process event for a point in a sheet or popover has to be addressed.
+        var stack: [(number: Int, frame: CGRect)] = []
+        var keyNumber: Int = 0
     }
 
     let window: NSWindow
@@ -40,6 +44,7 @@ final class DriverInput {
     private var receivedAt: [String: Double] = [:]
     private var pendingPoints: [Int64: CGPoint] = [:]
     private var pendingTag: Int64 = 0x4C55_0000
+    private var pressedTarget: (number: Int, frame: CGRect)?
 
     init(window: NSWindow) {
         self.window = window
@@ -47,8 +52,25 @@ final class DriverInput {
 
     /// Main thread only.
     func refreshGeometry() {
+        let stack = DriverWindows.list(main: window).compactMap { info in
+            info.window.map { (number: info.number, frame: $0.frame) }
+        }
         geometry = WindowGeometry(frame: window.frame, number: window.windowNumber,
-                            primaryHeight: NSScreen.screens.first?.frame.height ?? 0)
+                                  primaryHeight: NSScreen.screens.first?.frame.height ?? 0,
+                                  stack: stack,
+                                  keyNumber: NSApp.keyWindow?.windowNumber ?? window.windowNumber)
+    }
+
+    /// A main-window point as a Cocoa screen point.
+    private func cocoa(_ wf: CGPoint) -> CGPoint {
+        CGPoint(x: geometry.frame.minX + wf.x, y: geometry.frame.maxY - wf.y)
+    }
+
+    /// The frontmost of the app's windows under a main-window point.
+    private func windowUnder(_ wf: CGPoint) -> (number: Int, frame: CGRect) {
+        let p = cocoa(wf)
+        for entry in geometry.stack where entry.frame.contains(p) { return entry }
+        return (geometry.number, geometry.frame)
     }
 
     /// Whether a window-frame point is on the display, where HID events can reach it.
@@ -101,6 +123,24 @@ final class DriverInput {
                       width: abs(b.x - a.x), height: abs(b.y - a.y))
     }
 
+    /// A SwiftUI global rectangle of a view in `other` (a sheet, a popover) in
+    /// main-window points.
+    func windowFrameRect(fromGlobal r: CGRect, in other: NSWindow?) -> CGRect {
+        guard let other, other !== window, let content = other.contentView else {
+            return windowFrameRect(fromGlobal: r)
+        }
+        let host = DriverInput.findHosting(content) ?? content
+        func convert(_ p: CGPoint) -> CGPoint {
+            let local = host.isFlipped ? p : CGPoint(x: p.x, y: host.bounds.height - p.y)
+            let screen = other.convertPoint(toScreen: host.convert(local, to: nil))
+            return CGPoint(x: screen.x - window.frame.minX, y: window.frame.maxY - screen.y)
+        }
+        let a = convert(CGPoint(x: r.minX, y: r.minY))
+        let b = convert(CGPoint(x: r.maxX, y: r.maxY))
+        return CGRect(x: Swift.min(a.x, b.x), y: Swift.min(a.y, b.y),
+                      width: abs(b.x - a.x), height: abs(b.y - a.y))
+    }
+
     private func base(_ wf: CGPoint) -> CGPoint {
         CGPoint(x: wf.x, y: geometry.frame.height - wf.y)
     }
@@ -145,8 +185,12 @@ final class DriverInput {
         lock.lock()
         let point = pendingPoints.removeValue(forKey: tag)
         lock.unlock()
-        guard let point, let content = window.contentView else { return event }
-        let inWindow = base(point)
+        guard let point else { return event }
+        let under = windowUnder(point)
+        let receiver = NSApp.window(withWindowNumber: under.number) ?? window
+        guard let content = receiver.contentView else { return event }
+        let screen = cocoa(point)
+        let inWindow = CGPoint(x: screen.x - under.frame.minX, y: screen.y - under.frame.minY)
         let inParent = content.superview?.convert(inWindow, from: nil) ?? inWindow
         guard let target = content.hitTest(inParent) else { return nil }
         switch event.type {
@@ -155,6 +199,15 @@ final class DriverInput {
         default: target.smartMagnify(with: event)
         }
         return nil
+    }
+
+    /// An event's location in main-window points, whichever window it went to.
+    private func mainPoint(_ event: NSEvent) -> CGPoint {
+        if let other = event.window, other !== window {
+            let screen = other.convertPoint(toScreen: event.locationInWindow)
+            return CGPoint(x: screen.x - geometry.frame.minX, y: geometry.frame.maxY - screen.y)
+        }
+        return windowFramePoint(fromBase: event.locationInWindow)
     }
 
     private func record(received event: NSEvent) {
@@ -169,7 +222,7 @@ final class DriverInput {
         switch event.type {
         case .leftMouseDown, .leftMouseUp, .leftMouseDragged, .rightMouseDown, .rightMouseUp,
              .rightMouseDragged, .mouseMoved, .otherMouseDown, .otherMouseUp:
-            let p = windowFramePoint(fromBase: event.locationInWindow)
+            let p = mainPoint(event)
             row["x"] = Double(p.x)
             row["y"] = Double(p.y)
             if event.type != .mouseMoved { row["clicks"] = event.clickCount }
@@ -309,10 +362,20 @@ final class DriverInput {
             eventNumber += 1
             let pressed = ns == .leftMouseDown || ns == .leftMouseDragged
                 || ns == .rightMouseDown || ns == .rightMouseDragged
+            // A press goes to the window under it; its drags and release follow it there,
+            // as AppKit routes a real button.
+            let isDown = ns == .leftMouseDown || ns == .rightMouseDown
+            let isUp = ns == .leftMouseUp || ns == .rightMouseUp
+            let target = isDown || pressedTarget == nil ? windowUnder(wf) : pressedTarget!
+            if isDown { pressedTarget = target }
+            if isUp { pressedTarget = nil }
+            let screen = cocoa(wf)
             postNS(NSEvent.mouseEvent(
-                with: ns, location: base(wf), modifierFlags: modifiers,
+                with: ns,
+                location: CGPoint(x: screen.x - target.frame.minX, y: screen.y - target.frame.minY),
+                modifierFlags: modifiers,
                 timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: geometry.number, context: nil,
+                windowNumber: target.number, context: nil,
                 eventNumber: eventNumber, clickCount: clickCount,
                 pressure: pressed ? 1 : 0))
         }
@@ -423,7 +486,7 @@ final class DriverInput {
                 postNS(NSEvent.keyEvent(
                     with: .flagsChanged, location: base(cursor), modifierFlags: modifiers,
                     timestamp: ProcessInfo.processInfo.systemUptime,
-                    windowNumber: geometry.number, context: nil,
+                    windowNumber: geometry.keyNumber, context: nil,
                     characters: "", charactersIgnoringModifiers: "",
                     isARepeat: false, keyCode: code))
             }
@@ -509,7 +572,7 @@ final class DriverInput {
                     with: down ? .keyDown : .keyUp, location: base(cursor),
                     modifierFlags: [],
                     timestamp: ProcessInfo.processInfo.systemUptime,
-                    windowNumber: geometry.number, context: nil,
+                    windowNumber: geometry.keyNumber, context: nil,
                     characters: text, charactersIgnoringModifiers: text.lowercased(),
                     isARepeat: false, keyCode: code))
             }
@@ -545,7 +608,7 @@ final class DriverInput {
                 with: down ? .keyDown : .keyUp, location: base(cursor),
                 modifierFlags: flags,
                 timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: geometry.number, context: nil,
+                windowNumber: geometry.keyNumber, context: nil,
                 characters: typed, charactersIgnoringModifiers: plain,
                 isARepeat: false, keyCode: key.code))
         }

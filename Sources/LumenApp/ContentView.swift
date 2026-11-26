@@ -1203,7 +1203,7 @@ private struct Sidebar: View {
         // The app's second accessibility label. The count is the row's other half and a
         // screen reader that reads only the title cannot tell an empty scope from a full
         // one — which is most of what these rows are for.
-        .accessibilityLabel(Text("\(title), \(count) photograph\(count == 1 ? "" : "s")"))
+        .accessibilityLabel(Text("\(title), \(count) photograph\(count == 1 ? "" : "s")")).driverAnchor("source/" + title)
     }
 
 
