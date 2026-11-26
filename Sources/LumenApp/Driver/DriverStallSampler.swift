@@ -8,6 +8,7 @@
 
 import Foundation
 import Darwin
+import MachO
 
 final class DriverStallSampler: @unchecked Sendable {
 
@@ -37,6 +38,8 @@ final class DriverStallSampler: @unchecked Sendable {
     private var current: Stall?
     private var finished: [[String: Any]] = []
     private var symbols: [UInt: String] = [:]
+    private var appAddresses: Set<UInt> = []
+    private static let mainHeader = UnsafeRawPointer(_dyld_get_image_header(0))
     private var stopped = false
 
     /// Call on the main thread.
@@ -81,8 +84,37 @@ final class DriverStallSampler: @unchecked Sendable {
         if let stall = current { close(stall) }
         current = nil
         let rows = finished
+        let pending = appAddresses.sorted()
         lock.unlock()
-        write(rows)
+        write(rows, resolving: Self.atos(pending))
+    }
+
+    /// The app's own symbols are not exported, so `dladdr` names the nearest public
+    /// one; `atos` reads the symbol table.
+    private static func atos(_ addresses: [UInt]) -> [String: String] {
+        guard !addresses.isEmpty, let executable = Bundle.main.executablePath,
+              let header = _dyld_get_image_header(0) else { return [:] }
+        let base = UInt(bitPattern: header)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/atos")
+        process.arguments = ["-o", executable, "-l", String(format: "0x%lx", base)]
+            + addresses.map { String(format: "0x%lx", $0) }
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return [:] }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        let lines = String(decoding: data, as: UTF8.self).split(separator: "\n")
+        var out: [String: String] = [:]
+        for (address, line) in zip(addresses, lines) {
+            out[placeholder(address)] = "Lumen`" + String(line.prefix(400))
+        }
+        return out
+    }
+
+    private static func placeholder(_ address: UInt) -> String {
+        String(format: "Lumen@0x%lx", address)
     }
 
     private func loop() {
@@ -219,8 +251,18 @@ final class DriverStallSampler: @unchecked Sendable {
         }
     }
 
-    private func write(_ rows: [[String: Any]]) {
-        DriverJSON.write(["stalls": rows,
+    private func write(_ rows: [[String: Any]], resolving names: [String: String] = [:]) {
+        var resolved = rows
+        if !names.isEmpty {
+            func swap(_ value: Any) -> Any {
+                if let text = value as? String { return names[text] ?? text }
+                if let list = value as? [Any] { return list.map(swap) }
+                if let table = value as? [String: Any] { return table.mapValues(swap) }
+                return value
+            }
+            resolved = rows.map { row in row.mapValues(swap) }
+        }
+        DriverJSON.write(["stalls": resolved,
                           "thresholdMs": threshold * 1000, "intervalMs": interval * 1000],
                          to: out.appendingPathComponent("stalls.json"))
     }
@@ -230,7 +272,12 @@ final class DriverStallSampler: @unchecked Sendable {
         if let known = symbols[address] { return known }
         var info = Dl_info()
         var name = String(format: "0x%lx", address)
-        if let pointer = UnsafeRawPointer(bitPattern: address), dladdr(pointer, &info) != 0 {
+        if let pointer = UnsafeRawPointer(bitPattern: address), dladdr(pointer, &info) != 0,
+           info.dli_fbase == UnsafeMutableRawPointer(mutating: Self.mainHeader) {
+            name = Self.placeholder(address)
+            appAddresses.insert(address)
+        } else if let pointer = UnsafeRawPointer(bitPattern: address),
+                  dladdr(pointer, &info) != 0 {
             let image = info.dli_fname.map {
                 URL(fileURLWithPath: String(cString: $0)).lastPathComponent
             } ?? "?"
