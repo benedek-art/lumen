@@ -366,7 +366,7 @@ struct DevelopPanel: View {
     }
     /// This surface shows the edit, so it observes the edit signal —
     /// `AppState.recipes` is deliberately not published (see `EditRevision`).
-    @EnvironmentObject var edits: EditRevision
+    @EnvironmentObject var edits: PanelEditRevision
     /// The undo/redo pair's labels and enablement. Its own object so that keeping them
     /// current does not require `AppState` to publish when history moves — see
     /// `CommandState`.

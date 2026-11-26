@@ -44,7 +44,7 @@ struct DetailPanel: View {
     @EnvironmentObject var state: AppState
     /// This surface shows the edit, so it observes the edit signal —
     /// `AppState.recipes` is deliberately not published (see `EditRevision`).
-    @EnvironmentObject var edits: EditRevision
+    @EnvironmentObject var edits: PanelEditRevision
 
     /// Denoise starts closed. A fold that opens by itself gives back the depth it was
     /// folded away to save, and these are rows a photographer sets once per ISO.

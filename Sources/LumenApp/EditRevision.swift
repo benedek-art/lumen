@@ -42,6 +42,9 @@
 // stated here rather than left to be discovered. The alternative — `@Observable`, which
 // tracks reads per property and needs no rule — is the migration this is a step toward,
 // not a substitute for.
+//
+// A develop panel declares `PanelEditRevision` instead: it must not follow a slider drag
+// per event, and catches up when the drag ends.
 
 #if os(macOS)
 
@@ -60,6 +63,35 @@ final class EditRevision: ObservableObject {
     @Published private(set) var value: Int = 0
 
     func bump() { value &+= 1 }
+
+    /// `AppState.settleTick` moved: published here so a release re-keys the surfaces
+    /// that render, not the whole window.
+    @Published private(set) var settles: Int = 0
+
+    func settle() { settles &+= 1 }
+}
+
+/// `EditRevision` for the develop panels, held while a `LumenSlider` is being dragged:
+/// the dragged row redraws itself, and rebuilding every panel per mouse event kept the
+/// main thread too busy for frames to land. A held bump publishes once on release.
+@MainActor
+final class PanelEditRevision: ObservableObject {
+
+    @Published private(set) var value: Int = 0
+    private var held = false
+    private var missed = false
+
+    func bump() {
+        if held { missed = true } else { value &+= 1 }
+    }
+
+    func hold(_ on: Bool) {
+        held = on
+        if !on, missed {
+            missed = false
+            value &+= 1
+        }
+    }
 }
 
 #endif

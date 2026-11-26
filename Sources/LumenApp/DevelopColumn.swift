@@ -185,7 +185,7 @@ struct MaskingReturnBar: View {
     @EnvironmentObject private var state: AppState
     /// This bar shows a mask count and a thumbnail, so it observes the edit signal —
     /// `AppState.recipes` is deliberately not published (see `EditRevision`).
-    @EnvironmentObject private var edits: EditRevision
+    @EnvironmentObject private var edits: PanelEditRevision
     @State private var backHovered = false
     @State private var masksHovered = false
 
