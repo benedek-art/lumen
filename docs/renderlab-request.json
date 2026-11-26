@@ -1,16 +1,18 @@
-{"lane": "macos", "drift": "none", "label": "parity-probe-2", "probe": true,
+{"lane": "macos", "drift": "none", "label": "parity-probe-3", "probe": true,
  "manifest": {"name": "parity", "defaults": {"longEdge": 1536, "tile": 400},
   "jobs": [
-   {"id": "cmp", "photos": ["6929", "5812", "chart:greyRamp", "chart:colorChecker"],
-    "paths": ["export", "settled", "draft"], "compare": ["settled", "export"],
+   {"id": "cmp", "photos": ["6929", "5812", "chart:greyRamp"],
+    "paths": ["export", "settled"], "compare": ["settled", "export"],
     "variants": [{"label": "minus2", "recipe": {"develop.tone.exposure": -2}},
-                 {"label": "contrast50", "recipe": {"develop.tone.contrast": 50}}]},
-   {"id": "draftcmp", "photos": ["6929"], "paths": ["settled", "draft"],
-    "compare": ["draft", "settled"], "draftLongEdge": 1536,
+                 {"label": "contrast50", "recipe": {"develop.tone.contrast": 50}},
+                 {"label": "nr-off", "recipe": {"develop.denoise.mode": "off"}}]},
+   {"id": "cmpblank", "photos": ["6929", "5812"], "base": "blank",
+    "paths": ["export", "settled"], "compare": ["settled", "export"],
     "variants": [{"label": "shadows50", "recipe": {"develop.tone.shadows": 50}}]},
    {"id": "fail", "photos": ["6929", "5812"], "paths": ["export"],
     "variants": [{"label": "highlights-50", "recipe": {"develop.tone.highlights": -50}},
                  {"label": "shadows50", "recipe": {"develop.tone.shadows": 50}},
                  {"label": "texture50", "recipe": {"develop.detail.texture": 50}},
-                 {"label": "clarity50-sharpen80", "recipe": {"develop.detail.clarity": 50, "develop.detail.sharpen.amount": 80}}]}
+                 {"label": "clarity50-sharpen80", "recipe": {"develop.detail.clarity": 50, "develop.detail.sharpen.amount": 80}},
+                 {"label": "dehaze50", "recipe": {"develop.detail.dehaze": 50}}]}
   ]}}
