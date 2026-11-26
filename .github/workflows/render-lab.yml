@@ -1,0 +1,375 @@
+# Render lab: (photo, recipe) jobs rendered on the shipping path (macOS, PipelineRenderer)
+# and/or the reference path (Linux, ReferenceRenderer on decoded plates), with stats and
+# contact sheets. How to use it: renderlab/README.md.
+name: Render lab
+
+run-name: "Render lab ${{ github.event_name == 'push' && 'request' || inputs.lane }} ${{ inputs.manifests }} ${{ inputs.label }} ${{ github.sha }}"
+
+# Two ways in. workflow_dispatch with the inputs below; or a push that changes
+# docs/renderlab-request.json (same keys as the inputs) on any branch. The request file
+# lives under docs/ so the push fires no other macOS lane.
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "docs/renderlab-request.json"
+      - ".github/workflows/render-lab.yml"
+  workflow_dispatch:
+    inputs:
+      manifests:
+        description: "Committed manifests under renderlab/manifests, comma-separated names without .json"
+        required: false
+        default: ""
+      manifest:
+        description: "Inline manifest JSON (runs as 'inline')"
+        required: false
+        default: ""
+      lane:
+        description: "macos (shipping), linux (reference on plates), both"
+        required: false
+        default: "macos"
+      shards:
+        description: "Parallel Linux jobs"
+        required: false
+        default: "4"
+      drift:
+        description: "Manifest name to diff reference against shipping on macOS (empty: none)"
+        required: false
+        default: ""
+      plates:
+        description: "Regenerate decoded plates even if cached"
+        type: boolean
+        required: false
+        default: false
+      runs-on:
+        description: "macOS runner label"
+        required: false
+        default: "macos-15"
+      label:
+        description: "Free text added to the run name so you can find your run"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  PLATE_EDGE: "2048"
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      manifests: ${{ steps.m.outputs.manifests }}
+      macos: ${{ steps.m.outputs.macos }}
+      linux: ${{ steps.m.outputs.linux }}
+      shards: ${{ steps.m.outputs.shards }}
+      drift: ${{ steps.m.outputs.drift }}
+      plates-force: ${{ steps.m.outputs.plates_force }}
+      runs-on: ${{ steps.m.outputs.runs_on }}
+      plates-key: ${{ steps.m.outputs.plates_key }}
+      plates-hit: ${{ steps.lookup.outputs.cache-hit }}
+      photo-ids: ${{ steps.m.outputs.photo_ids }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve the request
+        id: m
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          IN_MANIFEST: ${{ inputs.manifest }}
+          IN_MANIFESTS: ${{ inputs.manifests }}
+          IN_LANE: ${{ inputs.lane }}
+          IN_SHARDS: ${{ inputs.shards }}
+          IN_DRIFT: ${{ inputs.drift }}
+          IN_PLATES: ${{ inputs.plates }}
+          IN_RUNS_ON: ${{ inputs.runs-on }}
+          PLATES_HASH: ${{ hashFiles('renderlab/photos.tsv', 'Sources/LumenPipeline/AppleRawSource.swift', 'Sources/LumenCore/RenderLab/RenderLabPlate.swift', 'Tests/LumenPipelineTests/RenderLabShippingHarness.swift') }}
+        run: python3 renderlab/lab.py plan
+      - name: Are plates cached
+        id: lookup
+        uses: actions/cache/restore@v4
+        with:
+          path: renderlab-plates
+          key: ${{ steps.m.outputs.plates_key }}
+          lookup-only: true
+          enableCrossOsArchive: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: renderlab-manifests
+          path: resolved/
+          retention-days: 7
+
+  # Decodes each photo once through AppleRawSource into scene-linear plates for Linux.
+  plates:
+    needs: plan
+    if: needs.plan.outputs.linux == 'true' && (needs.plan.outputs.plates-hit != 'true' || needs.plan.outputs.plates-force == 'true')
+    runs-on: ${{ needs.plan.outputs.runs-on }}
+    timeout-minutes: 60
+    env:
+      PHOTOS: ${{ github.workspace }}/.renderlab-photos
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache photos
+        uses: actions/cache@v4
+        with:
+          path: .renderlab-photos
+          key: renderlab-photos-v1-${{ hashFiles('renderlab/photos.tsv') }}
+      - name: Fetch photos (sha256 verified)
+        shell: bash
+        run: bash renderlab/fetch-photos.sh renderlab/photos.tsv "$PHOTOS"
+      - name: Restore the build for this commit
+        id: build-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .build
+          key: renderlab-build-v2-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved', 'Sources/**', 'Tests/**') }}
+      - name: Build (release, with tests)
+        id: build
+        if: steps.build-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          start=$(date +%s)
+          set +e
+          swift test -c release --filter RenderLabTests > build.log 2>&1
+          status=$?
+          grep -E "error:" build.log | sed "s#$GITHUB_WORKSPACE/##" | sort -u | head -40
+          echo "build seconds: $(( $(date +%s) - start ))" | tee -a "$GITHUB_STEP_SUMMARY"
+          exit $status
+      - name: Save the build for this commit
+        if: always() && steps.build.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: .build
+          key: renderlab-build-v2-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved', 'Sources/**', 'Tests/**') }}
+      - name: Decode plates
+        shell: bash
+        env:
+          LUMEN_RENDERLAB_PHOTOS: ${{ env.PHOTOS }}
+          LUMEN_RENDERLAB_PLATES_OUT: ${{ github.workspace }}/renderlab-plates
+          LUMEN_RENDERLAB_PLATE_IDS: ${{ needs.plan.outputs.photo-ids }}
+          LUMEN_RENDERLAB_PLATE_EDGE: ${{ env.PLATE_EDGE }}
+        run: |
+          set -o pipefail
+          swift test -c release --skip-build --filter RenderLabShippingHarness/testWriteDecodedPlates 2>&1 \
+            | grep -E "renderlab-plate|error|Executed"
+          ls -la renderlab-plates
+      - uses: actions/cache/save@v4
+        with:
+          path: renderlab-plates
+          key: ${{ needs.plan.outputs.plates-key }}
+          enableCrossOsArchive: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: renderlab-plates
+          path: renderlab-plates/
+          retention-days: 30
+          compression-level: 1
+
+  shipping:
+    needs: plan
+    if: needs.plan.outputs.macos == 'true' || needs.plan.outputs.drift != ''
+    runs-on: ${{ needs.plan.outputs.runs-on }}
+    timeout-minutes: 120
+    env:
+      PHOTOS: ${{ github.workspace }}/.renderlab-photos
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache photos
+        uses: actions/cache@v4
+        with:
+          path: .renderlab-photos
+          key: renderlab-photos-v1-${{ hashFiles('renderlab/photos.tsv') }}
+      - name: Fetch photos (sha256 verified)
+        shell: bash
+        run: bash renderlab/fetch-photos.sh renderlab/photos.tsv "$PHOTOS"
+      - name: Restore the build for this commit
+        id: build-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .build
+          key: renderlab-build-v2-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved', 'Sources/**', 'Tests/**') }}
+      - name: Build (release, with tests)
+        id: build
+        if: steps.build-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          start=$(date +%s)
+          set +e
+          swift test -c release --filter RenderLabTests > build.log 2>&1
+          status=$?
+          grep -E "error:" build.log | sed "s#$GITHUB_WORKSPACE/##" | sort -u | head -40
+          echo "build seconds: $(( $(date +%s) - start ))" | tee -a "$GITHUB_STEP_SUMMARY"
+          exit $status
+      - name: Save the build for this commit
+        if: always() && steps.build.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: .build
+          key: renderlab-build-v2-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved', 'Sources/**', 'Tests/**') }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: renderlab-manifests
+          path: resolved
+      - name: Render on the shipping path
+        if: needs.plan.outputs.macos == 'true'
+        shell: bash
+        env:
+          LUMEN_RENDERLAB_PHOTOS: ${{ env.PHOTOS }}
+          LUMEN_RENDERLAB_OUT: ${{ github.workspace }}/renderlab-out/shipping
+          MANIFESTS: ${{ needs.plan.outputs.manifests }}
+        run: |
+          list=""
+          IFS=',' read -ra parts <<< "$MANIFESTS"
+          for n in "${parts[@]}"; do list="${list:+$list,}$PWD/resolved/$n.json"; done
+          start=$(date +%s)
+          set +e
+          LUMEN_RENDERLAB="$list" swift test -c release --skip-build \
+            --filter RenderLabShippingHarness/testRunManifestOnTheShippingPath > lab.log 2>&1
+          status=$?
+          grep -E "^renderlab: |error:" lab.log | grep -v "RENDERLAB_TABLE" | tail -400
+          echo "render seconds: $(( $(date +%s) - start ))" | tee -a "$GITHUB_STEP_SUMMARY"
+          python3 renderlab/lab.py table renderlab-out/shipping | tee -a "$GITHUB_STEP_SUMMARY" || true
+          exit $status
+      - name: Reference against shipping drift
+        if: always() && steps.build.outcome != 'failure' && needs.plan.outputs.drift != ''
+        shell: bash
+        env:
+          LUMEN_RENDERLAB_PHOTOS: ${{ env.PHOTOS }}
+          LUMEN_RENDERLAB_OUT: ${{ github.workspace }}/renderlab-out
+          LUMEN_RENDERLAB_PLATE_EDGE: ${{ env.PLATE_EDGE }}
+          DRIFT: ${{ needs.plan.outputs.drift }}
+        run: |
+          case "$DRIFT" in *[!A-Za-z0-9._-]*) echo "bad name"; exit 1;; esac
+          f="resolved/$DRIFT.json"; [ -f "$f" ] || f="renderlab/manifests/$DRIFT.json"
+          set +e
+          LUMEN_RENDERLAB_DRIFT="$PWD/$f" swift test -c release --skip-build \
+            --filter RenderLabShippingHarness/testReferenceAgainstShippingDrift > drift.log 2>&1
+          status=$?
+          sed -n '/RENDERLAB_DRIFT_BEGIN/,/RENDERLAB_DRIFT_END/p' drift.log | tee -a "$GITHUB_STEP_SUMMARY"
+          grep -E "error:" drift.log | head -20
+          exit $status
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: renderlab-shipping
+          path: |
+            renderlab-out/
+            lab.log
+            drift.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  reference:
+    needs: [plan, plates]
+    if: always() && needs.plan.outputs.linux == 'true' && needs.plan.result == 'success' && needs.plates.result != 'failure'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache the Swift toolchain
+        id: swift-cache
+        uses: actions/cache@v4
+        with:
+          path: /opt/swift
+          key: swift-6.1.2-ubuntu24.04
+      - name: Install the Swift toolchain
+        if: steps.swift-cache.outputs.cache-hit != 'true'
+        run: sh scripts/install-linux-toolchain.sh
+      - name: Restore plates
+        uses: actions/cache/restore@v4
+        with:
+          path: renderlab-plates
+          key: ${{ needs.plan.outputs.plates-key }}
+          enableCrossOsArchive: true
+          fail-on-cache-miss: true
+      - name: Restore the build for this commit
+        id: build-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .build
+          key: renderlab-build-v2-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved', 'Sources/**', 'Tests/**') }}
+      - name: Build (release, with tests)
+        id: build
+        if: steps.build-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          export PATH="/opt/swift/usr/bin:$PATH"
+          start=$(date +%s)
+          set +e
+          swift test -c release --filter RenderLabTests > build.log 2>&1
+          status=$?
+          grep -E "error:" build.log | sed "s#$GITHUB_WORKSPACE/##" | sort -u | head -40
+          echo "build seconds: $(( $(date +%s) - start ))"
+          exit $status
+      - name: Save the build for this commit
+        if: always() && steps.build.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: .build
+          key: renderlab-build-v2-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved', 'Sources/**', 'Tests/**') }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: renderlab-manifests
+          path: resolved
+      - name: Render on the reference path (shard ${{ matrix.shard }})
+        shell: bash
+        env:
+          LUMEN_RENDERLAB_PLATES: ${{ github.workspace }}/renderlab-plates
+          LUMEN_RENDERLAB_OUT: ${{ github.workspace }}/renderlab-out/reference
+          LUMEN_RENDERLAB_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
+          MANIFESTS: ${{ needs.plan.outputs.manifests }}
+        run: |
+          export PATH="/opt/swift/usr/bin:$PATH"
+          list=""
+          IFS=',' read -ra parts <<< "$MANIFESTS"
+          for n in "${parts[@]}"; do list="${list:+$list,}$PWD/resolved/$n.json"; done
+          start=$(date +%s)
+          set +e
+          LUMEN_RENDERLAB="$list" swift test -c release --skip-build \
+            --filter RenderLabReferenceHarness > lab.log 2>&1
+          status=$?
+          grep -E "^renderlab: |error:" lab.log | tail -300
+          echo "render seconds: $(( $(date +%s) - start )) on $(nproc) cores"
+          python3 renderlab/lab.py compress renderlab-out/reference
+          exit $status
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: renderlab-reference-shard-${{ matrix.shard }}
+          path: |
+            renderlab-out/
+            lab.log
+          if-no-files-found: warn
+          retention-days: 7
+
+  report:
+    needs: [plan, shipping, reference]
+    if: always() && needs.plan.result == 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: renderlab-*-shard-*
+          path: shards
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: renderlab-shipping
+          path: shipping
+      - name: Merge into one report
+        shell: bash
+        run: |
+          python3 renderlab/lab.py merge report shards/*/renderlab-out shipping/renderlab-out
+          python3 renderlab/lab.py table report | tee -a "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: renderlab-report
+          path: report/
+          retention-days: 14
