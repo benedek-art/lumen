@@ -2601,8 +2601,8 @@ public final class CatalogStore {
                 if let sig = row.sig, !sig.isEmpty { goneBySignature[sig] = row.id }
             }
             var consumed: Set<Int64> = []
-            let vanished = newFiles.contains { $0.quickSig?.isEmpty == false }
-                ? try self.vanishedFolderIDs().filter { $0 != folderID } : []
+            let vanished = Set(newFiles.contains { $0.quickSig?.isEmpty == false }
+                ? try self.vanishedFolderIDs().filter { $0 != folderID } : [])
 
             for file in newFiles {
                 var relocatedID: Int64? = nil
@@ -2616,11 +2616,12 @@ public final class CatalogStore {
                         relocatedID = candidate
                     } else if !vanished.isEmpty {
                         let rows = try self.db.prepare(
-                            "SELECT id FROM photo WHERE quick_sig = ? AND folder_id IN ("
-                            + CatalogStore.placeholders(vanished.count) + ") ORDER BY id;")
-                        try rows.bindAll([.text(sig)] + vanished.map { .integer($0) })
+                            "SELECT id, folder_id FROM photo WHERE quick_sig = ? ORDER BY id;")
+                        try rows.bind(1, sig)
                         while relocatedID == nil, try rows.step() {
-                            if !consumed.contains(rows.int(0)) { relocatedID = rows.int(0) }
+                            if vanished.contains(rows.int(1)), !consumed.contains(rows.int(0)) {
+                                relocatedID = rows.int(0)
+                            }
                         }
                     }
                 }
