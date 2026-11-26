@@ -1,0 +1,342 @@
+{
+ "name": "cr-dt",
+ "defaults": {
+  "longEdge": 1024,
+  "tile": 240
+ },
+ "jobs": [
+  {
+   "id": "dt-presets",
+   "photos": [
+    "6929",
+    "5812",
+    "1346",
+    "chart:skin",
+    "chart:colorChecker",
+    "chart:hueRing",
+    "chart:greyRamp"
+   ],
+   "sweep": {
+    "path": "look.render.preset",
+    "label": "preset",
+    "values": [
+     "Neutral",
+     "Soft",
+     "Punchy",
+     "Film Base",
+     "Linear"
+    ]
+   }
+  },
+  {
+   "id": "dt-shoulder-Neutral",
+   "photos": [
+    "chart:hueRing",
+    "chart:colorChecker",
+    "chart:skin"
+   ],
+   "recipe": {
+    "look.render.preset": "Neutral"
+   },
+   "sweep": {
+    "path": "develop.tone.exposure",
+    "label": "exp",
+    "values": [
+     1,
+     2,
+     3,
+     4,
+     5
+    ],
+    "neutral": 0
+   }
+  },
+  {
+   "id": "dt-sky-Neutral",
+   "photos": [
+    "6929",
+    "1346"
+   ],
+   "recipe": {
+    "look.render.preset": "Neutral"
+   },
+   "sweep": {
+    "path": "develop.tone.exposure",
+    "label": "exp",
+    "values": [
+     -1,
+     1,
+     2
+    ],
+    "neutral": 0
+   }
+  },
+  {
+   "id": "dt-shoulder-Soft",
+   "photos": [
+    "chart:hueRing",
+    "chart:colorChecker",
+    "chart:skin"
+   ],
+   "recipe": {
+    "look.render.preset": "Soft"
+   },
+   "sweep": {
+    "path": "develop.tone.exposure",
+    "label": "exp",
+    "values": [
+     1,
+     2,
+     3,
+     4,
+     5
+    ],
+    "neutral": 0
+   }
+  },
+  {
+   "id": "dt-sky-Soft",
+   "photos": [
+    "6929",
+    "1346"
+   ],
+   "recipe": {
+    "look.render.preset": "Soft"
+   },
+   "sweep": {
+    "path": "develop.tone.exposure",
+    "label": "exp",
+    "values": [
+     -1,
+     1,
+     2
+    ],
+    "neutral": 0
+   }
+  },
+  {
+   "id": "dt-shoulder-Punchy",
+   "photos": [
+    "chart:hueRing",
+    "chart:colorChecker",
+    "chart:skin"
+   ],
+   "recipe": {
+    "look.render.preset": "Punchy"
+   },
+   "sweep": {
+    "path": "develop.tone.exposure",
+    "label": "exp",
+    "values": [
+     1,
+     2,
+     3,
+     4,
+     5
+    ],
+    "neutral": 0
+   }
+  },
+  {
+   "id": "dt-sky-Punchy",
+   "photos": [
+    "6929",
+    "1346"
+   ],
+   "recipe": {
+    "look.render.preset": "Punchy"
+   },
+   "sweep": {
+    "path": "develop.tone.exposure",
+    "label": "exp",
+    "values": [
+     -1,
+     1,
+     2
+    ],
+    "neutral": 0
+   }
+  },
+  {
+   "id": "dt-shoulder-FilmBase",
+   "photos": [
+    "chart:hueRing",
+    "chart:colorChecker",
+    "chart:skin"
+   ],
+   "recipe": {
+    "look.render.preset": "Film Base"
+   },
+   "sweep": {
+    "path": "develop.tone.exposure",
+    "label": "exp",
+    "values": [
+     1,
+     2,
+     3,
+     4,
+     5
+    ],
+    "neutral": 0
+   }
+  },
+  {
+   "id": "dt-sky-FilmBase",
+   "photos": [
+    "6929",
+    "1346"
+   ],
+   "recipe": {
+    "look.render.preset": "Film Base"
+   },
+   "sweep": {
+    "path": "develop.tone.exposure",
+    "label": "exp",
+    "values": [
+     -1,
+     1,
+     2
+    ],
+    "neutral": 0
+   }
+  },
+  {
+   "id": "dt-contrast",
+   "photos": [
+    "6929",
+    "chart:hueRing",
+    "chart:greyRamp"
+   ],
+   "sweep": {
+    "path": "look.render.contrast",
+    "label": "contrast",
+    "values": [
+     0.5,
+     1,
+     2.5,
+     5,
+     10
+    ]
+   }
+  },
+  {
+   "id": "dt-skew",
+   "photos": [
+    "6929",
+    "chart:hueRing",
+    "chart:greyRamp"
+   ],
+   "sweep": {
+    "path": "look.render.skew",
+    "label": "skew",
+    "values": [
+     -1,
+     -0.5,
+     0.5,
+     1
+    ]
+   }
+  },
+  {
+   "id": "dt-huekeep",
+   "photos": [
+    "6929",
+    "chart:hueRing",
+    "chart:greyRamp"
+   ],
+   "sweep": {
+    "path": "look.render.huePreservation",
+    "label": "huekeep",
+    "values": [
+     0,
+     50
+    ]
+   }
+  },
+  {
+   "id": "dt-black",
+   "photos": [
+    "6929",
+    "chart:hueRing",
+    "chart:greyRamp"
+   ],
+   "sweep": {
+    "path": "look.render.blackTarget",
+    "label": "black",
+    "values": [
+     0.5,
+     2,
+     5,
+     9
+    ]
+   }
+  },
+  {
+   "id": "dt-huekeep-bright",
+   "photos": [
+    "chart:hueRing",
+    "6929"
+   ],
+   "recipe": {
+    "develop.tone.exposure": 2
+   },
+   "sweep": {
+    "path": "look.render.huePreservation",
+    "label": "huekeep",
+    "values": [
+     0,
+     50
+    ],
+    "neutral": 100
+   }
+  },
+  {
+   "id": "dt-under-stock",
+   "photos": [
+    "chart:greyRamp",
+    "5812"
+   ],
+   "recipe": {
+    "look.filmLab.stock": "lumen/portra400"
+   },
+   "variants": [
+    {
+     "label": "Neutral",
+     "recipe": {
+      "look.render.preset": "Neutral"
+     }
+    },
+    {
+     "label": "Soft",
+     "recipe": {
+      "look.render.preset": "Soft"
+     }
+    },
+    {
+     "label": "Punchy",
+     "recipe": {
+      "look.render.preset": "Punchy"
+     }
+    },
+    {
+     "label": "Film Base",
+     "recipe": {
+      "look.render.preset": "Film Base"
+     }
+    },
+    {
+     "label": "Linear",
+     "recipe": {
+      "look.render.preset": "Linear"
+     }
+    },
+    {
+     "label": "contrast 5",
+     "recipe": {
+      "look.render.contrast": 5
+     }
+    }
+   ]
+  }
+ ]
+}

@@ -1,1 +1,1 @@
-{"manifests": "smoke", "lane": "both", "shards": 2, "drift": "none", "label": "warm-check"}
+{"manifests": "cr-stocks,cr-halation,cr-lut,cr-dt,cr-vignette,cr-stack", "lane": "linux", "shards": 8, "drift": "none", "label": "test-creative-ref1"}
