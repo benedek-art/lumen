@@ -39,6 +39,8 @@ final class DriverStallSampler: @unchecked Sendable {
     private var finished: [[String: Any]] = []
     private var symbols: [UInt: String] = [:]
     private var appAddresses: Set<UInt> = []
+    private var symbolNames: [String] = []
+    private var symbolIndex: [String: Int] = [:]
     private static let mainHeader = UnsafeRawPointer(_dyld_get_image_header(0))
     private var stopped = false
 
@@ -85,8 +87,9 @@ final class DriverStallSampler: @unchecked Sendable {
         current = nil
         let rows = finished
         let pending = appAddresses.sorted()
+        let names = symbolNames
         lock.unlock()
-        write(rows, resolving: Self.atos(pending))
+        write(rows, symbols: names, resolving: Self.atos(pending))
     }
 
     /// The app's own symbols are not exported, so `dladdr` names the nearest public
@@ -239,6 +242,10 @@ final class DriverStallSampler: @unchecked Sendable {
             "stacks": ranked.prefix(8).map { entry -> [String: Any] in
                 ["n": entry.value, "frames": entry.key.prefix(80).map(symbol)]
             },
+            // Every stack, as indices into the file's `symbols`.
+            "all": ranked.map { entry -> [Any] in
+                [entry.value, entry.key.prefix(120).map { index(of: symbol($0)) }]
+            },
         ]
         finished.append(row)
         let firstLeaf = top(leaves, 1).first?["f"] as? String ?? ""
@@ -247,12 +254,25 @@ final class DriverStallSampler: @unchecked Sendable {
                                   at: stall.lastSample)
         if finished.count % 4 == 1 {
             let rows = finished
-            DispatchQueue.global(qos: .utility).async { [self] in self.write(rows) }
+            let names = symbolNames
+            DispatchQueue.global(qos: .utility).async { [self] in
+                self.write(rows, symbols: names)
+            }
         }
     }
 
-    private func write(_ rows: [[String: Any]], resolving names: [String: String] = [:]) {
+    /// Called with `lock` held.
+    private func index(of name: String) -> Int {
+        if let known = symbolIndex[name] { return known }
+        symbolIndex[name] = symbolNames.count
+        symbolNames.append(name)
+        return symbolNames.count - 1
+    }
+
+    private func write(_ rows: [[String: Any]], symbols table: [String],
+                       resolving names: [String: String] = [:]) {
         var resolved = rows
+        let symbolTable = table.map { names[$0] ?? $0 }
         if !names.isEmpty {
             func swap(_ value: Any) -> Any {
                 if let text = value as? String { return names[text] ?? text }
@@ -262,7 +282,7 @@ final class DriverStallSampler: @unchecked Sendable {
             }
             resolved = rows.map { row in row.mapValues(swap) }
         }
-        DriverJSON.write(["stalls": resolved,
+        DriverJSON.write(["stalls": resolved, "symbols": symbolTable,
                           "thresholdMs": threshold * 1000, "intervalMs": interval * 1000],
                          to: out.appendingPathComponent("stalls.json"))
     }
