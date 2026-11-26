@@ -17,6 +17,7 @@
 
 import CoreGraphics
 import CoreImage
+import CoreImage.CIFilterBuiltins
 import CoreVideo
 import Foundation
 import LumenCore
@@ -148,6 +149,16 @@ public final class AppleRawSource: ImageSource {
         /// different demosaics, and a cache that cannot tell them apart would hand a
         /// v11 recipe v12 pixels the moment both were asked for in one session.
         let decoderVersion: String
+        /// Pixels resampled from the native decode (`settledDecode`) rather than
+        /// Apple's own scaled decode, which is a different picture.
+        var resampled: Bool = false
+
+        /// The same decode at any scale: every field the filter reads except the scale.
+        func sameDecode(_ other: DecodeKey) -> Bool {
+            draft == other.draft && captureStrength == other.captureStrength
+                && luminanceNR == other.luminanceNR && colorNR == other.colorNR
+                && lensProfile == other.lensProfile && decoderVersion == other.decoderVersion
+        }
     }
 
     /// A handful of entries, not one. The viewer settles at one scale, the draft at
@@ -226,7 +237,75 @@ public final class AppleRawSource: ImageSource {
         DecodeMaterializer.materialize(image)
     }
 
-    public func decode(recipe: Recipe, draft: Bool, scaleFactor: Double = 1.0) -> CIImage? {
+    /// Apple's scaled decode is not the native decode made smaller. On the A7 IV corpus
+    /// file (6929) it lifts the darkest 1% from <= 0 to ~0.008 linear and is softer;
+    /// export decodes natively and resizes (parity probe, render lab run 45744057183).
+    /// So the settled viewer resamples the native decode the same way, and the
+    /// result is cached at its scale like any other entry.
+    public func settledDecode(recipe: Recipe, scaleFactor: Double) -> CIImage? {
+        let scale = Num.clamp(scaleFactor, 0.01, 1.0)
+        guard scale < 1 else { return decode(recipe: recipe, draft: false, scaleFactor: 1.0) }
+        var key = decodeKey(recipe: recipe, draft: false, scale: scale).key
+        key.resampled = true
+        if let hit = takeHit(key) { return hit }
+        guard let native = decode(recipe: recipe, draft: false, scaleFactor: 1.0) else {
+            return nil
+        }
+        return storeResampled(native, key: key, scale: scale, fromScale: 1.0)
+    }
+
+    /// A scaled ask served from a held resampled entry at a larger scale, so a draft
+    /// shows the same picture as the settle it follows instead of Apple's scaled decode.
+    private func resampledFromHeld(_ key: DecodeKey) -> CIImage? {
+        guard !key.draft, key.scaleFactor < 1 else { return nil }
+        var exact = key
+        exact.resampled = true
+        if let hit = takeHit(exact) { return hit }
+        let larger = decodeCache
+            .filter { $0.key.resampled && $0.key.sameDecode(key)
+                && $0.key.scaleFactor > key.scaleFactor }
+            .min { $0.key.scaleFactor < $1.key.scaleFactor }
+        guard let larger else { return nil }
+        return storeResampled(larger.image, key: exact, scale: key.scaleFactor,
+                              fromScale: larger.key.scaleFactor)
+    }
+
+    private func takeHit(_ key: DecodeKey) -> CIImage? {
+        guard let index = decodeCache.firstIndex(where: { $0.key == key }) else { return nil }
+        let entry = decodeCache.remove(at: index)
+        decodeCache.insert(entry, at: 0)
+        return entry.image
+    }
+
+    /// Lanczos in the working space, as export resizes, to the size the native decode
+    /// has at `scale`; materialized and cached under `key`.
+    private func storeResampled(_ image: CIImage, key: DecodeKey, scale: Double,
+                                fromScale: Double) -> CIImage? {
+        let e = image.extent
+        guard !e.isInfinite, e.width >= 1, e.height >= 1, fromScale > 0 else { return nil }
+        let ratio = scale / fromScale
+        let w = Swift.max(1, (Double(e.width) * ratio).rounded())
+        let h = Swift.max(1, (Double(e.height) * ratio).rounded())
+        let filter = CIFilter.lanczosScaleTransform()
+        filter.inputImage = image
+            .transformed(by: CGAffineTransform(translationX: -e.minX, y: -e.minY))
+            .clampedToExtent()
+        filter.scale = Float(h / Double(e.height))
+        filter.aspectRatio = Float((w / Double(e.width)) / (h / Double(e.height)))
+        guard let small = filter.outputImage?
+            .cropped(to: CGRect(x: 0, y: 0, width: w, height: h)) else { return nil }
+        let stored = materialized(small) ?? (image: small, bytes: 0)
+        decodeCache.removeAll { $0.key == key }
+        decodeCache.insert(DecodeEntry(key: key, image: stored.image, bytes: stored.bytes,
+                                       askedLongEdge: DraftLadder.pixelCount(
+                                           from: scale * nativeLongEdge)), at: 0)
+        evictDecodes()
+        return stored.image
+    }
+
+    /// The cache key for an ask, and the decoder version it resolved to.
+    private func decodeKey(recipe: Recipe, draft: Bool,
+                           scale: Double) -> (key: DecodeKey, version: CIRAWDecoderVersion) {
         let dev = recipe.develop
 
         // D50's honouring half (docs/23 audit queue item 6). The recipe records the
@@ -251,14 +330,22 @@ public final class AppleRawSource: ImageSource {
         // `Recipe.decodeInputs` is the one list of what this decode reads from the
         // recipe; the viewer sizes a drag's drafts by whether these moved.
         let inputs = recipe.decodeInputs
+        return (DecodeKey(draft: draft,
+                          scaleFactor: scale,
+                          captureStrength: inputs.captureStrength,
+                          luminanceNR: inputs.luminanceNR,
+                          colorNR: inputs.colorNR,
+                          lensProfile: inputs.lensProfile,
+                          decoderVersion: resolvedVersion.rawValue),
+                resolvedVersion)
+    }
+
+    public func decode(recipe: Recipe, draft: Bool, scaleFactor: Double = 1.0) -> CIImage? {
+        let dev = recipe.develop
         let clampedScale = Num.clamp(scaleFactor, 0.01, 1.0)
-        let key = DecodeKey(draft: draft,
-                            scaleFactor: clampedScale,
-                            captureStrength: inputs.captureStrength,
-                            luminanceNR: inputs.luminanceNR,
-                            colorNR: inputs.colorNR,
-                            lensProfile: inputs.lensProfile,
-                            decoderVersion: resolvedVersion.rawValue)
+        let (key, resolvedVersion) = decodeKey(recipe: recipe, draft: draft,
+                                               scale: clampedScale)
+        if let served = resampledFromHeld(key) { return served }
         // What this call ASKED the decoder for, in pixels. Not read back from the
         // result: see `DecodeEntry.askedLongEdge` for why the delivered extent is the
         // wrong number to classify an entry by.

@@ -37,45 +37,27 @@ final class ExportParityProbe: XCTestCase {
 
     /// Renders through a render task, which throws Core Image's own error where
     /// `createCGImage` and the write calls answer nil or a generic failure.
-    static let uncachedContext: CIContext = {
-        var options: [CIContextOption: Any] = [.workingFormat: CIFormat.RGBAh,
-                                               .cacheIntermediates: false]
-        if let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020) {
-            options[.workingColorSpace] = space
-        }
-        return CIContext(options: options)
-    }()
-
-    func renderTask(_ image: CIImage, label: String, context: CIContext = ExportParityProbe.context) -> Bool {
+    func renderTask(_ image: CIImage, label: String) {
         let extent = image.extent.integral
         let w = Int(extent.width), h = Int(extent.height)
         var bytes = [UInt8](repeating: 0, count: w * h * 4)
         let started = Date()
-        var ok = false
         bytes.withUnsafeMutableBytes { raw in
             let dest = CIRenderDestination(bitmapData: raw.baseAddress!, width: w, height: h,
                                            bytesPerRow: w * 4, format: .RGBA8)
             dest.colorSpace = CGColorSpace(name: CGColorSpace.sRGB)
             do {
-                let task = try context.startTask(toRender: image, from: extent,
+                let task = try Self.context.startTask(toRender: image, from: extent,
                                                       to: dest, at: .zero)
                 _ = try task.waitUntilCompleted()
-                ok = true
+                say("\(label): render task ok \(w)x\(h) in "
+                    + String(format: "%.1f s", Date().timeIntervalSince(started)))
             } catch {
                 say("\(label): render task FAILED after "
                     + String(format: "%.1f s", Date().timeIntervalSince(started))
                     + ": " + Self.describe(error))
             }
         }
-        if ok {
-            say("\(label): render task ok \(w)x\(h) in "
-                + String(format: "%.1f s", Date().timeIntervalSince(started)))
-        }
-        return ok
-    }
-
-    func photo(_ id: String, in dir: URL) throws -> URL {
-        try RenderLabShippingHarness.photoURL(id, in: dir)
     }
 
     func testProbe() throws {
@@ -90,27 +72,53 @@ final class ExportParityProbe: XCTestCase {
                 + "maxBuffer=\(device.maxBufferLength / 1_048_576) MB "
                 + "physical=\(ProcessInfo.processInfo.physicalMemory / 1_048_576) MB")
         }
+        say("boxPass kernel compiled: \(KernelLibrary.boxPass != nil); "
+            + "unavailable: \(KernelLibrary.unavailableKernels)")
+        boxParity()
         try chartBlackClipStudy()
         for id in ["6929", "5812"] {
-            let url = try photo(id, in: dir)
+            let url = try RenderLabShippingHarness.photoURL(id, in: dir)
             let src = try AppleRawSource(url: url)
             let base = Recipe.asImported(from: Recipe.SourceFile(
                 isRendered: false, iso: src.captureMetadata.iso.map { Int($0) }))
-            let meta = CIRAWFilter(imageURL: url)
-            say("\(id): nativeSize \(String(describing: meta?.nativeSize)) "
-                + "nativeLongEdge \(src.nativeLongEdge) "
-                + "decoder \(meta?.decoderVersion.rawValue ?? "?") "
-                + "iso \(String(describing: src.captureISO)) "
-                + "full outputImage extent \(String(describing: meta?.outputImage?.extent))")
             decodeScaleStudy(id: id, src: src, recipe: base)
-            exportFailureStudy(id: id, src: src, recipe: base)
+            exportStudy(id: id, src: src, recipe: base)
+        }
+    }
+
+    // MARK: - Box blur
+
+    /// The kernel box against `CIBoxBlur` and against `SpatialOps` on a small plane.
+    func boxParity() {
+        let w = 96, h = 64
+        let buffer = ImageBuffer(width: w, height: h) { u, v in
+            let x = 0.3 + 0.5 * sin(u * 23) * cos(v * 17) + (u > 0.5 ? 0.4 : 0)
+            return RGB(x, x * 0.5, 1 - x)
+        }
+        let data = buffer.pixels.withUnsafeBufferPointer { Data(buffer: $0) }
+        let image = CIImage(bitmapData: data, bytesPerRow: w * 16,
+                            size: CGSize(width: w, height: h), format: .RGBAf, colorSpace: nil)
+        for r in [1, 3, 8, 20] {
+            guard let ours = RenderGraph.boxBlur(image, radius: r),
+                  let stock = RenderGraph.boxBlurRaw(image, radius: 2 * r + 1),
+                  let a = PipelineRenderer.buffer(from: ours, context: Self.context),
+                  let b = PipelineRenderer.buffer(from: stock, context: Self.context)
+            else { say("box r=\(r): render failed"); continue }
+            let ref = SpatialOps.boxBlur(buffer, radius: r)
+            var dStock = 0.0, dRef = 0.0
+            for i in 0..<(w * h * 4) where i % 4 != 3 {
+                dStock = max(dStock, abs(Double(a.pixels[i]) - Double(b.pixels[i])))
+                dRef = max(dRef, abs(Double(a.pixels[i]) - Double(ref.pixels[i])))
+            }
+            say(String(format: "box r=%d: max|kernel-CIBoxBlur| %.5f max|kernel-SpatialOps| %.5f",
+                       r, dStock, dRef))
         }
     }
 
     // MARK: - Chart black clip
 
-    static func zeroFraction(_ cg: CGImage) -> (any0: Double, mean: Double) {
-        guard let img = try? RenderLabShippingHarness.rgba8(cg) else { return (-1, -1) }
+    static func drawnZero(_ cg: CGImage) -> String {
+        guard let img = try? RenderLabShippingHarness.rgba8(cg) else { return "draw failed" }
         var zeros = 0, sum = 0
         let n = img.width * img.height
         for i in 0..<n {
@@ -118,7 +126,31 @@ final class ExportParityProbe: XCTestCase {
             if r == 0 || g == 0 || b == 0 { zeros += 1 }
             sum += Int(r) + Int(g) + Int(b)
         }
-        return (Double(zeros) / Double(n), Double(sum) / Double(3 * n))
+        return String(format: "drawn zero %.4f mean %.3f", Double(zeros) / Double(n),
+                      Double(sum) / Double(3 * n))
+    }
+
+    /// Zeros in the CGImage's own bytes, with no colour-matched redraw in between.
+    static func rawZero(_ cg: CGImage) -> String {
+        guard cg.bitsPerPixel == 32, cg.bitsPerComponent == 8,
+              let data = cg.dataProvider?.data as Data? else {
+            return "raw n/a bpp \(cg.bitsPerPixel) bpc \(cg.bitsPerComponent)"
+        }
+        var zeros = 0, sum = 0
+        let w = cg.width, h = cg.height, row = cg.bytesPerRow
+        data.withUnsafeBytes { raw in
+            for y in 0..<h {
+                for x in 0..<w {
+                    let i = y * row + x * 4
+                    let r = raw[i], g = raw[i + 1], b = raw[i + 2]
+                    if r == 0 || g == 0 || b == 0 { zeros += 1 }
+                    sum += Int(r) + Int(g) + Int(b)
+                }
+            }
+        }
+        return String(format: "raw zero %.4f mean %.3f", Double(zeros) / Double(w * h),
+                      Double(sum) / Double(3 * w * h))
+            + " space \((cg.colorSpace?.name as String?) ?? "nil") alpha \(cg.alphaInfo.rawValue)"
     }
 
     func chartBlackClipStudy() throws {
@@ -135,11 +167,10 @@ final class ExportParityProbe: XCTestCase {
             for dither in [false, true] {
                 let image = dither
                     ? PipelineRenderer.applyDither(built, colorSpace: .srgb, bitDepth: 8) : built
+                let tag = "chart lut \(size) dither \(dither ? "on" : "off")"
                 if let cg = Self.context.createCGImage(image, from: image.extent,
                                                       format: .RGBA8, colorSpace: srgb) {
-                    let z = Self.zeroFraction(cg)
-                    say(String(format: "chart lut %d dither %@ createCGImage: zero %.4f mean %.3f",
-                               size, dither ? "on" : "off", z.any0, z.mean))
+                    say("\(tag) createCGImage: \(Self.drawnZero(cg)) | \(Self.rawZero(cg))")
                 }
                 let file = FileManager.default.temporaryDirectory
                     .appendingPathComponent("probe-\(UUID().uuidString).png")
@@ -149,9 +180,7 @@ final class ExportParityProbe: XCTestCase {
                                                             colorSpace: srgb, options: [:])
                     if let c = CGImageSourceCreateWithURL(file as CFURL, nil),
                        let cg = CGImageSourceCreateImageAtIndex(c, 0, nil) {
-                        let z = Self.zeroFraction(cg)
-                        say(String(format: "chart lut %d dither %@ writePNG: zero %.4f mean %.3f",
-                                   size, dither ? "on" : "off", z.any0, z.mean))
+                        say("\(tag) writePNG: \(Self.drawnZero(cg)) | \(Self.rawZero(cg))")
                     }
                 } catch {
                     say("chart writePNG failed: \(Self.describe(error))")
@@ -162,32 +191,22 @@ final class ExportParityProbe: XCTestCase {
         let settled = try renderer.renderPreviewDelivery(source: src, recipe: recipe,
                                                          maxLongEdge: 1536, draft: false,
                                                          coarseDecode: false)
-        let zs = Self.zeroFraction(settled.image)
-        say(String(format: "chart settled: zero %.4f mean %.3f", zs.any0, zs.mean))
-        let exported = try renderer.exportedImage(
-            source: src, recipe: recipe,
-            using: ExportRecipe(name: "probe", format: .png, bitDepth: 8, colorSpace: .srgb,
-                                resizeMode: .longEdge, resizeValue: 1536))
-        if let cg = Self.context.createCGImage(exported, from: exported.extent,
-                                               format: .RGBA8, colorSpace: srgb) {
-            let z = Self.zeroFraction(cg)
-            say(String(format: "chart exportedImage createCGImage: zero %.4f mean %.3f",
-                       z.any0, z.mean))
-        }
+        say("chart settled: \(Self.drawnZero(settled.image)) | \(Self.rawZero(settled.image))")
     }
 
     // MARK: - Decode scale
 
-    struct Stats: CustomStringConvertible {
+    struct DecodeStats: CustomStringConvertible {
         var mean: [Double], yP: [Double], neg: Double, w: Int, h: Int
         var description: String {
             "\(w)x\(h) mean " + mean.map { String(format: "%.4f", $0) }.joined(separator: ",")
-                + " Y p0.1/p1/p50/p99/p99.9 " + yP.map { String(format: "%.5f", $0) }.joined(separator: "/")
+                + " Y p0.1/p1/p50/p99/p99.9 "
+                + yP.map { String(format: "%.5f", $0) }.joined(separator: "/")
                 + String(format: " Y<=0 %.4f", neg)
         }
     }
 
-    static func stats(_ b: ImageBuffer) -> Stats {
+    static func stats(_ b: ImageBuffer) -> DecodeStats {
         let n = b.width * b.height
         var mean = [0.0, 0.0, 0.0]
         var ys = [Double](repeating: 0, count: n)
@@ -203,7 +222,7 @@ final class ExportParityProbe: XCTestCase {
         }
         ys.sort()
         func p(_ q: Double) -> Double { ys[min(n - 1, Int(q * Double(n)))] }
-        return Stats(mean: mean.map { $0 / Double(n) },
+        return DecodeStats(mean: mean.map { $0 / Double(n) },
                      yP: [p(0.001), p(0.01), p(0.5), p(0.99), p(0.999)],
                      neg: Double(neg) / Double(n), w: b.width, h: b.height)
     }
@@ -240,74 +259,79 @@ final class ExportParityProbe: XCTestCase {
     }
 
     func decodeScaleStudy(id: String, src: AppleRawSource, recipe: Recipe) {
-        let native = src.nativeLongEdge
         let target = 1536
-        let viewer = Double(target) / native
+        let viewer = Double(target) / src.nativeLongEdge
         var ref: ImageBuffer?
-        for scale in [1.0, 0.5, 0.35, 0.25, viewer] {
-            guard let decoded = src.decode(recipe: recipe, draft: false, scaleFactor: scale) else {
+        for scale in [1.0, viewer] {
+            let started = Date()
+            guard let decoded = src.decode(recipe: recipe, draft: false, scaleFactor: scale),
+                  let b = PipelineRenderer.buffer(
+                      from: RenderGraph.scaledToProxy(decoded, longEdge: target),
+                      context: Self.context) else {
                 say("\(id) decode @\(scale) FAILED"); continue
             }
-            let e = decoded.extent
-            let small = RenderGraph.scaledToProxy(decoded, longEdge: target)
-            guard let b = PipelineRenderer.buffer(from: small, context: Self.context) else {
-                say("\(id) readback @\(scale) failed"); continue
-            }
-            var line = "\(id) decode @" + String(format: "%.4f", scale)
-                + " extent \(Int(e.minX)),\(Int(e.minY)) \(Int(e.width))x\(Int(e.height)) -> \(Self.stats(b))"
+            var line = "\(id) decode @" + String(format: "%.4f", scale) + " in "
+                + String(format: "%.2f s", Date().timeIntervalSince(started))
+                + " extent \(decoded.extent.size) -> \(Self.stats(b))"
             if let ref { line += "  vs @1: " + Self.diff(b, ref) } else { ref = b }
             say(line)
         }
+        let started = Date()
+        if let settled = src.settledDecode(recipe: recipe, scaleFactor: viewer),
+           let b = PipelineRenderer.buffer(
+               from: RenderGraph.scaledToProxy(settled, longEdge: target),
+               context: Self.context), let ref {
+            say("\(id) settledDecode in " + String(format: "%.2f s", Date().timeIntervalSince(started))
+                + " extent \(settled.extent.size) -> \(Self.stats(b))  vs @1: " + Self.diff(b, ref))
+        }
+        let again = Date()
+        _ = src.settledDecode(recipe: recipe, scaleFactor: viewer)
+        say("\(id) settledDecode again in "
+            + String(format: "%.3f s", Date().timeIntervalSince(again)))
+        if let draft = src.decode(recipe: recipe, draft: false, scaleFactor: viewer * 0.6),
+           let b = PipelineRenderer.buffer(from: draft, context: Self.context) {
+            say("\(id) draft-scale decode after a settle: extent \(draft.extent.size) -> \(Self.stats(b))")
+        }
     }
 
-    // MARK: - Export failure
+    // MARK: - Export
 
-    func exportFailureStudy(id: String, src: AppleRawSource, recipe base: Recipe) {
+    func exportStudy(id: String, src: AppleRawSource, recipe base: Recipe) {
         let renderer = PipelineRenderer()
-        let exportRecipe = ExportRecipe(name: "probe", format: .png, bitDepth: 8,
-                                        colorSpace: .srgb, resizeMode: .longEdge,
-                                        resizeValue: 1536)
-        var recipe = base
-        recipe.develop.tone.contrast = 50
-        let file = FileManager.default.temporaryDirectory
-            .appendingPathComponent("probe-\(UUID().uuidString).png")
-        defer { try? FileManager.default.removeItem(at: file) }
-        let started = Date()
-        do {
-            _ = try renderer.export(source: src, recipe: recipe, to: file, using: exportRecipe)
-            say("\(id) export contrast+50: ok in "
-                + String(format: "%.1f s", Date().timeIntervalSince(started)))
-        } catch {
-            say("\(id) export contrast+50: FAILED after "
-                + String(format: "%.1f s", Date().timeIntervalSince(started)) + ": \(error)")
-        }
-        if let image = try? renderer.exportedImage(source: src, recipe: recipe,
-                                                   using: exportRecipe) {
-            _ = renderTask(image, label: "\(id) exportedImage contrast+50")
-            _ = renderTask(image, label: "\(id) exportedImage contrast+50 uncached",
-                           context: Self.uncachedContext)
-        }
-        // Which primitive: the tone stage's box blur and guided filter on the full decode.
-        guard let decoded = src.decode(recipe: base, draft: false, scaleFactor: 1.0),
-              let lum = RenderGraph.logLuminance(decoded) else { return }
-        let longEdge = Int(max(decoded.extent.width, decoded.extent.height))
-        let toneRadius = max(Int(Double(longEdge) * 0.02), 2)
-        // The same radii on a 1536 px plane: radius-bound or size-bound.
-        let smallLum = RenderGraph.scaledToProxy(lum, longEdge: 1536)
-        for r in [toneRadius / 2, toneRadius] {
-            if let blurred = RenderGraph.boxBlur(smallLum, radius: r) {
-                _ = renderTask(blurred, label: "\(id) boxBlur r=\(r) on 1536 px")
-            }
-        }
-        for r in [toneRadius / 4, toneRadius / 2, toneRadius] {
-            if let blurred = RenderGraph.boxBlur(lum, radius: r) {
-                _ = renderTask(RenderGraph.scaledToProxy(blurred, longEdge: 1536),
-                               label: "\(id) boxBlur r=\(r) on \(longEdge) px")
-            }
-            if let guided = RenderGraph.guidedSelfFilter(lum, radius: r,
-                                                         epsilon: ReferenceRenderer.toneMaskEpsilon) {
-                _ = renderTask(RenderGraph.scaledToProxy(guided, longEdge: 1536),
-                               label: "\(id) guided r=\(r) on \(longEdge) px")
+        let downsized = ExportRecipe(name: "probe", format: .png, bitDepth: 8,
+                                     colorSpace: .srgb, resizeMode: .longEdge,
+                                     resizeValue: 1536)
+        let fullSize = ExportRecipe(name: "probe", format: .png, bitDepth: 8,
+                                    colorSpace: .srgb, resizeMode: .none)
+        let variants: [(String, ExportRecipe, (inout Recipe) -> Void)] = [
+            ("contrast+50", downsized, { $0.develop.tone.contrast = 50 }),
+            ("shadows+50", downsized, { $0.develop.tone.shadows = 50 }),
+            ("texture+50", downsized, { $0.develop.detail.texture = 50 }),
+            ("clarity+50 sharpen80", downsized, {
+                $0.develop.detail.clarity = 50
+                $0.develop.detail.sharpen.amount = 80 }),
+            ("dehaze+50", downsized, { $0.develop.detail.dehaze = 50 }),
+            ("contrast+50 full size", fullSize, { $0.develop.tone.contrast = 50 }),
+        ]
+        for (label, exportRecipe, apply) in variants {
+            var recipe = base
+            apply(&recipe)
+            let file = FileManager.default.temporaryDirectory
+                .appendingPathComponent("probe-\(UUID().uuidString).png")
+            defer { try? FileManager.default.removeItem(at: file) }
+            let started = Date()
+            do {
+                _ = try renderer.export(source: src, recipe: recipe, to: file,
+                                        using: exportRecipe)
+                say("\(id) export \(label): ok in "
+                    + String(format: "%.1f s", Date().timeIntervalSince(started)))
+            } catch {
+                say("\(id) export \(label): FAILED after "
+                    + String(format: "%.1f s", Date().timeIntervalSince(started)) + ": \(error)")
+                if let image = try? renderer.exportedImage(source: src, recipe: recipe,
+                                                           using: exportRecipe) {
+                    renderTask(image, label: "\(id) exportedImage \(label)")
+                }
             }
         }
     }

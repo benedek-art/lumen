@@ -50,7 +50,7 @@ extension RenderError: LocalizedError {
     static func describe(_ error: Error) -> String {
         let ns = error as NSError
         var text = "\(ns.localizedDescription) (\(ns.domain) \(ns.code))"
-        if let underlying = ns.userInfo[NSUnderlyingErrorKey] as? Error {
+        if let underlying = ns.underlyingErrors.first {
             text += "; " + describe(underlying)
         }
         return text
@@ -595,8 +595,9 @@ public final class PipelineRenderer {
         let scale = native > 0 ? Swift.min(1.0, Double(maxLongEdge) / native) : 1.0
         let decodeInterval = Self.signposter.beginInterval("decode")
         let decodeStarted = DispatchTime.now().uptimeNanoseconds
-        guard let decoded = source.decode(recipe: recipe, draft: coarseDecode,
-                                          scaleFactor: scale) else {
+        guard let decoded = Self.previewDecode(source, recipe: recipe, draft: draft,
+                                               coarseDecode: coarseDecode,
+                                               scale: scale) else {
             Self.signposter.endInterval("decode", decodeInterval)
             throw RenderError.decodeFailed
         }
@@ -709,6 +710,16 @@ public final class PipelineRenderer {
                                renderMilliseconds: renderMs)
     }
 
+    /// A settled frame starts from the pixels export starts from (`settledDecode`);
+    /// a draft keeps the plain decode at its own scale.
+    static func previewDecode(_ source: any ImageSource, recipe: Recipe, draft: Bool,
+                              coarseDecode: Bool, scale: Double) -> CIImage? {
+        if !draft && !coarseDecode {
+            return source.settledDecode(recipe: recipe, scaleFactor: scale)
+        }
+        return source.decode(recipe: recipe, draft: coarseDecode, scaleFactor: scale)
+    }
+
     // MARK: - EDR preview
 
     /// The suffix that keeps the EDR pass's colour tables apart from the SDR frame's
@@ -789,8 +800,9 @@ public final class PipelineRenderer {
         let native = source.nativeLongEdge
         let scale = native > 0 ? Swift.min(1.0, Double(maxLongEdge) / native) : 1.0
         let decodeStarted = DispatchTime.now().uptimeNanoseconds
-        guard let decoded = source.decode(recipe: recipe, draft: coarseDecode,
-                                          scaleFactor: scale) else {
+        guard let decoded = Self.previewDecode(source, recipe: recipe, draft: draft,
+                                               coarseDecode: coarseDecode,
+                                               scale: scale) else {
             throw RenderError.decodeFailed
         }
         let decodeMs = Double(DispatchTime.now().uptimeNanoseconds - decodeStarted) / 1e6

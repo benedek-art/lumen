@@ -47,6 +47,17 @@ public protocol ImageSource: AnyObject {
     var statisticsProvenance: RawStatistics.Provenance { get }
 
     func decode(recipe: Recipe, draft: Bool, scaleFactor: Double) -> CIImage?
+
+    /// The decode the SETTLED viewer renders from: the pixels an export resized to the
+    /// same scale starts from. Defaults to `decode`; `AppleRawSource` resamples its
+    /// native decode, because Apple's scaled decode is a different picture.
+    func settledDecode(recipe: Recipe, scaleFactor: Double) -> CIImage?
+}
+
+extension ImageSource {
+    public func settledDecode(recipe: Recipe, scaleFactor: Double) -> CIImage? {
+        decode(recipe: recipe, draft: false, scaleFactor: scaleFactor)
+    }
 }
 
 /// Already-rendered files: JPEG, HEIC/HEIF, PNG, TIFF.

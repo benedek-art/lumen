@@ -751,6 +751,24 @@ public enum KernelLibrary {
     }
     """
 
+    /// One separable pass of a `2·radius + 1`-wide box along `dir`, for `RenderGraph.boxBlur`.
+    /// `CIBoxBlur` at export radii on a full-size frame fails with a GPU out-of-memory
+    /// error (render lab run 45744057183); a general kernel with an ROI is tiled.
+    /// Taps are fetched in pairs at pixel boundaries, where bilinear sampling returns
+    /// the exact mean of the two.
+    static let boxPassSource = """
+    kernel vec4 lumenBoxPass(sampler src, vec2 dir, float radius) {
+        vec2 p = destCoord();
+        vec4 sum = sample(src, samplerTransform(src, p + radius * dir));
+        for (int i = 0; i < 8192; i++) {
+            if (float(i) >= radius) { break; }
+            vec2 o = (2.0 * float(i) - radius + 0.5) * dir;
+            sum += 2.0 * sample(src, samplerTransform(src, p + o));
+        }
+        return sum / (2.0 * radius + 1.0);
+    }
+    """
+
     /// Chroma magnitude √(U0² + V0²) of the decorrelated plane, broadcast. The chroma
     /// edge map is built on this rather than on either chroma channel alone, so a
     /// saturated edge across flat luminance still protects itself.
@@ -1200,6 +1218,7 @@ public enum KernelLibrary {
     // so a neighbourhood has to be asked for explicitly, with an ROI to match.
     public static let bSpline5 = makeGeneral(bSpline5Source)
     public static let box3 = makeGeneral(box3Source)
+    public static let boxPass = makeGeneral(boxPassSource)
     public static let edgeMap = makeGeneral(edgeMapSource)
     public static let hotPixel = makeGeneral(hotPixelSource)
     // S5's two, general for the same reason: both sample away from the pixel they write.
@@ -1242,7 +1261,7 @@ public enum KernelLibrary {
             ("tensorMagnitude", tensorMagnitude),
             ("highlightEnergy", highlightEnergy), ("halationEnergy", halationEnergy),
             ("denoiseForward", denoiseForward), ("denoiseInverse", denoiseInverse),
-            ("bSpline5", bSpline5), ("box3", box3),
+            ("bSpline5", bSpline5), ("box3", box3), ("boxPass", boxPass),
             ("chromaMagnitude", chromaMagnitude), ("edgeMap", edgeMap),
             ("denoiseRemoved", denoiseRemoved), ("mixChroma", mixChroma),
             ("hotPixel", hotPixel),
