@@ -1,0 +1,369 @@
+{
+ "suite": "",
+ "scenarios": [
+  {
+   "name": "crop-panel",
+   "fixture": "fiducial",
+   "description": "ratio presets, custom ratios, orientation swap, flip, via named targets",
+   "timeoutSeconds": 400,
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "crop"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "listTargets",
+     "name": "crop"
+    },
+    {
+     "do": "click",
+     "target": "menu/Original"
+    },
+    {
+     "do": "listTargets",
+     "name": "ratio-menu"
+    },
+    {
+     "do": "shot",
+     "name": "ratio-menu"
+    },
+    {
+     "do": "click",
+     "target": "menuitem/4:3"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "r43"
+    },
+    {
+     "do": "shot",
+     "name": "r43"
+    },
+    {
+     "do": "listTargets",
+     "name": "after43"
+    },
+    {
+     "do": "click",
+     "target": "button/Turn the crop between portrait and landscape, keeping its size and centre."
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "swap"
+    },
+    {
+     "do": "shot",
+     "name": "swap"
+    },
+    {
+     "do": "click",
+     "target": "menu/4:3"
+    },
+    {
+     "do": "click",
+     "target": "menuitem/1:1"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "r11"
+    },
+    {
+     "do": "click",
+     "target": "menu/1:1"
+    },
+    {
+     "do": "click",
+     "target": "menuitem/16:9"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "r169"
+    },
+    {
+     "do": "click",
+     "target": "menu/16:9"
+    },
+    {
+     "do": "click",
+     "target": "menuitem/Custom\u2026"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "listTargets",
+     "name": "custom"
+    },
+    {
+     "do": "type",
+     "text": "2.39:1"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "c239"
+    },
+    {
+     "do": "shot",
+     "name": "c239"
+    },
+    {
+     "do": "click",
+     "target": "menu/2.39:1"
+    },
+    {
+     "do": "click",
+     "target": "menuitem/Custom\u2026"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "type",
+     "text": "1:0"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "c10"
+    },
+    {
+     "do": "click",
+     "target": "menuitem/Custom\u2026"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "type",
+     "text": "abc"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "cabc"
+    },
+    {
+     "do": "click",
+     "target": "toggle/Flip horizontal"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "flip"
+    },
+    {
+     "do": "shot",
+     "name": "flip"
+    },
+    {
+     "do": "key",
+     "key": "r"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "shot",
+     "name": "flip-result"
+    },
+    {
+     "do": "state",
+     "name": "flip-result"
+    }
+   ]
+  },
+  {
+   "name": "heal-bar",
+   "fixture": "raw",
+   "description": "heal bar: Brush, Clone, Visualize via names",
+   "timeoutSeconds": 400,
+   "steps": [
+    {
+     "do": "open",
+     "photo": "A7IV",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "key",
+     "key": "q"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "listTargets",
+     "name": "heal"
+    },
+    {
+     "do": "click",
+     "target": "segment/Clone"
+    },
+    {
+     "do": "click",
+     "target": "heal.canvas",
+     "at": [
+      0.85,
+      0.87
+     ]
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "clone-spot"
+    },
+    {
+     "do": "click",
+     "target": "segment/Heal"
+    },
+    {
+     "do": "click",
+     "target": "heal.canvas",
+     "at": [
+      0.2725,
+      0.892
+     ]
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "heal-spot"
+    },
+    {
+     "do": "shot",
+     "name": "spots"
+    },
+    {
+     "do": "key",
+     "key": "/"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "slash1"
+    },
+    {
+     "do": "key",
+     "key": "/"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "slash2"
+    },
+    {
+     "do": "key",
+     "key": "/"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "slash3"
+    },
+    {
+     "do": "click",
+     "target": "text/Visualize Spots"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "shot",
+     "name": "viz"
+    },
+    {
+     "do": "state",
+     "name": "viz"
+    },
+    {
+     "do": "click",
+     "target": "segment/Brush"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "drag",
+     "id": "stroke",
+     "target": "heal.canvas",
+     "from": [
+      0.03,
+      0.125
+     ],
+     "to": [
+      0.2,
+      0.152
+     ],
+     "duration": 0.8,
+     "settle": 10
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "stroke"
+    },
+    {
+     "do": "shot",
+     "name": "stroke"
+    }
+   ]
+  }
+ ],
+ "ref": "351865b4cb43c1bf3deb09341e3b992f398b5e62",
+ "config": "release",
+ "strict": false,
+ "note": "cropheal batch 2 panel",
+ "refName": "claude/loving-cray-d58nrb-integration"
+}
