@@ -1011,7 +1011,9 @@ final class PhotoRenderModel: ObservableObject {
         // Nothing came back and nothing honest is on screen: say so instead of spinning.
         if image == nil {
             isUnreadable = true
-            note = "Can't render \(url.lastPathComponent) — no RAW decode and no embedded preview"
+            note = "Can't render \(url.lastPathComponent) — "
+                + (RenderCoordinator.unrenderableReason(url: url)
+                    ?? "no RAW decode and no embedded preview")
         }
     }
 

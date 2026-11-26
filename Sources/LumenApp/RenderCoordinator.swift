@@ -1012,13 +1012,18 @@ actor RenderCoordinator {
     }
 
     private static func describe(_ error: Error) -> String {
-        if let raw = error as? RawSourceError {
-            switch raw {
-            case .unreadable: return "file unreadable"
-            case .undecodable: return "this file could not be decoded"
-            }
-        }
+        if let raw = error as? RawSourceError { return raw.shortReason }
         return "render failed"
+    }
+
+    /// Why a file with no embedded preview could not be shown, when macOS says so
+    /// without a decode.
+    nonisolated static func unrenderableReason(url: URL) -> String? {
+        guard !PhotoFormats.isRendered(url),
+              let filter = CIRAWFilter(imageURL: url),
+              !RawParams.selectsRawDecoder(filter.decoderVersion.rawValue)
+        else { return nil }
+        return RawSourceError.noRawDecoder(url).shortReason
     }
 
     /// The picture shown when the RAW stage refused the file, labelled as such by the
