@@ -177,6 +177,8 @@ def main():
         named = [s for s in shots if not s.stem[-3:].isdigit()]
         print(f"   {len(shots)} screenshots in {directory / 'shots'}"
               + (": " + ", ".join(s.name for s in named[:14]) if named else ""))
+        for listing in sorted(directory.glob("targets-*.txt")):
+            print(f"   names on screen: {listing}")
     if not rows:
         log = out / "build.log"
         if log.exists():

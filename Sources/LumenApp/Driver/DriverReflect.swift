@@ -202,6 +202,9 @@ extension DriverSession {
         out["brush"] = DriverReflect.value(MaskBrushStore.shared, depth: 2)
         out["info"] = DriverReflect.value(CaptureInfoDisplay.shared, depth: 2)
         out["history"] = DriverReflect.value(state.history, depth: 2, limit: 60)
+        out["export"] = ["running": state.isExporting, "progress": state.exportProgress,
+                         "recipes": DriverReflect.value(state.exportRecipes, depth: 4)]
+            as [String: Any]
         var extra: [String: Any] = [:]
         let objects: [Any] = [state, LoupeViewport.shared, PanelLayout.shared]
         for object in objects {
@@ -214,7 +217,7 @@ extension DriverSession {
     }
 
     static let reflectedPrefixes = ["app.", "panel.", "loupe.", "heal.", "crop.", "brush.",
-                                    "info.", "history.", "extra."]
+                                    "info.", "history.", "extra.", "export."]
 
     /// The XMP sidecar beside the selected photo, if one has been written.
     func sidecar() -> [String: Any] {
