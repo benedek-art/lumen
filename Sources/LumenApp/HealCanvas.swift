@@ -327,7 +327,7 @@ struct HealCanvas: View {
         }
         .contentShape(Rectangle())
         .gesture(press)
-        .lumenPickCursor(true)
+        .lumenPickCursor(true).driverAnchor("heal.canvas")
         .help("Click a blemish to heal it. Drag the solid circle to move the spot, the "
               + "dashed one to choose where it borrows from; / re-picks it. ⌫ deletes "
               + "the selected spot; Q or Esc puts the tool away.")

@@ -133,6 +133,17 @@ HOOKS = [
      '        .help("\\(workspace.title) (⌘\\(workspace.shortcutDigit))")\n',
      '        .help("\\(workspace.title) (⌘\\(workspace.shortcutDigit))")'
      '.driverAnchor("rail/" + workspace.title)\n', False),
+    ("ViewerOverlays.swift", '.driverAnchor("crop-corner/"',
+     '                .help("Drag to reframe from this corner.")\n',
+     '                .help("Drag to reframe from this corner.")'
+     '.driverAnchor("crop-corner/" + handle.rawValue)\n', False),
+    ("ViewerOverlays.swift", '.driverAnchor("crop-edge/"',
+     '                .help("Drag to move this edge on its own.")\n',
+     '                .help("Drag to move this edge on its own.")'
+     '.driverAnchor("crop-edge/" + handle.rawValue)\n', False),
+    ("HealCanvas.swift", '.driverAnchor("heal.canvas")',
+     "        .gesture(press)\n        .lumenPickCursor(true)\n",
+     '        .gesture(press)\n        .lumenPickCursor(true).driverAnchor("heal.canvas")\n', False),
 ]
 
 

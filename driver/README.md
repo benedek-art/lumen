@@ -83,7 +83,7 @@ A request file is `{"suite": "...", "scenarios": [...], "ref": "...", "config": 
 |---|---|
 | `--scenario file.json` (repeatable) | scenarios sent inline. A file may hold one scenario or an array of them |
 | `--suite "smoke.json repro-*.json"` | committed scenarios, as files or globs under `driver/scenarios/` on the requests branch |
-| `--ref <branch or sha>` | the app code to test. Default: the requests branch's own copy |
+| `--ref <branch, tag or sha>` | the app code to test, resolved to its full commit SHA before the request is written (a short SHA or a branch name is fine). Default: the requests branch's own copy |
 | `--name`, `--note` | the request's file name and a line for the commit message |
 | `--strict` | fail the job when a check fails. Without it the job is red only for a driver error, hang, timeout or crash |
 | `--config debug` | faster build, meaningless timings |
@@ -206,6 +206,7 @@ equal to `…`, then as a prefix). `*/Label` takes any kind.
 | `source/<Title>` | a sidebar source row: `source/All photos`, `source/Picked` | anchor |
 | `filmstrip-cell/<file>`, `grid-cell/<file>` | a photo's cell: `grid-cell/fiducial.png` | anchor |
 | `mask-kind/<Name>`, `mask-create`, `mask-row` | the mask kind tiles, the + button, a row of the mask list | anchor |
+| `crop-corner/<topLeft topRight bottomLeft bottomRight>`, `crop-edge/<top bottom left right>`, `heal.canvas` | the crop frame's handles in Crop; the heal tool's canvas (spots are drawn, not views: aim at fractions of it) | anchor |
 | `button/<Title>` | any button by its title, description or tooltip: `button/Export…`, `button/Close`, `button/Export Here` | accessibility |
 | `checkbox/…` `toggle/…` `radio/…` `popup/…` `field/…` `text/…` `stepper/…` `image/…` `link/…` | AppKit and SwiftUI controls by role: `popup/…` is an AppKit pop-up button, `field/…` a text field (click it, then `type`), `text/…` a label | accessibility |
 | `menubar/<Title>`, `menuitem/<Title>` | the menu bar (`menubar/View`), items of an open menu | accessibility |
@@ -484,7 +485,7 @@ You can run it yourself on a downloaded run:
   client has asked, SwiftUI keeps the tree up to date. A scenario that measures timing
   should aim only at anchors (slider tracks, regions) and not run `listTargets`, `press`
   or a name that is not an anchor before its measured gestures.
-- **Crop and heal canvas handles have no names yet**: aim at fractions of `viewer.image`.
+- **Heal spots and mask pins have no names**: they are drawn on a canvas; aim at fractions of `heal.canvas` or `viewer.image`.
 - **The pixel witness needs the fiducial fixture** and at least two grid lines each
   way. It does not understand rotation, flips or crops.
 - **One process per scenario.** Sheets, popovers, panels, alerts and the open panel are

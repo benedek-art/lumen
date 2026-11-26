@@ -77,7 +77,8 @@ private struct DriverWindowProbe: NSViewRepresentable {
         var token = 0
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            DriverAnchors.shared.noteWindow(token: token, window: window)
+            let view: NSView = self
+            DriverAnchors.shared.noteWindow(token: token, window: view.window)
         }
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
@@ -91,7 +92,8 @@ private struct DriverWindowProbe: NSViewRepresentable {
     func updateNSView(_ view: ProbeView, context: Context) {
         if view.token != token {
             view.token = token
-            DriverAnchors.shared.noteWindow(token: token, window: view.window)
+            let host: NSView = view
+            DriverAnchors.shared.noteWindow(token: token, window: host.window)
         }
     }
 }

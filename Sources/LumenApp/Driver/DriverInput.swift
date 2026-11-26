@@ -130,13 +130,13 @@ final class DriverInput {
             return windowFrameRect(fromGlobal: r)
         }
         let host = DriverInput.findHosting(content) ?? content
-        func convert(_ p: CGPoint) -> CGPoint {
+        func toMain(_ p: CGPoint) -> CGPoint {
             let local = host.isFlipped ? p : CGPoint(x: p.x, y: host.bounds.height - p.y)
             let screen = other.convertPoint(toScreen: host.convert(local, to: nil))
             return CGPoint(x: screen.x - window.frame.minX, y: window.frame.maxY - screen.y)
         }
-        let a = convert(CGPoint(x: r.minX, y: r.minY))
-        let b = convert(CGPoint(x: r.maxX, y: r.maxY))
+        let a = toMain(CGPoint(x: r.minX, y: r.minY))
+        let b = toMain(CGPoint(x: r.maxX, y: r.maxY))
         return CGRect(x: Swift.min(a.x, b.x), y: Swift.min(a.y, b.y),
                       width: abs(b.x - a.x), height: abs(b.y - a.y))
     }
