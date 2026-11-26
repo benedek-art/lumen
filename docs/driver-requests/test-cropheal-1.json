@@ -1,0 +1,2071 @@
+{
+ "suite": "",
+ "scenarios": [
+  {
+   "name": "crop-handles",
+   "description": "R arms crop; drag TL corner, right edge, bottom edge, interior; overdrag BR; R hides; Return; Esc reverts",
+   "fixture": "fiducial",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop"
+    },
+    {
+     "do": "key",
+     "key": "r"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "shot",
+     "name": "armed"
+    },
+    {
+     "do": "state",
+     "name": "armed",
+     "texts": true
+    },
+    {
+     "do": "drag",
+     "id": "tl",
+     "target": "viewer.image",
+     "from": [
+      0,
+      0
+     ],
+     "to": [
+      0.2,
+      0.15
+     ],
+     "duration": 0.6,
+     "settle": 10
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "after-tl"
+    },
+    {
+     "do": "shot",
+     "name": "after-tl"
+    },
+    {
+     "do": "drag",
+     "id": "redge",
+     "target": "viewer.image",
+     "from": [
+      1,
+      0.5
+     ],
+     "to": [
+      0.85,
+      0.5
+     ],
+     "duration": 0.6,
+     "settle": 10
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "after-redge"
+    },
+    {
+     "do": "drag",
+     "id": "bedge",
+     "target": "viewer.image",
+     "from": [
+      0.5,
+      1
+     ],
+     "to": [
+      0.5,
+      0.8
+     ],
+     "duration": 0.6,
+     "settle": 10
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "after-bedge"
+    },
+    {
+     "do": "shot",
+     "name": "after-bedge"
+    },
+    {
+     "do": "drag",
+     "id": "move",
+     "target": "viewer.image",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.42,
+      0.45
+     ],
+     "duration": 0.6,
+     "settle": 10
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "after-move"
+    },
+    {
+     "do": "shot",
+     "name": "after-move"
+    },
+    {
+     "do": "drag",
+     "id": "overdrag",
+     "target": "viewer.image",
+     "from": [
+      0.77,
+      0.75
+     ],
+     "to": [
+      1.15,
+      1.2
+     ],
+     "duration": 0.6,
+     "settle": 10
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "after-overdrag"
+    },
+    {
+     "do": "shot",
+     "name": "after-overdrag"
+    },
+    {
+     "do": "key",
+     "key": "r"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "shot",
+     "name": "r-hidden"
+    },
+    {
+     "do": "state",
+     "name": "r-hidden"
+    },
+    {
+     "do": "key",
+     "key": "r"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "shot",
+     "name": "r-back"
+    },
+    {
+     "do": "key",
+     "key": "return"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "after-return"
+    },
+    {
+     "do": "shot",
+     "name": "after-return"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "after-esc"
+    },
+    {
+     "do": "shot",
+     "name": "after-esc"
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.geometry.crop",
+     "exists": false,
+     "note": "Esc reverts to the framing at arming (none)"
+    }
+   ]
+  },
+  {
+   "name": "crop-undo",
+   "description": "corner drag then cmd-Z / shift-cmd-Z",
+   "fixture": "fiducial",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "crop"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "armed"
+    },
+    {
+     "do": "drag",
+     "id": "tl",
+     "target": "viewer.image",
+     "from": [
+      0,
+      0
+     ],
+     "to": [
+      0.25,
+      0.25
+     ],
+     "duration": 0.6,
+     "settle": 10
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "after-drag"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "after-undo"
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.geometry.crop",
+     "exists": false,
+     "note": "one undo removes one drag"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd",
+      "shift"
+     ]
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "after-redo"
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.geometry.crop",
+     "exists": true,
+     "note": "redo restores"
+    },
+    {
+     "do": "key",
+     "key": "r"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "shot",
+     "name": "hidden"
+    }
+   ]
+  },
+  {
+   "name": "crop-rotate",
+   "description": "rotate by drag from surround at full frame; then Angle slider; then shrink and drag outside rect; shift fine",
+   "fixture": "fiducial",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "crop"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "armed"
+    },
+    {
+     "do": "shot",
+     "name": "armed"
+    },
+    {
+     "do": "drag",
+     "id": "surround",
+     "target": "viewer",
+     "from": [
+      0.5,
+      0.04
+     ],
+     "to": [
+      0.85,
+      0.08
+     ],
+     "duration": 0.8,
+     "settle": 10
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "after-surround"
+    },
+    {
+     "do": "shot",
+     "name": "after-surround"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Angle#track"
+    },
+    {
+     "do": "drag",
+     "id": "angle-slider",
+     "target": "slider/Angle#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.6,
+      0.5
+     ],
+     "duration": 0.6,
+     "settle": 10
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "after-angle"
+    },
+    {
+     "do": "shot",
+     "name": "after-angle"
+    },
+    {
+     "do": "drag",
+     "id": "shrink",
+     "target": "viewer.image",
+     "from": [
+      0,
+      0
+     ],
+     "to": [
+      0.2,
+      0.2
+     ],
+     "duration": 0.6,
+     "settle": 10
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "after-shrink"
+    },
+    {
+     "do": "shot",
+     "name": "after-shrink"
+    },
+    {
+     "do": "drag",
+     "id": "rot-out",
+     "target": "viewer.image",
+     "from": [
+      0.06,
+      0.6
+     ],
+     "to": [
+      0.06,
+      0.4
+     ],
+     "duration": 0.8,
+     "settle": 10,
+     "capture": 6
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "after-rot"
+    },
+    {
+     "do": "shot",
+     "name": "after-rot"
+    },
+    {
+     "do": "drag",
+     "id": "rot-fine",
+     "target": "viewer.image",
+     "from": [
+      0.06,
+      0.6
+     ],
+     "to": [
+      0.06,
+      0.4
+     ],
+     "duration": 0.8,
+     "settle": 10,
+     "modifiers": [
+      "shift"
+     ],
+     "via": "hid"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "after-rot-fine"
+    },
+    {
+     "do": "shot",
+     "name": "after-rot-fine"
+    },
+    {
+     "do": "key",
+     "key": "r"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "shot",
+     "name": "result"
+    },
+    {
+     "do": "state",
+     "name": "result"
+    },
+    {
+     "do": "drag",
+     "id": "angle-max",
+     "target": "slider/Angle#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      1.0,
+      0.5
+     ],
+     "duration": 0.6,
+     "settle": 10
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "angle-max"
+    },
+    {
+     "do": "shot",
+     "name": "angle-max-hidden"
+    },
+    {
+     "do": "key",
+     "key": "r"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "shot",
+     "name": "angle-max-armed"
+    },
+    {
+     "do": "drag",
+     "id": "angle-min",
+     "target": "slider/Angle#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.0,
+      0.5
+     ],
+     "duration": 0.6,
+     "settle": 10
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "angle-min"
+    },
+    {
+     "do": "shot",
+     "name": "angle-min-armed"
+    },
+    {
+     "do": "menu",
+     "path": "View > Develop"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "shot",
+     "name": "develop-at-min"
+    },
+    {
+     "do": "state",
+     "name": "develop-at-min"
+    }
+   ]
+  },
+  {
+   "name": "crop-rr",
+   "description": "R R resets crop and stays in the tool, from inside and from Develop",
+   "fixture": "fiducial",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "crop"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "drag",
+     "id": "tl",
+     "target": "viewer.image",
+     "from": [
+      0,
+      0
+     ],
+     "to": [
+      0.2,
+      0.2
+     ],
+     "duration": 0.6,
+     "settle": 10
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "cropped"
+    },
+    {
+     "do": "key",
+     "key": "r",
+     "count": 2,
+     "interval": 0.15
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "after-rr"
+    },
+    {
+     "do": "shot",
+     "name": "after-rr"
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.geometry.crop",
+     "exists": false,
+     "note": "R R resets"
+    },
+    {
+     "do": "expect",
+     "that": "loupe.showCrop",
+     "eq": true,
+     "note": "R R stays in the tool"
+    },
+    {
+     "do": "drag",
+     "id": "tl2",
+     "target": "viewer.image",
+     "from": [
+      0,
+      0
+     ],
+     "to": [
+      0.2,
+      0.2
+     ],
+     "duration": 0.6,
+     "settle": 10
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "menu",
+     "path": "View > Develop"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "in-develop"
+    },
+    {
+     "do": "key",
+     "key": "r",
+     "count": 2,
+     "interval": 0.15
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "after-rr-dev"
+    },
+    {
+     "do": "shot",
+     "name": "after-rr-dev"
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.geometry.crop",
+     "exists": false,
+     "note": "R R from Develop resets"
+    }
+   ]
+  },
+  {
+   "name": "crop-zoomed",
+   "description": "1:1 in develop then R: canvas is fit; leaving restores?",
+   "fixture": "fiducial",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "develop"
+    },
+    {
+     "do": "click",
+     "target": "viewer.image",
+     "at": [
+      0.3,
+      0.3
+     ],
+     "count": 2
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "zoomed"
+    },
+    {
+     "do": "shot",
+     "name": "zoomed"
+    },
+    {
+     "do": "key",
+     "key": "r"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "armed"
+    },
+    {
+     "do": "shot",
+     "name": "armed"
+    },
+    {
+     "do": "drag",
+     "id": "tl",
+     "target": "viewer.image",
+     "from": [
+      0,
+      0
+     ],
+     "to": [
+      0.1,
+      0.1
+     ],
+     "duration": 0.6,
+     "settle": 10
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "after-drag"
+    },
+    {
+     "do": "shot",
+     "name": "after-drag"
+    },
+    {
+     "do": "key",
+     "key": "r"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "hidden"
+    },
+    {
+     "do": "shot",
+     "name": "hidden"
+    },
+    {
+     "do": "menu",
+     "path": "View > Develop"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "develop"
+    },
+    {
+     "do": "shot",
+     "name": "develop"
+    }
+   ]
+  },
+  {
+   "name": "crop-esc-second-session",
+   "description": "crop A, leave to Develop, edit, come back, nudge, Esc: what is restored?",
+   "fixture": "fiducial",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "crop"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "drag",
+     "id": "a",
+     "target": "viewer.image",
+     "from": [
+      0,
+      0
+     ],
+     "to": [
+      0.2,
+      0.2
+     ],
+     "duration": 0.6,
+     "settle": 10
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "crop-a"
+    },
+    {
+     "do": "menu",
+     "path": "View > Develop"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Exposure#track"
+    },
+    {
+     "do": "drag",
+     "id": "exp",
+     "target": "slider/Exposure#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.6,
+      0.5
+     ],
+     "duration": 0.6,
+     "settle": 10
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "menu",
+     "path": "View > Crop"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "rearmed"
+    },
+    {
+     "do": "shot",
+     "name": "rearmed"
+    },
+    {
+     "do": "drag",
+     "id": "nudge",
+     "target": "viewer.image",
+     "from": [
+      1,
+      0.5
+     ],
+     "to": [
+      0.9,
+      0.5
+     ],
+     "duration": 0.6,
+     "settle": 10
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "nudged"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "after-esc"
+    },
+    {
+     "do": "shot",
+     "name": "after-esc"
+    },
+    {
+     "do": "expect",
+     "that": "recipe.develop.geometry.crop",
+     "exists": true,
+     "note": "crop A (committed by leaving) should survive Esc of the second session"
+    }
+   ]
+  },
+  {
+   "name": "crop-straighten",
+   "description": "Straighten by line along a tilted line, then a level line; then the same with Flip",
+   "fixture": "fiducial",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "crop"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "armed",
+     "texts": true
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Straighten",
+      "within": "develop.column"
+     }
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "ruler-on"
+    },
+    {
+     "do": "shot",
+     "name": "ruler-on"
+    },
+    {
+     "do": "drag",
+     "id": "line1",
+     "target": "viewer.image",
+     "from": [
+      0.2,
+      0.55
+     ],
+     "to": [
+      0.8,
+      0.5
+     ],
+     "duration": 0.6,
+     "settle": 10
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "after-line1"
+    },
+    {
+     "do": "shot",
+     "name": "after-line1"
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Straighten",
+      "within": "develop.column"
+     }
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "drag",
+     "id": "line2",
+     "target": "viewer.image",
+     "from": [
+      0.2,
+      0.5
+     ],
+     "to": [
+      0.8,
+      0.5
+     ],
+     "duration": 0.6,
+     "settle": 10
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "after-line2"
+    },
+    {
+     "do": "shot",
+     "name": "after-line2"
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Flip",
+      "within": "develop.column"
+     }
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "flipped"
+    },
+    {
+     "do": "shot",
+     "name": "flipped"
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Straighten",
+      "within": "develop.column"
+     }
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "drag",
+     "id": "line3",
+     "target": "viewer.image",
+     "from": [
+      0.2,
+      0.5
+     ],
+     "to": [
+      0.8,
+      0.45
+     ],
+     "duration": 0.6,
+     "settle": 10
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "after-line3"
+    },
+    {
+     "do": "shot",
+     "name": "after-line3"
+    },
+    {
+     "do": "key",
+     "key": "r"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "shot",
+     "name": "result"
+    }
+   ]
+  },
+  {
+   "name": "crop-raw-a7iv",
+   "description": "rotate 10 deg and crop the A7 IV, hide rectangle; result rect aspect vs recipe",
+   "fixture": "raw",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "A7IV",
+     "workspace": "crop",
+     "timeout": 60
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "armed"
+    },
+    {
+     "do": "shot",
+     "name": "armed"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Angle#track"
+    },
+    {
+     "do": "drag",
+     "id": "angle",
+     "target": "slider/Angle#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.61,
+      0.5
+     ],
+     "duration": 0.6,
+     "settle": 10
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "drag",
+     "id": "tl",
+     "target": "viewer.image",
+     "from": [
+      0,
+      0
+     ],
+     "to": [
+      0.3,
+      0.1
+     ],
+     "duration": 0.6,
+     "settle": 10
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "cropped"
+    },
+    {
+     "do": "shot",
+     "name": "cropped-armed"
+    },
+    {
+     "do": "key",
+     "key": "r"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "hidden"
+    },
+    {
+     "do": "shot",
+     "name": "hidden"
+    },
+    {
+     "do": "menu",
+     "path": "View > Develop"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "develop"
+    },
+    {
+     "do": "shot",
+     "name": "develop"
+    }
+   ],
+   "timeoutSeconds": 400
+  },
+  {
+   "name": "crop-then-heal",
+   "description": "rotate+crop the fiducial, place a spot at the crop centre, then change the crop",
+   "fixture": "fiducial",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "fiducial.png",
+     "workspace": "crop"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "scrollTo",
+     "target": "slider/Angle#track"
+    },
+    {
+     "do": "drag",
+     "id": "angle",
+     "target": "slider/Angle#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.6,
+      0.5
+     ],
+     "duration": 0.6,
+     "settle": 10
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "drag",
+     "id": "tl",
+     "target": "viewer.image",
+     "from": [
+      0,
+      0
+     ],
+     "to": [
+      0.4,
+      0.4
+     ],
+     "duration": 0.6,
+     "settle": 10
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "cropped"
+    },
+    {
+     "do": "menu",
+     "path": "View > Develop"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "shot",
+     "name": "develop-cropped"
+    },
+    {
+     "do": "key",
+     "key": "q"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "heal-armed"
+    },
+    {
+     "do": "click",
+     "target": "viewer.image",
+     "at": [
+      0.5,
+      0.5
+     ]
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "spot"
+    },
+    {
+     "do": "shot",
+     "name": "spot"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "menu",
+     "path": "View > Crop"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "shot",
+     "name": "crop-with-spot"
+    },
+    {
+     "do": "drag",
+     "id": "br",
+     "target": "viewer.image",
+     "from": [
+      1,
+      1
+     ],
+     "to": [
+      0.8,
+      0.8
+     ],
+     "duration": 0.6,
+     "settle": 10
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "recropped"
+    },
+    {
+     "do": "menu",
+     "path": "View > Develop"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "shot",
+     "name": "develop-recropped"
+    },
+    {
+     "do": "state",
+     "name": "develop-recropped"
+    }
+   ]
+  },
+  {
+   "name": "heal-a7iv",
+   "description": "auto-sourced spots on the A7 IV, / cycling, move, size, delete, undo, visualize, brush stroke, 1:1 look",
+   "fixture": "raw",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "A7IV",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "shot",
+     "name": "fit-before"
+    },
+    {
+     "do": "key",
+     "key": "q"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "armed",
+     "texts": true
+    },
+    {
+     "do": "shot",
+     "name": "armed"
+    },
+    {
+     "do": "expect",
+     "that": "heal.armed",
+     "eq": true,
+     "note": "Q arms heal"
+    },
+    {
+     "do": "click",
+     "target": "viewer.image",
+     "at": [
+      0.2725,
+      0.892
+     ]
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "spot-wallmark"
+    },
+    {
+     "do": "click",
+     "target": "viewer.image",
+     "at": [
+      0.456,
+      0.832
+     ]
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "spot-sign"
+    },
+    {
+     "do": "click",
+     "target": "viewer.image",
+     "at": [
+      0.075,
+      0.139
+     ]
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "spot-wire"
+    },
+    {
+     "do": "click",
+     "target": "viewer.image",
+     "at": [
+      0.35,
+      0.862
+     ]
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "spot-edge"
+    },
+    {
+     "do": "click",
+     "target": "viewer.image",
+     "at": [
+      0.85,
+      0.87
+     ]
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "spot-whitestain"
+    },
+    {
+     "do": "click",
+     "target": "viewer.image",
+     "at": [
+      0.995,
+      0.487
+     ]
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "spot-border"
+    },
+    {
+     "do": "shot",
+     "name": "fit-after"
+    },
+    {
+     "do": "key",
+     "key": "/"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "slash-0"
+    },
+    {
+     "do": "key",
+     "key": "/"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "slash-1"
+    },
+    {
+     "do": "key",
+     "key": "/"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "slash-2"
+    },
+    {
+     "do": "key",
+     "key": "/"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "slash-3"
+    },
+    {
+     "do": "key",
+     "key": "/"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "slash-4"
+    },
+    {
+     "do": "key",
+     "key": "/"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "slash-5"
+    },
+    {
+     "do": "drag",
+     "id": "movespot",
+     "target": "viewer.image",
+     "from": [
+      0.85,
+      0.87
+     ],
+     "to": [
+      0.86,
+      0.8
+     ],
+     "duration": 0.5,
+     "settle": 10
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "moved"
+    },
+    {
+     "do": "drag",
+     "id": "size",
+     "target": "slider/Size#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.3,
+      0.5
+     ],
+     "duration": 0.6,
+     "settle": 10
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "sized"
+    },
+    {
+     "do": "shot",
+     "name": "sized"
+    },
+    {
+     "do": "key",
+     "key": "delete"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "deleted"
+    },
+    {
+     "do": "key",
+     "key": "delete"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "deleted-none"
+    },
+    {
+     "do": "key",
+     "key": "z",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "undo-delete"
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Visualize"
+     }
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "viz"
+    },
+    {
+     "do": "shot",
+     "name": "viz"
+    },
+    {
+     "do": "drag",
+     "id": "thr",
+     "target": "slider/Threshold#track",
+     "from": [
+      0.5,
+      0.5
+     ],
+     "to": [
+      0.9,
+      0.5
+     ],
+     "duration": 0.6,
+     "settle": 10
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "shot",
+     "name": "viz-thr"
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Visualize"
+     }
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "click",
+     "target": {
+      "text": "Brush"
+     }
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "brushmode"
+    },
+    {
+     "do": "drag",
+     "id": "stroke",
+     "target": "viewer.image",
+     "from": [
+      0.03,
+      0.125
+     ],
+     "to": [
+      0.2,
+      0.152
+     ],
+     "duration": 0.8,
+     "settle": 10,
+     "path": [
+      [
+       0.1,
+       0.135
+      ]
+     ]
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "stroke"
+    },
+    {
+     "do": "shot",
+     "name": "stroke"
+    },
+    {
+     "do": "key",
+     "key": "escape"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "disarmed"
+    },
+    {
+     "do": "expect",
+     "that": "heal.armed",
+     "eq": false,
+     "note": "Esc disarms heal"
+    },
+    {
+     "do": "move",
+     "target": "viewer.image",
+     "at": [
+      0.2725,
+      0.892
+     ]
+    },
+    {
+     "do": "key",
+     "key": "space"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "shot",
+     "name": "z-wallmark"
+    },
+    {
+     "do": "key",
+     "key": "space"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "move",
+     "target": "viewer.image",
+     "at": [
+      0.456,
+      0.832
+     ]
+    },
+    {
+     "do": "key",
+     "key": "space"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "shot",
+     "name": "z-sign"
+    },
+    {
+     "do": "key",
+     "key": "space"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "move",
+     "target": "viewer.image",
+     "at": [
+      0.075,
+      0.139
+     ]
+    },
+    {
+     "do": "key",
+     "key": "space"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "shot",
+     "name": "z-wire"
+    },
+    {
+     "do": "key",
+     "key": "space"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "move",
+     "target": "viewer.image",
+     "at": [
+      0.35,
+      0.862
+     ]
+    },
+    {
+     "do": "key",
+     "key": "space"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "shot",
+     "name": "z-edge"
+    },
+    {
+     "do": "key",
+     "key": "space"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "move",
+     "target": "viewer.image",
+     "at": [
+      0.85,
+      0.87
+     ]
+    },
+    {
+     "do": "key",
+     "key": "space"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "shot",
+     "name": "z-whitestain"
+    },
+    {
+     "do": "key",
+     "key": "space"
+    },
+    {
+     "do": "waitSettled"
+    }
+   ],
+   "timeoutSeconds": 600
+  },
+  {
+   "name": "heal-5d",
+   "description": "spots on the colour-checker CR2: a + marker, foam texture, a patch edge, soft background",
+   "fixture": "raw",
+   "steps": [
+    {
+     "do": "open",
+     "photo": "5D",
+     "workspace": "develop",
+     "timeout": 60
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "key",
+     "key": "q"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "click",
+     "target": "viewer.image",
+     "at": [
+      0.651,
+      0.4535
+     ]
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "spot-plus"
+    },
+    {
+     "do": "click",
+     "target": "viewer.image",
+     "at": [
+      0.875,
+      0.435
+     ]
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "spot-foam"
+    },
+    {
+     "do": "click",
+     "target": "viewer.image",
+     "at": [
+      0.582,
+      0.266
+     ]
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "spot-patchedge"
+    },
+    {
+     "do": "click",
+     "target": "viewer.image",
+     "at": [
+      0.1,
+      0.3
+     ]
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "spot-bgsoft"
+    },
+    {
+     "do": "shot",
+     "name": "after"
+    },
+    {
+     "do": "key",
+     "key": "q"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "state",
+     "name": "disarmed"
+    },
+    {
+     "do": "move",
+     "target": "viewer.image",
+     "at": [
+      0.651,
+      0.4535
+     ]
+    },
+    {
+     "do": "key",
+     "key": "space"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "shot",
+     "name": "z-plus"
+    },
+    {
+     "do": "key",
+     "key": "space"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "move",
+     "target": "viewer.image",
+     "at": [
+      0.875,
+      0.435
+     ]
+    },
+    {
+     "do": "key",
+     "key": "space"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "shot",
+     "name": "z-foam"
+    },
+    {
+     "do": "key",
+     "key": "space"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "move",
+     "target": "viewer.image",
+     "at": [
+      0.582,
+      0.266
+     ]
+    },
+    {
+     "do": "key",
+     "key": "space"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "shot",
+     "name": "z-patchedge"
+    },
+    {
+     "do": "key",
+     "key": "space"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "move",
+     "target": "viewer.image",
+     "at": [
+      0.1,
+      0.3
+     ]
+    },
+    {
+     "do": "key",
+     "key": "space"
+    },
+    {
+     "do": "waitSettled"
+    },
+    {
+     "do": "shot",
+     "name": "z-bgsoft"
+    },
+    {
+     "do": "key",
+     "key": "space"
+    },
+    {
+     "do": "waitSettled"
+    }
+   ],
+   "timeoutSeconds": 500
+  }
+ ],
+ "ref": "claude/loving-cray-d58nrb-integration",
+ "config": "release",
+ "strict": false,
+ "note": "cropheal batch 1"
+}
